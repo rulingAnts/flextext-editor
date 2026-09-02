@@ -2932,6 +2932,10 @@ body.rp-standalone main { padding-top: 0; }
 .sg-noaudio{opacity:.6}
 .sg-noaudio .doc-meta{font-style:italic}
 
+/* The satellites' one toolbar: bringing texts in. Above the list, because on a fresh install the
+   list is empty and this button is the only thing on the screen that does anything. */
+.sat-tools{display:flex;gap:.5rem;flex-wrap:wrap;margin:0 0 .7rem}
+
 /* ─────────── Audio Segmenter: the matcher (mg-*) ───────────
    Two panes side by side on anything wide enough, stacked below it. The pairing is carried by a
    per-pair HUE plus the number in the pick button — colour alone would fail in daylight on a cheap

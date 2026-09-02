@@ -6996,6 +6996,7 @@ function renderConsentView() {
     <div id="cc-groups"></div>
     <p id="cc-empty" class="empty-note" data-i18n-html="cc.empty" hidden></p>`;
   applyI18n(view);
+  satImportBar(view);
   ccRenderList();
 }
 
@@ -7103,6 +7104,132 @@ function setupConsentMode() {
   show('consent');
 }
 
+/* ─────────────────── BRINGING TEXTS INTO A SATELLITE ───────────────────
+ * Shared by the Consent Collector and the Audio Segmenter, because without it neither app can be
+ * used at all by anyone who is not already paired to a researcher.
+ *
+ * ⚠ EACH SATELLITE IS ITS OWN ORIGIN, AND THAT IS EASY TO FORGET WHILE DEVELOPING. On localhost
+ * every app is served from one port, so they share one IndexedDB and the recorder's texts simply
+ * appear here. In production consent.flextext.app and audio-segmenter.flextext.app are separate
+ * origins from the editor and the recorder, so they share NOTHING — a text recorded this morning is
+ * invisible to the collector this afternoon. The only cross-origin path the engine has is the
+ * researcher assignment channel, and that needs a pair code. So a colleague who installs either app
+ * and has not been paired sees an empty list with no way to fill it, for ever.
+ *
+ * Seth's brief for the collector said it plainly: "support moving texts from other devices". This is
+ * that. It is deliberately the SAME importer for both apps, differing only in its label, because
+ * the two apps want the same thing — a .flextext you already have, and for the segmenter the
+ * recording that goes with it.
+ *
+ * ⚠ NOT importFile(). That one ends by calling openDoc(), which enters the editor these apps do not
+ * have, and renderDocList(), which needs a library view they do not have either. Reusing it would
+ * mean giving the satellites a half-editor to be dropped into.
+ */
+const SAT_ACCEPT = '.flextext,.xml,.txt,text/plain,text/xml,application/xml,'
+  + 'audio/*,.mp3,.wav,.m4a,.flac,.ogg';
+
+const satIsText = (f) => /\.(flextext|xml|txt)$/i.test(f.name) || /(xml|text)/i.test(f.type || '');
+const satBase = (n) => n.replace(/\.[^.]+$/, '').toLowerCase();
+
+/* Pair a recording with its text BY FILENAME — bird.flextext with bird.wav.
+ *
+ * That is how the corpus on Seth's disk is already laid out (one folder per text, the text and its
+ * audio inside), so a whole morning's work can be selected at once. The rule is only applied where
+ * it cannot be wrong: a .flextext holding SEVERAL texts gets no audio, because there is no way to
+ * know which of them the recording belongs to, and guessing would attach a recording to the wrong
+ * story — which is worse than leaving it off, since the mistake is invisible afterwards. */
+async function satImportFiles(files) {
+  const list = [...files];
+  const textFiles = list.filter(satIsText);
+  const audioFiles = list.filter((f) => !satIsText(f));
+  if (!textFiles.length) { toast(t('sat.needText'), 7000); return; }
+
+  const byBase = new Map(audioFiles.map((f) => [satBase(f.name), f]));
+  const used = new Set();
+  let added = 0, paired = 0, skippedAudio = 0;
+  const failed = [];
+
+  for (const f of textFiles) {
+    let parsed;
+    try { parsed = parseFlextext(await f.text(), { vernLang: settings.vernLang, analLang: settings.analLang }); }
+    catch (err) { failed.push(f.name + ' — ' + err.message); continue; }
+    if (parsed.error) { failed.push(f.name + ' — ' + parsed.error); continue; }
+    const texts = parsed.texts || [];
+    if (!texts.length) { failed.push(f.name + ' — ' + t('sat.noTexts')); continue; }
+
+    const mate = byBase.get(satBase(f.name));
+    // One text in the file: the recording beside it is unambiguously ITS recording.
+    const canPair = !!mate && texts.length === 1;
+    if (mate && !canPair) skippedAudio++;
+
+    for (const doc of texts) {
+      const rec = {
+        id: newGuid(),
+        title: doc.title || f.name.replace(/\.(flextext|xml|txt)$/i, ''),
+        created: Date.now(), modified: Date.now(), doc,
+      };
+      Object.assign(rec, docStats(doc));
+      if (canPair) {
+        await db.putMedia(rec.id, {
+          blob: mate, name: mate.name, mimeType: mate.type || 'audio/mpeg',
+          sourceUrl: '', peaks: null, duration: null,
+        });
+        rec.audioSource = 'local:' + mate.name;
+        rec.audioLocked = false;          // the user brought it themselves; they may remove it
+        ensureMediaRef(rec, mate.name, '');   // so an export still references the recording
+        used.add(mate);
+        paired++;
+      }
+      await db.putDoc(rec);
+      added++;
+    }
+  }
+
+  db.broadcastLive('docs');
+  if (CONSENT_MODE) ccRenderList(); else sgRenderList();
+
+  // Say exactly what happened, including what did NOT: a recording silently dropped is the kind of
+  // thing a user only discovers weeks later, on the tab that needed it.
+  const orphans = audioFiles.filter((f) => !used.has(f));
+  /* Four strings rather than one with an {n}(s) in it. t() is a string replace with no plural
+   * machinery, so "1 text(s)" is what a single import actually said — and this is the message a
+   * colleague sees the very first time the app does anything for them. Same One/Many split the
+   * consent tallies already use. */
+  if (added) {
+    const key = added === 1
+      ? (paired ? 'sat.importedOneAudio' : 'sat.importedOne')
+      : (paired ? 'sat.importedManyAudio' : 'sat.importedMany');
+    toast(t(key, { n: added, paired }), 6000);
+  }
+  if (skippedAudio) toast(t('sat.audioAmbiguous'), 8000);
+  else if (orphans.length) toast(t('sat.audioUnmatched', { names: orphans.map((f) => f.name).join(', ') }), 8000);
+  for (const why of failed) toast(t('toast.importFailed', { msg: why }), 8000);
+}
+
+/* The one control, built in JS so neither shell needs its own copy of the markup (and so a shell
+ * that has not been rebuilt cannot end up with a button wired to nothing). */
+function satImportBar(host) {
+  const bar = document.createElement('div');
+  bar.className = 'sat-tools';
+  const btn = document.createElement('button');
+  btn.className = 'secondary-btn';
+  btn.id = 'sat-import';
+  btn.textContent = t(SEGMENTER_MODE ? 'sat.openPair' : 'sat.open');
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;          // a morning's worth of pairs in one go
+  input.accept = SAT_ACCEPT;
+  input.hidden = true;
+  btn.addEventListener('click', () => input.click());
+  input.addEventListener('change', (e) => {
+    const fs = [...e.target.files];
+    e.target.value = '';          // so picking the SAME file again still fires
+    if (fs.length) satImportFiles(fs).catch((err) => toast(t('toast.importFailed', { msg: err.message }), 6000));
+  });
+  bar.append(btn, input);
+  host.prepend(bar);
+}
+
 /* ─────────────────── AUDIO SEGMENTER (__MODE = 'segmenter') ───────────────────
  * Cuts a recording into segments and matches them to the lines of a text that already exists.
  * That is the entire product. No glossing, no free translation, no baseline text editing.
@@ -7146,6 +7273,7 @@ function renderSegmenterView() {
     <ul id="sg-list" class="doc-list"></ul>
     <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>`;
   applyI18n(view);
+  satImportBar(view);
   sgRenderList();
 }
 

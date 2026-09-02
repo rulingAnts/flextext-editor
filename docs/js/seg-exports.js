@@ -1383,12 +1383,16 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
 
   // ── TEXT-ONLY ELAN: no recording in hand. assembleSegEntries gates its whole annotation block on
   // media && segMedia, so this is built directly rather than by relaxing a gate five apps rely on.
-  if (kind === 'elan' && !segMedia) {
+  if ((kind === 'elan' || kind === 'eaf') && !segMedia) {
     say('annotations');
     const o = { vern, anal, mediaName: '', mediaMime: '' };
     notes.push('eafNoMedia');
+    const eafFile = { name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...o, profile: 'flex' })], { type: 'application/xml' }) };
+    // eaf-only is ONE file, so it is handed over bare — no zip around a single document, and no
+    // .pfsx, which is ELAN's tier-order preference and belongs with the package, not the annotation.
+    if (kind === 'eaf') return pack([eafFile], '');
     return pack([
-      { name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...o, profile: 'flex' })], { type: 'application/xml' }) },
+      eafFile,
       { name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...o, profile: 'flex' })], { type: 'application/xml' }) },
     ], `${base} ELAN.zip`);
   }
@@ -1397,7 +1401,7 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
    * are the embedded-audio outputs and need `full`; the ELAN/SayMore zips match what an upload
    * bundle carries. Diverging here is how two surfaces start producing different files from the
    * same inputs. */
-  const wants = { elan: { eaf: true }, saymore: { saymore: true },
+  const wants = { elan: { eaf: true }, eaf: { eaf: true }, saymore: { saymore: true },
                   preview: { preview: true }, fxpa: { fxpa: true } }[kind];
   if (!wants) return { entries: [], zip: false, saveName: '', notes };
   const full = kind === 'preview' || kind === 'fxpa';
@@ -1429,6 +1433,7 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
    * assembler returns alongside them are deliberately dropped rather than zipped up: both embed
    * their audio, so a HOW-TO-OPEN.txt and a second copy of the recording would be pure weight — and
    * the Files ▾ menu hands over a bare .html / .fxpa too. Parity is the specification. */
-  const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
+  const pick = kind === 'preview' ? /\.preview\.html$/i : kind === 'eaf' ? /\.eaf$/i : /\.fxpa$/i;
+  const one = entries.find((x) => pick.test(x.name));
   return pack(one ? [one] : [], '');
 }

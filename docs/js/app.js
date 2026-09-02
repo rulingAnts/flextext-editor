@@ -3013,7 +3013,7 @@ async function finalizeAudioDownload(rec) {
   // The texts list paints "still arriving…" from pendingAudio; the arrival ticker only
   // repaints PROGRESS on existing rows. When the download completes, the row must be
   // rebuilt or the chip stays "arriving" until the next full render (i.e. a reload).
-  if (RECORD_MODE) renderRecordList(); else renderDocList();
+  refreshList();
   if (current && current.id === rec.id) {
     current = rec;
     if (player) player.loadedFor = null;
@@ -3274,7 +3274,7 @@ async function openUrlTask(task, mode = 'interactive') {
   // Background (remote 'assign'): show the new task in the visible list right away —
   // the field worker has no refresh button, so a pushed assignment must appear on its
   // own. (Audio downloads after this; the doc is listed immediately, pending state and all.)
-  else if (RECORD_MODE) renderRecordList(); else renderDocList();
+  else refreshList();
   if (task.flextextUrl && !gotFlextext) {
     if (interactive) toast(t('task.ftReceiving'), 6000);
     tryDownloadFlextext(rec);
@@ -3683,7 +3683,28 @@ function applyAllowedButtons() {
 // (unlinked) device always can — it's the user's own app. A researcher-managed device
 // gets it only when the researcher enables allowDelete: OFF by default, so a barely-
 // literate coworker can't lose a text by accident. (Mirrors deleteAllOn().)
+/* REPAINT WHICHEVER LIST THIS APP ACTUALLY HAS.
+ *
+ * ⚠ THERE WERE EIGHT COPIES OF `if (RECORD_MODE) renderRecordList(); else renderDocList()`, and
+ * every one of them was a latent crash in the two satellite apps: renderDocList() reads #doc-list
+ * and #doc-list-empty unguarded, and neither exists in the Consent Collector or the Audio
+ * Segmenter. Nothing had reached them yet only because those apps fork before the editor wiring —
+ * so the first satellite feature to call a shared path (deleting a text, below) would have been the
+ * one to find out. Five modes, one place, and the next mode added is one edit rather than nine.
+ *
+ * Researcher-controlled, default ON when this device has no researcher session at all — an unpaired
+ * device is somebody working alone, and there is nobody to ask for permission. */
+function refreshList() {
+  if (CONSENT_MODE) return ccRenderList();
+  if (SEGMENTER_MODE) return sgRenderList();
+  if (RECORD_MODE) return renderRecordList();
+  return renderDocList();
+}
+
 function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete === true; }
+// Researcher-controlled: may this device swap a text's recording for a different file?
+// Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on.
+function allowAudioSwapOn() { return !Sync.hasSession() || settings.allowAudioSwap === true; }
 // Researcher-controlled: show the coworker a "Done" button on texts (off by default).
 function doneFeatureOn() { return settings.doneEnabled === true; }
 
@@ -3700,7 +3721,7 @@ function deleteUploadedDoc(docId) {
     if (!RECORD_MODE) show('texts');
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
   });
 }
 
@@ -3769,7 +3790,7 @@ async function userDeleteDoc(docId, title) {
     if (current && current.id === docId) current = null;
     await db.deleteDoc(docId).catch(() => {});
     renderUploadQueue();
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
     Sync.reportNow();
     return;
   }
@@ -3782,7 +3803,7 @@ async function userDeleteDoc(docId, title) {
     if (current && current.id === docId) await doUpload(true);
     else await uploadDocById(docId);
   }
-  if (RECORD_MODE) renderRecordList(); else renderDocList();
+  refreshList();
 }
 
 // ---- auto-backup (device setting autoBackup + autoBackupMins) ----
@@ -3895,7 +3916,7 @@ function applyDeviceLang(lang) {
 // Re-render just the document list (a doc was added/changed/removed in another window).
 function refreshLiveLists() {
   if (RESEARCHER_MODE) return;
-  if (RECORD_MODE) renderRecordList(); else renderDocList();
+  refreshList();
 }
 
 // The researcher revoked this device — the sync engine auto-released the binding (poll saw 410). Scrub
@@ -4432,13 +4453,13 @@ function showInviteConsent() {
        * as long as anyone can be asking it. */
       refreshPairBanner();
     } else toast(t('invite.acceptFailed'), 6000);
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
   });
   wrap.querySelector('[data-iv="decline"]').addEventListener('click', () => {
     Sync.clearSession();                                   // abandon the binding entirely
     close();
     toast(t('invite.declined'), 6000);
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
   });
 }
 
@@ -7050,6 +7071,7 @@ async function ccRenderList() {
         <span class="cc-state"></span>
         <input class="cc-speaker-in" size="14">`;
       li.querySelector('.cc-title').textContent = d.title || t('untitled');
+      satRowControls(li, d);
       li.querySelector('.cc-state').textContent =
         st === 'full' ? t('cc.stateFull') : st === 'partial' ? t('cc.statePartial') : t('cc.stateNone');
       const cb = li.querySelector('.cc-one');
@@ -7132,53 +7154,80 @@ const SAT_ACCEPT = '.flextext,.xml,.txt,text/plain,text/xml,application/xml,'
 const satIsText = (f) => /\.(flextext|xml|txt)$/i.test(f.name) || /(xml|text)/i.test(f.type || '');
 const satBase = (n) => n.replace(/\.[^.]+$/, '').toLowerCase();
 
-/* Pair a recording with its text BY FILENAME — bird.flextext with bird.wav.
+/* Pair a recording with its text: BY FILENAME when the names agree, OTHERWISE IN THE ORDER PICKED.
  *
- * That is how the corpus on Seth's disk is already laid out (one folder per text, the text and its
- * audio inside), so a whole morning's work can be selected at once. The rule is only applied where
- * it cannot be wrong: a .flextext holding SEVERAL texts gets no audio, because there is no way to
- * know which of them the recording belongs to, and guessing would attach a recording to the wrong
- * story — which is worse than leaving it off, since the mistake is invisible afterwards. */
+ * ⚠ A MATCHING NAME IS A CONVENIENCE, NOT A REQUIREMENT (Seth): "I don't want you to require the
+ * input audio to have the same name as the flextext file … we can trust the user to be intelligent
+ * enough to notice it's not matching." Requiring it meant a linguist whose recorder writes
+ * REC0042.wav beside StoryOfTheFlood.flextext — which is what recorders actually do — got the text
+ * with no audio and a scolding, for picking exactly the two files they meant.
+ *
+ * So names are tried first (they make a folder of many pairs land correctly in one pick), and
+ * whatever is left over is paired in the order it was chosen.
+ *
+ * ⚠ THE ONE REFUSAL THAT STAYS is a .flextext holding SEVERAL texts: there is genuinely no way to
+ * know which of them a recording belongs to. That is not a naming question and no amount of user
+ * intelligence resolves it from the files alone — and a recording stapled to the wrong story is a
+ * mistake nobody can see afterwards. */
 async function satImportFiles(files) {
   const list = [...files];
   const textFiles = list.filter(satIsText);
   const audioFiles = list.filter((f) => !satIsText(f));
   if (!textFiles.length) { toast(t('sat.needText'), 7000); return; }
 
-  const byBase = new Map(audioFiles.map((f) => [satBase(f.name), f]));
-  const used = new Set();
-  let added = 0, paired = 0, skippedAudio = 0;
+  // Parse everything BEFORE pairing anything: how many texts a file holds decides whether it may
+  // take a recording at all, and that is not knowable from its name.
+  const parsed = [];
   const failed = [];
-
   for (const f of textFiles) {
-    let parsed;
-    try { parsed = parseFlextext(await f.text(), { vernLang: settings.vernLang, analLang: settings.analLang }); }
+    let out;
+    try { out = parseFlextext(await f.text(), { vernLang: settings.vernLang, analLang: settings.analLang }); }
     catch (err) { failed.push(f.name + ' — ' + err.message); continue; }
-    if (parsed.error) { failed.push(f.name + ' — ' + parsed.error); continue; }
-    const texts = parsed.texts || [];
+    if (out.error) { failed.push(f.name + ' — ' + out.error); continue; }
+    const texts = out.texts || [];
     if (!texts.length) { failed.push(f.name + ' — ' + t('sat.noTexts')); continue; }
+    parsed.push({ file: f, texts, mate: null });
+  }
 
-    const mate = byBase.get(satBase(f.name));
-    // One text in the file: the recording beside it is unambiguously ITS recording.
-    const canPair = !!mate && texts.length === 1;
-    if (mate && !canPair) skippedAudio++;
+  /* ⚠ TWO PASSES, AND THE ORDER MATTERS. Claiming namesakes first is what stops an earlier text
+   * with no matching name from swallowing a later text's own recording: given
+   * [A.flextext, B.flextext, B.wav], a single greedy pass hands B.wav to A and leaves B silent —
+   * the two files whose names DO agree ending up apart, which is the one outcome naming was
+   * supposed to prevent. */
+  const claimed = new Set();
+  const single = (e) => e.texts.length === 1;      // several texts in a file ⇒ no recording, see below
+  for (const e of parsed) {
+    if (!single(e)) continue;
+    const named = audioFiles.find((a) => satBase(a.name) === satBase(e.file.name) && !claimed.has(a));
+    if (named) { e.mate = named; claimed.add(named); }
+  }
+  const spare = audioFiles.filter((a) => !claimed.has(a));
+  for (const e of parsed) {
+    if (e.mate || !single(e) || !spare.length) continue;
+    e.mate = spare.shift();
+    claimed.add(e.mate);
+  }
+  // A recording offered to a file holding several texts is reported, not silently dropped.
+  const ambiguous = parsed.some((e) => !single(e)
+    && audioFiles.some((a) => satBase(a.name) === satBase(e.file.name)));
 
-    for (const doc of texts) {
+  let added = 0, paired = 0;
+  for (const e of parsed) {
+    for (const doc of e.texts) {
       const rec = {
         id: newGuid(),
-        title: doc.title || f.name.replace(/\.(flextext|xml|txt)$/i, ''),
+        title: doc.title || e.file.name.replace(/\.(flextext|xml|txt)$/i, ''),
         created: Date.now(), modified: Date.now(), doc,
       };
       Object.assign(rec, docStats(doc));
-      if (canPair) {
+      if (e.mate) {
         await db.putMedia(rec.id, {
-          blob: mate, name: mate.name, mimeType: mate.type || 'audio/mpeg',
+          blob: e.mate, name: e.mate.name, mimeType: e.mate.type || 'audio/mpeg',
           sourceUrl: '', peaks: null, duration: null,
         });
-        rec.audioSource = 'local:' + mate.name;
+        rec.audioSource = 'local:' + e.mate.name;
         rec.audioLocked = false;          // the user brought it themselves; they may remove it
-        ensureMediaRef(rec, mate.name, '');   // so an export still references the recording
-        used.add(mate);
+        ensureMediaRef(rec, e.mate.name, '');   // so an export still references the recording
         paired++;
       }
       await db.putDoc(rec);
@@ -7187,24 +7236,109 @@ async function satImportFiles(files) {
   }
 
   db.broadcastLive('docs');
-  if (CONSENT_MODE) ccRenderList(); else sgRenderList();
+  refreshList();
 
   // Say exactly what happened, including what did NOT: a recording silently dropped is the kind of
   // thing a user only discovers weeks later, on the tab that needed it.
-  const orphans = audioFiles.filter((f) => !used.has(f));
-  /* Four strings rather than one with an {n}(s) in it. t() is a string replace with no plural
-   * machinery, so "1 text(s)" is what a single import actually said — and this is the message a
-   * colleague sees the very first time the app does anything for them. Same One/Many split the
-   * consent tallies already use. */
   if (added) {
     const key = added === 1
       ? (paired ? 'sat.importedOneAudio' : 'sat.importedOne')
       : (paired ? 'sat.importedManyAudio' : 'sat.importedMany');
     toast(t(key, { n: added, paired }), 6000);
   }
-  if (skippedAudio) toast(t('sat.audioAmbiguous'), 8000);
+  const orphans = audioFiles.filter((a) => !claimed.has(a));
+  if (ambiguous) toast(t('sat.audioAmbiguous'), 8000);
   else if (orphans.length) toast(t('sat.audioUnmatched', { names: orphans.map((f) => f.name).join(', ') }), 8000);
   for (const why of failed) toast(t('toast.importFailed', { msg: why }), 8000);
+}
+
+
+/* One file picker, as a promise. Built and thrown away per use so a stale <input> can never hand
+ * back last time's file. A cancelled picker fires 'cancel' in current browsers; where it does not,
+ * the element is simply removed and the promise never settles — the caller only awaits to decide
+ * whether to act, so nothing is stranded that matters. */
+function pickOneFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.hidden = true;
+    document.body.appendChild(input);
+    const done = (f) => { input.remove(); resolve(f || null); };
+    input.addEventListener('change', () => done(input.files && input.files[0]), { once: true });
+    input.addEventListener('cancel', () => done(null), { once: true });
+    input.click();
+  });
+}
+
+/* SWAP A TEXT'S RECORDING FOR A DIFFERENT FILE (researcher setting allowAudioSwap, default on when
+ * this device has no researcher session). The reason it exists is the ordinary one: you attached
+ * the wrong file, or a better copy of the right one turned up.
+ *
+ * ⚠ IT THROWS AWAY THE CUTS, AND IT HAS TO. Every span in doc.segments is a pair of times INTO THE
+ * OLD RECORDING. Against a different file those numbers are not approximately right, they are
+ * meaningless — line three would point at whatever happens to be at 0:47 of the new audio. Keeping
+ * them would leave a text that looks aligned and is not, which is worse than an obviously unaligned
+ * one because nobody re-checks a green tick. So it is said plainly first and only then done.
+ *
+ * ⚠ AND IT REFUSES ON AUDIO THE COWORKER DOES NOT OWN — isAudioLocked covers a recording that
+ * arrived from a researcher's task link, which this device may use but must not replace. */
+async function satReplaceAudio(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  if (isAudioLocked(rec)) { toast(t('sat.audioLocked'), 8000); return; }
+  const spans = docSegments(rec.doc).filter((x) => x && !x.timePending).length;
+  if (spans && !await confirmDialog(t('sat.replaceLosesCuts').replace('{n}', spans))) return;
+  const f = await pickOneFile('audio/*,.mp3,.wav,.m4a,.flac,.ogg');
+  if (!f) return;
+  const fresh = await db.getDoc(id);          // the dialog and the picker are both async
+  if (!fresh) { toast(t('toast.cantOpen')); return; }
+  await db.putMedia(id, {
+    blob: f, name: f.name, mimeType: f.type || 'audio/mpeg',
+    sourceUrl: '', peaks: null, duration: null,
+  });
+  /* The derived WAV working copy is a conversion OF THE OLD FILE and would otherwise keep being
+   * used in preference to the new one — segWorkingMedia looks it up by key, not by content. */
+  await db.deleteMedia('segwav:' + id).catch(() => {});
+  if (spans) fresh.doc.segments = [];
+  fresh.audioSource = 'local:' + f.name;
+  fresh.audioLocked = false;
+  delete fresh.pendingAudio;
+  delete fresh.audioError;
+  ensureMediaRef(fresh, f.name, '');
+  fresh.modified = Date.now();
+  await db.putDoc(fresh);
+  // The player may still be holding the old recording for this doc.
+  if (player && player.loadedFor === id) { player.loadedFor = null; playerReadyFor = null; }
+  db.broadcastLive('docs');
+  refreshList();
+  toast(t(spans ? 'sat.audioReplacedCuts' : 'sat.audioReplaced'), 6000);
+}
+
+/* The per-row controls both satellites share. Each is a researcher permission, and each defaults to
+ * ON for a device with no researcher session — an unpaired device is somebody working alone, and
+ * there is nobody to ask. */
+function satRowControls(host, d) {
+  if (allowAudioSwapOn() && SEGMENTER_MODE) {
+    const b = document.createElement('button');
+    b.className = 'icon-btn2 sat-swap';
+    b.textContent = '\u266B';                 // ♫ — a glyph, words in the tooltip, per the suite's rule
+    b.title = t('sat.replaceAudio');
+    b.setAttribute('aria-label', t('sat.replaceAudio'));
+    b.addEventListener('click', (e) => { e.stopPropagation(); satReplaceAudio(d.id); });
+    host.appendChild(b);
+  }
+  if (allowDeleteOn()) {
+    const b = document.createElement('button');
+    b.className = 'icon-btn2 sat-del';
+    b.textContent = '\uD83D\uDDD1';           // 🗑
+    b.title = t('texts.deleteTitle');
+    b.setAttribute('aria-label', t('texts.deleteTitle'));
+    // userDeleteDoc owns the whole rule — the confirm, the upload-first case, the queued-upload
+    // cancel — and now repaints through refreshList(), so it works here unchanged.
+    b.addEventListener('click', (e) => { e.stopPropagation(); userDeleteDoc(d.id, d.title); });
+    host.appendChild(b);
+  }
 }
 
 /* The one control, built in JS so neither shell needs its own copy of the markup (and so a shell
@@ -7304,6 +7438,7 @@ async function sgRenderList() {
       : st === 'coming' ? t('seg.loadingAudio')
       : st === 'some' ? t('sg.someSpans').replace('{n}', d.spanCount)
       : t('sg.noSpans');
+    satRowControls(li.querySelector('.rec-item-actions'), d);
     const open = li.querySelector('.sg-open');
     open.textContent = t('sg.open');
     // No audio means nothing to match. Leaving the button live would open a matcher that can only

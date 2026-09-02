@@ -2935,8 +2935,16 @@ async function populateFilesMenu(wrap) {
      * arrived — because both mean "real row, not available right now". */
     const convOff = (labelKey, why) => rows.push(`<span class="rp-dl-item rp-dl-pending" role="menuitem" aria-disabled="true">
       <span class="rp-dl-name">${esc(t('panel.dl.' + labelKey))}</span><span class="rp-dl-sub">${esc(why)}</span></span>`);
+    if (audioF) conv('elan', 'elanZip', true);
+    /* ⚠ THE ONLY CONVERSION ROW THAT IS NOT GATED ON AUDIO, and loosePlan says why: "THE EAF NEEDS
+     * TIMES, NOT AUDIO". serializeEaf omits the MEDIA_DESCRIPTOR when there is no media name and is
+     * otherwise a perfectly legal ELAN file, so a text with offsets and no recording on this device
+     * still yields one. It is also the only annotation output whose cost is O(text) rather than
+     * O(audio) — no WAV conversion, no zip, nothing to weigh — so it carries no size estimate and
+     * can never be refused for one. That is the whole point of offering it beside the package: the
+     * researcher who already HAS the recordings should not download them again to get the tiers. */
+    conv('eaf', 'eafOnly', false);
     if (audioF) {
-      conv('elan', 'elanZip', true);
       conv('saymore', 'saymoreZip', true);
       // The one output whose whole value IS the embedded audio, so it refuses rather than degrades.
       if (caps.preview) conv('preview', 'preview', true);
@@ -3191,9 +3199,15 @@ async function runMenuConversion(wrap, kind, itemEl) {
     if (kind === 'preview' && !src.caps.preview) {
       deps.toast(t('panel.dl.previewTooBig', { size: fmtSize(src.caps.est) }), 8000); return;
     }
-    if (kind !== 'fxpa' && !src.segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
+    // 'eaf' joins 'fxpa' in not needing the recording — see the menu row's note. It still needs
+    // ALIGNMENT, which the src.aligned check above already enforced for every kind but fxpa.
+    if (kind !== 'fxpa' && kind !== 'eaf' && !src.segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
     paint(t('panel.dl.working'));
-    const wants = { elan: { eaf: true }, saymore: { saymore: true }, preview: { preview: true }, fxpa: { fxpa: true } }[kind];
+    /* ⚠ 'eaf' ASKS FOR EXACTLY WHAT 'elan' ASKS FOR. The difference is what is KEPT below, not what
+     * is built — so the .eaf a researcher gets here is byte-for-byte the one inside the ELAN zip.
+     * A second, slimmer EAF path would be a second EAF implementation, and the two would drift. */
+    const wants = { elan: { eaf: true }, eaf: { eaf: true }, saymore: { saymore: true },
+                    preview: { preview: true }, fxpa: { fxpa: true } }[kind];
     if (!wants) return;
     /* An oversized .fxpa is built WITHOUT audio rather than refused — the grouping analysis is the
      * point of the file, and buildFxpa's audio has always been optional (a text-only .fxpa is what
@@ -3208,7 +3222,8 @@ async function runMenuConversion(wrap, kind, itemEl) {
       // The file is already saved — these say what the researcher is holding, not that it failed.
       if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);
     } else {
-      const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
+      const pick = kind === 'preview' ? /\.preview\.html$/i : kind === 'eaf' ? /\.eaf$/i : /\.fxpa$/i;
+      const one = entries.find((x) => pick.test(x.name));
       if (!one) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
       saveBlobAs(one.data, one.name);
       if (dropAudio) deps.toast(t('panel.dl.fxpaNoAudio', { size: fmtSize(src.caps.est) }), 9000);

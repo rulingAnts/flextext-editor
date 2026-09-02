@@ -45,24 +45,36 @@ ok(/input\.multiple = true/.test(bar), 'multiple files at once: a corpus folder 
 // The editor's importFile ends in openDoc() + renderDocList(), neither of which exists in a satellite.
 ok(!/openDoc\(|renderDocList\(/.test(code(imp)),
    'it does NOT reuse importFile\'s tail — openDoc enters an editor these apps do not have');
-ok(/if \(CONSENT_MODE\) ccRenderList\(\); else sgRenderList\(\)/.test(imp), 'and it refreshes whichever list is showing');
+ok(/refreshList\(\)/.test(imp), 'and it refreshes whichever list is showing');
 
-console.log('\na recording is paired with its text BY NAME, and never by guesswork');
-ok(/satBase/.test(imp) && /byBase\.get\(satBase\(f\.name\)\)/.test(imp),
-   'bird.wav pairs with bird.flextext — the shape the corpus on disk already has');
-ok(/const canPair = !!mate && texts\.length === 1/.test(imp),
-   'a .flextext holding SEVERAL texts gets no audio: there is no way to know which one it belongs to');
-ok(/skippedAudio/.test(imp) && /sat\.audioAmbiguous/.test(imp), 'and that refusal is reported, with the remedy');
+console.log('\na matching filename HELPS but is not required (Seth) — and namesakes are claimed first');
+// "we can trust the user to be intelligent enough to notice it's not matching". Requiring it meant
+// a recorder writing REC0042.wav beside StoryOfTheFlood.flextext produced a text with no audio.
+ok(/satBase\(a\.name\) === satBase\(e\.file\.name\)/.test(imp), 'a namesake recording is still preferred');
+ok(/const spare = audioFiles\.filter/.test(imp) && /spare\.shift\(\)/.test(imp),
+   'and whatever is left over is paired in the order it was picked, rather than refused');
+/* ⚠ THE TWO PASSES ARE THE POINT. One greedy pass over [A.flextext, B.flextext, B.wav] hands B.wav
+ * to A and leaves B silent — the two files whose names DO agree ending up apart, which is exactly
+ * what naming was supposed to prevent. */
+const claimIdx = imp.indexOf('const claimed');
+ok(claimIdx > 0 && imp.indexOf('const spare =') > claimIdx,
+   'namesakes are claimed BEFORE leftovers are handed out, so an unnamed text cannot eat a named one\'s audio');
+ok(/const single = \(e\) => e\.texts\.length === 1/.test(imp),
+   'a .flextext holding SEVERAL texts still gets no audio: no naming rule can say which one it belongs to');
+ok(/ambiguous/.test(imp) && /sat\.audioAmbiguous/.test(imp), 'and that refusal is reported, with the remedy');
 ok(/orphans/.test(imp) && /sat\.audioUnmatched/.test(imp),
-   'a recording that matched no text is named in the message, not silently dropped');
+   'a recording with no text left to go with is named in the message, not silently dropped');
+ok(!/same name as its text/.test(i18n), 'and the message no longer tells the user to rename their files');
 ok(/if \(!textFiles\.length\)/.test(imp) && /sat\.needText/.test(imp), 'audio with no text at all is refused outright');
 ok(/failed\.push/.test(imp) && /toast\(t\('toast\.importFailed'/.test(imp), 'a file that will not parse says so, per file');
+// Parsing before pairing is what makes `single` knowable at pairing time.
+ok(imp.indexOf('const parsed = []') < claimIdx, 'every file is parsed before anything is paired');
 
 console.log('\nan imported recording is stored the way an attached one is');
 ok(/db\.putMedia\(rec\.id/.test(imp), 'the blob goes in the media store under the doc id');
 ok(/rec\.audioSource = 'local:'/.test(imp), 'audioSource records where it came from');
 ok(/rec\.audioLocked = false/.test(imp), 'and the user may remove it — they brought it themselves');
-ok(/ensureMediaRef\(rec, mate\.name/.test(imp), 'the doc references the media, so an export still points at it');
+ok(/ensureMediaRef\(rec, e\.mate\.name/.test(imp), 'the doc references the media, so an export still points at it');
 ok(/Object\.assign\(rec, docStats\(doc\)\)/.test(imp), 'segCount/glossed come from docStats, like every other writer');
 
 console.log('\nthe messages are grammatical at EVERY count (t() has no plural machinery)');
@@ -76,6 +88,30 @@ const en = i18n.slice(0, i18n.indexOf("'cc.hint'", i18n.indexOf("'cc.hint'") + 1
 ok(/'cc\.tallyNeed': 'still to ask: \{n\} of \{total\}'/.test(en), 'cc.tallyNeed reads correctly at 1');
 ok(/'cc\.tallyDone': 'all have permission \(\{total\}\)'/.test(en), 'and so does cc.tallyDone');
 ok(/'mg\.remaining': 'Still to match — audio: \{a\}, text: \{t\}'/.test(en), 'and the matcher status');
+
+console.log('\nrow controls: delete a text, swap its recording — on by default when unpaired');
+const swap = asyncFn(app, 'satReplaceAudio');
+const rowc = fn(app, 'satRowControls');
+ok(/function allowAudioSwapOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowAudioSwap === true; \}/.test(app),
+   'allowAudioSwap mirrors allowDeleteOn exactly — researcher-settable, ON with no researcher session');
+ok(/allowDeleteOn\(\)/.test(rowc) && /allowAudioSwapOn\(\)/.test(rowc), 'each control is behind its own permission');
+ok(/userDeleteDoc\(d\.id, d\.title\)/.test(rowc),
+   'delete goes through the EXISTING userDeleteDoc — its confirm, its upload-first case, its queued-upload cancel');
+ok(/isAudioLocked\(rec\)/.test(swap) && /sat\.audioLocked/.test(swap),
+   'swapping refuses a recording that came from a researcher task link');
+/* ⚠ Replacing the audio MUST clear the alignment: every span is a pair of times into the OLD
+ * recording, and against a different file they are not approximately right, they are meaningless. */
+ok(/fresh\.doc\.segments = \[\]/.test(swap), 'and it clears the cuts, which are times into the old recording');
+ok(/sat\.replaceLosesCuts/.test(swap) && /confirmDialog/.test(swap), 'saying so BEFORE doing it, with the count');
+ok(/deleteMedia\('segwav:' \+ id\)/.test(swap),
+   'the derived WAV working copy goes too — it is a conversion of the OLD file and would keep being preferred');
+ok(/player\.loadedFor === id/.test(swap), 'and the player drops the recording it was holding');
+
+console.log('\none list refresh that knows every mode');
+const rl = fn(app, 'refreshList');
+for (const m of ['CONSENT_MODE', 'SEGMENTER_MODE', 'RECORD_MODE']) ok(rl.includes(m), `refreshList knows ${m}`);
+ok(!/if \(RECORD_MODE\) renderRecordList\(\); else renderDocList\(\);/.test(app),
+   'and the eight hand-written copies are gone — each was a crash waiting in the satellites, where #doc-list does not exist');
 
 console.log('\nthe empty state no longer promises the localhost illusion');
 const emptyEn = (i18n.match(/'(cc|sg)\.empty': '([^']*)'/g) || []).join(' | ');

@@ -5,7 +5,8 @@
 # it in. A guard that exists only on one laptop protects only that laptop — and this repo is pushed
 # from Seth's Mac, a KDE VM, and remote-execution containers.
 #
-# Three guards, in cost order — cheapest refusal first:
+# Four guards, in cost order — cheapest refusal first:
+#   0. FRESHNESS    — work built on a stale checkout is work aimed at a tree that no longer exists.
 #   1. SECRETS      — a credential pushed to a public repo cannot be unpublished. No override.
 #   2. WORKFLOWS    — .github/workflows changes can incur GitHub billing (CLAUDE.md's cost policy).
 #   3. PRODUCTION   — productionWeb is the live site field translators load.
@@ -18,6 +19,13 @@
 set -uo pipefail
 repo="$(git rev-parse --show-toplevel)"
 remote_ref="${2:-}"
+
+# ── 0. FRESHNESS ──────────────────────────────────────────────────────────────────────────────
+# Not about what this push would DO — git already refuses a non-fast-forward — but about what the
+# work was built AGAINST. A branch forked from a months-old main pushes perfectly and is still
+# wrong. Warn-only: by push time the work is already done, and blocking it helps nobody. The place
+# this is meant to catch you is dev-serve.sh, before you write anything.
+[ -x "$repo/check-freshness.sh" ] && "$repo/check-freshness.sh" --warn --quiet
 
 # ── 1. SECRETS ────────────────────────────────────────────────────────────────────────────────
 # Scan the commits actually being pushed, not the whole tree: fast, and it is what is leaving.

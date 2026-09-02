@@ -13,6 +13,12 @@
 # can't — mixed content). For the researcher panel, also run the dev worker:
 #   flextext-r2-worker/dev-worker.sh
 set -euo pipefail
+
+# ⚠ THE POINT OF INTERCEPTION. Starting a dev server is the moment before coding, which is the only
+# moment a staleness warning can still save the work rather than describe its loss. Warn-only and
+# non-blocking on purpose: offline is normal here, and a dev server that refuses to start because a
+# laptop is on a plane would be turned off, not obeyed.
+[ -x "$(dirname "$0")/check-freshness.sh" ] && "$(dirname "$0")/check-freshness.sh" --warn --quiet
 PORT="${1:-8012}"
 MIRROR="$HOME/GIT/.flextext-devserve-$PORT"    # PER-PORT: a second instance must not re-point this one's symlinks
 # The published site now lives in docs/ (GitHub Pages serves productionWeb:/docs), so the

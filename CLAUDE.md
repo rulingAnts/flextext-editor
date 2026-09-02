@@ -4,6 +4,29 @@ Offline-first interlinear text editor PWA for FLEx `.flextext` files (baseline
 transcription, word glossing, free translation). It's a **static site** served
 via GitHub Pages.
 
+## 🚩 SYNC WITH ORIGIN BEFORE YOU WRITE ANYTHING (Seth, 2026-09-02)
+
+**`git fetch origin && git rebase origin/main` before starting work. Every session, without
+exception.** A clone that has been sitting is the one hazard in this repo that looks like nothing at
+all: the tests pass, the files read sensibly, and the version number in front of you is a real
+version that really shipped.
+
+It cost an evening on 2026-09-02. A checkout sat at **v441 while origin was v566** — 336 commits and
+12 days — and two new satellite apps were built on it: written against an engine that had moved on
+by 125 releases, with every edit to a shared file aimed at a version that no longer existed. Nothing
+was lost and nothing was overwritten; git rejects a non-fast-forward push, so the damage was never
+data. It was WORK, and all of it had to be redone.
+
+- **`./check-freshness.sh`** reports how far behind you are and fails if it is far. `dev-serve.sh`
+  runs it at startup (warn-only) and `hooks/pre-push` runs it too — but by push time the work is
+  already done, so **the startup warning is the one that can still save anything.**
+- **Offline is not stale.** If the fetch cannot reach the remote it says so and exits 0. This suite
+  is for people with no connectivity; a guard that blocked work on a plane would be switched off.
+- `test/freshness-guard.test.mjs` drives the script against a synthetic repo. It exists because the
+  FIRST version of the guard called `timeout 20 git fetch` — and macOS has no `timeout(1)`, so it
+  reported "offline, skipping" and exited 0 while online. A guard that no-ops is worse than none: it
+  prints a reassuring line and checks nothing.
+
 ## Branches — READ THIS FIRST
 
 | Branch | Purpose |

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flextext Consent Collector</title>
+<meta name="description" content="Collect speaker permission for texts you already have. Works offline.">
+<meta name="theme-color" content="#7c3aed">
+<link rel="manifest" href="consent.webmanifest">
+<link rel="icon" href="icons/consent.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/consent-apple-touch.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Flextext Consent Collector">
+<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so the
+     consent/segmentation/upload code is maintained ONCE. This app is a thin shell: what
+     makes it a different app is __MODE plus its own PWA identity (sw.js, manifest
+     id/scope, icons). See CLAUDE.md "modularize what is app-specific, generalize what is
+     shared". -->
+<link rel="stylesheet" href="/flextext-editor/css/app.css">
+<!-- Selects the mode in the shared engine. Classic inline script so it runs before the
+     deferred module executes. -->
+<script>window.__MODE = 'consent';</script>
+</head>
+<body>
+  <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated rather
+       than shared: it is inline with no engine dependency, so it still shows when app.js fails to
+       load, which is exactly when knowing which site you are on matters most. Runtime hostname
+       detection, so this same file ships to production unchanged. -->
+  <script>
+    if (/\.(pages|workers)\.dev$/.test(location.hostname)) {
+      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site \u00b7 situs uji — not production / bukan produksi</div>');
+    }
+  </script>
+
+<header id="topbar">
+  <div id="topbar-home" class="topbar-row">
+    <span class="app-title" data-i18n="consentapp.appName">Flextext Consent Collector</span>
+    <select id="lang-select" data-i18n-title="research.lang">
+      <option value="en">English</option>
+      <option value="id">Indonesia</option>
+    </select>
+  </div>
+</header>
+
+<main>
+
+<div id="webkit-warning" class="banner warn-banner" hidden>
+  <span data-i18n="webkit.warning"></span>
+  <button class="banner-dismiss" data-dismiss="webkit-warning" title="✕">✕</button>
+</div>
+<div id="install-banner" class="banner install-banner" hidden>
+  <span data-i18n="install.text"></span>
+  <button id="btn-install" class="primary-btn" data-i18n="install.btn">Install app</button>
+  <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
+</div>
+
+<!-- Record-only view. Its contents are rendered by the shared js/app.js
+     (renderRecordView), so the markup lives in one place. -->
+<section id="view-record" class="view"></section>
+
+</main>
+
+<!-- Non-blocking upload status bar -->
+<div id="upload-bar" hidden>
+  <div class="upload-row">
+    <span id="upload-label"></span>
+    <div class="upload-progress"><div id="upload-fill"></div>
+
+<!-- The consent collector's one view: the texts on this device, grouped by author, with
+     their consent state. Rendered by the shared js/app.js (renderConsentView), so the
+     markup lives in one place. -->
+<section id="view-consent" class="view"></section>
+
+</main>
+
+<!-- Non-blocking upload status bar -->
+<div id="upload-bar" hidden>
+  <div class="upload-row">
+    <span id="upload-label"></span>
+    <div class="upload-progress"><div id="upload-fill"></div></div>
+    <button id="upload-toggle" class="icon-btn2" hidden></button>
+    <button id="upload-pause" class="icon-btn2"></button>
+    <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+  </div>
+  <ul id="upload-list" class="upload-list" hidden></ul>
+</div>
+
+<div id="toast" hidden></div>
+
+<!-- Consent / speaker-permission modal — KEEP IN SYNC with the editor repo.
+     This app is the one that exists to drive this modal, so a drift here is not cosmetic. -->
+<div id="consent-modal" class="modal" hidden>
+  <div class="modal-card">
+    <h3 data-i18n="consent.title">Speaker permission</h3>
+    <p id="consent-message"></p>
+    <audio id="consent-audio" controls hidden></audio>
+    <p class="note" id="consent-status" hidden></p>
+    <!-- (1) recorded verbal assent -->
+    <div id="consent-record" hidden>
+      <audio id="consent-assent-preview" controls hidden></audio>
+      <button id="consent-assent-toggle" class="primary-btn">&#9679; <span data-i18n="consent.recYes">Record the "yes"</span></button>
+      <button id="consent-assent-redo" class="secondary-btn" data-i18n="record.redo" hidden>Re-record</button>
+    </div>
+    <!-- (2) typed-name signature -->
+    <div id="consent-sign" hidden>
+      <label class="wide"><span data-i18n="consent.signLabel">Type your name to give permission</span>
+        <input id="consent-name" type="text" spellcheck="false" autocomplete="name"></label>
+    </div>
+    <!-- (3) yes/no as RADIO buttons; the single submit button below is the only proceed point -->
+    <div id="consent-yesno" hidden>
+      <label class="check-label"><input type="radio" name="consent-choice" id="consent-choice-yes" value="yes"> <span data-i18n="consent.yes">Yes — I have permission</span></label>
+      <label class="check-label"><input type="radio" name="consent-choice" id="consent-choice-no" value="no"> <span data-i18n="consent.no">No</span></label>
+    </div>
+    <button id="consent-yes" class="primary-btn" data-i18n="consent.give">Give permission</button>
+    <button id="consent-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- Share/save menu — KEEP IN SYNC with the editor repo. Consent hands off through the
+     NORMAL upload/save/send system; it does not grow a second export path. -->
+<div id="share-menu" class="modal" hidden>
+  <div class="modal-card">
+    <h3 data-i18n="share.title">Save and send</h3>
+    <p class="note" id="share-filename"></p>
+    <button id="share-share" class="primary-btn" data-i18n="share.share">Share&hellip;</button>
+    <button id="share-upload" class="primary-btn" data-i18n="share.upload">Upload</button>
+    <button id="share-saveas" class="secondary-btn" data-i18n="share.saveas">Save to file&hellip;</button>
+    <button id="share-download" class="secondary-btn" data-i18n="share.download">Download</button>
+    <button id="share-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- MP3 encoder + shared app engine load from the editor repo (same origin). lame.min.js is
+     required: the recorded "yes" is converted to MP3 before it is stored. -->
+<script src="/flextext-editor/js/vendor/lame.min.js" defer></script>
+<script type="module" src="/flextext-editor/js/app.js"></script>
+</body>
+</html>

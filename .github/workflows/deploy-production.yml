@@ -33,6 +33,6 @@ jobs:
     needs: guard
     uses: ./.github/workflows/deploy-apps.yml
     with:
-      apps: '["apps/editor","apps/researcher","apps/recorder","apps/crowd","paragraph-analysis"]'
+      apps: '["apps/editor","apps/researcher","apps/recorder","apps/crowd","paragraph-analysis","apps/consent","apps/segmenter"]'
       branch: productionWeb
     secrets: inherit

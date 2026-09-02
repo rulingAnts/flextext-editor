@@ -63,6 +63,23 @@ const CROWD_MODE = typeof window !== 'undefined' && window.__MODE === 'crowd';
 // (js/paragraph-ui.js) and skips ALL field/editor wiring, like the researcher console. Shell-only
 // on purpose — no ?mode= entry: the editor page has no #pa-main container to boot into.
 const PARAGRAPH_MODE = typeof window !== 'undefined' && window.__MODE === 'paragraph';
+// Consent-collector mode: the "Flextext Consent Collector" satellite (window.__MODE='consent').
+// It exists because speaker permission can only be captured at doc CREATION in the record flow —
+// there is no path that adds it to a text that already exists. A back catalogue recorded before
+// the consent workflow therefore cannot be archived, and cannot be re-recorded either, because the
+// speakers have moved on or died. So this app takes texts in by assignment or import exactly as
+// the recorder does, adds the consent layer, and hands off through the normal upload/save/send
+// system. It sits at the RECORDER's position in setup() because it needs the same sync, upload and
+// consent machinery — it is the recorder's sibling, not the researcher's.
+// Shell-only, no ?mode= entry: the editor page has no #view-consent to boot into.
+const CONSENT_MODE = typeof window !== 'undefined' && window.__MODE === 'consent';
+// Segmenter mode: the "Flextext Audio Segmenter" satellite (window.__MODE='segmenter'). Cuts a
+// recording into segments and matches them to the lines of a text that already exists — the Cut
+// tab and the baseline strips, and deliberately nothing else: no glossing, no free translation,
+// no baseline text editing. It reuses segment-strips.js/segments.js unchanged; what makes it an
+// app rather than a tab is that it cannot do anything else, which is the same argument
+// plans/cut-tab.md makes for the Cut tab itself.
+const SEGMENTER_MODE = typeof window !== 'undefined' && window.__MODE === 'segmenter';
 
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
 // 'pair' = open a .flextext AND its recording together (v332). Its own key, so a researcher can
@@ -315,7 +332,7 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher'];
+const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher', 'consent', 'segmenter'];
 
 // The researcher panel is a SEPARATE full-screen view. Its standalone home is the "Flextext
 // Researcher" app (RESEARCHER_MODE); inside the editor it's reachable only via the managed-install
@@ -2437,7 +2454,11 @@ function applyWarmGate() {
 async function warmUpMic() {
   // Structural guard, not just a DOM check: these apps have no recording feature at all, so there
   // is no path on which opening the microphone could ever be correct.
-  if (PARAGRAPH_MODE || RESEARCHER_MODE) return;
+  /* ⚠ SEGMENTER_MODE belongs here and CONSENT_MODE deliberately does NOT. The segmenter only cuts
+   * audio that already exists, so opening a microphone would be a permission prompt for a feature
+   * it does not have. The consent collector RECORDS — the spoken "yes" is one of the three
+   * confirmation forms — so it must warm the mic exactly as the recorder does. */
+  if (PARAGRAPH_MODE || RESEARCHER_MODE || SEGMENTER_MODE) return;
   if (warmMic || warmMicPending || rec?.recording) return;
   // Only the AudioWorklet path benefits: native capture opens its own device, and MediaRecorder
   // cannot pre-roll (its chunks are encoded and not safely splittable).
@@ -4028,7 +4049,12 @@ async function listCachedApps() {
  *    cross-app staleness signal still gets `cachedApps`, and it is read there beside the
  *    authoritative number rather than shown alone on a screen. */
 function showAppVersion() {
-  const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : (PARAGRAPH_MODE ? 'paragraph' : 'editor'));
+  const name = RESEARCHER_MODE ? 'researcher'
+    : RECORD_MODE ? 'recorder'
+    : PARAGRAPH_MODE ? 'paragraph'
+    : CONSENT_MODE ? 'consent'
+    : SEGMENTER_MODE ? 'segmenter'
+    : 'editor';
   let ver = ENGINE_VERSION;
   /* On a feature/staging build the human-facing name of the build LEADS, with the numeric version
    * kept after it — the number is still what every bug report, device report and deploy-order rule

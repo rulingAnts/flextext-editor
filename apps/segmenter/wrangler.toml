@@ -1,0 +1,37 @@
+# The "audio-segmenter" Cloudflare Worker — the Flextext Audio Segmenter at the ROOT of its
+# own origin. Production: https://audio-segmenter.flextext.app/ — built by Cloudflare's git-connected
+# build from branch `productionWeb`, root directory `apps/segmenter/`.
+#
+# ⚠ BRANCH ROUTING LIVES IN GIT, NOT THE DASHBOARD (Seth's rule). Point BOTH dashboard commands
+# at the router:
+#   Deploy command:              bash deploy.sh
+#   Non-production ("Version"):  bash deploy.sh
+# productionWeb → `wrangler deploy`; any other branch → `wrangler versions upload
+# --preview-alias <branch>`, which leaves production untouched.
+#
+# SAFETY NET: even if a dashboard command is reset to raw `npx wrangler deploy`, the [build] hook
+# runs build.sh, which REFUSES to build a non-production branch outside deploy.sh.
+#
+# ⚠ This app has NO GitHub Pages twin. The Pages estate exists because field users already have
+# PWAs installed there; this app is new, so there is nothing to keep working on the old origin.
+name = "audio-segmenter"
+main = "shell.js"
+compatibility_date = "2026-06-01"
+# ⚠ workers_dev STAYS TRUE — same reasoning as the other apps (Seth, 2026-08-05): the workers.dev
+# host is a direct-to-Worker address that bypasses custom-domain DNS when diagnosing, and the
+# researcher panel reads each app's sw.js from it.
+#
+# ⚠ IF YOU EVER SET workers_dev = false, YOU MUST ALSO SET preview_urls = true EXPLICITLY.
+# `preview_urls` DEFAULTS TO THE VALUE OF `workers_dev`, so flipping one silently switches off the
+# staging-*.workers.dev preview aliases.
+workers_dev = true
+preview_urls = true
+
+[build]
+command = "bash build.sh"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+# Route through shell.js BEFORE the asset fast-path so sw.js is never served from the CDN cache.
+run_worker_first = true

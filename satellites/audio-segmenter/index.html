@@ -72,13 +72,11 @@
   <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
 </div>
 
-<!-- The segmenter's list view: texts on this device and their segmentation state.
-     Rendered by the shared js/app.js (renderSegmenterView). -->
-<section id="view-segmenter" class="view"></section>
-
-<!-- SHARED MEDIA DOCK, view-cut and view-baseline are lifted VERBATIM from the editor page: the
-     Cut tab's machinery (peaks pipeline, strips, auto-scroll, player/segment sync) finds its
-     elements by id, so the way to reuse it is to give it the DOM it already knows. -->
+<!-- ⚠ THE DOCK SITS ABOVE EVERY VIEW THAT USES IT, and above is not a preference. It is
+     position:sticky at the top of <main>, so it holds whichever edge it is nearest — placed after
+     #view-matcher (where it started) it stuck to the BOTTOM of the matcher's panes, which is the one
+     place a transport is no use. The Cut and Baseline tabs want it here too, so one position serves
+     all three. It is hidden until a recording is actually loaded. -->
 <div id="audio-player" class="player" hidden>
     <div class="player-wave"></div>
     <p class="player-status" hidden></p>
@@ -110,6 +108,18 @@
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
     </div>
   </div>
+
+<!-- The segmenter's list view: texts on this device and their segmentation state.
+     Rendered by the shared js/app.js (renderSegmenterView). -->
+<section id="view-segmenter" class="view"></section>
+
+<!-- The matcher: audio spans on the left, interlinear lines on the right, mapped between.
+     Rendered by the shared js/app.js (mgOpen/mgDraw). -->
+<section id="view-matcher" class="view" hidden></section>
+
+<!-- SHARED MEDIA DOCK, view-cut and view-baseline are lifted VERBATIM from the editor page: the
+     Cut tab's machinery (peaks pipeline, strips, auto-scroll, player/segment sync) finds its
+     elements by id, so the way to reuse it is to give it the DOM it already knows. -->
 
 <section id="view-cut" class="view" hidden>
   <p id="cut-hint" class="tab-hint" data-i18n-html="cut.hint"></p>

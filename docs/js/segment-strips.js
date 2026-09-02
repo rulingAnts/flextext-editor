@@ -776,6 +776,24 @@ export function drawSpanWave(canvas, seg) {
   drawStrip(canvas, seg, peaksCache.durationMs);
 }
 
+/* The two halves of "a waveform that STAYS drawn", as one call. drawSpanWave alone paints once and
+ * is then at the mercy of two races the Cut and Baseline tabs already lost and fixed: a canvas laid
+ * out after the paint (zero width, blank strip) and peaks that finish decoding after it (a
+ * plausible-looking wave of the wrong length). Every strip surface needs both, so the pair ships
+ * together — the matcher is the third list of waveforms in this suite, and adding it without these
+ * would have reproduced the same two bugs a fourth time.
+ *
+ * Pairs with healSpanWave() below, which the caller's own ticker calls. */
+export function attachSpanWave(canvas, seg) {
+  observeWave(canvas, () => drawSpanWave(canvas, seg));
+  drawSpanWave(canvas, seg);
+}
+
+/* Redraw a strip whose buffer no longer matches its box or its peaks. Exported for surfaces outside
+ * this module that run their own rAF loop (the segmenter's matcher); the Cut and Baseline tickers
+ * call the internal fixStaleWave directly. */
+export function healSpanWave(canvas) { fixStaleWave(canvas); }
+
 /* CLICK A WAVEFORM TO POSITION THE PLAYHEAD INSIDE ITS SEGMENT; DRAG TO SCRUB (Seth).
  * Position only — play/pause stays whatever it was, so the flow is: click (or drag) to park, then
  * Enter to break there, or ▶ to listen from there.

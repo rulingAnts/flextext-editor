@@ -19,13 +19,15 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         wireWaveSeek, requestReveal, takeReveal, followLine,
+         wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
-import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
+// MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
+// satellite, so this adds no precache path and cannot repeat the v108 outage.
+import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
@@ -332,7 +334,7 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher', 'consent', 'segmenter'];
+const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher', 'consent', 'segmenter', 'matcher'];
 
 // The researcher panel is a SEPARATE full-screen view. Its standalone home is the "Flextext
 // Researcher" app (RESEARCHER_MODE); inside the editor it's reachable only via the managed-install
@@ -7164,7 +7166,7 @@ async function sgRenderList() {
     // No audio means nothing to cut. Leaving the button live would open a Cut tab that can only
     // say "attach a recording", which is a worse way to learn the same fact.
     if (st === 'noaudio') open.disabled = true;
-    else open.addEventListener('click', () => sgOpen(d.id));
+    else open.addEventListener('click', () => mgOpen(d.id));
     ul.appendChild(li);
   }
 }
@@ -7176,6 +7178,553 @@ async function sgOpen(id) {
   // enterEditor() wires the tab row and the shared player dock, then switchTab('cut') runs the
   // real Cut tab: same peaks pipeline, same strips, same guess-the-lines. Nothing is reimplemented.
   enterEditor('cut');
+}
+
+/* ─────────────────── THE MATCHER (audio segmenter) ───────────────────
+ * Two panes. Audio spans on the left, text lines on the right, split and joined INDEPENDENTLY,
+ * then mapped piece to piece until everything is paired and the user presses Done.
+ *
+ * ⚠ THIS IS NOT THE ENGINE'S MODEL, AND THAT IS THE WHOLE BUILD. Everywhere else in the suite
+ * `segments[i]` IS baseline line i: the two are index-locked, so cutting audio inserts a text line
+ * and cutting text moves an audio boundary. That coupling is right for the Cut tab, where you are
+ * transcribing as you cut. It is wrong here, because the two jobs arrive already done and out of
+ * step: a recording cut by silence and a text typed by a linguist will not agree on where the
+ * pieces fall, and forcing them to agree while you work means every correction on one side damages
+ * the other.
+ *
+ * So the matcher holds three things — a span list, a line list, and a MAPPING between them — and
+ * only collapses back to the index-locked shape at the end, in mgCommit(). Nothing downstream has
+ * to learn a new model: the doc that comes out is the doc the rest of the suite already reads.
+ *
+ * The mapping is many-to-one on purpose: several spans may belong to one line (a speaker restarts,
+ * or pauses mid-sentence), and one span may cover several lines. What must be true at Done is only
+ * that nothing is left unmapped, which is what mgComplete() checks.
+ */
+
+let MG = null;   // { spans, lines, map, selSpan, selLine, docId }
+
+const mgFmt = (ms) => {
+  if (!Number.isFinite(ms)) return '—';
+  const s = Math.max(0, ms) / 1000;
+  return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+};
+
+// The interlinear line, as a line: vernacular words over their glosses, free translation beneath.
+// Rendered from the doc's own phrase objects, so what the linguist typed in FLEx is what shows.
+function mgLineText(line) {
+  const words = line.phrases.flatMap((p) => p.words || []);
+  return {
+    words: words.filter((w) => !w.punct).map((w) => ({ txt: w.txt || '', gls: w.gls || '' })),
+    free: line.phrases.map((p) => p.free || '').filter(Boolean).join(' '),
+  };
+}
+
+function mgLoad(rec) {
+  const paras = (rec.doc && rec.doc.paragraphs) || [];
+  MG = {
+    docId: rec.id,
+    // Spans carry their own ids so a split or join never depends on array position — the position
+    // is exactly what the user is about to change.
+    /* ⚠ `timePending`, NOT a local flag name. isAligned() — the gate every shared audio helper
+     * checks before it will play, seek or draw a span — reads that exact field, so a span whose
+     * pending state hid under a different name would be silently treated as aligned and offered a
+     * ▶ that plays from 0 to 0. `timeEstimated` rides along untouched: an estimate IS a timeline,
+     * so it stays playable, and mgCommit must give it back rather than promote it to a measurement. */
+    spans: (rec.segments || []).map((s, i) => ({
+      id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
+      timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
+    })),
+    lines: paras.map((p, i) => ({ id: 'ln' + i, phrases: (p.segments || []).slice(), guid: p.guid })),
+    map: new Map(),
+    selSpan: null, selLine: null,
+  };
+  // An already-index-locked doc arrives pre-matched: 1:1 in order. Presenting that as "nothing is
+  // mapped yet" would make a user re-do work the file already records.
+  if (MG.spans.length === MG.lines.length) {
+    MG.spans.forEach((sp, i) => MG.map.set(sp.id, MG.lines[i].id));
+  }
+}
+
+const mgComplete = () =>
+  MG && MG.spans.length > 0 && MG.lines.length > 0
+  && MG.spans.every((s) => MG.map.has(s.id))
+  && MG.lines.every((l) => [...MG.map.values()].includes(l.id));
+
+/* Mapping is two clicks: pick a span, pick a line. Clicking a mapped pair again unmaps it, which
+ * is the only undo a matching screen actually needs — there is no partial state to unwind. */
+function mgPick(kind, id) {
+  if (kind === 'span') MG.selSpan = MG.selSpan === id ? null : id;
+  else MG.selLine = MG.selLine === id ? null : id;
+  if (MG.selSpan && MG.selLine) {
+    if (MG.map.get(MG.selSpan) === MG.selLine) MG.map.delete(MG.selSpan);
+    else MG.map.set(MG.selSpan, MG.selLine);
+    MG.selSpan = null; MG.selLine = null;
+  }
+  mgDraw();
+}
+
+// ── independent editing, left side ────────────────────────────────────────────────────────────
+/* ⚠ CUT WHERE THE PLAYHEAD IS, and only fall back to the midpoint when it is somewhere else. The
+ * Cut tab has meant this by "split" since v158 (cutHere), and now that these rows carry the same
+ * waveform and the same click-to-park behaviour, a ✂ that ignored the parked playhead would look
+ * identical to the Cut tab's and do something different — the user listens to the join, parks the
+ * cursor on it, presses ✂, and the cut lands in the middle of the span instead. The midpoint is
+ * kept for the case it is actually right for: a span nobody has listened into yet. */
+function mgSplitSpan(id) {
+  const i = MG.spans.findIndex((s) => s.id === id);
+  if (i < 0) return;
+  const sp = MG.spans[i];
+  const head = player?.playheadMs?.();
+  const inside = typeof head === 'number' && head > sp.start && head < sp.end;
+  const at = Math.round(inside ? head : (sp.start + sp.end) / 2);
+  if (at - sp.start < MIN_SEGMENT_MS || sp.end - at < MIN_SEGMENT_MS) { toast(t('mg.tooShort')); return; }
+  const a = { ...sp, id: sp.id + 'a', end: at };
+  const b = { ...sp, id: sp.id + 'b', start: at };
+  /* The two halves are new spans, so whatever the player was watching is gone — the same rule
+   * cutHere follows. Without this the audition runs on to a stop time that no longer exists. */
+  player?.clearSpan?.();
+  MG.spans.splice(i, 1, a, b);
+  // The old span's mapping cannot describe two pieces, so it is dropped and both are unmapped.
+  // Silently keeping it on one half would be a guess about which half the line belongs to.
+  const was = MG.map.get(sp.id);
+  MG.map.delete(sp.id);
+  if (was) toast(t('mg.splitUnmapped'));
+  mgDraw();
+}
+
+function mgJoinSpan(id) {
+  const i = MG.spans.findIndex((s) => s.id === id);
+  if (i <= 0) return;
+  const prev = MG.spans[i - 1], cur = MG.spans[i];
+  /* An estimate joined to a measurement is an estimate: the merged span is only as good as its
+   * weaker half, and saying otherwise would launder a guess into a timestamp. */
+  MG.spans.splice(i - 1, 2, {
+    ...prev, id: prev.id + '+', end: cur.end,
+    timePending: !!(prev.timePending || cur.timePending),
+    timeEstimated: !!(prev.timeEstimated || cur.timeEstimated),
+  });
+  MG.map.delete(prev.id); MG.map.delete(cur.id);
+  player?.clearSpan?.();
+  mgDraw();
+}
+
+// ── independent editing, right side ───────────────────────────────────────────────────────────
+/* Splitting a text line takes TWO points, and that is not a UI flourish: an interlinear line is a
+ * word/gloss run plus a free translation, and the FT is prose that does not align word by word. So
+ * where the words break tells you nothing about where the translation breaks, and the user has to
+ * say both — a scissors position in the word run, and a space in the free translation. */
+function mgSplitLine(id, wordIdx, ftCharIdx) {
+  const i = MG.lines.findIndex((l) => l.id === id);
+  if (i < 0) return;
+  const line = MG.lines[i];
+  const flat = line.phrases.flatMap((p) => p.words || []);
+  if (wordIdx <= 0 || wordIdx >= flat.length) { toast(t('mg.badSplit')); return; }
+  const ft = mgLineText(line).free;
+  const left = ft.slice(0, ftCharIdx).trim(), right = ft.slice(ftCharIdx).trim();
+  const mk = (words, free) => ({
+    id: line.id + (free === left ? 'a' : 'b'),
+    guid: newGuid(),
+    phrases: [makeSegment(words.map((w) => w.txt).join(' '), words, { free })],
+  });
+  MG.lines.splice(i, 1, mk(flat.slice(0, wordIdx), left), mk(flat.slice(wordIdx), right));
+  for (const [sp, ln] of [...MG.map]) if (ln === line.id) MG.map.delete(sp);
+  mgDraw();
+}
+
+function mgJoinLine(id) {
+  const i = MG.lines.findIndex((l) => l.id === id);
+  if (i <= 0) return;
+  const prev = MG.lines[i - 1], cur = MG.lines[i];
+  MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, phrases: [...prev.phrases, ...cur.phrases] });
+  for (const [sp, ln] of [...MG.map]) if (ln === prev.id || ln === cur.id) MG.map.delete(sp);
+  mgDraw();
+}
+
+/* Collapse back to the index-locked model the rest of the suite reads.
+ *
+ * Spans are ordered by time; each line takes the earliest span mapped to it, and lines with several
+ * spans are given the union of their extent. That is the only reading that cannot lose audio: a
+ * line covering three spans is one line of text that took three bursts to say, so its span runs
+ * from the first burst to the last.
+ */
+async function mgCommit() {
+  const rec = await db.getDoc(MG.docId);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  const byLine = new Map();
+  for (const sp of MG.spans) {
+    const ln = MG.map.get(sp.id);
+    if (!ln) continue;
+    if (sp.timePending) continue;   // an unaligned span contributes no timeline to the union
+    const cur = byLine.get(ln);
+    byLine.set(ln, cur
+      ? { start: Math.min(cur.start, sp.start), end: Math.max(cur.end, sp.end),
+          timeEstimated: !!(cur.timeEstimated || sp.timeEstimated) }
+      : { start: sp.start, end: sp.end, timeEstimated: !!sp.timeEstimated });
+  }
+  rec.segments = MG.lines.map((l) => {
+    const ext = byLine.get(l.id);
+    if (!ext) return { start: 0, end: 0, timePending: true };
+    // An estimated time stays labelled as one all the way through: exports and the archive care
+    // whether a boundary was measured or guessed, and the matcher is not what turns one into the other.
+    return ext.timeEstimated ? { start: ext.start, end: ext.end, timeEstimated: true }
+                             : { start: ext.start, end: ext.end };
+  });
+  rec.doc = rec.doc || {};
+  rec.doc.paragraphs = MG.lines.map((l) => ({ guid: l.guid || newGuid(), segments: l.phrases }));
+  rec.segCount = rec.segments.length;
+  rec.modified = Date.now();
+  await db.putDoc(rec);
+  db.broadcastLive('docs');
+  toast(t('mg.committed').replace('{n}', rec.segments.length));
+  mgClose();
+  sgRenderList();
+}
+
+function mgDraw() {
+  const box = $('#mg-body');
+  if (!box || !MG) return;
+  /* ⚠ KEEP BOTH PANES WHERE THEY WERE. mgDraw rebuilds the whole body on every pick, split, join and
+   * unmap — which was survivable when a row was one line of text and is not now: each pane scrolls
+   * independently (that is the point of two panes; the span you are matching and the line you are
+   * matching it to are rarely the same distance down), so a rebuild that reset both to the top threw
+   * the user back to the beginning of a 200-span recording every time they mapped a pair. Same
+   * failure renderCut fixed for the Cut tab in v357, same fix. */
+  const keep = ['#mg-spans .mg-list', '#mg-lines .mg-list']
+    .map((sel) => { const el = box.querySelector(sel); return el ? el.scrollTop : 0; });
+  const mapped = (id) => MG.map.has(id);
+  const lineHasSpan = (id) => [...MG.map.values()].includes(id);
+  /* A colour per pair: the pairing has to be readable at a glance, and on a cheap phone in daylight
+   * a thin connecting line would not be.
+   *
+   * ⚠ SPACED BY THE GOLDEN ANGLE, NOT HASHED. A string hash over the line ids gave adjacent lines
+   * adjacent hues — measured on a three-line text: 326°, 327°, 328°, three shades of the same pink.
+   * The colour channel was doing nothing, and doing nothing invisibly, because each pair genuinely
+   * had its "own" hue. Stepping by 137.508° from the line's INDEX is what actually separates
+   * neighbours, which is the only case that matters: nobody confuses line 1 with line 40. */
+  const lineOrder = new Map(MG.lines.map((l, i) => [l.id, i]));
+  const hueForLine = (lineId) => Math.round((lineOrder.get(lineId) || 0) * 137.508) % 360;
+
+  box.innerHTML = `
+    <div class="mg-panes">
+      <section class="mg-pane" id="mg-spans">
+        <h3 data-i18n="mg.audio">Audio</h3>
+        <ul class="mg-list"></ul>
+      </section>
+      <section class="mg-pane" id="mg-lines">
+        <h3 data-i18n="mg.text">Text</h3>
+        <ul class="mg-list"></ul>
+      </section>
+    </div>`;
+  applyI18n(box);
+
+  /* ⚠ THE LEFT PANE IS THE CUT TAB'S ROW, NOT A LIST OF TIMESTAMPS. It was one — "0:04 – 0:09" as
+   * text — and that is unusable for the job: matching a span to a line means knowing WHICH span,
+   * and a span is identified by what it sounds like, not by when it starts. Seth, on this build:
+   * "it can definitely re-use/adapt/repurpose a lot of what we made on the cut tab (auto scrolling,
+   * big player/segments, sync between big player and segment player, etc)".
+   *
+   * So every piece here is the shared one, wired exactly as renderCut wires it: wireSegPlay for the
+   * ▶ (plays THIS span only, and pauses in place on a second press), wireWaveSeek for click-to-park
+   * and drag-to-scrub, attachSpanWave for the peaks and their resize/decode repair, and mgTicker for
+   * the cursor, the ▶/⏸ glyph and the follow-scroll. Nothing is a second implementation — the
+   * matcher would otherwise be the fourth waveform list in this suite and the first to feel wrong.
+   *
+   * The times stay, under the wave, because a matcher IS partly a bookkeeping screen. */
+  const su = box.querySelector('#mg-spans .mg-list');
+  MG.spans.forEach((sp, i) => {
+    const li = document.createElement('li');
+    li.className = 'mg-item mg-span' + (mapped(sp.id) ? ' mg-mapped' : '') + (MG.selSpan === sp.id ? ' mg-sel' : '')
+      + (sp.timePending ? ' seg-pending' : '') + (sp.timeEstimated ? ' seg-est' : '');
+    li.dataset.sp = sp.id;
+    if (mapped(sp.id)) li.style.setProperty('--mg-hue', hueForLine(MG.map.get(sp.id)));
+    li.innerHTML = `<button class="mg-pick"></button>
+      <button class="seg-play mg-play"></button>
+      <canvas class="seg-wave mg-wave"></canvas>
+      <span class="mg-time"></span>
+      <span class="mg-actions">
+        <button class="mg-split icon-btn2" title="${esc(t('mg.splitSpan'))}">✂</button>
+        <button class="mg-join icon-btn2" title="${esc(t('mg.joinPrev'))}"${i === 0 ? ' disabled' : ''}>⤴</button>
+      </span>`;
+    li.querySelector('.mg-time').textContent = sp.timePending
+      ? t('seg.pendingTip')
+      : `${mgFmt(sp.start)} – ${mgFmt(sp.end)}`;
+    const pick = li.querySelector('.mg-pick');
+    pick.textContent = String(i + 1);
+    pick.onclick = () => mgPick('span', sp.id);
+    li.querySelector('.mg-split').onclick = () => mgSplitSpan(sp.id);
+    li.querySelector('.mg-join').onclick = () => mgJoinSpan(sp.id);
+
+    const play = li.querySelector('.mg-play');
+    const wave = li.querySelector('.mg-wave');
+    play.textContent = sp.timePending ? '⋯' : '▶';
+    play.setAttribute('aria-label', t(sp.timePending ? 'seg.pendingTip' : 'seg.playTip'));
+    wireSegPlay(play, sp, () => player, (s2) => { lastPlayTarget = s2; });
+    wireWaveSeek(wave, sp, () => player, (s2) => { lastPlayTarget = s2; });
+    // v326 everywhere else in the suite: touching a waveform selects it for Space/⏮ — including an
+    // unaligned one, which wireWaveSeek deliberately leaves unwired (no timeline to seek into).
+    if (sp.timePending) wave.addEventListener('pointerdown', () => { lastPlayTarget = sp; });
+    attachSpanWave(wave, sp);
+    su.appendChild(li);
+  });
+
+  const lu = box.querySelector('#mg-lines .mg-list');
+  MG.lines.forEach((ln, i) => {
+    const txt = mgLineText(ln);
+    const li = document.createElement('li');
+    li.className = 'mg-item mg-line' + (lineHasSpan(ln.id) ? ' mg-mapped' : '') + (MG.selLine === ln.id ? ' mg-sel' : '');
+    if (lineHasSpan(ln.id)) li.style.setProperty('--mg-hue', hueForLine(ln.id));
+    li.innerHTML = `<button class="mg-pick"></button>
+      <div class="mg-interlinear"><div class="mg-words"></div><div class="mg-ft"></div></div>
+      <span class="mg-actions">
+        <button class="mg-join icon-btn2" title="${esc(t('mg.joinPrev'))}"${i === 0 ? ' disabled' : ''}>⤴</button>
+      </span>`;
+    li.querySelector('.mg-pick').textContent = String(i + 1);
+    li.querySelector('.mg-pick').onclick = () => mgPick('line', ln.id);
+    const wbox = li.querySelector('.mg-words');
+    txt.words.forEach((w, wi) => {
+      // The scissors BETWEEN word and gloss is the first of the two split points. It sits in the
+      // gap it would cut, so there is nothing to explain.
+      if (wi > 0) {
+        const cut = document.createElement('button');
+        cut.className = 'mg-scissors';
+        cut.textContent = '✂';
+        cut.title = t('mg.cutHere');
+        cut.onclick = () => { MG.pendingWordCut = { line: ln.id, at: wi }; mgDraw(); toast(t('mg.nowPickFt')); };
+        if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id && MG.pendingWordCut.at === wi) cut.classList.add('mg-armed');
+        wbox.appendChild(cut);
+      }
+      const stack = document.createElement('span');
+      stack.className = 'mg-wstack';
+      stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
+      stack.querySelector('.mg-w').textContent = w.txt;
+      stack.querySelector('.mg-g').textContent = w.gls;
+      wbox.appendChild(stack);
+    });
+    const ftbox = li.querySelector('.mg-ft');
+    if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id) {
+      // Second point: a space in the free translation. Every space is a target.
+      const ft = txt.free;
+      let last = 0;
+      ft.split(/(\s+)/).forEach((piece) => {
+        if (/^\s+$/.test(piece)) {
+          const b = document.createElement('button');
+          b.className = 'mg-ftgap';
+          b.title = t('mg.splitHere');
+          const at = last;
+          b.onclick = () => { const w = MG.pendingWordCut.at; MG.pendingWordCut = null; mgSplitLine(ln.id, w, at); };
+          ftbox.appendChild(b);
+        } else {
+          const s = document.createElement('span');
+          s.textContent = piece;
+          ftbox.appendChild(s);
+        }
+        last += piece.length;
+      });
+    } else {
+      ftbox.textContent = txt.free;
+    }
+    lu.appendChild(li);
+  });
+
+  const bar = $('#mg-status');
+  if (bar) {
+    const unmappedSpans = MG.spans.filter((s) => !mapped(s.id)).length;
+    const unmappedLines = MG.lines.filter((l) => !lineHasSpan(l.id)).length;
+    bar.textContent = mgComplete()
+      ? t('mg.allMapped')
+      : t('mg.remaining').replace('{a}', unmappedSpans).replace('{t}', unmappedLines);
+  }
+  const done = $('#mg-done');
+  if (done) done.disabled = !mgComplete();
+
+  ['#mg-spans .mg-list', '#mg-lines .mg-list'].forEach((sel, n) => {
+    const el = box.querySelector(sel);
+    if (el) el.scrollTop = keep[n];
+  });
+  /* ⚠ ONE HEAL ON A MACROTASK, NOT ONLY ON A FRAME. Every strip here is drawn in the same turn the
+   * rows are created, so layout has not run yet and each canvas measures 0 wide — the first paint is
+   * always at the default 300×150 and always wrong. The Cut tab lives with that because two things
+   * repair it: a ResizeObserver, and its rAF ticker. NEITHER RUNS IN A BACKGROUNDED TAB — both are
+   * tied to the rendering lifecycle — so a matcher opened in a tab the user then switched away from
+   * (or restored on a phone that backgrounded it) would come back to four flat grey slabs and no
+   * event left to fix them. A macrotask always runs, and the browser lays out before it: the same
+   * reason segment-strips' own loader yields with setTimeout rather than rAF. */
+  setTimeout(() => {
+    if (!MG) return;
+    box.querySelectorAll('.mg-wave').forEach((w) => healSpanWave(w));
+    /* The cut marks on the overview, pushed here as well as from the ticker. Every split and join
+     * moves them, and waiting a frame to say so makes the big waveform briefly disagree with the
+     * list beneath it — on the one screen whose whole job is that the two agree. The ticker's count
+     * check stays as the backstop for a player that reloads underneath us. */
+    player?.setBoundaries?.(mgBoundaryTimes());
+  }, 0);
+  // The rows the ticker was writing into no longer exist; it looks them up fresh each frame, so it
+  // only has to be running. Restarting is what makes a redraw after the peaks land pick them up.
+  mgStartTicker();
+}
+
+/* The matcher's own rAF loop — the Cut tab's ticker, minus the parts that belong to cutting.
+ *
+ * It does four things, all of which the Cut tab already does and none of which survives being
+ * skipped here: moves the playhead cursor across the span it is inside, keeps that row's glyph
+ * showing ⏸ while it plays, scrolls the row into view when playback moves off screen (`followLine`,
+ * with its 4-second stand-off after a user scroll), and honours a "take me to that line" request
+ * from a seek on the big player (`takeReveal`). It also heals a strip drawn before its peaks
+ * finished decoding, which is the difference between a waveform and a plausible-looking wrong one.
+ *
+ * ⚠ NO SCISSORS UNDER THE CURSOR, unlike the Cut tab. There, ✂ cuts at the playhead and the row is
+ * the only control; here every row already carries its own ✂ in the actions column, and mgSplitSpan
+ * cuts at the playhead anyway — a second scissors would be the same action twice, six pixels apart. */
+let mgRaf = 0;
+let mgFollowRow = null;
+function mgStopTicker() { if (mgRaf) cancelAnimationFrame(mgRaf); mgRaf = 0; mgFollowRow = null; }
+function mgStartTicker() {
+  mgStopTicker();
+  const tick = () => {
+    try {
+      if (!MG) { mgStopTicker(); return; }
+      const host = $('#mg-spans .mg-list');
+      if (!host) return;
+      const p = player;
+      const now = p?.playheadMs?.();
+      /* The cut marks live inside wavesurfer's own wrapper, so a player reload takes them with it.
+       * One property read per frame; re-pushed only when the counts disagree — same as the Cut tab. */
+      if (p && p.boundaryCount && p.durationMs?.()) {
+        const want = mgBoundaryTimes();
+        if (p.boundaryCount() !== want.length) p.setBoundaries(want);
+      }
+      host.querySelectorAll('.mg-span').forEach((row) => {
+        const sp = MG.spans.find((x) => x.id === row.dataset.sp);
+        const wave = row.querySelector('.mg-wave');
+        healSpanWave(wave);
+        if (!sp || sp.timePending || typeof now !== 'number') { row.querySelector('.seg-cursor')?.remove(); return; }
+        // The LAST span includes its own end — otherwise the cursor vanishes for the final instant
+        // of the recording, which is exactly where a user is looking. Same rule as the Cut ticker.
+        const last = sp === MG.spans[MG.spans.length - 1];
+        const inSeg = now >= sp.start && (now < sp.end || (last && now <= sp.end));
+        const rolling = !!p?.playing?.() && inSeg;
+        const btn = row.querySelector('.mg-play');
+        if (btn) { const want = rolling ? '⏸' : '▶'; if (btn.textContent !== want) btn.textContent = want; }
+        if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
+        let cur = row.querySelector('.seg-cursor');
+        if (!inSeg) { if (cur) cur.remove(); return; }
+        takeReveal(row);
+        mgFollowRow = followLine(row, rolling, mgFollowRow, p);
+        if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
+        const frac = Math.min(1, Math.max(0, (now - sp.start) / Math.max(1, sp.end - sp.start)));
+        cur.style.left = (wave.offsetLeft + frac * wave.offsetWidth) + 'px';
+        cur.style.top = wave.offsetTop + 'px';
+        cur.style.height = wave.offsetHeight + 'px';
+      });
+    } finally {
+      if (MG) mgRaf = requestAnimationFrame(tick);
+    }
+  };
+  mgRaf = requestAnimationFrame(tick);
+}
+
+// The interior cuts, for the big player's own waveform: where one span ends and the next begins.
+// The final span's end is the end of the recording, which is not a cut anyone made.
+function mgBoundaryTimes() {
+  const out = [];
+  if (!MG) return out;
+  for (let i = 0; i < MG.spans.length - 1; i++) {
+    const sp = MG.spans[i];
+    if (!sp.timePending) out.push(sp.end);
+  }
+  return out;
+}
+
+/* Load the recording, then the peaks, then redraw — in that order, and each step announced.
+ *
+ * ⚠ THE PANE IS DRAWN BEFORE ANY OF THIS FINISHES, deliberately: peaks for a 40-minute recording are
+ * seconds of work, and the mapping the user came to do needs the TEXT pane, which is ready
+ * immediately. So the spans appear at once with flat strips and fill in behind — rather than holding
+ * a whole screen hostage to audio the user may not even play.
+ *
+ * Every await is followed by the same guard, because all of them are long enough for the user to
+ * have pressed Back: a late resolve must not load a player, draw peaks, or start a ticker for a
+ * document that is no longer open. */
+async function mgPrepareAudio(docId) {
+  const note = $('#mg-audio-note');
+  const prog = segPrep('#mg-audio-note');
+  const live = () => MG && MG.docId === docId;
+  if (note) note.hidden = false;
+  prog('read', null);
+  let media = await db.getMedia(docId).catch(() => null);
+  media = await segWorkingMedia(docId, media, current && current.title, prog);
+  if (!live()) return;
+  if (!media || !media.blob) {
+    // Reachable: sgRenderList disables Open for a text with no recording, but a text can lose its
+    // audio between the list rendering and the row being tapped. Say so rather than showing strips
+    // that will never draw.
+    if (note) segProgress(note, t('cut.noAudio'), 0);
+    return;
+  }
+  const p = getPlayer();
+  playerDocId = docId;
+  if (p.loadedFor !== docId) {
+    p.loadedFor = docId;
+    playerReadyFor = null;
+    await p.load(media);
+    if (p.loadedFor === docId) playerReadyFor = docId;   // a newer load supersedes silently
+  }
+  if (!live()) return;
+  p.root.hidden = false;
+  // ⚠ NO ✕. This app matches audio to text; detaching the recording is not one of its verbs, and the
+  // dock's remove button would delete the media out from under the very screen using it.
+  if (p.el && p.el.remove) p.el.remove.hidden = true;
+  await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
+  if (!live()) return;
+  if (note) note.hidden = true;
+  p.setBoundaries?.(mgBoundaryTimes());
+  mgDraw();          // redraw with real peaks — attachSpanWave paints from peaksCache
+}
+
+// One exit, so the ticker, the player and the open record are always released together. Three
+// callers (Back, Done, and a failed open) each releasing two of the three is how a rAF loop outlives
+// its screen and keeps scrolling a list nobody is looking at.
+function mgClose() {
+  mgStopTicker();
+  MG = null;
+  player?.pause?.();
+  player?.clearSpan?.();
+  // ⚠ AND HIDE THE DOCK. It is a sibling of the views, not part of one, so `show('segmenter')` does
+  // not touch it — the transport for a recording nobody has open stayed on screen above the text
+  // list, offering to play audio that belonged to whatever was last matched.
+  player?.hide?.();
+  lastPlayTarget = null;
+  show('segmenter');
+}
+
+async function mgOpen(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  current = rec;
+  mgLoad(rec);
+  const view = $('#view-matcher');
+  if (view) {
+    view.innerHTML = `
+      <div class="mg-bar">
+        <button id="mg-back" class="link-btn"></button>
+        <span id="mg-title" class="mg-title"></span>
+        <span id="mg-status" class="mg-status"></span>
+        <button id="mg-done" class="primary-btn" disabled></button>
+      </div>
+      <p id="mg-audio-note" class="note seg-loading" hidden role="status" aria-live="polite">
+        <span class="seg-loading-text"></span>
+        <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span>
+      </p>
+      <div id="mg-body"></div>`;
+    $('#mg-back').textContent = t('mg.back');
+    $('#mg-back').onclick = () => mgClose();
+    $('#mg-title').textContent = rec.title || t('untitled');
+    $('#mg-done').textContent = t('mg.done');
+    $('#mg-done').onclick = () => mgCommit();
+  }
+  show('matcher');
+  mgDraw();
+  mgPrepareAudio(id);   // not awaited — see the comment on it
 }
 
 function setupSegmenterMode() {

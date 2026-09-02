@@ -2971,6 +2971,23 @@ body.rp-standalone main { padding-top: 0; }
 .mg-span .mg-actions{grid-column:4;grid-row:1 / span 2;margin-left:0}
 .mg-span.seg-pending .seg-wave{opacity:.45}
 .mg-span.seg-on{outline:2px solid #93c5fd;outline-offset:-2px}
+/* ⚠ The pick badge sizes itself: .mg-pick's `flex:0 0 2rem` is inert inside a grid, so the column
+   collapsed to the glyph and the button measured 21px wide — under half the 44px tap target the
+   rest of this suite holds itself to, on the control that IS the mapping gesture. */
+.mg-span .mg-pick{min-width:2rem}
+/* ON A PHONE THE WAVEFORM TAKES ITS OWN ROW. Measured at 375px it was 141px of a 333px row — the
+   number badge, the ▶ and the split/join pair had eaten the rest — and 141px of waveform for a
+   five-second span is not enough to recognise it by, which is the one thing the left pane is for.
+   Full width below the controls gives it 333px, and the controls lose nothing: they were already
+   as wide as they needed to be. */
+@media (max-width:560px){
+  .mg-span{grid-template-columns:auto auto minmax(0,1fr) auto;grid-template-rows:auto auto auto}
+  .mg-span .mg-pick{grid-row:1;min-width:44px;min-height:44px}
+  .mg-span .seg-play{grid-row:1;min-width:44px;height:44px}
+  .mg-span .mg-time{grid-column:3;grid-row:1;padding-top:0}
+  .mg-span .mg-actions{grid-column:4;grid-row:1}
+  .mg-span .seg-wave{grid-column:1 / -1;grid-row:2;height:44px}
+}
 .mg-item.mg-mapped{border-left:6px solid hsl(var(--mg-hue,200) 65% 45%);
   background:hsl(var(--mg-hue,200) 70% 97%)}
 .mg-item.mg-sel{outline:3px solid var(--teal,#10514d);outline-offset:1px}

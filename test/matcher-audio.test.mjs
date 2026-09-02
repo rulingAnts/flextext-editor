@@ -111,5 +111,15 @@ ok(/\.mg-span \.seg-wave\{grid-column:3/.test(css), 'the waveform is moved to it
 ok(/\.mg-list\{[^}]*overflow:auto/.test(css), 'each pane scrolls on its own — the span and its line are rarely the same distance down');
 ok(!/\.mg-bar\{position:sticky/.test(css), 'the bar is NOT sticky: the dock already claims top:0 and would cover it');
 
+console.log('\non a phone the waveform gets the whole row, and the pick badge is a real tap target');
+// Measured at 375px before this: a 141px waveform in a 333px row, and a 21px-wide pick button —
+// under half the 44px the rest of the suite holds itself to, on the control that IS the gesture.
+const phone = css.slice(css.indexOf('@media (max-width:560px){', css.indexOf('.mg-span{')));
+ok(/\.mg-span \.seg-wave\{grid-column:1 \/ -1/.test(phone), 'the waveform spans the full row width below the controls');
+ok(/\.mg-span \.mg-pick\{grid-row:1;min-width:44px;min-height:44px\}/.test(phone), 'the pick badge is 44x44');
+ok(/\.mg-span \.seg-play\{grid-row:1;min-width:44px;height:44px\}/.test(phone), 'and so is the play button');
+// `flex:0 0 2rem` is inert inside a grid, which is how the badge came to measure 21px at all.
+ok(/\.mg-span \.mg-pick\{min-width:2rem\}/.test(css), 'and the badge carries an explicit width at every size, not an inert flex basis');
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

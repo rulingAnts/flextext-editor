@@ -384,6 +384,28 @@ copying the plan into plans/ then deleting).
   both: a point in the word/gloss run (the scissors), and a space in the free translation.
 - Joining is the inverse.
 
-⚠ Segmenting still edits text: `segments[i]` IS baseline paragraph i (segments.js
-cutAtPlayhead/joinWithPrevious), so a split inserts a paragraph and a join merges two. The two-pane
-UI is a different FACE on that model, not a second model.
+### The two sides are INDEPENDENT, and that is the architectural point (Seth, 2026-09-03)
+
+> *"Splitting and joining on the audio segments and on the text lines should be independent of each
+> other — and then you map/match the pieces graphically until they're all mapped and the user clicks
+> done."*
+
+So the flow is: cut the audio however it falls, cut the text however it reads, **then** map piece to
+piece, and finish when everything is mapped.
+
+⚠ **This is NOT the engine's current model, and that is the whole build.** Today `segments[i]` IS
+baseline paragraph i (`segments.js` cutAtPlayhead / joinWithPrevious): the two are index-locked, so
+cutting audio inserts a paragraph and cutting text moves audio boundaries. Under Seth's design they
+are two independently editable lists plus an explicit MAPPING between them, and the index-lock is
+only re-established at the end, when the user clicks Done and the mapping is applied.
+
+That means the app needs:
+- an audio-span list it can split/join without touching the text,
+- a text-line list it can split/join without touching the audio,
+- a mapping (span ↔ line) held separately, drawn between the panes,
+- a completeness check — "all mapped" is what enables Done,
+- and one commit step that writes the mapping back into the index-locked model the rest of the
+  suite already understands, so nothing downstream needs to learn a new shape.
+
+Splitting a text line still takes TWO clicks (the scissors in the word/gloss run, and a space in the
+free translation), because the FT is prose and does not align word by word.

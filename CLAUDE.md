@@ -760,12 +760,33 @@ approval AND a stated cost estimate first.**
 - Safety valve: with **no payment method on file, GitHub blocks usage at the quota and
   cannot bill** — keep it that way, or set stop-usage budgets.
 
-So WITHOUT Seth's explicit OK (and cost), do **not**: add or change `.github/workflows/**`;
-use a non-standard `runs-on:`; add a `schedule:` (cron) trigger; create Codespaces; use
-Git LFS; publish private Packages; or change the plan / budgets. The local
-`.git/hooks/pre-push` blocks workflow pushes (override `ALLOW_WORKFLOW_PUSH=1`) and
-production-branch pushes (`ALLOW_MAIN_PUSH=1`) — set those flags only after Seth approves
-that specific push.
+So WITHOUT Seth's explicit OK (and cost), do **not**: use a non-standard `runs-on:`; add a
+`schedule:` (cron) trigger; create Codespaces; use Git LFS; publish private Packages; or
+change the plan / budgets. The local `.git/hooks/pre-push` blocks workflow pushes (override
+`ALLOW_WORKFLOW_PUSH=1`) and production-branch pushes (`ALLOW_MAIN_PUSH=1`).
+
+### 🚩 AMENDED (Seth, 2026-09-03): when the cost is KNOWN to be zero, just go
+
+> *"IF you know the cost is free, then you may go for it without asking for approval first…
+> If cost is the blocker."*
+
+**Claude may set `ALLOW_WORKFLOW_PUSH=1` itself when it has ESTABLISHED that the change is
+free** — that is, all of: this repo is **public**, the workflow uses only **standard**
+GitHub-hosted runners, and the change adds **no** `schedule:`/cron trigger, no larger or GPU
+runner, no Codespaces, no LFS, and no private Packages. Editing an existing manual
+(`workflow_dispatch`) workflow — adding an input, extending an app list — is the ordinary
+case and is free.
+
+Two limits on that, and they are the point:
+
+1. **"Free" must be established, not assumed.** If you have not actually checked the repo's
+   visibility and the `runs-on:` lines in the file you are touching, you do not know, and
+   the old rule applies. Uncertainty is not a tie-breaker in favour of pushing.
+2. **The relaxation covers COST ONLY.** *"If cost is the blocker."* A workflow change can
+   deserve a pause for reasons that have nothing to do with billing — it alters what
+   deploys, or when, or could strand a release path. That judgement is unchanged and still
+   Seth's. The guard's message no longer decides for you which kind of change you have; you
+   do.
 
 ---
 

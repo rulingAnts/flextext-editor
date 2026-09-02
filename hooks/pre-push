@@ -18,7 +18,20 @@
 
 set -uo pipefail
 repo="$(git rev-parse --show-toplevel)"
-remote_ref="${2:-}"
+
+# ⚠ git gives a pre-push hook the remote NAME in $1 and the remote URL in $2. NEITHER IS A REF.
+# The refs arrive on STDIN, one line per ref:
+#     <local_ref> <local_sha> <remote_ref> <remote_sha>
+#
+# This is read ONCE, here, because stdin is a stream: the secrets guard below used to consume it,
+# so anything reading it afterwards got nothing. Both halves of that trap were live until
+# 2026-09-02 — the production guard was matching `*refs/heads/main*` against the remote URL, which
+# can never contain it, so IT HAD NEVER FIRED. A `git push origin main` sailed through with no
+# ALLOW_MAIN_PUSH and no complaint, which is how it was found.
+#
+# The lesson worth keeping: this guard was not weakened, it was never armed, and nothing said so.
+# A hook that silently passes looks exactly like a hook that approves.
+REFS="$(cat)"
 
 # ── 0. FRESHNESS ──────────────────────────────────────────────────────────────────────────────
 # Not about what this push would DO — git already refuses a non-fast-forward — but about what the
@@ -31,7 +44,8 @@ remote_ref="${2:-}"
 # Scan the commits actually being pushed, not the whole tree: fast, and it is what is leaving.
 if [ -x "$repo/check-secrets.sh" ]; then
   range=""
-  while read -r _local_ref _local_sha remote_name remote_sha; do
+  # Fed from the captured REFS, not stdin — see the note at the top.
+  while read -r _local_ref _local_sha _remote_ref remote_sha; do
     [ -n "${_local_sha:-}" ] || continue
     case "$_local_sha" in *[!0]*) ;; *) continue ;; esac      # all-zeroes = a branch DELETE
     case "${remote_sha:-}" in
@@ -44,7 +58,7 @@ if [ -x "$repo/check-secrets.sh" ]; then
     else
       "$repo/check-secrets.sh" || exit 1
     fi
-  done
+  done <<< "$REFS"
   # No stdin (e.g. run by hand): fall back to scanning everything tracked.
   [ -n "${range:-}" ] || "$repo/check-secrets.sh" >/dev/null || { "$repo/check-secrets.sh"; exit 1; }
 fi
@@ -60,14 +74,28 @@ if [ "${ALLOW_WORKFLOW_PUSH:-0}" != "1" ]; then
 fi
 
 # ── 3. PRODUCTION ─────────────────────────────────────────────────────────────────────────────
-case "$remote_ref" in
-  *productionWeb*|*refs/heads/main*)
-    if [ "${ALLOW_MAIN_PUSH:-0}" != "1" ]; then
-      echo "pre-push: refusing to push a production branch without an explicit go-ahead." >&2
-      echo "          productionWeb is the live site field translators load." >&2
-      echo "          With Seth's test-drive sign-off: ALLOW_MAIN_PUSH=1 git push origin productionWeb" >&2
-      exit 1
-    fi ;;
-esac
+# Matched against the REMOTE ref (field 3 of each stdin line), which is what is actually being
+# written. Both branches are guarded, as README.md documents: productionWeb is the live site, and
+# main is the releasable trunk a release fast-forwards FROM — an unreviewed commit there is one
+# ff-merge away from the field.
+#
+# ⚠ The point of this guard is the PAUSE, not the permission. It exists to stop an agent session
+# that has not read the branch policy from pushing on momentum; the environment variable is a
+# deliberate act that a careless run will not perform.
+if [ "${ALLOW_MAIN_PUSH:-0}" != "1" ]; then
+  blocked=""
+  while read -r _l _ls remote_ref _rs; do
+    case "$remote_ref" in
+      refs/heads/productionWeb|refs/heads/main) blocked="${blocked}${blocked:+, }${remote_ref#refs/heads/}" ;;
+    esac
+  done <<< "$REFS"
+  if [ -n "$blocked" ]; then
+    echo "pre-push: refusing to push a production branch without an explicit go-ahead ($blocked)." >&2
+    echo "          productionWeb is the live site field translators load; main is what a release" >&2
+    echo "          fast-forwards from, so an unreviewed commit there is one merge from the field." >&2
+    echo "          With Seth's sign-off:  ALLOW_MAIN_PUSH=1 git push origin $blocked" >&2
+    exit 1
+  fi
+fi
 
 exit 0

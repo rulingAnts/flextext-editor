@@ -366,3 +366,24 @@ copying the plan into plans/ then deleting).
 4. **Write the regression check before the fix, and watch it FAIL.** Twice on 2026-08-14 a test
    passed with the bug still present — once because the fixture was too short to show it, once
    because it measured the wrong thing entirely. A test nobody has seen fail is a comment.
+
+## Audio Segmenter — the matcher is TWO PANES, not the Cut tab (Seth, 2026-09-03)
+
+> *"I'm not sure whether we want to reuse the existing Cut tab exactly... I was thinking a left
+> column/area that's roughly the same as the cut tab and a right column/area/frame that has
+> interlinear text lines. And then we match them (we can split or join text lines, but have to click
+> the two points — the scissors between the word and the gloss, and a space on the free translation
+> line)."*
+
+- **Left**: the Cut-tab surface — waveform, spans, guess-the-lines.
+- **Right**: the interlinear lines of the text, as lines.
+- **Matching** is the product: line ↔ span.
+- **Splitting a text line takes TWO clicks, and that is the interesting part.** An interlinear line
+  is a word/gloss stack plus a free translation, and the FT is prose that does not align word by
+  word — so where the words break does not tell you where the translation breaks. The user says
+  both: a point in the word/gloss run (the scissors), and a space in the free translation.
+- Joining is the inverse.
+
+⚠ Segmenting still edits text: `segments[i]` IS baseline paragraph i (segments.js
+cutAtPlayhead/joinWithPrevious), so a split inserts a paragraph and a join merges two. The two-pane
+UI is a different FACE on that model, not a second model.

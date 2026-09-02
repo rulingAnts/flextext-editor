@@ -794,6 +794,23 @@ export function attachSpanWave(canvas, seg) {
  * call the internal fixStaleWave directly. */
 export function healSpanWave(canvas) { fixStaleWave(canvas); }
 
+/* THE RECORDING'S LENGTH, AND WHERE ITS PAUSES ARE — as plain numbers, for a caller that keeps its
+ * OWN segment model.
+ *
+ * cutGuessSplits() cannot serve the matcher: it applies the result to the document through cutDeps
+ * and the index-locked model (N spans and N empty paragraphs, 1:1), which is precisely what the
+ * matcher exists not to do — its whole point is that audio and text are cut independently and
+ * reconciled at the end. What it needs is the boundary TIMES; what it does with them is its own
+ * business, and nothing is written to the doc until the user presses Done.
+ *
+ * Same peaks the waveforms are drawn from, so what it cuts on is what the user can see. */
+export function peaksDurationMs() { return peaksCache.durationMs || 0; }
+export function guessedBoundaries() {
+  const dur = peaksCache.durationMs || 0;
+  if (!peaksCache.peaks || !dur) return [];
+  return guessCuts(dur);
+}
+
 /* CLICK A WAVEFORM TO POSITION THE PLAYHEAD INSIDE ITS SEGMENT; DRAG TO SCRUB (Seth).
  * Position only — play/pause stays whatever it was, so the flow is: click (or drag) to park, then
  * Enter to break there, or ▶ to listen from there.

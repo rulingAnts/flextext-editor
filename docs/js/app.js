@@ -20,6 +20,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
+         peaksDurationMs, guessedBoundaries,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
@@ -27,7 +28,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
@@ -7833,8 +7834,56 @@ async function mgPrepareAudio(docId) {
   await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
   if (!live()) return;
   if (note) note.hidden = true;
+  /* ⚠ A TEXT THAT HAS NEVER BEEN CUT MUST NOT OPEN INTO AN EMPTY PANE. That is the NORMAL starting
+   * state for this app — you arrive with a recording and a text, and no cuts at all — and until now
+   * it was a dead end: no spans meant nothing to play, nothing to split, and no way to make the
+   * first one, because every editing verb here operates on an existing span. The Cut tab never had
+   * this problem; renderCut seeds a whole-file span through reconcile(), and the matcher simply did
+   * not inherit that. One span covering the recording makes the ✂ on it the first cut. */
+  if (!MG.spans.length) {
+    const dur = peaksDurationMs();
+    if (dur > 0) MG.spans = [{ id: 'sp0', start: 0, end: dur, timePending: false, timeEstimated: false }];
+  }
   p.setBoundaries?.(mgBoundaryTimes());
   mgDraw();          // redraw with real peaks — attachSpanWave paints from peaksCache
+}
+
+/* ✨ GUESS THE LINES — cut the recording at its pauses, the same detector the Cut tab uses, over the
+ * same peaks the waveforms are drawn from.
+ *
+ * ⚠ IT TOUCHES ONLY MG.spans, NEVER THE DOCUMENT. cutGuessSplits() rewrites the doc into N spans and
+ * N empty paragraphs, 1:1 — right for the Cut tab, and the exact coupling this app exists to avoid,
+ * since here the text already exists and its lines must survive. So the guess is a proposal on the
+ * audio side alone: nothing is written until Done, and Back discards it.
+ *
+ * The three guards are the Cut tab's, for the same reasons: refuse a recording longer than the
+ * detector's limit (one press on 40 minutes is hundreds of live canvases on a phone), say so when
+ * there are no clear pauses rather than silently doing nothing, and ask first if the user has
+ * already cut by hand — that work is exactly what this would throw away. */
+async function mgGuess() {
+  if (!MG) return;
+  const dur = peaksDurationMs();
+  if (!dur) { toast(t('cut.no.guessAudio'), 6000); return; }
+  if (dur > GUESS_MAX_MS) {
+    toast(t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) }), 9000);
+    return;
+  }
+  // >1 span means real cutting has happened. One whole-file span is the seed, not work.
+  if (MG.spans.length > 1 && !await confirmDialog(t('mg.guessReplace'))) return;
+  if (!MG) return;                      // the dialog is async; the user may have left
+  const cuts = guessedBoundaries();
+  if (!cuts.length) { toast(t('cut.no.guessNone'), 7000); return; }
+  const edges = [0, ...cuts, dur];
+  MG.spans = edges.slice(0, -1).map((start, i) => ({
+    id: 'g' + i, start, end: edges[i + 1], timePending: false, timeEstimated: false,
+  }));
+  // Every mapping referred to spans that no longer exist. Silently keeping any of them would claim
+  // a pairing the user never made against audio they have not heard in these pieces.
+  MG.map.clear();
+  MG.selSpan = null;
+  player?.clearSpan?.();
+  toast(t('mg.guessed').replace('{n}', MG.spans.length), 5000);
+  mgDraw();
 }
 
 // One exit, so the ticker, the player and the open record are always released together. Three
@@ -7865,6 +7914,7 @@ async function mgOpen(id) {
         <button id="mg-back" class="link-btn"></button>
         <span id="mg-title" class="mg-title"></span>
         <span id="mg-status" class="mg-status"></span>
+        <button id="mg-guess" class="secondary-btn icon-btn2">✨</button>
         <button id="mg-done" class="primary-btn" disabled></button>
       </div>
       <p id="mg-audio-note" class="note seg-loading" hidden role="status" aria-live="polite">
@@ -7875,6 +7925,12 @@ async function mgOpen(id) {
     $('#mg-back').textContent = t('mg.back');
     $('#mg-back').onclick = () => mgClose();
     $('#mg-title').textContent = rec.title || t('untitled');
+    // ✨ not a sentence — same low-literacy rule as the Cut tab's: a glyph, with its words in the
+    // tooltip and the aria-label.
+    const g = $('#mg-guess');
+    g.title = t('cut.guess');
+    g.setAttribute('aria-label', t('cut.guess'));
+    g.onclick = () => mgGuess();
     $('#mg-done').textContent = t('mg.done');
     $('#mg-done').onclick = () => mgCommit();
   }

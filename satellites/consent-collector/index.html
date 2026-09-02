@@ -12,24 +12,23 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Flextext Consent Collector">
-<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so the
-     consent/segmentation/upload code is maintained ONCE. This app is a thin shell: what
-     makes it a different app is __MODE plus its own PWA identity (sw.js, manifest
-     id/scope, icons). See CLAUDE.md "modularize what is app-specific, generalize what is
-     shared". -->
+<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so the consent,
+     recording and upload code is maintained ONCE. This app is a thin shell: what makes it a
+     different app is __MODE plus its own PWA identity (sw.js, manifest id/scope, icons).
+     See CLAUDE.md, "modularize what is app-specific, generalize what is shared". -->
 <link rel="stylesheet" href="/flextext-editor/css/app.css">
-<!-- Selects the mode in the shared engine. Classic inline script so it runs before the
-     deferred module executes. -->
+<!-- Selects the mode in the shared engine. Classic inline script so it runs before the deferred
+     module executes. -->
 <script>window.__MODE = 'consent';</script>
 </head>
 <body>
-  <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated rather
-       than shared: it is inline with no engine dependency, so it still shows when app.js fails to
-       load, which is exactly when knowing which site you are on matters most. Runtime hostname
-       detection, so this same file ships to production unchanged. -->
+  <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated
+       rather than shared: it is inline with no engine dependency, so it still shows when app.js
+       fails to load, which is exactly when knowing which site you are on matters most. Runtime
+       hostname detection, so this same file ships to production unchanged. -->
   <script>
     if (/\.(pages|workers)\.dev$/.test(location.hostname)) {
-      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site \u00b7 situs uji — not production / bukan produksi</div>');
+      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site · situs uji — not production / bukan produksi</div>');
     }
   </script>
 
@@ -55,21 +54,8 @@
   <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
 </div>
 
-<!-- Record-only view. Its contents are rendered by the shared js/app.js
-     (renderRecordView), so the markup lives in one place. -->
-<section id="view-record" class="view"></section>
-
-</main>
-
-<!-- Non-blocking upload status bar -->
-<div id="upload-bar" hidden>
-  <div class="upload-row">
-    <span id="upload-label"></span>
-    <div class="upload-progress"><div id="upload-fill"></div>
-
-<!-- The consent collector's one view: the texts on this device, grouped by author, with
-     their consent state. Rendered by the shared js/app.js (renderConsentView), so the
-     markup lives in one place. -->
+<!-- The collector's one view: the texts on this device, grouped by speaker, with their permission
+     state. Rendered by the shared js/app.js (renderConsentView), so the markup lives in one place. -->
 <section id="view-consent" class="view"></section>
 
 </main>
@@ -89,7 +75,7 @@
 <div id="toast" hidden></div>
 
 <!-- Consent / speaker-permission modal — KEEP IN SYNC with the editor repo.
-     This app is the one that exists to drive this modal, so a drift here is not cosmetic. -->
+     This app exists to drive this modal, so drift here is not cosmetic. -->
 <div id="consent-modal" class="modal" hidden>
   <div class="modal-card">
     <h3 data-i18n="consent.title">Speaker permission</h3>
@@ -117,8 +103,8 @@
   </div>
 </div>
 
-<!-- Share/save menu — KEEP IN SYNC with the editor repo. Consent hands off through the
-     NORMAL upload/save/send system; it does not grow a second export path. -->
+<!-- Share/save menu — KEEP IN SYNC with the editor repo. Consent hands off through the NORMAL
+     upload/save/send system; it does not grow a second export path. -->
 <div id="share-menu" class="modal" hidden>
   <div class="modal-card">
     <h3 data-i18n="share.title">Save and send</h3>
@@ -132,7 +118,7 @@
 </div>
 
 <!-- MP3 encoder + shared app engine load from the editor repo (same origin). lame.min.js is
-     required: the recorded "yes" is converted to MP3 before it is stored. -->
+     required: a recorded "yes" is converted to MP3 before it is stored. -->
 <script src="/flextext-editor/js/vendor/lame.min.js" defer></script>
 <script type="module" src="/flextext-editor/js/app.js"></script>
 </body>

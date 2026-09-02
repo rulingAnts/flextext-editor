@@ -12,24 +12,23 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Flextext Audio Segmenter">
-<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so the
-     consent/segmentation/upload code is maintained ONCE. This app is a thin shell: what
-     makes it a different app is __MODE plus its own PWA identity (sw.js, manifest
-     id/scope, icons). See CLAUDE.md "modularize what is app-specific, generalize what is
-     shared". -->
+<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so the consent,
+     recording and upload code is maintained ONCE. This app is a thin shell: what makes it a
+     different app is __MODE plus its own PWA identity (sw.js, manifest id/scope, icons).
+     See CLAUDE.md, "modularize what is app-specific, generalize what is shared". -->
 <link rel="stylesheet" href="/flextext-editor/css/app.css">
-<!-- Selects the mode in the shared engine. Classic inline script so it runs before the
-     deferred module executes. -->
+<!-- Selects the mode in the shared engine. Classic inline script so it runs before the deferred
+     module executes. -->
 <script>window.__MODE = 'segmenter';</script>
 </head>
 <body>
-  <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated rather
-       than shared: it is inline with no engine dependency, so it still shows when app.js fails to
-       load, which is exactly when knowing which site you are on matters most. Runtime hostname
-       detection, so this same file ships to production unchanged. -->
+  <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated
+       rather than shared: it is inline with no engine dependency, so it still shows when app.js
+       fails to load, which is exactly when knowing which site you are on matters most. Runtime
+       hostname detection, so this same file ships to production unchanged. -->
   <script>
     if (/\.(pages|workers)\.dev$/.test(location.hostname)) {
-      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site \u00b7 situs uji — not production / bukan produksi</div>');
+      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site · situs uji — not production / bukan produksi</div>');
     }
   </script>
 
@@ -41,12 +40,23 @@
       <option value="id">Indonesia</option>
     </select>
   </div>
-  <!-- Two tabs only. This app segments and matches; it does not gloss, translate or edit
-       baseline text. Keeping the tab row this short IS the product decision. -->
+  <!-- Two tabs only. This app segments and matches; it does not gloss, translate or edit baseline
+       text, and there is no Gloss tab because there is nothing to gloss with. Keeping the row this
+       short IS the product decision.
+       The IDs are the EDITOR'S, deliberately: enterEditor / switchTab / updateShareButton look
+       these up by id, so reusing the Cut tab's machinery means reusing its element names. A
+       missing one throws rather than degrades. -->
   <div id="topbar-editor" class="topbar-row" hidden>
-    <button class="top-tab" data-tab="cut" data-i18n="tab.cut">Cut</button>
-    <button class="top-tab" data-tab="baseline" data-i18n="tab.match">Match</button>
-    <button id="btn-back" class="link-btn" data-i18n="editor.back">Back</button>
+    <button id="btn-back" class="icon-btn" data-i18n-title="btn.back">&#8592;</button>
+    <button id="btn-undo" class="icon-btn" data-i18n-title="edit.undo" disabled>&#8630;</button>
+    <button id="btn-redo" class="icon-btn" data-i18n-title="edit.redo" disabled>&#8631;</button>
+    <input id="doc-title" class="doc-title" data-i18n-ph="untitled" placeholder="Untitled text" spellcheck="false" readonly>
+    <nav class="top-tabs" role="tablist">
+      <button class="top-tab" id="tab-cut" data-tab="cut" data-i18n="tabs.cut" aria-selected="true">Cut</button>
+      <button class="top-tab" data-tab="baseline" data-i18n="tabs.baseline" aria-selected="false">Baseline</button>
+    </nav>
+    <button id="btn-save" class="primary-btn" data-i18n="btn.save">Save</button>
+    <button id="btn-share" class="secondary-btn" data-i18n="btn.done">Done&hellip;</button>
   </div>
 </header>
 
@@ -62,24 +72,13 @@
   <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
 </div>
 
-<!-- Record-only view. Its contents are rendered by the shared js/app.js
-     (renderRecordView), so the markup lives in one place. -->
-<section id="view-record" class="view"></section>
-
-</main>
-
-<!-- Non-blocking upload status bar -->
-<div id="upload-bar" hidden>
-  <div class="upload-row">
-    <span id="upload-label"></span>
-    <div class="upload-progress"><div id="upload-fill"></div>
-
-<!-- The segmenter's list view: texts on this device with audio, and their segmentation
-     state. Rendered by the shared js/app.js (renderSegmenterView). -->
+<!-- The segmenter's list view: texts on this device and their segmentation state.
+     Rendered by the shared js/app.js (renderSegmenterView). -->
 <section id="view-segmenter" class="view"></section>
 
-<!-- SHARED MEDIA DOCK — lifted verbatim from the editor page. One Player instance serves
-     both tabs, so switching never re-creates it and one decode serves both renderers. -->
+<!-- SHARED MEDIA DOCK, view-cut and view-baseline are lifted VERBATIM from the editor page: the
+     Cut tab's machinery (peaks pipeline, strips, auto-scroll, player/segment sync) finds its
+     elements by id, so the way to reuse it is to give it the DOM it already knows. -->
 <div id="audio-player" class="player" hidden>
     <div class="player-wave"></div>
     <p class="player-status" hidden></p>
@@ -101,15 +100,19 @@
         <option value="1" selected data-i18n="player.speedNormal">Normal</option>
       </select>
       <span class="player-time"></span>
-      <label class="player-zoom-wrap"><span data-i18n="player.zoom">Zoom</span>
-        <input type="range" class="player-zoom" min="1" max="300" value="1" step="1">
+      <!-- ⚠ THE INPUT CARRIES ITS OWN aria-label because the visible word is DROPPED on a small
+           screen (see the max-width:560px block). Without it, hiding the span would leave the
+           slider with no accessible name at exactly the size where it matters most. -->
+      <label class="player-zoom-wrap"><span class="player-zoom-label" data-i18n="player.zoom">Zoom</span>
+        <input type="range" class="player-zoom" min="1" max="300" value="1" step="1"
+               data-i18n-aria="player.zoom">
       </label>
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
     </div>
   </div>
 
 <section id="view-cut" class="view" hidden>
-  <p class="tab-hint" data-i18n-html="cut.hint"></p>
+  <p id="cut-hint" class="tab-hint" data-i18n-html="cut.hint"></p>
   <p id="cut-loading" class="note seg-loading" hidden role="status" aria-live="polite">
     <span class="seg-loading-text" data-i18n="seg.loadingAudio">Loading the recording…</span>
     <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span>
@@ -128,8 +131,18 @@
            aria-label, and the tab's hint text is where it is explained. ✨ is Emoji 1.0 (2015), so it
            renders on every Android in the field; 🪄 is Emoji 13 and would be tofu on older ones. -->
       <button id="btn-guess-splits" class="secondary-btn icon-btn2" data-i18n-title="cut.guess"
-              aria-label="Guess the lines">✨</button>
+              data-i18n-aria="cut.guess" aria-label="Guess the lines">✨</button>
       <span id="cut-tools-label" class="cut-tools-label" data-i18n="cut.guessShort">Guess</span>
+      <!-- ⚠ THE INSTRUCTIONS FOLD AWAY ON A PHONE, AND ONLY THERE (Seth, 2026-09-01). Measured at
+           375px the hint paragraph is 162px tall — as tall as the whole sticky player above it — so
+           between them they filled the screen before one waveform strip was visible. On a wide
+           screen the hint stays where it was and this button is display:none, because that hint is
+           where the tab is LEARNT and hiding it from everyone would trade a real cost for a
+           space saving nobody needed. -->
+      <button id="btn-cut-hint" class="icon-btn2 cut-hint-btn" type="button"
+              aria-controls="cut-hint" aria-expanded="false"
+              data-i18n-title="cut.hintToggle" data-i18n-aria="cut.hintToggle"
+              aria-label="How this tab works">ℹ</button>
     </div>
     <p id="cut-say" class="note cut-say" role="status" aria-live="polite"></p>
     <div id="cut-strips"></div>
@@ -167,7 +180,8 @@
 
 <div id="toast" hidden></div>
 
-<!-- Share/save menu — KEEP IN SYNC with the editor repo. -->
+<!-- Share/save menu — KEEP IN SYNC with the editor repo. Consent hands off through the NORMAL
+     upload/save/send system; it does not grow a second export path. -->
 <div id="share-menu" class="modal" hidden>
   <div class="modal-card">
     <h3 data-i18n="share.title">Save and send</h3>
@@ -180,6 +194,8 @@
   </div>
 </div>
 
+<!-- MP3 encoder + shared app engine load from the editor repo (same origin). lame.min.js rides along
+     because the shared engine loads it as a classic script. -->
 <script src="/flextext-editor/js/vendor/lame.min.js" defer></script>
 <script type="module" src="/flextext-editor/js/app.js"></script>
 </body>

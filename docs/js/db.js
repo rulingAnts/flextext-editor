@@ -60,8 +60,17 @@ export async function listDocs() {
         // pendingAudio rides along too: renderDocList's assigned-audio arrival branch (progress
         // bar + ticker) keys on it, and without it in this projection that branch was DEAD — an
         // arriving recording showed a plain row, no bar, ever (found auditing issue #11's list).
-        const { id, title, modified, created, segCount, glossed, done, pendingFlextext, pendingAudio } = cur.value;
-        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext, pendingAudio: pendingAudio || '' });
+        // The consent fields ride along for the same reason as the two above: the Consent
+        // Collector groups by speaker and shows a per-text permission state, and reading the whole
+        // record per row to learn them would be a second read for every text on the device.
+        // consentReceipt is carried whole because the state depends on what was COLLECTED
+        // (responseTypes), not merely on the receipt existing — a receipt promising a recorded
+        // answer whose clip never arrived is incomplete, and only the receipt says so.
+        const { id, title, modified, created, segCount, glossed, done, pendingFlextext, pendingAudio,
+          consentSpeaker, consentReceipt, consentClip, mediaName } = cur.value;
+        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext, pendingAudio: pendingAudio || '',
+          consentSpeaker: consentSpeaker || '', consentReceipt: consentReceipt || null,
+          consentClip: consentClip || '', mediaName: mediaName || '' });
         cur.continue();
       } else {
         out.sort((a, b) => (b.modified || 0) - (a.modified || 0));

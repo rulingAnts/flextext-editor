@@ -2902,3 +2902,32 @@ body.rp-standalone main { padding-top: 0; }
 .rp-nick-edit { font-size: 0.72rem; font-weight: 400; margin-left: 8px; opacity: 0.75; }
 .rp-nick-edit:hover { opacity: 1; }
 .rp-rid-sm { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; opacity: 0.62; }
+
+/* ─────────── Consent Collector satellite (__MODE='consent') ───────────
+   One fenced block, cc- prefix, per the convention the pa-* block established: an app-specific
+   style set that the other five apps never load a rule of. */
+.cc-actions{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:.6rem;
+  padding:.55rem .7rem;margin:.4rem 0 .8rem;background:var(--card,#fff);
+  border:1px solid var(--line,#d7dbe0);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.cc-count{font-weight:600}
+.cc-group{margin:0 0 1.1rem}
+.cc-group-head{display:flex;align-items:center;gap:.5rem;padding:.4rem .2rem;
+  border-bottom:2px solid var(--line,#d7dbe0)}
+.cc-speaker{font-weight:600;font-size:1.02rem}
+.cc-tally{margin-left:auto;font-size:.86rem;color:var(--muted,#667)}
+.cc-list{list-style:none;margin:0;padding:0}
+.cc-item{display:flex;align-items:center;gap:.5rem;padding:.45rem .2rem;
+  border-bottom:1px solid var(--line-soft,#eceff2)}
+.cc-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cc-state{font-size:.82rem;white-space:nowrap}
+.cc-speaker-in{flex:0 0 auto}
+/* State is carried by TEXT as well as colour — the same rule the matrix follows. A worker with a
+   cheap phone in daylight, or anyone colour-blind, must be able to read this. */
+.cc-none .cc-state{color:var(--rust,#b4472b)}
+.cc-partial .cc-state{color:var(--amber,#b4712b)}
+.cc-full .cc-state{color:var(--teal,#10514d)}
+.cc-pick input{width:20px;height:20px}          /* a field-usable target, not a 13px default */
+
+/* ─────────── Audio Segmenter satellite (__MODE='segmenter') ─────────── */
+.sg-noaudio{opacity:.6}
+.sg-noaudio .doc-meta{font-style:italic}

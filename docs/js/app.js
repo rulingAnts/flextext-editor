@@ -6878,6 +6878,311 @@ async function renderRecordList() {
   }
 }
 
+/* ─────────────────── CONSENT COLLECTOR (__MODE = 'consent') ───────────────────
+ * Adds speaker permission to texts that ALREADY EXIST.
+ *
+ * The engine can only attach consent at doc creation: newDocFromAudio consumes pendingAssent /
+ * pendingReceipt / pendingPromptAudio and nothing else ever writes those fields. That is fine for
+ * a text being recorded now and useless for a back catalogue — which cannot be re-recorded either,
+ * because the speakers have moved on or died. Archives require consent, so those texts are stuck.
+ *
+ * THE RECORD PRODUCED HERE IS NOT SECOND-CLASS. It runs the same requestConsentThen flow, builds
+ * the same receipt through buildConsentReceipt, stores the same three fields under the same media
+ * keys, and therefore exports and uploads through the existing Lane A path with no special case
+ * anywhere downstream. A retrofitted text and a natively recorded one are indistinguishable, which
+ * is the whole requirement: an archive cannot be asked to trust two grades of consent.
+ *
+ * GROUP CONSENT is the reason this is an app and not a button. Permission is given by a PERSON
+ * about THEIR body of work: a speaker sits down once and says yes to the fourteen stories they
+ * told you over three years. Walking them through fourteen identical dialogues is not more
+ * rigorous, it is worse, because it invites fatigue-clicking, which is exactly what consent must
+ * not be. So: group by speaker, select, ask once, copy the result to each text.
+ */
+
+// Docs carry no speaker field: the engine never needed one. The collector adds `consentSpeaker`,
+// because grouping is the point and there is nothing else to group on. Seeded from an existing
+// receipt's typed signature where there is one, so a text that already has consent lands in the
+// right group without being touched.
+const ccSpeakerOf = (d) => (d.consentSpeaker
+  || (d.consentReceipt && d.consentReceipt.signatureName)
+  || '').trim();
+
+// Three states, because "has a receipt" is not the same as "has everything it needs". A text whose
+// receipt says a recorded assent was collected but whose clip never reached this device is
+// INCOMPLETE, and saying so is the difference between a usable archive record and a surprise at
+// deposit time.
+function ccStateOf(d) {
+  const r = d.consentReceipt;
+  if (!r) return 'none';
+  const wantsClip = Array.isArray(r.responseTypes) && r.responseTypes.includes('recorded');
+  if (wantsClip && !d.consentClip) return 'partial';
+  return 'full';
+}
+
+let ccSelected = new Set();
+
+/* Write consent onto texts that already exist: the one capability the engine lacks.
+ *
+ * EACH TEXT GETS ITS OWN COPY of the receipt. captureConsentContext mutates the receipt object in
+ * place to fill in IP and location; a single shared object would make one text's lookup appear on
+ * every text in the group, and any later edit to one would silently rewrite all of them.
+ */
+async function ccAttachConsent(ids, { assent, receipt, promptAudio }) {
+  const attached = [];
+  for (const id of ids) {
+    const rec = await db.getDoc(id);
+    if (!rec) continue;
+    if (receipt) {
+      rec.consentReceipt = structuredClone(receipt);
+      rec.consentReceipt.collectedBy = 'Flextext Consent Collector';
+      // Recorded because it is a material fact about how permission was given: an auditor reading
+      // one of these should be able to see it was a single conversation covering N texts, not N
+      // separate askings.
+      if (ids.length > 1) {
+        rec.consentReceipt.groupConsent = { size: ids.length, textIds: ids.slice() };
+      }
+    }
+    if (assent) {
+      rec.consentClip = assent.name;
+      await db.putMedia('consent:' + id, assent).catch(() => {});
+    }
+    if (promptAudio) {
+      rec.consentPromptClip = promptAudio.name;
+      await db.putMedia('consent-prompt:' + id, promptAudio).catch(() => {});
+    }
+    rec.modified = Date.now();
+    await db.putDoc(rec);
+    attached.push(id);
+  }
+  db.broadcastLive('docs');
+  return attached;
+}
+
+// Run the shared consent flow, then fan the result out over the selection.
+async function ccCollectFor(ids) {
+  if (!ids.length) return;
+  await requestConsentThen(async () => {
+    // Consent is configured OFF: requestConsentThen calls back with no receipt built. Retrofitting
+    // nothing onto a text would be worse than refusing, so say why.
+    if (!pendingReceipt) { toast(t('cc.consentOff')); return; }
+    /* Let the IP/location fill finish BEFORE the receipt is copied. It mutates the object in
+     * place, so copying first would freeze N receipts at "unavailable" while the original filled
+     * in, and the group would carry weaker records than a single text would. The 5s cap is the
+     * same bound buildBundleFor uses: a slow lookup must not hold a speaker at the table. */
+    if (consentCapture && consentCapture.promise) {
+      await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
+    }
+    const payload = { assent: pendingAssent, receipt: pendingReceipt, promptAudio: pendingPromptAudio };
+    const done = await ccAttachConsent(ids, payload);
+    pendingAssent = null; pendingReceipt = null; pendingPromptAudio = null;
+    ccSelected.clear();
+    toast(done.length === 1 ? t('cc.savedOne') : t('cc.savedMany').replace('{n}', done.length));
+    renderConsentView();
+  });
+}
+
+function renderConsentView() {
+  const view = $('#view-consent');
+  if (!view) return;
+  view.innerHTML = `
+    <p class="tab-hint" data-i18n-html="cc.hint"></p>
+    <div id="cc-actions" class="cc-actions" hidden>
+      <span id="cc-count" class="cc-count"></span>
+      <button id="cc-collect" class="primary-btn"></button>
+      <button id="cc-clear" class="link-btn"></button>
+    </div>
+    <div id="cc-groups"></div>
+    <p id="cc-empty" class="empty-note" data-i18n-html="cc.empty" hidden></p>`;
+  applyI18n(view);
+  ccRenderList();
+}
+
+async function ccRenderList() {
+  const box = $('#cc-groups');
+  if (!box) return;
+  const docs = await db.listDocs();
+  const empty = $('#cc-empty');
+  if (empty) empty.hidden = docs.length > 0;
+
+  // Group by speaker, unassigned last: it is a to-do pile, not a speaker.
+  const groups = new Map();
+  for (const d of docs) {
+    const k = ccSpeakerOf(d) || ' ';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(d);
+  }
+  const keys = [...groups.keys()].sort((a, b) =>
+    (a === ' ' ? 1 : b === ' ' ? -1 : a.localeCompare(b)));
+
+  box.innerHTML = '';
+  for (const k of keys) {
+    const items = groups.get(k);
+    const named = k !== ' ';
+    const missing = items.filter((d) => ccStateOf(d) !== 'full');
+    const sec = document.createElement('section');
+    sec.className = 'cc-group';
+    sec.innerHTML = `
+      <header class="cc-group-head">
+        <label class="cc-pick"><input type="checkbox" class="cc-group-all"></label>
+        <span class="cc-speaker"></span>
+        <span class="cc-tally"></span>
+      </header>
+      <ul class="cc-list"></ul>`;
+    const spk = sec.querySelector('.cc-speaker');
+    spk.textContent = named ? k : t('cc.unassigned');
+    if (!named) spk.classList.add('muted');
+    sec.querySelector('.cc-tally').textContent = missing.length
+      ? t('cc.tallyNeed').replace('{n}', missing.length).replace('{total}', items.length)
+      : t('cc.tallyDone').replace('{total}', items.length);
+
+    const ul = sec.querySelector('.cc-list');
+    for (const d of items) {
+      const st = ccStateOf(d);
+      const li = document.createElement('li');
+      li.className = 'cc-item cc-' + st;
+      li.innerHTML = `
+        <label class="cc-pick"><input type="checkbox" class="cc-one"></label>
+        <span class="cc-title"></span>
+        <span class="cc-state"></span>
+        <input class="cc-speaker-in" size="14">`;
+      li.querySelector('.cc-title').textContent = d.title || t('untitled');
+      li.querySelector('.cc-state').textContent =
+        st === 'full' ? t('cc.stateFull') : st === 'partial' ? t('cc.statePartial') : t('cc.stateNone');
+      const cb = li.querySelector('.cc-one');
+      cb.checked = ccSelected.has(d.id);
+      cb.onchange = () => {
+        if (cb.checked) ccSelected.add(d.id); else ccSelected.delete(d.id);
+        ccSyncActions();
+      };
+      const sp = li.querySelector('.cc-speaker-in');
+      sp.value = ccSpeakerOf(d);
+      sp.placeholder = t('cc.speakerPh');
+      // Saved on change, not per keystroke: this rewrites the doc record.
+      sp.onchange = async () => {
+        const rec = await db.getDoc(d.id);
+        if (!rec) return;
+        rec.consentSpeaker = sp.value.trim();
+        rec.modified = Date.now();
+        await db.putDoc(rec);
+        db.broadcastLive('docs');
+        ccRenderList();
+      };
+      ul.appendChild(li);
+    }
+
+    const all = sec.querySelector('.cc-group-all');
+    all.checked = items.length > 0 && items.every((d) => ccSelected.has(d.id));
+    all.onchange = () => {
+      for (const d of items) {
+        if (all.checked) ccSelected.add(d.id); else ccSelected.delete(d.id);
+      }
+      ccRenderList();
+    };
+    box.appendChild(sec);
+  }
+  ccSyncActions();
+}
+
+function ccSyncActions() {
+  const bar = $('#cc-actions');
+  if (!bar) return;
+  const n = ccSelected.size;
+  bar.hidden = n === 0;
+  const count = $('#cc-count');
+  if (count) count.textContent = n === 1 ? t('cc.selOne') : t('cc.selMany').replace('{n}', n);
+  const go = $('#cc-collect');
+  if (go) { go.textContent = t('cc.collect'); go.onclick = () => ccCollectFor([...ccSelected]); }
+  const clr = $('#cc-clear');
+  if (clr) { clr.textContent = t('cc.clearSel'); clr.onclick = () => { ccSelected.clear(); ccRenderList(); }; }
+}
+
+function setupConsentMode() {
+  renderConsentView();
+  show('consent');
+}
+
+/* ─────────────────── AUDIO SEGMENTER (__MODE = 'segmenter') ───────────────────
+ * Cuts a recording into segments and matches them to the lines of a text that already exists.
+ * That is the entire product. No glossing, no free translation, no baseline text editing.
+ *
+ * IT ADDS NO SEGMENTATION ENGINE. Segmentation Mode already exists in the editor (v158+): the Cut
+ * tab, segment-strips.js and segments.js do the work, and this app reuses them unchanged by
+ * providing the same DOM and calling the same switchTab(). What makes it an app rather than a tab
+ * is that it cannot do anything else — the same argument plans/cut-tab.md makes for the Cut tab
+ * itself, applied one level up: a worker who can only segment cannot be half-segmenting and
+ * half-glossing, and does not have to decide which they are doing.
+ *
+ * ⚠ SEGMENTING EDITS TEXT. segments[i] IS baseline paragraph i, so a cut inserts an empty
+ * paragraph and a join merges two. That is why this app opens real docs and writes them back
+ * through the normal save path rather than treating audio as a separate artifact.
+ */
+
+// Segmentation only means something once the recording is attached and the text has lines to
+// match. Reporting that plainly is more useful than a disabled row with no reason on it.
+function sgStateOf(d) {
+  // segCount rides in the listDocs projection; d.doc does not (the list never loads whole records).
+  const spans = Number(d.segCount) || 0;
+  if (!d.mediaName) return 'noaudio';
+  return spans > 0 ? 'some' : 'none';
+}
+
+function renderSegmenterView() {
+  const view = $('#view-segmenter');
+  if (!view) return;
+  view.innerHTML = `
+    <p class="tab-hint" data-i18n-html="sg.hint"></p>
+    <ul id="sg-list" class="doc-list"></ul>
+    <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>`;
+  applyI18n(view);
+  sgRenderList();
+}
+
+async function sgRenderList() {
+  const ul = $('#sg-list');
+  if (!ul) return;
+  const docs = await db.listDocs();
+  const empty = $('#sg-empty');
+  if (empty) empty.hidden = docs.length > 0;
+  ul.innerHTML = '';
+  for (const d of docs) {
+    const st = sgStateOf(d);
+    const li = document.createElement('li');
+    li.className = 'rec-item sg-' + st;
+    li.innerHTML = `
+      <div class="rec-item-main">
+        <span class="doc-name"></span>
+        <span class="doc-meta"></span>
+      </div>
+      <div class="rec-item-actions">
+        <button class="sg-open secondary-btn"></button>
+      </div>`;
+    li.querySelector('.doc-name').textContent = d.title || t('untitled');
+    li.querySelector('.doc-meta').textContent =
+      st === 'noaudio' ? t('sg.noAudio') : st === 'some' ? t('sg.someSpans') : t('sg.noSpans');
+    const open = li.querySelector('.sg-open');
+    open.textContent = t('sg.open');
+    // No audio means nothing to cut. Leaving the button live would open a Cut tab that can only
+    // say "attach a recording", which is a worse way to learn the same fact.
+    if (st === 'noaudio') open.disabled = true;
+    else open.addEventListener('click', () => sgOpen(d.id));
+    ul.appendChild(li);
+  }
+}
+
+async function sgOpen(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  current = rec;
+  // enterEditor() wires the tab row and the shared player dock, then switchTab('cut') runs the
+  // real Cut tab: same peaks pipeline, same strips, same guess-the-lines. Nothing is reimplemented.
+  enterEditor('cut');
+}
+
+function setupSegmenterMode() {
+  renderSegmenterView();
+  show('segmenter');
+}
+
 function setupRecordMode() {
   renderRecordView();
   renderRecordList();
@@ -8213,6 +8518,8 @@ function setup() {
       setLang(langSel.value);
       applyI18n();
       if (RECORD_MODE) { renderRecordView(); renderRecordList(); return; }
+      if (CONSENT_MODE) { ccRenderList(); return; }   // a text arriving by assignment joins the list
+      if (SEGMENTER_MODE) { sgRenderList(); return; }
       applyHelpResearchVisibility();
       renderDocList();
       // The Settings tab's labels are baked by t() at build time, not by data-i18n attributes, so
@@ -8250,6 +8557,24 @@ function setup() {
   // ----- Record-only mode: show just the recorder UI and stop here. -----
   if (RECORD_MODE) {
     setupRecordMode();
+    return;
+  }
+
+  /* The consent collector and the segmenter fork HERE, at the recorder's position, and that
+   * placement is the design.
+   *
+   * Everything above this line has already run for them: settings, i18n, live cross-window sync,
+   * Sync.start, the upload retry pump, the shared modals, the service worker. Both apps need all
+   * of it — the collector because a retrofitted consent record has to upload through the same
+   * Lane A path as a native one, and the segmenter because segmentation results travel the same
+   * way. Forking earlier (the crowd/paragraph position) would have meant reimplementing sync and
+   * upload inside two more apps, which is exactly what the suite's design principle forbids. */
+  if (CONSENT_MODE) {
+    setupConsentMode();
+    return;
+  }
+  if (SEGMENTER_MODE) {
+    setupSegmenterMode();
     return;
   }
 

@@ -112,6 +112,11 @@ en: {
   // Bringing texts in — shared by both satellites (see satImportFiles).
   'sat.open': 'Open .flextext file\u2026',
   'sat.openPair': 'Open text + recording together\u2026',
+  'sat.export': 'Download this text (.flextext with times, ELAN .eaf, and the recording)',
+  'sat.exporting': 'Building the download\u2026',
+  'sat.exportDraft': 'Unfinished matching is not in this file yet \u2014 press Done first if you want it included.',
+  'sat.exportNoAudio': 'No recording attached \u2014 the download carries the text only.',
+  'sat.exportFailed': 'Could not build the download: {msg}',
   'sat.needText': 'Pick a .flextext file too \u2014 a recording on its own has no text to work with.',
   'sat.noTexts': 'no texts found in the file',
   'sat.importedOne': 'Opened 1 text.',
@@ -1378,6 +1383,7 @@ internet after the first time.</p>
     ,'panel.rel.new.eafOnly': 'New download: the ELAN annotation on its own (.eaf), without the recording \u2014 for when you already have the audio.'
     ,'panel.rel.new.provenance': 'Exported files now record which app made them: exportSource on a .flextext, a generator property on an .eaf. AUTHOR on an .eaf is left for the person it is meant for.'
     ,'panel.rel.new.appLinks': 'Both new apps are linked from Utilities — in this panel and on the editor’s Utilities tab — and open in a new tab.'
+    ,'panel.rel.new.satExport': 'The Audio Segmenter and the Consent Collector can now download a text on their own \u2014 the .flextext with its times, the ELAN .eaf and the recording in one zip \u2014 so a device that is not paired with a researcher still has a way to get its work out.'
     ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
     ,'panel.rel.new.deviceHeader': 'Panel: each device row is tidier. New text, Settings and Move are icons on the device’s own line; Refresh has moved up into the header beside Sign out; and Unlink, Delete and Erase are grouped together, clear of the everyday buttons, with the erase button marked as the dangerous one. Unlink doubles as Link before a device is connected.'
@@ -2352,6 +2358,11 @@ id: {
   'cc.consentOff': 'Belum ada pertanyaan izin yang disiapkan, jadi tidak ada yang bisa direkam. Minta peneliti Anda menyalakannya.',
   'sat.open': 'Buka berkas .flextext\u2026',
   'sat.openPair': 'Buka teks + rekaman sekaligus\u2026',
+  'sat.export': 'Unduh teks ini (.flextext dengan waktu, .eaf ELAN, dan rekamannya)',
+  'sat.exporting': 'Menyiapkan unduhan\u2026',
+  'sat.exportDraft': 'Pencocokan yang belum selesai belum masuk ke berkas ini \u2014 tekan Selesai dulu jika ingin disertakan.',
+  'sat.exportNoAudio': 'Tidak ada rekaman terlampir \u2014 unduhan hanya berisi teksnya.',
+  'sat.exportFailed': 'Tidak bisa menyiapkan unduhan: {msg}',
   'sat.needText': 'Pilih juga berkas .flextext \u2014 rekaman saja tidak ada teksnya.',
   'sat.noTexts': 'tidak ada teks di dalam berkas itu',
   'sat.importedOne': 'Satu teks dibuka.',
@@ -3457,6 +3468,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.eafOnly': 'Unduhan baru: anotasi ELAN saja (.eaf), tanpa rekamannya \u2014 untuk yang sudah punya audionya.'
     ,'panel.rel.new.provenance': 'Berkas yang diekspor kini mencatat aplikasi pembuatnya: exportSource pada .flextext, properti generator pada .eaf. AUTHOR pada .eaf dibiarkan untuk orangnya.'
     ,'panel.rel.new.appLinks': 'Kedua aplikasi baru tertaut dari Peralatan — di panel ini dan di tab Utilitas editor — dan terbuka di tab baru.'
+    ,'panel.rel.new.satExport': 'Pemotong Audio dan Pengumpul Izin kini bisa mengunduh teks sendiri \u2014 .flextext dengan waktunya, .eaf ELAN, dan rekamannya dalam satu zip \u2014 sehingga perangkat yang tidak dipasangkan dengan peneliti tetap punya jalan mengeluarkan hasil kerjanya.'
     ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'
     ,'panel.rel.new.deviceHeader': 'Panel: setiap baris perangkat lebih rapi. Teks baru, Pengaturan, dan Pindahkan kini berupa ikon pada baris perangkat itu sendiri; Segarkan pindah ke header di samping Keluar; dan Putuskan, Cabut, serta Hapus dikelompokkan bersama, terpisah dari tombol sehari-hari, dengan tombol hapus ditandai sebagai yang berbahaya. Putuskan berganti menjadi Tautkan sebelum perangkat terhubung.'

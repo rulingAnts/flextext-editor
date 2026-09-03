@@ -120,5 +120,22 @@ ok(!/from the Recorder or the Editor/.test(emptyEn),
 ok(/button above/.test(emptyEn), 'it points at the button that is actually on the screen');
 ok(/\.sat-tools\{/.test(css), 'and the bar has a rule, above the list where an empty screen puts it first');
 
+console.log('\nan unpaired device can get a text OUT — the first real text had no way');
+{
+  /* Seth, 2026-09-03, 149 cuts in on the feature preview: "I'm ready to export, but it's not
+   * giving me the option. I don't have either unpaired settings, a download/save option, or an
+   * upload to Google Drive option." The only exit was the upload pump, which needs a pairing. */
+  const ctl = fn(app, 'satRowControls');
+  ok(/sat-export/.test(ctl) && /satExport\(d\.id\)/.test(ctl), 'the row carries a download control');
+  ok(/if \(SEGMENTER_MODE \|\| CONSENT_MODE\)/.test(ctl), 'in both satellites');
+  const ex = asyncFn(app, 'satExport');
+  ok(/buildBundleFor\(rec, true, \{ full: true \}\)/.test(ex), 'built by the SAME bundle a paired device uploads, in full');
+  ok(/if \(rec\.matchDraft\) toast\(t\('sat\.exportDraft'\)/.test(ex), 'and it says when unfinished matching is not in it');
+  ok(/if \(!bundle\.zipped\) toast\(t\('sat\.exportNoAudio'\)/.test(ex), 'and when there was no recording to include');
+  for (const k of ['sat.export', 'sat.exporting', 'sat.exportDraft', 'sat.exportNoAudio', 'sat.exportFailed']) {
+    ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

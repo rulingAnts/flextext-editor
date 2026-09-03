@@ -39,8 +39,8 @@ const bar = fn(app, 'satImportBar');
 ok(!!bar, 'satImportBar exists');
 ok(/satImportBar\(view\)/.test(fn(app, 'renderSegmenterView')), 'the segmenter renders it');
 ok(/satImportBar\(view\)/.test(fn(app, 'renderConsentView')), 'the collector renders it');
-ok(/SEGMENTER_MODE \? 'sat\.openPair' : 'sat\.open'/.test(bar),
-   'one bar, two labels — the segmenter asks for the recording too, because it cannot work without one');
+ok(/SEGMENTER_MODE \? 'sat\.openPair' : CONSENT_MODE \? 'sat\.openAny' : 'sat\.open'/.test(bar),
+   'one bar, three labels — the segmenter asks for the recording too (it cannot work without one); the collector takes either or both');
 ok(/input\.multiple = true/.test(bar), 'multiple files at once: a corpus folder is many pairs, not one');
 // The editor's importFile ends in openDoc() + renderDocList(), neither of which exists in a satellite.
 ok(!/openDoc\(|renderDocList\(/.test(code(imp)),
@@ -65,7 +65,8 @@ ok(/ambiguous/.test(imp) && /sat\.audioAmbiguous/.test(imp), 'and that refusal i
 ok(/orphans/.test(imp) && /sat\.audioUnmatched/.test(imp),
    'a recording with no text left to go with is named in the message, not silently dropped');
 ok(!/same name as its text/.test(i18n), 'and the message no longer tells the user to rename their files');
-ok(/if \(!textFiles\.length\)/.test(imp) && /sat\.needText/.test(imp), 'audio with no text at all is refused outright');
+ok(/if \(!textFiles\.length && !audioAlone\)/.test(imp) && /sat\.needText/.test(imp),
+   'audio with no text is refused in the SEGMENTER, which has nothing to match it against');
 ok(/failed\.push/.test(imp) && /toast\(t\('toast\.importFailed'/.test(imp), 'a file that will not parse says so, per file');
 // Parsing before pairing is what makes `single` knowable at pairing time.
 ok(imp.indexOf('const parsed = []') < claimIdx, 'every file is parsed before anything is paired');
@@ -77,8 +78,26 @@ ok(/rec\.audioLocked = false/.test(imp), 'and the user may remove it — they br
 ok(/ensureMediaRef\(rec, e\.mate\.name/.test(imp), 'the doc references the media, so an export still points at it');
 ok(/Object\.assign\(rec, docStats\(doc\)\)/.test(imp), 'segCount/glossed come from docStats, like every other writer');
 
+console.log('\nthe collector takes a recording on its own — permission attaches to audio too (Seth, 2026-09-03)');
+{
+  ok(/const audioAlone = CONSENT_MODE;/.test(imp), 'audio alone is a consent-collector rule, not a satellite-wide one');
+  ok(/if \(claimed\.has\(a\)\) continue;[\s\S]*?makeDoc\(settings, a\.name\.replace\(\/\\\.\[\^\.\]\+\$\/, ''\)\)/.test(imp),
+     'each recording nothing claimed becomes its own text, titled from the filename');
+  ok(/ensureMediaRef\(rec, a\.name, ''\)/.test(imp) && /rec\.audioLocked = false;[\s\S]*?claimed\.add\(a\);/.test(imp),
+     'stored the way a paired recording is (media ref, unlocked), and then counted as claimed');
+  ok(/recordings === 1 \? 'sat\.importedOneRecording' : 'sat\.importedManyRecordings'/.test(imp),
+     'and said, at one and at many');
+  ok(/if \(ambiguous && !audioAlone\)/.test(imp), '"left off" is not said where the recording stands on its own anyway');
+  for (const k of ['sat.openAny', 'sat.importedOneRecording', 'sat.importedManyRecordings', 'panel.rel.new.consentAudio']) {
+    ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+  ok(/'cc\.empty': 'No texts on this device yet\. Open a \.flextext file, a recording, or both/.test(i18n),
+     'and the empty state no longer says .flextext only');
+}
+
 console.log('\nthe messages are grammatical at EVERY count (t() has no plural machinery)');
-for (const k of ['sat.importedOne', 'sat.importedOneAudio', 'sat.importedMany', 'sat.importedManyAudio']) {
+for (const k of ['sat.importedOne', 'sat.importedOneAudio', 'sat.importedMany', 'sat.importedManyAudio',
+                 'sat.importedOneRecording', 'sat.importedManyRecordings']) {
   ok(i18n.includes(`'${k}'`), `${k} exists`);
 }
 ok(/added === 1[\s\S]{0,120}sat\.importedOne/.test(imp), 'the single case gets its own sentence');

@@ -7262,7 +7262,15 @@ async function satImportFiles(files) {
   const list = [...files];
   const textFiles = list.filter(satIsText);
   const audioFiles = list.filter((f) => !satIsText(f));
-  if (!textFiles.length) { toast(t('sat.needText'), 7000); return; }
+  /* ⚠ THE SEGMENTER NEEDS TEXT; THE CONSENT COLLECTOR DOES NOT (Seth, 2026-09-03: "Consent
+   * collector shouldn't be flextext ONLY that it imports. It can import either or both flextext
+   * and audio"). Permission attaches to a recording as readily as to a transcript — a story that
+   * has only been recorded still needs its speaker's yes. So here a recording with no text becomes
+   * a text of its own: the audio, a title from the filename, and no words yet — the same record the
+   * editor's "New text from audio" makes. The segmenter keeps the refusal: it has nothing to match
+   * a recording against. */
+  const audioAlone = CONSENT_MODE;
+  if (!textFiles.length && !audioAlone) { toast(t('sat.needText'), 7000); return; }
 
   // Parse everything BEFORE pairing anything: how many texts a file holds decides whether it may
   // take a recording at all, and that is not knowable from its name.
@@ -7325,6 +7333,27 @@ async function satImportFiles(files) {
     }
   }
 
+  // A recording nothing claimed becomes its own text — see audioAlone above.
+  let recordings = 0;
+  if (audioAlone) {
+    for (const a of audioFiles) {
+      if (claimed.has(a)) continue;
+      const doc = makeDoc(settings, a.name.replace(/\.[^.]+$/, ''));
+      const rec = { id: newGuid(), title: doc.title, created: Date.now(), modified: Date.now(), doc };
+      Object.assign(rec, docStats(doc));
+      await db.putMedia(rec.id, {
+        blob: a, name: a.name, mimeType: a.type || 'audio/mpeg',
+        sourceUrl: '', peaks: null, duration: null,
+      });
+      rec.audioSource = 'local:' + a.name;
+      rec.audioLocked = false;
+      ensureMediaRef(rec, a.name, '');
+      await db.putDoc(rec);
+      claimed.add(a);
+      recordings++;
+    }
+  }
+
   db.broadcastLive('docs');
   refreshList();
 
@@ -7336,8 +7365,10 @@ async function satImportFiles(files) {
       : (paired ? 'sat.importedManyAudio' : 'sat.importedMany');
     toast(t(key, { n: added, paired }), 6000);
   }
+  if (recordings) toast(t(recordings === 1 ? 'sat.importedOneRecording' : 'sat.importedManyRecordings', { n: recordings }), 6000);
   const orphans = audioFiles.filter((a) => !claimed.has(a));
-  if (ambiguous) toast(t('sat.audioAmbiguous'), 8000);
+  // Where a recording stands on its own anyway, "left off" is not what happened to it.
+  if (ambiguous && !audioAlone) toast(t('sat.audioAmbiguous'), 8000);
   else if (orphans.length) toast(t('sat.audioUnmatched', { names: orphans.map((f) => f.name).join(', ') }), 8000);
   for (const why of failed) toast(t('toast.importFailed', { msg: why }), 8000);
 }
@@ -7472,7 +7503,7 @@ function satImportBar(host) {
   const btn = document.createElement('button');
   btn.className = 'secondary-btn';
   btn.id = 'sat-import';
-  btn.textContent = t(SEGMENTER_MODE ? 'sat.openPair' : 'sat.open');
+  btn.textContent = t(SEGMENTER_MODE ? 'sat.openPair' : CONSENT_MODE ? 'sat.openAny' : 'sat.open');
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;          // a morning's worth of pairs in one go

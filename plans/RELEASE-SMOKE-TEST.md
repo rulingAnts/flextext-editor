@@ -72,6 +72,18 @@ that was fixed the same day; each is the gesture that reproduced it.
 - [ ] **Split a line that has a comma before the cut**, in a text with no free translation.
       The cut must land where the scissors was, and both halves must be pickable.
 
+## 2a. Getting work OUT, and getting a recording IN
+
+- [ ] **Audio Segmenter, unpaired: ⤓ on a list row** downloads a zip holding the `.flextext`
+      (with times), the `.eaf`, and the recording. A text with an unfinished draft says so in a
+      toast — the zip carries what Done committed, not the draft.
+- [ ] **Consent Collector opens a recording on its own** (Seth, 2026-09-03: "either or both
+      flextext and audio"): a `.m4a`/`.wav` alone becomes a text titled from the filename with no
+      words; a `.flextext` alone still works; the two together pair as before. The button reads
+      "Open text and/or recording…".
+- [ ] **A v567 draft with joined lines** (Birds vs Snakes on the feature preview): open, pair,
+      Done, reopen — the joined lines must come back as ONE line each, with the audio attached.
+
 ## 2b. The two apps are linked
 
 - [ ] Editor → Utilities → the two links at the bottom open the Audio Segmenter and the

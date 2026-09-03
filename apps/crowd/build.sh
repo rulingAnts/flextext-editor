@@ -23,4 +23,9 @@ rm -f public/CLAUDE.md public/README.md public/check-editor-shell.sh
 # The satellites load the engine cross-path at /flextext-editor/… — copy it into the SAME
 # deployment so the shell and its engine ship atomically and a precached path can never 404.
 cp -R ../../docs public/flextext-editor
+# A staging deploy under an unchanged VERSION would leave every browser serving the OLD
+# cache for ever (cache-first, keyed by VERSION). Preview builds only; production is exempt.
+# (repo root is two levels up for apps/*, one for paragraph-analysis — find it rather than assume)
+for R in ../.. ..; do [ -f "$R/stamp-preview-cache.sh" ] && bash "$R/stamp-preview-cache.sh" public/sw.js && break; done
+
 echo "assembled public/: $(find public -type f | wc -l | tr -d ' ') files"

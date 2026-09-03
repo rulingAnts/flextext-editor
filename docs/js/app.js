@@ -7409,6 +7409,22 @@ async function satReplaceAudio(id) {
  * ON for a device with no researcher session — an unpaired device is somebody working alone, and
  * there is nobody to ask. */
 function satRowControls(host, d) {
+  /* ⚠ A WAY OUT FOR A DEVICE THAT IS NOT PAIRED. Seth hit this on the first real text
+   * (2026-09-03): 149 cuts and nine joins in, "I'm ready to export, but it's not giving me the
+   * option." Work left this origin only through the shared upload pump, which needs a researcher
+   * pairing — an unpaired device had no download at all. This is the editor's own bundle
+   * (buildBundleFor — the same entries a paired device uploads): the .flextext with its times,
+   * the .eaf, and the recording, zipped. It exports what Done has COMMITTED; a draft in progress
+   * is not in the doc, and the toast says so rather than letting a file that lacks it look done. */
+  if (SEGMENTER_MODE || CONSENT_MODE) {
+    const b = document.createElement('button');
+    b.className = 'icon-btn2 sat-export';
+    b.textContent = '⤓';                 // ⤓ — a glyph, words in the tooltip, per the suite's rule
+    b.title = t('sat.export');
+    b.setAttribute('aria-label', t('sat.export'));
+    b.addEventListener('click', (e) => { e.stopPropagation(); satExport(d.id); });
+    host.appendChild(b);
+  }
   if (allowAudioSwapOn() && SEGMENTER_MODE) {
     const b = document.createElement('button');
     b.className = 'icon-btn2 sat-swap';
@@ -7433,6 +7449,23 @@ function satRowControls(host, d) {
 
 /* The one control, built in JS so neither shell needs its own copy of the markup (and so a shell
  * that has not been rebuilt cannot end up with a button wired to nothing). */
+async function satExport(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  if (rec.matchDraft) toast(t('sat.exportDraft'), 8000);
+  toast(t('sat.exporting'), 3000);
+  let bundle;
+  try { bundle = await buildBundleFor(rec, true, { full: true }); }
+  catch (err) { toast(t('sat.exportFailed', { msg: err.message }), 8000); return; }
+  if (!bundle.zipped) toast(t('sat.exportNoAudio'), 6000);
+  // The editor's own blind-download idiom (openShareMenu): a synthetic <a download>, revoked late.
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(bundle.blob);
+  a.download = bundle.filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
 function satImportBar(host) {
   const bar = document.createElement('div');
   bar.className = 'sat-tools';
@@ -8019,8 +8052,14 @@ async function mgCommit() {
     return ext.timeEstimated ? { start: ext.start, end: ext.end, timeEstimated: true }
                              : { start: ext.start, end: ext.end };
   });
+  /* ⚠ ONE PHRASE PER LINE AT THE CHOKE POINT, not only where a join is made. mgJoinLine merges as
+   * it goes now, but a draft autosaved by v567 still carries the lines it joined as TWO phrases —
+   * Seth's first real text had nine of them — and committing those as two-segment paragraphs is
+   * precisely what the next open unwinds, alignment and all. Every line becomes one segment here,
+   * whatever wrote it. */
   rec.doc.paragraphs = MG.lines.map((l) => ({
-    guid: l.guid || newGuid(), segments: l.phrases,
+    guid: l.guid || newGuid(),
+    segments: l.phrases.length > 1 ? [mergePhrases(l.phrases)] : l.phrases,
     ...(l.paraOf == null ? {} : { paraOf: l.paraOf }),
   }));
   // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the

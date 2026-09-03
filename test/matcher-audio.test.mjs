@@ -435,6 +435,10 @@ console.log('\ntext ⤴ joins PHRASES into one — two phrases in a paragraph is
      'the merged line holds ONE phrase, built by mergePhrases (segments.js\'s mergeSegments joins AUDIO spans)');
   ok(!/phrases: \[\.\.\.prev\.phrases, \.\.\.cur\.phrases\]/.test(join),
      '⚠ and never the two side by side');
+  /* A draft autosaved by v567 still holds the lines IT joined as two phrases (Seth's first real
+   * text carried nine). The join fix cannot reach a draft that already exists; Done can. */
+  ok(/segments: l\.phrases\.length > 1 \? \[mergePhrases\(l\.phrases\)\] : l\.phrases/.test(asyncFn(app, 'mgCommit')),
+     'and Done merges a two-phrase line that an older draft may still carry');
   const split = fn(app, 'mgSplitLine');
   ok(/if \(flat\[k\]\.punct\) continue;/.test(split),
      'a split maps the VISIBLE word index onto the unfiltered word list (the pane hides punctuation)');

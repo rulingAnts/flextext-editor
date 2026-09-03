@@ -8052,8 +8052,14 @@ async function mgCommit() {
     return ext.timeEstimated ? { start: ext.start, end: ext.end, timeEstimated: true }
                              : { start: ext.start, end: ext.end };
   });
+  /* ⚠ ONE PHRASE PER LINE AT THE CHOKE POINT, not only where a join is made. mgJoinLine merges as
+   * it goes now, but a draft autosaved by v567 still carries the lines it joined as TWO phrases —
+   * Seth's first real text had nine of them — and committing those as two-segment paragraphs is
+   * precisely what the next open unwinds, alignment and all. Every line becomes one segment here,
+   * whatever wrote it. */
   rec.doc.paragraphs = MG.lines.map((l) => ({
-    guid: l.guid || newGuid(), segments: l.phrases,
+    guid: l.guid || newGuid(),
+    segments: l.phrases.length > 1 ? [mergePhrases(l.phrases)] : l.phrases,
     ...(l.paraOf == null ? {} : { paraOf: l.paraOf }),
   }));
   // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the

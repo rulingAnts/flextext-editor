@@ -99,6 +99,30 @@ console.log('\nphrases are lines: the file\'s own segmentation survives into the
   ok(/if \(SEGMENTER_MODE\) return true;/.test(fn(app, 'segmentationEnabled')),
      'and the segmenter forces segmentation on — healFlatSegments is gated on it, and this app IS segmentation');
 }
+/* ⚠ AND IT IS AN ENGINE-WIDE ENTRY CONDITION, NOT A MATCHER TRICK (Seth: "that particular issue is
+ * probably an engine-wide issue … how to interpret imported flextext files with phrase/paragraph
+ * breaks"). The repair was reachable only from three switchTab paths in the editor, so a doc sat in
+ * its imported shape from the moment it entered the library until somebody opened it on a tab that
+ * happened to heal it — and everything reading it in between saw N phrases in one paragraph while
+ * doc.segments indexed paragraphs. It now runs where a foreign .flextext BECOMES a stored doc. */
+console.log('\nevery foreign .flextext is normalised where it ENTERS the library');
+{
+  ok(/function normalizePhraseLines\(doc\)/.test(app),
+     'the repair is a pure function — no `current`, no persist, no settings gate');
+  ok(/if \(normalizePhraseLines\(doc\)\) schedulePersist\(\);/.test(fn(app, 'healFlatSegments')),
+     'healFlatSegments keeps its behaviour by calling it — only IT knows the doc it healed is the open one');
+  for (const [where, name] of [['importFile', 'the editor opening a .flextext'],
+                               ['buildDocFromFlextextUrl', 'a researcher-assigned text'],
+                               ['satImportFiles', 'the satellites\' importer']]) {
+    const src = asyncFn(app, where);
+    ok(!!src && /normalizePhraseLines\(doc\)/.test(src), `${name} normalises before storing`);
+  }
+  // The export surfaces need no such call: phraseRows already refuses the paragraph-indexed span
+  // when a paragraph holds several phrases, falling back to each phrase's own offsets.
+  ok(/para\.segments\.length === 1 \? \(segs\[i\] \|\| null\) : null/.test(read('docs/js/seg-exports.js')),
+     'and the export path was already phrase-aware, so it is deliberately left alone');
+}
+
 /* The ✂ and ⤴ on the text side are now the ADJUSTMENT, not the only way to get any boundaries —
  * "a way to adjust those phrase cuts/joins IF WE NEED TO". They stay exactly as they were. */
 ok(/function mgSplitLine/.test(app) && /function mgJoinLine/.test(app),

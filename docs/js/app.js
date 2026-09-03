@@ -625,6 +625,8 @@ async function importFile(file) {
   if (error) { toast(t('toast.importFailed', { msg: error }), 6000); return; }
   let lastId = null;
   for (const doc of texts) {
+    // One phrase per paragraph BEFORE it is stored — see normalizePhraseLines.
+    normalizePhraseLines(doc);
     const rec = {
       id: newGuid(),
       title: doc.title || file.name.replace(/\.(flextext|xml)$/i, ''),
@@ -956,7 +958,29 @@ function isEditorTab(tab) { return tab === 'cut' || tab === 'baseline' || tab ==
  * have, so an UNEDITED legacy doc aligns on open instead of waiting for its first edit to trigger
  * reconcileBaseline. Idempotent; persists only when something actually changed. */
 function healFlatSegments(doc) {
-  if (!segmentationEnabled() || !doc || !doc.paragraphs) return;
+  if (!segmentationEnabled()) return;
+  // Everything this used to do inline is now the pure function below; only the persist is left,
+  // because only THIS caller knows the doc it healed is the open one.
+  if (normalizePhraseLines(doc)) schedulePersist();
+}
+
+/* ⚠ THE SAME REPAIR, AS A PURE FUNCTION ON ANY DOC — no `current`, no persist, no settings gate.
+ *
+ * It was reachable only from three switchTab paths in the editor, so a doc was carried in its
+ * imported shape from the moment it entered the library until somebody happened to open it on a
+ * tab that healed it. Everything reading it in between saw N phrases inside one paragraph while
+ * doc.segments indexed paragraphs — which is how the Audio Segmenter came to show a 60-phrase text
+ * as a single line (Seth: "this tool (and the rest of our suite) needs to be able to handle phrase
+ * breaks as if they were paragraph breaks in the way it renders/draws in the app", and "that
+ * particular issue is probably an engine-wide issue").
+ *
+ * Calling it where a foreign .flextext BECOMES a stored doc makes the canonical shape an entry
+ * condition instead of something each screen must remember to establish. The switchTab calls stay
+ * as belt-and-braces for docs that were stored before this.
+ *
+ * Returns whether anything changed, so the caller can decide about persisting. */
+function normalizePhraseLines(doc) {
+  if (!doc || !doc.paragraphs) return false;
   let changed = false;
   /* ⚠ FLATTEN MULTI-PHRASE PARAGRAPHS — one phrase per paragraph, each phrase KEEPING its own
    * offsets (v322; the "gloss join collapsed ALL segments on the first line" field bug).
@@ -992,7 +1016,7 @@ function healFlatSegments(doc) {
     const derived = segmentsFromOffsets(doc);
     if (derived) { doc.segments = derived; changed = true; }
   }
-  if (changed) schedulePersist();
+  return changed;
 }
 
 function decorateGlossSegments() {
@@ -4535,6 +4559,9 @@ async function buildDocFromFlextextUrl(url, title) {
   // surfaces it rather than spinning behind a silent empty placeholder.
   if (error || !texts.length) { const e = new Error(error || 'No readable text in the file.'); e.parseError = true; throw e; }
   const doc = texts[0];
+  // A researcher-assigned text is a foreign .flextext like any other, so it gets the same canonical
+  // shape on entry — see normalizePhraseLines. Its callers store it straight away.
+  normalizePhraseLines(doc);
   if (title) doc.title = title;
   return doc;
 }
@@ -7218,6 +7245,7 @@ async function satImportFiles(files) {
   let added = 0, paired = 0;
   for (const e of parsed) {
     for (const doc of e.texts) {
+      normalizePhraseLines(doc);      // canonical shape on entry — see normalizePhraseLines
       const rec = {
         id: newGuid(),
         title: doc.title || e.file.name.replace(/\.(flextext|xml|txt)$/i, ''),

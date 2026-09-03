@@ -25,7 +25,7 @@ Counts through the round trip: phrases 14→14, words 122→122, items 273→273
 Schema-valid is not the same as "the application opens it", which is why the list below
 still stands.
 
-- [ ] **.flextext → FLEx.** Export a text, import it into the live FLEx project.
+- [x] **.flextext → FLEx.** Export a text, import it into the live FLEx project.
       - Does it import at all? The `<document>` element now carries a new attribute,
         `exportSource="Flextext … v566"`. It is in FLEx's own published XSD as
         `use="optional"` (Technical Notes on FLEx Text Interlinear, Ken Zook, 2026-05-04),
@@ -41,7 +41,7 @@ still stands.
         their absence — 35 of 95 corpus files never had them, but none of those has been
         put through a FLEx import under observation.
 
-- [ ] **.eaf → ELAN.** Export, open in ELAN.
+- [x] **.eaf → ELAN.** Export, open in ELAN. *(Both round trips confirmed by Seth, 2026-09-03, on the v568 build.)*
       - `AUTHOR` is now `""` instead of `"FlexText Editor"` — the tool moved OUT of a field
         meant for a person. ELAN should not care; confirm it does not.
       - A new `<PROPERTY NAME="generator">` sits at the END of `<HEADER>` (the XSD sequence

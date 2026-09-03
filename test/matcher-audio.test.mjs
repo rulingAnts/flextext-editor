@@ -152,7 +152,7 @@ const load0 = fn(app, 'mgLoad');
 ok(/docSegments\(rec\.doc\)/.test(load0),
    'mgLoad reads doc.segments (a top-level rec.segments found NOTHING on any text the Cut tab made — an empty left pane on every real document)');
 const commit0 = asyncFn(app, 'mgCommit');
-ok(/rec\.doc\.segments = MG\.lines\.map/.test(commit0),
+ok(/rec\.doc\.segments = lines\.map\(\(l, i\) =>/.test(commit0),
    'mgCommit writes doc.segments (writing rec.segments meant the toast said "saved" and the alignment did not change)');
 ok(!/\brec\.segments\b/.test(code(commit0)) && !/\brec\.segments\b/.test(code(load0)),
    'and neither touches a top-level rec.segments at all');
@@ -199,7 +199,8 @@ ok(/last && now <= sp\.end/.test(ticker), 'the LAST span includes its own end, s
 console.log('\nthe pairing colour is SPACED, not hashed — adjacent lines must not share a shade');
 ok(/137\.508/.test(draw), 'hues step by the golden angle');
 ok(!/charCodeAt/.test(code(draw)), 'no string hash over the ids (which gave 326°, 327°, 328° on a three-line text)');
-ok(/lineOrder|hueForLine/.test(draw), 'the hue comes from the LINE, so a span and its line are the same colour in both panes');
+ok(/const hueAt = \(i\) => Math\.round\(i \* 137\.508\) % 360/.test(draw),
+   'the hue comes from the ROW NUMBER, so row i is the same colour in both cells');
 // Colour is never the only channel: the pick button carries the number.
 ok(/pick\.textContent = String\(i \+ 1\)/.test(draw), 'and every row still carries its number, so colour is redundant encoding');
 
@@ -213,12 +214,13 @@ ok(/player\?\.clearSpan\?\.\(\)/.test(split), 'the span watcher is cleared: the 
 console.log('\ncommitting collapses to the index-locked model the rest of the suite reads');
 const commit = asyncFn(app, 'mgCommit');
 ok(!!commit, 'mgCommit exists');
-ok(/Math\.min\(cur\.start, sp\.start\)[\s\S]*?Math\.max\(cur\.end, sp\.end\)/.test(commit),
-   'several spans on one line become the UNION of their extent — a line said in three bursts keeps all three');
-ok(/if \(sp\.timePending\) continue/.test(commit), 'an unaligned span contributes no timeline to that union');
+ok(/const sp = MG\.spans\[i\];/.test(commit) && /return sp\.timeEstimated \? \{ start: sp\.start, end: sp\.end, timeEstimated: true \}/.test(commit),
+   'row i\'s line takes row i\'s span, exactly — one piece of audio per line, by position');
+ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
+   'a row with no real audio is written timePending');
 ok(/timeEstimated: true/.test(commit), 'an estimated boundary is written back as estimated, not promoted to a measurement');
-ok(/rec\.doc\.paragraphs = MG\.lines\.map/.test(commit) && /rec\.doc\.segments = MG\.lines\.map/.test(commit),
-   'segments and paragraphs come out the same length and in the same order — segments[i] IS paragraph i');
+ok(/rec\.doc\.paragraphs = lines\.map/.test(commit) && /rec\.doc\.segments = lines\.map/.test(commit),
+   'segments and paragraphs come out of the SAME padded list, same length and order — segments[i] IS paragraph i');
 
 console.log('\ndragging a boundary — and it can never pass its neighbours');
 {
@@ -268,38 +270,70 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
      'the edge scale is frozen at pick-up, or the boundary would accelerate away from the finger');
 }
 
-console.log('\nleftovers on BOTH sides are legitimate, not an error');
+console.log('\nPAIRING IS THE ROW NUMBER — nothing is picked, nothing is linked');
 {
-  /* Seth: "we should be able to have empty audio segments that don't map to text … it should be
-   * possible to skip lines of text before audio matches text again. Just like we can do with our
-   * editor and paragraph analysis tool." Requiring a total bijection let one unusable second of
-   * tape block Done for ever, on a job whose whole point is that the two sides do not correspond
-   * one to one. */
+  /* Seth, 2026-09-03, after a first real text: "the mapping feels like an unnecessary extra step
+   * given the way our data model works. In fact unmapped empty audio gets dropped and things break.
+   * We shouldn't have the color coded matching, just make sure line numbers on left and right match
+   * and then match automatically from that (and add empty text lines for extra audio at the end
+   * that is unmatched)". The index-locked model already says segment i belongs to line i; the
+   * matcher now says nothing more. */
+  ok(!/MG\.map\b/.test(code(app)), 'there is no map at all — the pairing cannot disagree with the row order');
   const cmp = app.match(/const mgComplete = \(\) => [^;]*;/)[0];
-  ok(/MG\.map\.size > 0/.test(cmp), 'Done needs only that the user matched something');
-  ok(!/every\(/.test(cmp), 'and no longer demands that every span and every line be matched');
+  ok(/MG\.spans\.some\(\(sp\) => !sp\.timePending\)/.test(cmp), 'Done needs only one piece of real audio to write');
   const commit = asyncFn(app, 'mgCommit');
-  ok(/timePending: true/.test(commit),
-     'a line with no audio is written timePending — the engine\'s own word for it, as the Cut tab leaves an uncut line');
-  ok(/if \(sp\.timePending\) continue/.test(commit) || /MG\.map\.get\(sp\.id\)/.test(commit),
-     'and audio matched to nothing is simply not carried into doc.segments');
-  ok(/droppedAudio/.test(commit) && /mg\.committedLeftover/.test(commit),
-     'both are REPORTED after the save — left out is fine, left out silently is not');
+  ok(/for \(let i = lines\.length; i < padTo; i\+\+\)/.test(commit) && /makeSegment\(''/.test(commit),
+     'audio past the last line gets a blank line each at the end — no piece is dropped for want of words');
+  ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(s\.timePending \? m : i \+ 1\), 0\)/.test(commit),
+     'up to the last piece of REAL audio — a trailing "no audio" placeholder earns no blank line');
+  ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
+     'a line past the last piece of audio is written timePending — the engine\'s own word for it');
+  ok(/blankAdded/.test(commit) && /mg\.committedLeftover/.test(commit),
+     'both are REPORTED after the save — padded is fine, padded silently is not');
   const draw = fn(app, 'mgDraw');
-  ok(/mg\.nonePicked/.test(draw) && /mg\.leftover/.test(draw) && /mg\.allMapped/.test(draw),
-     'the status line has three states: nothing picked, all matched, and leftovers-by-choice');
+  ok(/mg\.countsMatch/.test(draw) && /mg\.moreAudio/.test(draw) && /mg\.moreText/.test(draw),
+     'the status line says the two counts, and what Done will do about a difference, up front');
+  ok(!/mgCapture/.test(fn(app, 'mgPick')), 'the number badge only highlights the pair — there is nothing to undo');
 }
 
-console.log('\nthe Audio pane lists AUDIO — not placeholders, and never loses the uncut remainder');
+console.log('\nplaceholders KEEP THEIR ROW, and the uncut remainder is never lost');
 {
+  /* Under pairing-by-row a line committed without audio must hold its place, or every line after
+   * it slides up one number and pairs with the wrong sound. So the "no audio" rows are back — as
+   * placeholders that say so — except when NO row has audio, where there is nothing to hold. */
   const load = fn(app, 'mgLoad');
-  ok(/\.filter\(\(sp\) => !sp\.timePending && sp\.end > sp\.start\)/.test(load),
-     'timePending entries are dropped: doc.segments is index-locked to LINES, so they stand for lines, not sound');
+  ok(!/\.filter\(\(sp\) => !sp\.timePending/.test(load), 'timePending entries are no longer filtered out');
+  ok(/timePending: !!s\.timePending \|\| !\(Number\(s\.end\) > Number\(s\.start\)\)/.test(load),
+     'an empty extent counts as no audio, whatever it was labelled');
+  ok(/if \(!MG\.spans\.some\(\(sp\) => !sp\.timePending\)\) MG\.spans = \[\];/.test(load),
+     'and a text with no audio anywhere starts empty, so the whole recording is seeded as one span');
   const prep = asyncFn(app, 'mgPrepareAudio');
-  ok(/MG\.spans\.push\(\{ id: 'tail'/.test(prep),
-     'whatever follows the last span is appended, so the pane accounts for the whole recording');
-  ok(/dur - MG\.spans\[MG\.spans\.length - 1\]\.end > 1000/.test(prep),
-     'with coverTail\'s 1s tolerance — a sliver at the end is rounding, not a missing piece');
+  ok(/MG\.spans\.push\(\{ id: 'tail', start: lastEnd/.test(prep),
+     'whatever follows the last piece of AUDIO is appended, so the pane accounts for the whole recording');
+  ok(/const lastEnd = Math\.max\(0, \.\.\.MG\.spans\.filter\(\(s\) => !s\.timePending\)\.map\(\(s\) => s\.end\)\)/.test(prep)
+     && /dur - lastEnd > 1000/.test(prep),
+     'measured from the last REAL span (a trailing placeholder ends at 0), with coverTail\'s 1s tolerance');
+}
+
+console.log('\none list, row i left beside row i right');
+{
+  /* Seth: "we don't even completely need our two panes to scroll independently. Because they
+   * should be matching one to one. And when they don't, the solution is to split, join, or add
+   * empty lines (adding new lines on the text side only)." */
+  const draw = fn(app, 'mgDraw');
+  ok(/<ul class="mg-rows" id="mg-rows"><\/ul>/.test(draw) && !/mg-list/.test(draw), 'one list, not two panes');
+  ok(/const spanEls = \[\]/.test(draw) && /const lineEls = \[\]/.test(draw) && /row\.append\(left, right\)/.test(draw),
+     'the cells are built per side and zipped into rows by index');
+  ok(/t\('mg\.noAudioCell'\)/.test(draw) && /t\('mg\.noLineCell'\)/.test(draw),
+     'a side that runs out shows an empty cell saying what Done will do about it');
+  ok(/cell\.appendChild\(mgInsertRow\(i\)\)/.test(draw) && !/left\.appendChild\(mgInsertRow/.test(draw),
+     'the + rows live on the TEXT side only');
+  ok(/right\.appendChild\(mgInsertRow\(MG\.lines\.length - 1\)\)/.test(draw),
+     'including inside an empty text cell, where a blank line is exactly what is missing');
+  ok(/\.mg-row\{display:grid;grid-template-columns:1fr 1fr/.test(css) && !/\.mg-panes\{/.test(css),
+     'styled as rows, and the pane rules are gone');
+  ok(/@media \(max-width:820px\)\{\s*\.mg-rowhead\{display:none\}\s*\.mg-row\{grid-template-columns:1fr/.test(css),
+     'on a phone the two cells stack inside the row — still one scroll, still one pair');
 }
 
 console.log('\nboth ⤴ buttons are wired — the text one was not');
@@ -324,9 +358,7 @@ console.log('\nundo/redo over the MATCHER\'s state, not the document\'s');
     ok(/mgCapture\(\);/.test(fn(app, f)), `${f} captures before changing anything`);
   }
   ok(/mgCapture\(\);\s*\/\/ replacing every span/.test(app), 'and so does ✨ Guess');
-  const pick = fn(app, 'mgPick');
-  ok(/mgCapture\(\);/.test(pick) && pick.indexOf('mgCapture') > pick.indexOf('if (MG.selSpan && MG.selLine)'),
-     'mapping captures only when the map actually changes — selecting alone is not an edit');
+  ok(!/mgCapture/.test(fn(app, 'mgPick')), 'selecting is not an edit, so it captures nothing');
   ok(/mgUndoStack = \[\]; mgRedoStack = \[\]/.test(asyncFn(app, 'mgOpen')), 'history is per text, not per app');
   ok(/if \(!MG\) return;[\s\S]{0,400}metaKey \|\| e\.ctrlKey/.test(fn(app, 'setupSegmenterMode')),
      'the keyboard shortcut is gated on the matcher being open, so it cannot shadow the browser elsewhere');
@@ -349,9 +381,10 @@ console.log('\na matched pair scrolls and highlights together');
   ok(!!link, 'mgLinkPair exists');
   ok(/followLine\(line, true, mgFollowLine, player\)/.test(link),
      'using the SHARED followLine, so the 4s stand-off after a user scroll applies here too');
+  ok(/#mg-rows \.mg-line\[data-ln=/.test(link), 'and it finds the line in the one shared list');
   const ticker = fn(app, 'mgStartTicker');
-  ok(/if \(rolling\) mgLinkPair/.test(ticker),
-     'and it follows PLAYBACK, not only clicks — listening down a recording keeps the text in step');
+  ok(/if \(rolling\) mgLinkPair\(row\.dataset\.ln \|\| null\)/.test(ticker),
+     'and it follows PLAYBACK, not only clicks — the partner is the row\'s own data-ln, set by index');
 }
 
 console.log('\nwork in progress is autosaved — losing it was the one unacceptable failure');
@@ -411,7 +444,7 @@ ok(/\.mg-span\{position:relative;display:grid/.test(css),
 ok(/\.mg-span \.mg-wavewrap\{grid-column:3;grid-row:1;position:relative/.test(css),
    'the wave WRAPPER holds the grid cell and is the positioned ancestor (the cursor and the edge handles sit in it)');
 ok(/\.mg-span \.seg-wave\{width:100%/.test(css), 'and the canvas fills it');
-ok(/\.mg-list\{[^}]*overflow:auto/.test(css), 'each pane scrolls on its own — the span and its line are rarely the same distance down');
+ok(/\.mg-rows\{[^}]*overflow:auto/.test(css), 'the one list scrolls — the pair is the row, so there is nothing to scroll apart');
 ok(!/\.mg-bar\{position:sticky/.test(css), 'the bar is NOT sticky: the dock already claims top:0 and would cover it');
 
 console.log('\non a phone the waveform gets the whole row, and the pick badge is a real tap target');
@@ -460,16 +493,11 @@ console.log('\nDone points `current` at the committed record — or the next upd
   ok(!/#view-texts|view-texts/.test(shell), '(the shell really has no #view-texts, so the guard cannot be relied on)');
 }
 
-console.log('\na partly matched text reopens WITH its pairs — leftovers are allowed, so the counts rarely agree');
+console.log('\nan older draft still resumes — its spans and lines, with any map it carried ignored');
 {
-  /* Seen on the dev rig, 2026-09-03: one span matched to one of 35 lines, Done, reopen — the span
-   * and the line were both there and neither knew about the other, and Done was disabled. The seed
-   * ran only when spans.length === lines.length, which a text with any leftover never satisfies. */
-  const load = fn(app, 'mgLoad');
-  ok(/id: 'sp' \+ i, at: i,/.test(load), 'each span remembers the paragraph index it was stored against');
-  ok(/for \(const sp of MG\.spans\) if \(MG\.lines\[sp\.at\]\) MG\.map\.set\(sp\.id, MG\.lines\[sp\.at\]\.id\);/.test(load),
-     'and every surviving span is paired with THAT line');
-  ok(!/spans\.length === MG\.lines\.length/.test(load), '⚠ not only when every line happens to have one');
+  const open = asyncFn(app, 'mgOpen');
+  ok(/MG\.spans = draft\.spans;\s*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
+     'a v567–v570 draft (149 cuts, nine joins, a map of picks) comes back as rows; the picks are simply not a thing any more');
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');

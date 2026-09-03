@@ -2949,17 +2949,24 @@ body.rp-standalone main { padding-top: 0; }
   background:var(--card,#fff);border-bottom:1px solid var(--line,#d7dbe0)}
 .mg-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:14rem}
 .mg-status{flex:1;font-size:.88rem;color:var(--muted,#667)}
-.mg-panes{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:.6rem}
-@media (max-width:820px){ .mg-panes{grid-template-columns:1fr} }
-.mg-pane h3{margin:.2rem 0 .4rem;font-size:.95rem;color:var(--muted,#667)}
-/* ⚠ EACH PANE SCROLLS ON ITS OWN, and that is the layout's one real requirement: the span you are
-   matching and the line you are matching it to are almost never the same distance down the list, so
-   a single page scroll would force you to lose sight of one to reach the other. The max-height is an
-   estimate of "the rest of the screen below the player and the bar" — deliberately approximate, with
-   a min-height so a short window still shows rows rather than a sliver. */
-.mg-list{list-style:none;margin:0;padding:0;overflow:auto;overscroll-behavior:contain;
+/* ONE LIST, ROW i LEFT BESIDE ROW i RIGHT (Seth, 2026-09-03: "we don't even completely need our two
+   panes to scroll independently. Because they should be matching one to one"). The pairing IS the
+   row, so the two sides scroll as one; on a phone the two cells stack inside the row instead. The
+   max-height is an estimate of "the rest of the screen below the player and the bar" — deliberately
+   approximate, with a min-height so a short window still shows rows rather than a sliver. */
+.mg-rowhead{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:.4rem .6rem 0}
+.mg-rowhead h3{margin:0 0 .2rem;font-size:.95rem;color:var(--muted,#667)}
+.mg-rows{list-style:none;margin:0;padding:.3rem .6rem .6rem;overflow:auto;overscroll-behavior:contain;
   max-height:calc(100vh - 22rem);min-height:12rem}
-@media (max-width:820px){ .mg-list{max-height:42vh} }
+.mg-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start;margin-bottom:.35rem}
+.mg-cell{min-width:0}
+.mg-cell-empty{border:1px dashed var(--line,#d7dbe0);border-radius:9px;padding:.6rem;
+  font-size:.85rem;color:var(--muted,#667);text-align:center}
+@media (max-width:820px){
+  .mg-rowhead{display:none}
+  .mg-row{grid-template-columns:1fr;gap:.25rem;padding-bottom:.4rem;border-bottom:1px solid var(--line,#d7dbe0)}
+  .mg-rows{max-height:calc(100vh - 20rem)}
+}
 .mg-item{display:flex;align-items:flex-start;gap:.5rem;padding:.45rem;margin-bottom:.35rem;
   border:1px solid var(--line,#d7dbe0);border-radius:9px;background:var(--card,#fff)}
 /* The audio row is the Cut tab's strip with two extra columns: the pick badge that carries the
@@ -3048,3 +3055,9 @@ body.rp-standalone main { padding-top: 0; }
  * needs the block/centring a <button> gets for free and must not underline like prose. */
 a.rp-app-link { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
 .toolbar a.rp-app-link { display: inline-block; width: auto; }
+
+/* Matcher rows past the end of the OTHER pane: audio with no line yet, or a line with no audio.
+ * Pairing is by row number, so these are exactly the rows Done will pad or leave unaligned —
+ * dashed, uncoloured, and still numbered so the count they are missing from is legible. */
+.mg-item.mg-extra{border-left:6px dashed var(--line,#d7dbe0);background:transparent}
+.mg-item.mg-extra .mg-pick{background:#f1f3f5;color:var(--muted,#667)}

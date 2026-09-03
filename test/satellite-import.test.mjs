@@ -39,8 +39,8 @@ const bar = fn(app, 'satImportBar');
 ok(!!bar, 'satImportBar exists');
 ok(/satImportBar\(view\)/.test(fn(app, 'renderSegmenterView')), 'the segmenter renders it');
 ok(/satImportBar\(view\)/.test(fn(app, 'renderConsentView')), 'the collector renders it');
-ok(/SEGMENTER_MODE \? 'sat\.openPair' : 'sat\.open'/.test(bar),
-   'one bar, two labels — the segmenter asks for the recording too, because it cannot work without one');
+ok(/SEGMENTER_MODE \? 'sat\.openPair' : CONSENT_MODE \? 'sat\.openAny' : 'sat\.open'/.test(bar),
+   'one bar, three labels — the segmenter asks for the recording too (it cannot work without one); the collector takes either or both');
 ok(/input\.multiple = true/.test(bar), 'multiple files at once: a corpus folder is many pairs, not one');
 // The editor's importFile ends in openDoc() + renderDocList(), neither of which exists in a satellite.
 ok(!/openDoc\(|renderDocList\(/.test(code(imp)),
@@ -65,7 +65,8 @@ ok(/ambiguous/.test(imp) && /sat\.audioAmbiguous/.test(imp), 'and that refusal i
 ok(/orphans/.test(imp) && /sat\.audioUnmatched/.test(imp),
    'a recording with no text left to go with is named in the message, not silently dropped');
 ok(!/same name as its text/.test(i18n), 'and the message no longer tells the user to rename their files');
-ok(/if \(!textFiles\.length\)/.test(imp) && /sat\.needText/.test(imp), 'audio with no text at all is refused outright');
+ok(/if \(!textFiles\.length && !audioAlone\)/.test(imp) && /sat\.needText/.test(imp),
+   'audio with no text is refused in the SEGMENTER, which has nothing to match it against');
 ok(/failed\.push/.test(imp) && /toast\(t\('toast\.importFailed'/.test(imp), 'a file that will not parse says so, per file');
 // Parsing before pairing is what makes `single` knowable at pairing time.
 ok(imp.indexOf('const parsed = []') < claimIdx, 'every file is parsed before anything is paired');
@@ -77,8 +78,26 @@ ok(/rec\.audioLocked = false/.test(imp), 'and the user may remove it — they br
 ok(/ensureMediaRef\(rec, e\.mate\.name/.test(imp), 'the doc references the media, so an export still points at it');
 ok(/Object\.assign\(rec, docStats\(doc\)\)/.test(imp), 'segCount/glossed come from docStats, like every other writer');
 
+console.log('\nthe collector takes a recording on its own — permission attaches to audio too (Seth, 2026-09-03)');
+{
+  ok(/const audioAlone = CONSENT_MODE;/.test(imp), 'audio alone is a consent-collector rule, not a satellite-wide one');
+  ok(/if \(claimed\.has\(a\)\) continue;[\s\S]*?makeDoc\(settings, a\.name\.replace\(\/\\\.\[\^\.\]\+\$\/, ''\)\)/.test(imp),
+     'each recording nothing claimed becomes its own text, titled from the filename');
+  ok(/ensureMediaRef\(rec, a\.name, ''\)/.test(imp) && /rec\.audioLocked = false;[\s\S]*?claimed\.add\(a\);/.test(imp),
+     'stored the way a paired recording is (media ref, unlocked), and then counted as claimed');
+  ok(/recordings === 1 \? 'sat\.importedOneRecording' : 'sat\.importedManyRecordings'/.test(imp),
+     'and said, at one and at many');
+  ok(/if \(ambiguous && !audioAlone\)/.test(imp), '"left off" is not said where the recording stands on its own anyway');
+  for (const k of ['sat.openAny', 'sat.importedOneRecording', 'sat.importedManyRecordings', 'panel.rel.new.consentAudio']) {
+    ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+  ok(/'cc\.empty': 'No texts on this device yet\. Open a \.flextext file, a recording, or both/.test(i18n),
+     'and the empty state no longer says .flextext only');
+}
+
 console.log('\nthe messages are grammatical at EVERY count (t() has no plural machinery)');
-for (const k of ['sat.importedOne', 'sat.importedOneAudio', 'sat.importedMany', 'sat.importedManyAudio']) {
+for (const k of ['sat.importedOne', 'sat.importedOneAudio', 'sat.importedMany', 'sat.importedManyAudio',
+                 'sat.importedOneRecording', 'sat.importedManyRecordings']) {
   ok(i18n.includes(`'${k}'`), `${k} exists`);
 }
 ok(/added === 1[\s\S]{0,120}sat\.importedOne/.test(imp), 'the single case gets its own sentence');
@@ -87,7 +106,8 @@ ok(!/text\(s\)|\(s\)/.test(i18n.match(/'sat\.imported[^\n]*/g)?.join('\n') || ''
 const en = i18n.slice(0, i18n.indexOf("'cc.hint'", i18n.indexOf("'cc.hint'") + 10));
 ok(/'cc\.tallyNeed': 'still to ask: \{n\} of \{total\}'/.test(en), 'cc.tallyNeed reads correctly at 1');
 ok(/'cc\.tallyDone': 'all have permission \(\{total\}\)'/.test(en), 'and so does cc.tallyDone');
-ok(/'mg\.remaining': 'Still to match — audio: \{a\}, text: \{t\}'/.test(en), 'and the matcher status');
+ok(/'mg\.moreAudio': 'Audio: \{a\} \\u00b7 Text: \{t\}/.test(en) && /'mg\.moreText': 'Audio: \{a\} \\u00b7 Text: \{t\}/.test(en),
+   'and the matcher status, which now names both counts');
 
 console.log('\nrow controls: delete a text, swap its recording — on by default when unpaired');
 const swap = asyncFn(app, 'satReplaceAudio');
@@ -129,7 +149,21 @@ console.log('\nan unpaired device can get a text OUT — the first real text had
   ok(/sat-export/.test(ctl) && /satExport\(d\.id\)/.test(ctl), 'the row carries a download control');
   ok(/if \(SEGMENTER_MODE \|\| CONSENT_MODE\)/.test(ctl), 'in both satellites');
   const ex = asyncFn(app, 'satExport');
-  ok(/buildBundleFor\(rec, true, \{ full: true \}\)/.test(ex), 'built by the SAME bundle a paired device uploads, in full');
+  ok(/buildBundleFor\(rec, true, \{ full: true, wants: \{ eaf: true, saymore: false, preview: false, fxpa: false \} \}\)/.test(ex),
+     'built by the SAME bundle a paired device uploads — minus every output that embeds the recording as base64');
+  /* "allocation size overflow" (Firefox, a six-minute WAV): the listening page and the .fxpa each
+   * hold the recording as base64, several copies of a ~100 MB string alive at once. */
+  ok(/const caps = media \? conversionCaps\(/.test(asyncFn(app, 'buildBundleFor')) && /trimmed\.push\('preview'\)/.test(asyncFn(app, 'buildBundleFor')),
+     'and buildBundleFor itself gates those outputs on conversionCaps, so the editor\'s Share cannot overflow either');
+  ok(/share\.trimmedBig/.test(asyncFn(app, 'openShareMenu')), 'which the editor SAYS when it happens');
+  // Seth: "we do want direct ELAN export from the audio segmenter."
+  ok(/const kind = await satExportChoice\(\)/.test(ex), 'the user chooses what to keep of it');
+  ok(/kind === 'flextext'/.test(ex) && /kind === 'eaf'/.test(ex) && /\\\.eaf\$/.test(ex),
+     'everything, the .eaf alone, or the .flextext alone');
+  ok(/sat\.exportNoEaf/.test(ex), 'and an unmatched text says why there is no .eaf rather than downloading nothing');
+  for (const k of ['sat.exportTitle', 'sat.exportAll', 'sat.exportEaf', 'sat.exportFlextext', 'sat.exportNoEaf', 'share.trimmedBig']) {
+    ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
   ok(/if \(rec\.matchDraft\) toast\(t\('sat\.exportDraft'\)/.test(ex), 'and it says when unfinished matching is not in it');
   ok(/if \(!bundle\.zipped\) toast\(t\('sat\.exportNoAudio'\)/.test(ex), 'and when there was no recording to include');
   for (const k of ['sat.export', 'sat.exporting', 'sat.exportDraft', 'sat.exportNoAudio', 'sat.exportFailed']) {

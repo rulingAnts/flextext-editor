@@ -132,7 +132,10 @@ en: {
   'sg.open': 'Open',
   'sg.noAudio': 'no recording attached',
   'sg.noSpans': 'not cut yet',
+  // One/many split, not "{n} piece(s)": t() is a string replace with no plural machinery, and a
+  // text cut into a single span is the commonest state after opening one that was never cut.
   'sg.someSpans': 'cut into {n} pieces',
+  'sg.oneSpan': 'cut into 1 piece',
   'mg.audio': 'Audio',
   'mg.text': 'Text',
   'mg.back': '← Back',
@@ -2353,6 +2356,7 @@ id: {
   'sg.noAudio': 'tidak ada rekaman',
   'sg.noSpans': 'belum dipotong',
   'sg.someSpans': 'dipotong menjadi {n} bagian',
+  'sg.oneSpan': 'dipotong menjadi 1 bagian',
   'mg.audio': 'Audio',
   'mg.text': 'Teks',
   'mg.back': '← Kembali',

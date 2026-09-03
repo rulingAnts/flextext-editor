@@ -7520,7 +7520,7 @@ async function sgRenderList() {
     li.querySelector('.doc-meta').textContent =
       st === 'noaudio' ? t('sg.noAudio')
       : st === 'coming' ? t('seg.loadingAudio')
-      : st === 'some' ? t('sg.someSpans').replace('{n}', d.spanCount)
+      : st === 'some' ? (d.spanCount === 1 ? t('sg.oneSpan') : t('sg.someSpans').replace('{n}', d.spanCount))
       : t('sg.noSpans');
     satRowControls(li.querySelector('.rec-item-actions'), d);
     const open = li.querySelector('.sg-open');

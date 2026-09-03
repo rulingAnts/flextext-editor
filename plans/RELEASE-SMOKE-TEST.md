@@ -9,6 +9,22 @@ respective apps accurately."*
 Nothing in `test/` can do this. The tests check what we WRITE; only FLEx and ELAN can say
 whether they can READ it. Both writers changed on 2026-09-03.
 
+**Already done for you (2026-09-03), so this is confirmation rather than discovery:** both
+exports were generated from a real corpus text (*Cerita Mama Raimon*, 1 paragraph / 14
+phrases / 122 words) and validated with `xmllint` against the published schemas —
+
+| | result |
+|---|---|
+| `.eaf` vs the official `EAFv3.0.xsd` | **validates** |
+| `.flextext` vs SIL's XSD (from the Technical Notes) | **validates** |
+| the untouched source file, as a control | **validates** (so the check is not lenient) |
+| a genuinely MIXED text (*Tautua Do*, 163 paragraphs / 165 phrases) through the grouping path | **validates**, 163 paragraphs out, no duplicate guids |
+
+Counts through the round trip: phrases 14→14, words 122→122, items 273→273, segnum 0→0.
+
+Schema-valid is not the same as "the application opens it", which is why the list below
+still stands.
+
 - [ ] **.flextext → FLEx.** Export a text, import it into the live FLEx project.
       - Does it import at all? The `<document>` element now carries a new attribute,
         `exportSource="Flextext … v566"`. It is in FLEx's own published XSD as

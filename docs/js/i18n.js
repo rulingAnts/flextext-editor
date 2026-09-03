@@ -146,6 +146,7 @@ en: {
   // finished. A labelled pair is correct at every count and scans faster besides.
   'mg.remaining': 'Still to match — audio: {a}, text: {t}',
   'mg.nonePicked': 'Match at least one piece of audio to a line to finish.',
+  'mg.addLine': 'Add a blank line here (for audio with no words yet)',
   'mg.leftover': 'Not matched — audio: {a}, text: {t}. That is allowed: leftover audio is left out, and a line with no audio keeps its words.',
   'mg.committedLeftover': 'Left out {a} piece(s) of audio; {t} line(s) saved without audio.',
   'mg.splitSpan': 'Split this audio piece in two',
@@ -2364,6 +2365,7 @@ id: {
   'mg.allMapped': 'Semua sudah dicocokkan.',
   'mg.remaining': 'Belum dicocokkan — audio: {a}, teks: {t}',
   'mg.nonePicked': 'Cocokkan setidaknya satu potongan audio dengan satu baris untuk menyelesaikan.',
+  'mg.addLine': 'Tambahkan baris kosong di sini (untuk audio yang belum ada kata-katanya)',
   'mg.leftover': 'Belum dicocokkan — audio: {a}, teks: {t}. Itu boleh: audio sisa tidak disertakan, dan baris tanpa audio tetap ada kata-katanya.',
   'mg.committedLeftover': 'Audio yang tidak disertakan: {a}; baris tersimpan tanpa audio: {t}.',
   'mg.splitSpan': 'Bagi potongan audio ini menjadi dua',

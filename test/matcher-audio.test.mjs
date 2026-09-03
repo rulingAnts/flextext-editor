@@ -242,6 +242,70 @@ console.log('\nleftovers on BOTH sides are legitimate, not an error');
      'the status line has three states: nothing picked, all matched, and leftovers-by-choice');
 }
 
+console.log('\nthe Audio pane lists AUDIO — not placeholders, and never loses the uncut remainder');
+{
+  const load = fn(app, 'mgLoad');
+  ok(/\.filter\(\(sp\) => !sp\.timePending && sp\.end > sp\.start\)/.test(load),
+     'timePending entries are dropped: doc.segments is index-locked to LINES, so they stand for lines, not sound');
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/MG\.spans\.push\(\{ id: 'tail'/.test(prep),
+     'whatever follows the last span is appended, so the pane accounts for the whole recording');
+  ok(/dur - MG\.spans\[MG\.spans\.length - 1\]\.end > 1000/.test(prep),
+     'with coverTail\'s 1s tolerance — a sliver at the end is rounding, not a missing piece');
+}
+
+console.log('\nboth ⤴ buttons are wired — the text one was not');
+{
+  const draw = fn(app, 'mgDraw');
+  ok(/\.mg-join'\)\.onclick = \(\) => mgJoinSpan/.test(draw), 'the audio row joins spans');
+  ok(/\.mg-join'\)\.onclick = \(\) => mgJoinLine/.test(draw),
+     'and the text row joins lines (it rendered, enabled correctly, and did nothing)');
+}
+
+console.log('\nundo/redo over the MATCHER\'s state, not the document\'s');
+{
+  const snap = app.match(/const mgSnap = \(\) => \(\{[\s\S]*?\}\);/);
+  ok(!!snap && /function mgCapture/.test(app), 'there is a snapshot ring');
+  ok(!!snap && /selSpan: MG\.selSpan, selLine: MG\.selLine/.test(snap[0]),
+     'selection is part of the SNAPSHOT itself — else undoing a pairing leaves the first click still armed');
+  ok(!!snap && /phrases: structuredClone/.test(snap[0]),
+     'and the phrases are deep-copied, or an undo would hand back the same objects it just edited');
+  ok(/player\?\.clearSpan\?\.\(\)/.test(fn(app, 'mgApply')),
+     'applying a snapshot clears the span watcher, as applyUndoState does in the editor');
+  for (const f of ['mgSplitSpan', 'mgJoinSpan', 'mgSplitLine', 'mgJoinLine']) {
+    ok(/mgCapture\(\);/.test(fn(app, f)), `${f} captures before changing anything`);
+  }
+  ok(/mgCapture\(\);\s*\/\/ replacing every span/.test(app), 'and so does ✨ Guess');
+  const pick = fn(app, 'mgPick');
+  ok(/mgCapture\(\);/.test(pick) && pick.indexOf('mgCapture') > pick.indexOf('if (MG.selSpan && MG.selLine)'),
+     'mapping captures only when the map actually changes — selecting alone is not an edit');
+  ok(/mgUndoStack = \[\]; mgRedoStack = \[\]/.test(asyncFn(app, 'mgOpen')), 'history is per text, not per app');
+  ok(/if \(!MG\) return;[\s\S]{0,400}metaKey \|\| e\.ctrlKey/.test(fn(app, 'setupSegmenterMode')),
+     'the keyboard shortcut is gated on the matcher being open, so it cannot shadow the browser elsewhere');
+}
+
+console.log('\nblank lines, for audio that deserves a line but has no words yet');
+{
+  ok(/function allowBlankLinesOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowBlankLines === true; \}/.test(app),
+     'researcher-settable, on by default with no researcher session — same shape as allowDeleteOn');
+  const ins = fn(app, 'mgInsertLine');
+  ok(/makeSegment\(''/.test(ins), 'it inserts the engine\'s own empty phrase');
+  ok(/above\.paraOf/.test(ins), 'inheriting paraOf, so inserting inside a sentence does not start a new one');
+  ok(/mgCapture\(\);/.test(ins), 'and it is undoable');
+  ok(/if \(allowBlankLinesOn\(\)\)/.test(fn(app, 'mgDraw')), 'the + rows appear only when allowed');
+}
+
+console.log('\na matched pair scrolls and highlights together');
+{
+  const link = fn(app, 'mgLinkPair');
+  ok(!!link, 'mgLinkPair exists');
+  ok(/followLine\(line, true, mgFollowLine, player\)/.test(link),
+     'using the SHARED followLine, so the 4s stand-off after a user scroll applies here too');
+  const ticker = fn(app, 'mgStartTicker');
+  ok(/if \(rolling\) mgLinkPair/.test(ticker),
+     'and it follows PLAYBACK, not only clicks — listening down a recording keeps the text in step');
+}
+
 console.log('\nleaving releases everything at once');
 const close = fn(app, 'mgClose');
 ok(/mgStopTicker\(\)/.test(close), 'the frame loop stops (it would otherwise outlive its screen)');

@@ -3750,6 +3750,9 @@ function refreshList() {
 }
 
 function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete === true; }
+// Researcher-controlled: may this device add a blank text line in the matcher? Same shape and
+// default as the two below — on when there is no researcher session.
+function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankLines === true; }
 // Researcher-controlled: may this device swap a text's recording for a different file?
 // Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on.
 function allowAudioSwapOn() { return !Sync.hasSession() || settings.allowAudioSwap === true; }
@@ -7599,10 +7602,21 @@ function mgLoad(rec) {
      * found nothing on any text the Cut tab had actually produced — the left pane came up empty on
      * every real document, and only a hand-made fixture that happened to store them at the top
      * level made this look like it worked. */
-    spans: docSegments(rec.doc).map((s, i) => ({
-      id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
-      timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
-    })),
+    /* ⚠ ONLY THE ALIGNED SEGMENTS ARE AUDIO. doc.segments is index-locked to the LINES, so a text
+     * with 14 lines and one cut holds 14 entries — one real span and thirteen `timePending`
+     * placeholders standing for lines, not for sound. Listing all of them put thirteen rows in the
+     * Audio pane reading "No time yet — scrub to the right spot and press Enter again" (Cut-tab
+     * guidance that means nothing here), each offering a ▶ for audio that does not exist — while
+     * the 61 seconds of recording that had NOT been cut appeared nowhere at all.
+     *
+     * The Audio pane is a list of pieces of audio. "This line has no recording" is a fact about the
+     * TEXT side, and mgCommit already writes it back as timePending. */
+    spans: docSegments(rec.doc)
+      .map((s, i) => ({
+        id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
+        timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
+      }))
+      .filter((sp) => !sp.timePending && sp.end > sp.start),
     /* `paraOf` rides along untouched: it is the memory of which ORIGINAL paragraph this line came
      * from, set only for files whose author distinguished phrases from paragraphs. The matcher never
      * shows it — every phrase is its own line here regardless — but dropping it would silently
@@ -7637,12 +7651,55 @@ function mgLoad(rec) {
  * information rather than as an error. */
 const mgComplete = () => !!MG && MG.map.size > 0;
 
+/* UNDO/REDO FOR THE MATCHER (Seth). The editor has had a ring since v323, but it snapshots
+ * current.doc — and the matcher's whole design is that it does NOT touch the doc until Done. Its
+ * state is MG: the spans, the lines and the mapping between them. So it needs its own ring, over
+ * that.
+ *
+ * Snapshot rather than an op log, for the same reason the editor chose one: every verb here
+ * (split, join, guess, map, unmap) rewrites the arrays wholesale, so an inverse-op scheme would be
+ * five inverses to get right and one to get wrong. A whole-state copy is a few kilobytes.
+ *
+ * ⚠ CAPTURED BEFORE THE CHANGE, by the mutating function itself — never by the click handler, so
+ * the keyboard and any future caller get the same history. And ✨ Guess captures too: it replaces
+ * every span at once, which is precisely the action a user most wants back.
+ *
+ * ⚠ SELECTION IS PART OF THE STATE. Undoing a pairing that was made by two clicks must not leave
+ * the first click still armed, or the next click pairs something the user never chose. */
+const MG_UNDO_MAX = 40;
+let mgUndoStack = [];
+let mgRedoStack = [];
+const mgSnap = () => ({
+  spans: MG.spans.map((s2) => ({ ...s2 })),
+  lines: MG.lines.map((l) => ({ ...l, phrases: structuredClone(l.phrases) })),
+  map: new Map(MG.map),
+  selSpan: MG.selSpan, selLine: MG.selLine, pendingWordCut: MG.pendingWordCut || null,
+});
+function mgCapture() {
+  if (!MG) return;
+  mgUndoStack.push(mgSnap());
+  if (mgUndoStack.length > MG_UNDO_MAX) mgUndoStack.shift();
+  mgRedoStack = [];                    // a new edit forks the future, as everywhere else
+}
+function mgApply(st) {
+  MG.spans = st.spans; MG.lines = st.lines; MG.map = st.map;
+  MG.selSpan = st.selSpan; MG.selLine = st.selLine; MG.pendingWordCut = st.pendingWordCut;
+  /* The player was watching spans that may no longer exist — the same rule applyUndoState follows
+   * in the editor. An audition running across an undo would stop at a boundary from the discarded
+   * state and throw the playhead back to a start that is not there any more. */
+  player?.clearSpan?.();
+  mgDraw();
+}
+function mgUndoOnce() { if (!MG || !mgUndoStack.length) return; mgRedoStack.push(mgSnap()); mgApply(mgUndoStack.pop()); }
+function mgRedoOnce() { if (!MG || !mgRedoStack.length) return; mgUndoStack.push(mgSnap()); mgApply(mgRedoStack.pop()); }
+
 /* Mapping is two clicks: pick a span, pick a line. Clicking a mapped pair again unmaps it, which
  * is the only undo a matching screen actually needs — there is no partial state to unwind. */
 function mgPick(kind, id) {
   if (kind === 'span') MG.selSpan = MG.selSpan === id ? null : id;
   else MG.selLine = MG.selLine === id ? null : id;
   if (MG.selSpan && MG.selLine) {
+    mgCapture();                     // only HERE: selecting alone changes nothing to undo
     if (MG.map.get(MG.selSpan) === MG.selLine) MG.map.delete(MG.selSpan);
     else MG.map.set(MG.selSpan, MG.selLine);
     MG.selSpan = null; MG.selLine = null;
@@ -7660,6 +7717,7 @@ function mgPick(kind, id) {
 function mgSplitSpan(id) {
   const i = MG.spans.findIndex((s) => s.id === id);
   if (i < 0) return;
+  mgCapture();
   const sp = MG.spans[i];
   const head = player?.playheadMs?.();
   const inside = typeof head === 'number' && head > sp.start && head < sp.end;
@@ -7682,6 +7740,7 @@ function mgSplitSpan(id) {
 function mgJoinSpan(id) {
   const i = MG.spans.findIndex((s) => s.id === id);
   if (i <= 0) return;
+  mgCapture();
   const prev = MG.spans[i - 1], cur = MG.spans[i];
   /* An estimate joined to a measurement is an estimate: the merged span is only as good as its
    * weaker half, and saying otherwise would launder a guess into a timestamp. */
@@ -7703,6 +7762,7 @@ function mgJoinSpan(id) {
 function mgSplitLine(id, wordIdx, ftCharIdx) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i < 0) return;
+  mgCapture();
   const line = MG.lines[i];
   const flat = line.phrases.flatMap((p) => p.words || []);
   if (wordIdx <= 0 || wordIdx >= flat.length) { toast(t('mg.badSplit')); return; }
@@ -7721,9 +7781,36 @@ function mgSplitLine(id, wordIdx, ftCharIdx) {
   mgDraw();
 }
 
+/* INSERT A BLANK TEXT LINE (researcher setting allowBlankLines, default on with no researcher
+ * session — the same shape as allowDeleteOn, and the same reasoning: an unpaired device is somebody
+ * working alone).
+ *
+ * The mirror of leftover audio. A recording contains things the transcript does not yet: an aside, a
+ * cough, a question from the linguist, a passage nobody has written down. Leaving that audio
+ * unmatched works (it is simply left out), but it is not always what you mean — sometimes the right
+ * answer is "this IS a line, we just have no words for it yet". A blank line can be paired with it,
+ * and comes out as a real segment with an empty phrase, which is exactly how the Cut tab has always
+ * represented a span whose words are not typed.
+ *
+ * Inherits paraOf from the line above, so inserting inside a sentence does not start a new one. */
+function mgInsertLine(after) {
+  if (!MG) return;
+  mgCapture();
+  const above = MG.lines[after];
+  const line = {
+    id: 'ln+' + (MG.lines.length + 1) + '-' + Math.random().toString(36).slice(2, 6),
+    guid: newGuid(),
+    phrases: [makeSegment('', [])],
+  };
+  if (above && above.paraOf != null) line.paraOf = above.paraOf;
+  MG.lines.splice(after + 1, 0, line);
+  mgDraw();
+}
+
 function mgJoinLine(id) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i <= 0) return;
+  mgCapture();
   const prev = MG.lines[i - 1], cur = MG.lines[i];
   /* The merged line takes the FIRST line's paragraph. If the two were in different paragraphs the
    * break between them is exactly what the user just removed, so losing it is the point — and if
@@ -7791,6 +7878,21 @@ async function mgCommit() {
   sgRenderList();
 }
 
+// One "+" row. Icon, not a sentence — the suite's low-literacy rule; the words live in the tooltip.
+function mgInsertRow(after) {
+  const row = document.createElement('li');
+  row.className = 'mg-insertrow';
+  const b = document.createElement('button');
+  b.className = 'mg-insert';
+  b.type = 'button';
+  b.textContent = '+';
+  b.title = t('mg.addLine');
+  b.setAttribute('aria-label', t('mg.addLine'));
+  b.addEventListener('click', () => mgInsertLine(after));
+  row.appendChild(b);
+  return row;
+}
+
 function mgDraw() {
   const box = $('#mg-body');
   if (!box || !MG) return;
@@ -7847,6 +7949,7 @@ function mgDraw() {
     li.className = 'mg-item mg-span' + (mapped(sp.id) ? ' mg-mapped' : '') + (MG.selSpan === sp.id ? ' mg-sel' : '')
       + (sp.timePending ? ' seg-pending' : '') + (sp.timeEstimated ? ' seg-est' : '');
     li.dataset.sp = sp.id;
+    if (mapped(sp.id)) li.dataset.ln = MG.map.get(sp.id);   // its partner, for the linked highlight
     if (mapped(sp.id)) li.style.setProperty('--mg-hue', hueForLine(MG.map.get(sp.id)));
     li.innerHTML = `<button class="mg-pick"></button>
       <button class="seg-play mg-play"></button>
@@ -7861,7 +7964,7 @@ function mgDraw() {
       : `${mgFmt(sp.start)} – ${mgFmt(sp.end)}`;
     const pick = li.querySelector('.mg-pick');
     pick.textContent = String(i + 1);
-    pick.onclick = () => mgPick('span', sp.id);
+    pick.onclick = () => { mgLinkPair(MG.map.get(sp.id) || null); mgPick('span', sp.id); };
     li.querySelector('.mg-split').onclick = () => mgSplitSpan(sp.id);
     li.querySelector('.mg-join').onclick = () => mgJoinSpan(sp.id);
 
@@ -7883,6 +7986,7 @@ function mgDraw() {
     const txt = mgLineText(ln);
     const li = document.createElement('li');
     li.className = 'mg-item mg-line' + (lineHasSpan(ln.id) ? ' mg-mapped' : '') + (MG.selLine === ln.id ? ' mg-sel' : '');
+    li.dataset.ln = ln.id;
     if (lineHasSpan(ln.id)) li.style.setProperty('--mg-hue', hueForLine(ln.id));
     li.innerHTML = `<button class="mg-pick"></button>
       <div class="mg-interlinear"><div class="mg-words"></div><div class="mg-ft"></div></div>
@@ -7890,7 +7994,12 @@ function mgDraw() {
         <button class="mg-join icon-btn2" title="${esc(t('mg.joinPrev'))}"${i === 0 ? ' disabled' : ''}>⤴</button>
       </span>`;
     li.querySelector('.mg-pick').textContent = String(i + 1);
-    li.querySelector('.mg-pick').onclick = () => mgPick('line', ln.id);
+    li.querySelector('.mg-pick').onclick = () => { mgLinkPair(ln.id); mgPick('line', ln.id); };
+    /* ⚠ THIS HANDLER WAS MISSING and the button had been inert since the pane was built — it
+     * rendered, it enabled and disabled correctly on the first row, and it did nothing (Seth: "text
+     * join doesn't appear to be working"). The span row's ⤴ was wired two loops above, which is
+     * exactly why it went unnoticed: the control existed, looked identical, and worked on one side. */
+    li.querySelector('.mg-join').onclick = () => mgJoinLine(ln.id);
     const wbox = li.querySelector('.mg-words');
     txt.words.forEach((w, wi) => {
       // The scissors BETWEEN word and gloss is the first of the two split points. It sits in the
@@ -7935,6 +8044,12 @@ function mgDraw() {
       ftbox.textContent = txt.free;
     }
     lu.appendChild(li);
+    /* ⚠ BETWEEN the rows it inserts between, and one ABOVE the first — the same positional rule the
+     * join controls follow (v322): a control that sits where its result will appear needs no label. */
+    if (allowBlankLinesOn()) {
+      if (i === 0) lu.insertBefore(mgInsertRow(-1), lu.firstChild);
+      lu.appendChild(mgInsertRow(i));
+    }
   });
 
   const bar = $('#mg-status');
@@ -7951,6 +8066,9 @@ function mgDraw() {
   }
   const done = $('#mg-done');
   if (done) done.disabled = !mgComplete();
+  const u = $('#mg-undo'), r = $('#mg-redo');
+  if (u) u.disabled = !mgUndoStack.length;
+  if (r) r.disabled = !mgRedoStack.length;
 
   ['#mg-spans .mg-list', '#mg-lines .mg-list'].forEach((sel, n) => {
     const el = box.querySelector(sel);
@@ -7990,6 +8108,37 @@ function mgDraw() {
  * ⚠ NO SCISSORS UNDER THE CURSOR, unlike the Cut tab. There, ✂ cuts at the playhead and the row is
  * the only control; here every row already carries its own ✂ in the actions column, and mgSplitSpan
  * cuts at the playhead anyway — a second scissors would be the same action twice, six pixels apart. */
+/* KEEP A MATCHED PAIR TOGETHER ON SCREEN (Seth: "when numbers match both text and audio, we want
+ * both to scroll and highlight together").
+ *
+ * Two panes that scroll independently is the right layout — the span you are matching and the line
+ * you are matching it to are rarely the same distance down — but once a pair EXISTS the two halves
+ * are one thing, and having to find the other half by hand is the cost of that layout. So: whenever
+ * one side becomes current, its partner is highlighted and, if it is off screen, brought into view.
+ *
+ * ⚠ IT FOLLOWS PLAYBACK, not only clicks, which is where it earns its keep: listening down a
+ * recording, the text pane keeps pace on its own. The 4-second stand-off after a user scroll is the
+ * shared followLine rule — someone who has just scrolled the text pane deliberately is not fighting
+ * an auto-scroll for the next few seconds.
+ *
+ * `null` clears the pairing without moving anything, for when nothing is current. */
+let mgLinked = null;
+function mgLinkPair(lineId) {
+  const body = $('#mg-body');
+  if (!body) return;
+  if (mgLinked !== lineId) {
+    body.querySelectorAll('.mg-linked').forEach((el) => el.classList.remove('mg-linked'));
+    mgLinked = lineId;
+  }
+  if (!lineId) return;
+  const rows = body.querySelectorAll(`[data-ln="${CSS.escape(lineId)}"]`);
+  rows.forEach((el) => el.classList.add('mg-linked'));
+  // Reveal the TEXT side only: the audio side is already where the user (or the playhead) is.
+  const line = body.querySelector(`#mg-lines [data-ln="${CSS.escape(lineId)}"]`);
+  if (line) mgFollowLine = followLine(line, true, mgFollowLine, player);
+}
+let mgFollowLine = null;
+
 let mgRaf = 0;
 let mgFollowRow = null;
 function mgStopTicker() { if (mgRaf) cancelAnimationFrame(mgRaf); mgRaf = 0; mgFollowRow = null; }
@@ -8025,6 +8174,8 @@ function mgStartTicker() {
         if (!inSeg) { if (cur) cur.remove(); return; }
         takeReveal(row);
         mgFollowRow = followLine(row, rolling, mgFollowRow, p);
+        // …and bring its matched line along, so listening down a recording keeps the text in step.
+        if (rolling) mgLinkPair(MG.map.get(sp.id) || null);
         if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
         const frac = Math.min(1, Math.max(0, (now - sp.start) / Math.max(1, sp.end - sp.start)));
         cur.style.left = (wave.offsetLeft + frac * wave.offsetWidth) + 'px';
@@ -8098,9 +8249,23 @@ async function mgPrepareAudio(docId) {
    * first one, because every editing verb here operates on an existing span. The Cut tab never had
    * this problem; renderCut seeds a whole-file span through reconcile(), and the matcher simply did
    * not inherit that. One span covering the recording makes the ✂ on it the first cut. */
-  if (!MG.spans.length) {
-    const dur = peaksDurationMs();
-    if (dur > 0) MG.spans = [{ id: 'sp0', start: 0, end: dur, timePending: false, timeEstimated: false }];
+  const dur = peaksDurationMs();
+  if (dur > 0) {
+    if (!MG.spans.length) {
+      MG.spans = [{ id: 'sp0', start: 0, end: dur, timePending: false, timeEstimated: false }];
+    } else if (dur - MG.spans[MG.spans.length - 1].end > 1000) {
+      /* ⚠ THE UNCUT REMAINDER MUST BE ON SCREEN, OR IT CANNOT BE CUT. Reopening a partly-matched
+       * text showed only what had already been aligned — Seth's file came back as a single
+       * 3-second span with the other 61 seconds nowhere, and no way to reach them, because every
+       * verb here operates on an existing span. Whatever follows the last span is appended as one
+       * more, so the pane always accounts for the whole recording. (Seth: "The remainder of
+       * unsegmented audio should show in the final line … on this particular file that should mean
+       * the rest of the audio shows in line two.")
+       *
+       * 1s tolerance, the same as coverTail's: a sliver at the end is rounding, not a missing piece. */
+      MG.spans.push({ id: 'tail', start: MG.spans[MG.spans.length - 1].end, end: dur,
+                      timePending: false, timeEstimated: false });
+    }
   }
   p.setBoundaries?.(mgBoundaryTimes());
   mgDraw();          // redraw with real peaks — attachSpanWave paints from peaksCache
@@ -8131,6 +8296,7 @@ async function mgGuess() {
   if (!MG) return;                      // the dialog is async; the user may have left
   const cuts = guessedBoundaries();
   if (!cuts.length) { toast(t('cut.no.guessNone'), 7000); return; }
+  mgCapture();                       // replacing every span at once is the edit most worth undoing
   const edges = [0, ...cuts, dur];
   MG.spans = edges.slice(0, -1).map((start, i) => ({
     id: 'g' + i, start, end: edges[i + 1], timePending: false, timeEstimated: false,
@@ -8181,6 +8347,7 @@ async function mgOpen(id) {
    * applied to real phrase boundaries, rather than the only way to get any boundaries at all. */
   healFlatSegments(rec.doc);
   mgLoad(rec);
+  mgUndoStack = []; mgRedoStack = [];   // history belongs to the text being matched, not the app
   const view = $('#view-matcher');
   if (view) {
     view.innerHTML = `
@@ -8188,6 +8355,8 @@ async function mgOpen(id) {
         <button id="mg-back" class="link-btn"></button>
         <span id="mg-title" class="mg-title"></span>
         <span id="mg-status" class="mg-status"></span>
+        <button id="mg-undo" class="icon-btn2" disabled>&#8630;</button>
+        <button id="mg-redo" class="icon-btn2" disabled>&#8631;</button>
         <button id="mg-guess" class="secondary-btn icon-btn2">✨</button>
         <button id="mg-done" class="primary-btn" disabled></button>
       </div>
@@ -8201,6 +8370,11 @@ async function mgOpen(id) {
     $('#mg-title').textContent = rec.title || t('untitled');
     // ✨ not a sentence — same low-literacy rule as the Cut tab's: a glyph, with its words in the
     // tooltip and the aria-label.
+    for (const [id, fn2, key] of [['#mg-undo', mgUndoOnce, 'edit.undo'], ['#mg-redo', mgRedoOnce, 'edit.redo']]) {
+      const b = $(id);
+      b.title = t(key); b.setAttribute('aria-label', t(key));
+      b.onclick = () => fn2();
+    }
     const g = $('#mg-guess');
     g.title = t('cut.guess');
     g.setAttribute('aria-label', t('cut.guess'));
@@ -8215,6 +8389,20 @@ async function mgOpen(id) {
 
 function setupSegmenterMode() {
   renderSegmenterView();
+  /* ⚠ DOCUMENT-LEVEL, and gated on the matcher being open. There is no text box to hold focus on
+   * this screen — the same reason the Cut tab's keys are document-level — so a handler bound to a
+   * row would only work after the user had happened to click one. Guarded by `MG` so it cannot
+   * shadow the browser's own undo anywhere else in the app. */
+  document.addEventListener('keydown', (e) => {
+    if (!MG) return;
+    const k = (e.key || '').toLowerCase();
+    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
+    const el = e.target;
+    // Never steal it from a field the user is typing in (the speaker box, a future text input).
+    if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName || ''))) return;
+    e.preventDefault();
+    if (e.shiftKey) mgRedoOnce(); else mgUndoOnce();
+  });
   show('segmenter');
 }
 

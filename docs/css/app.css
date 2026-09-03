@@ -2975,6 +2975,18 @@ body.rp-standalone main { padding-top: 0; }
 .mg-span .mg-actions{grid-column:4;grid-row:1 / span 2;margin-left:0}
 .mg-span.seg-pending .seg-wave{opacity:.45}
 .mg-span.seg-on{outline:2px solid #93c5fd;outline-offset:-2px}
+/* The other half of a matched pair, while one half is current. Deliberately a RING rather than a
+   fill: the row already carries its pair's hue as a background, and a second colour on top would
+   fight it. Redundant with the hue and the number, never the only signal. */
+.mg-item.mg-linked{box-shadow:0 0 0 2px hsl(var(--mg-hue,200) 65% 45% / .85)}
+/* The "+" that adds a blank line, between the rows it inserts between. Quiet until hovered: it sits
+   between every pair of lines, and a column of loud buttons would read as the content. */
+.mg-insertrow{list-style:none;text-align:center;line-height:1;margin:-.15rem 0 .2rem}
+.mg-insert{border:1px dashed var(--line,#d7dbe0);background:transparent;color:var(--muted,#667);
+  border-radius:6px;min-width:44px;height:20px;font-size:13px;cursor:pointer;opacity:.45}
+.mg-insert:hover,.mg-insert:focus-visible{opacity:1;border-style:solid;background:var(--surface-2,#f4f6f8)}
+/* A line with no words yet — the blank one just inserted, or an untranscribed span. */
+.mg-line .mg-words:empty::before{content:attr(data-empty);color:var(--muted,#667);font-style:italic}
 /* ⚠ The pick badge sizes itself: .mg-pick's `flex:0 0 2rem` is inert inside a grid, so the column
    collapsed to the glyph and the button measured 21px wide — under half the 44px tap target the
    rest of this suite holds itself to, on the control that IS the mapping gesture. */

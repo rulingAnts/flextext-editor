@@ -87,6 +87,21 @@ ok(SATELLITE_SW.length >= 4,
  * were ever ABOVE the engine, unifying would lower it, and a browser holding the higher-numbered
  * cache would be reasoning about a version that had already existed with different contents. Check
  * that before ever re-basing these numbers again. */
+/* ⚠ AND bump-version.sh MUST FIND THEM ALL BY ITSELF. It carried a hard-coded list of three
+ * satellites, twice, and silently missed the Audio Segmenter and the Consent Collector on the day
+ * they were added: `./bump-version.sh v567` moved the editor, recorder and researcher and left
+ * those two behind. THIS test caught it — but only after a push, and only because someone ran it.
+ * The list was the bug, so the script now asks the disk, and this pins that it keeps doing so. */
+console.log('\nthe bump script discovers version sites rather than listing them');
+{
+  const bump = readFileSync(new URL('../bump-version.sh', import.meta.url), 'utf8');
+  ok(/SATS="\$\(grep -l "\^const VERSION = 'v" satellites\/\*\/sw\.js/.test(bump),
+     'it globs satellites/*/sw.js for the constant instead of naming files');
+  ok(!/satellites\/text-recorder\/sw\.js satellites\/flextext-researcher/.test(bump),
+     'and the hard-coded triples are gone — both of them');
+  ok(/\[ -n "\$SATS" \]/.test(bump), 'failing loudly if the glob finds nothing, rather than bumping only the editor');
+}
+
 console.log('\nall five version sites carry the SAME number');
 for (const [name, path] of SATELLITE_SW) {
   const src = read(path);

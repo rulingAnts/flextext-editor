@@ -220,6 +220,28 @@ ok(/timeEstimated: true/.test(commit), 'an estimated boundary is written back as
 ok(/rec\.doc\.paragraphs = MG\.lines\.map/.test(commit) && /rec\.doc\.segments = MG\.lines\.map/.test(commit),
    'segments and paragraphs come out the same length and in the same order — segments[i] IS paragraph i');
 
+console.log('\nleftovers on BOTH sides are legitimate, not an error');
+{
+  /* Seth: "we should be able to have empty audio segments that don't map to text … it should be
+   * possible to skip lines of text before audio matches text again. Just like we can do with our
+   * editor and paragraph analysis tool." Requiring a total bijection let one unusable second of
+   * tape block Done for ever, on a job whose whole point is that the two sides do not correspond
+   * one to one. */
+  const cmp = app.match(/const mgComplete = \(\) => [^;]*;/)[0];
+  ok(/MG\.map\.size > 0/.test(cmp), 'Done needs only that the user matched something');
+  ok(!/every\(/.test(cmp), 'and no longer demands that every span and every line be matched');
+  const commit = asyncFn(app, 'mgCommit');
+  ok(/timePending: true/.test(commit),
+     'a line with no audio is written timePending — the engine\'s own word for it, as the Cut tab leaves an uncut line');
+  ok(/if \(sp\.timePending\) continue/.test(commit) || /MG\.map\.get\(sp\.id\)/.test(commit),
+     'and audio matched to nothing is simply not carried into doc.segments');
+  ok(/droppedAudio/.test(commit) && /mg\.committedLeftover/.test(commit),
+     'both are REPORTED after the save — left out is fine, left out silently is not');
+  const draw = fn(app, 'mgDraw');
+  ok(/mg\.nonePicked/.test(draw) && /mg\.leftover/.test(draw) && /mg\.allMapped/.test(draw),
+     'the status line has three states: nothing picked, all matched, and leftovers-by-choice');
+}
+
 console.log('\nleaving releases everything at once');
 const close = fn(app, 'mgClose');
 ok(/mgStopTicker\(\)/.test(close), 'the frame loop stops (it would otherwise outlive its screen)');

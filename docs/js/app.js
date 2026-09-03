@@ -4120,6 +4120,38 @@ async function listCachedApps() {
  *    running. See syncGatherInventory, which reports both for exactly that reason — the panel's
  *    cross-app staleness signal still gets `cachedApps`, and it is read there beside the
  *    authoritative number rather than shown alone on a screen. */
+/* WHO MADE THIS FILE — one string, for every export that can carry provenance.
+ *
+ * Seth, 2026-09-03: "Our apps should leave metadata 'created by...' in exported files whenever the
+ * schema or file format allows that." The immediate reason is an hour I had just wasted: asked what
+ * FLEx's numbering looks like, I measured 95 .flextext files from the corpus and concluded we
+ * matched it — then found that 68 of them had been written by THIS SERIALIZER, identifiable only by
+ * its indentation. The conclusion was circular and the provenance had to be reverse-engineered from
+ * whitespace. A file that says what wrote it answers that in one line, years later, to somebody who
+ * has never seen this repo.
+ *
+ * The app NAME matters as much as the version: five apps share this engine, and "which of them
+ * produced this" is exactly what a mixed corpus stops being able to tell you.
+ *
+ * ⚠ NOT read from module state by seg-exports — that module takes provenance as a PARAMETER by
+ * design (see its note: "the old version read app.js module state directly, which is exactly what a
+ * second writer cannot do"). This is the value the callers pass in. */
+function producedBy() {
+  const key = RESEARCHER_MODE ? 'research.appName'
+    : RECORD_MODE ? 'record.appName'
+    : PARAGRAPH_MODE ? 'para.appName'
+    : CONSENT_MODE ? 'consentapp.appName'
+    : SEGMENTER_MODE ? 'segapp.appName'
+    : 'app.name';
+  // English deliberately, not t(): this is a provenance record for an archive, not UI text, and it
+  // must read the same to whoever opens the file — which is not necessarily who made it.
+  const en = { 'research.appName': 'Flextext Researcher', 'record.appName': 'Flextext Recorder',
+               'para.appName': 'Flextext Paragraph Analysis Tool',
+               'consentapp.appName': 'Flextext Consent Collector',
+               'segapp.appName': 'Flextext Audio Segmenter', 'app.name': 'Flextext Editor' };
+  return `${en[key]} ${ENGINE_VERSION}${BUILD_TAG ? ' (' + BUILD_TAG + ')' : ''}`;
+}
+
 function showAppVersion() {
   const name = RESEARCHER_MODE ? 'researcher'
     : RECORD_MODE ? 'recorder'
@@ -4648,7 +4680,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled() });
+  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -4778,7 +4810,7 @@ function serializeDocBlob(rec, mediaName) {
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
-  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled() })], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), producedBy: producedBy() })], { type: 'application/xml' });
 }
 
 function docFilename(rec) {
@@ -7586,10 +7618,24 @@ function mgLoad(rec) {
   }
 }
 
-const mgComplete = () =>
-  MG && MG.spans.length > 0 && MG.lines.length > 0
-  && MG.spans.every((s) => MG.map.has(s.id))
-  && MG.lines.every((l) => [...MG.map.values()].includes(l.id));
+/* ⚠ NOT EVERYTHING HAS TO MATCH, AND REQUIRING IT WAS WRONG.
+ *
+ * Seth: "we should be able to have empty audio segments that don't map to text … it should be
+ * possible to skip lines of text before audio matches text again. Just like we can do with our
+ * editor and paragraph analysis tool."
+ *
+ * Both leftovers are legitimate and mean different things:
+ *   • AUDIO WITH NO TEXT — silence, a false start, the linguist talking, a dog. It is not part of
+ *     the text and never will be. mgCommit simply does not carry it into doc.segments.
+ *   • TEXT WITH NO AUDIO — a line whose recording has not been found, or was never made. The engine
+ *     has always had a word for that: the span is written `timePending`, exactly as the Cut tab
+ *     leaves an uncut line, and every downstream reader already handles it.
+ *
+ * Demanding a total bijection made a single unusable second of tape block Done for ever, on a job
+ * whose whole point is that the two sides do NOT correspond one to one. So Done needs only that the
+ * user has actually done something — one pair — and the status line reports the leftovers as
+ * information rather than as an error. */
+const mgComplete = () => !!MG && MG.map.size > 0;
 
 /* Mapping is two clicks: pick a span, pick a line. Clicking a mapped pair again unmaps it, which
  * is the only undo a matching screen actually needs — there is no partial state to unwind. */
@@ -7733,7 +7779,14 @@ async function mgCommit() {
   rec.modified = Date.now();
   await db.putDoc(rec);
   db.broadcastLive('docs');
+  const droppedAudio = MG.spans.filter((sp) => !MG.map.has(sp.id)).length;
+  const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
   toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
+  // Said AFTER the save and separately: what was left out is not a failure, but it must not be a
+  // surprise either — an audio piece dropped in silence is found weeks later, if ever.
+  if (droppedAudio || noAudio) {
+    toast(t('mg.committedLeftover').replace('{a}', droppedAudio).replace('{t}', noAudio), 9000);
+  }
   mgClose();
   sgRenderList();
 }
@@ -7888,9 +7941,13 @@ function mgDraw() {
   if (bar) {
     const unmappedSpans = MG.spans.filter((s) => !mapped(s.id)).length;
     const unmappedLines = MG.lines.filter((l) => !lineHasSpan(l.id)).length;
-    bar.textContent = mgComplete()
-      ? t('mg.allMapped')
-      : t('mg.remaining').replace('{a}', unmappedSpans).replace('{t}', unmappedLines);
+    /* Three states, because "nothing left over" and "leftovers the user chose" are different, and
+     * neither is an error. Naming what happens to each is the point: a user who leaves audio out
+     * should know it is being left out, and a user who leaves a line without audio should know the
+     * line survives. */
+    bar.textContent = !MG.map.size ? t('mg.nonePicked')
+      : (!unmappedSpans && !unmappedLines) ? t('mg.allMapped')
+      : t('mg.leftover').replace('{a}', unmappedSpans).replace('{t}', unmappedLines);
   }
   const done = $('#mg-done');
   if (done) done.disabled = !mgComplete();
@@ -9780,7 +9837,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled() }); },
+  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

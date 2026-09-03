@@ -142,6 +142,9 @@ en: {
   // sentence carrying a number reads "1 audio pieces" at exactly the moment the user is nearly
   // finished. A labelled pair is correct at every count and scans faster besides.
   'mg.remaining': 'Still to match — audio: {a}, text: {t}',
+  'mg.nonePicked': 'Match at least one piece of audio to a line to finish.',
+  'mg.leftover': 'Not matched — audio: {a}, text: {t}. That is allowed: leftover audio is left out, and a line with no audio keeps its words.',
+  'mg.committedLeftover': 'Left out {a} piece(s) of audio; {t} line(s) saved without audio.',
   'mg.splitSpan': 'Split this audio piece in two',
   'mg.joinPrev': 'Join to the one above',
   'mg.cutHere': 'Split the words here',
@@ -2356,6 +2359,9 @@ id: {
   'mg.done': 'Selesai',
   'mg.allMapped': 'Semua sudah dicocokkan.',
   'mg.remaining': 'Belum dicocokkan — audio: {a}, teks: {t}',
+  'mg.nonePicked': 'Cocokkan setidaknya satu potongan audio dengan satu baris untuk menyelesaikan.',
+  'mg.leftover': 'Belum dicocokkan — audio: {a}, teks: {t}. Itu boleh: audio sisa tidak disertakan, dan baris tanpa audio tetap ada kata-katanya.',
+  'mg.committedLeftover': 'Audio yang tidak disertakan: {a}; baris tersimpan tanpa audio: {t}.',
   'mg.splitSpan': 'Bagi potongan audio ini menjadi dua',
   'mg.joinPrev': 'Gabungkan dengan yang di atas',
   'mg.cutHere': 'Potong kata-katanya di sini',

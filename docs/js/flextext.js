@@ -169,6 +169,9 @@ export function parseFlextext(xmlString, prefs = {}) {
   const err = dom.querySelector('parsererror');
   if (err) return { texts: [], error: 'XML parse error: ' + err.textContent.slice(0, 300) };
   const docEl = dom.documentElement;
+  // Read provenance back as well as writing it — "look for that" (Seth). This is what lets a future
+  // survey ask "which tool wrote this?" instead of fingerprinting whitespace.
+  const exportSource = docEl.getAttribute && docEl.getAttribute('exportSource');
   if (docEl.tagName !== 'document') return { texts: [], error: 'Not a flextext document (root element is <' + docEl.tagName + '>)' };
   const version = docEl.getAttribute('version') || '2';
   const texts = [];
@@ -392,7 +395,28 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const anal = authored ? (settings.analLang || doc.analLang || 'en') : (doc.analLang || settings.analLang || 'en');
   const lines = [];
   lines.push('<?xml version="1.0" encoding="utf-8"?>');
-  lines.push(`<document version="${esc(doc.version || '2')}">`);
+  /* ⚠ WHO MADE THIS FILE — and in FLEx's OWN schema, not a convention of ours.
+   *
+   * "Technical Notes on FLEx Text Interlinear" (Ken Zook, 5 May 2026) gives the <document> element
+   * two optional attributes for exactly this:
+   *     <xs:attribute name="exportSource" type="xs:string" use="optional"/>
+   *     <xs:attribute name="exportTarget" type="xs:string" use="optional"/>
+   * Being in the published XSD as optional, it cannot break a FLEx import — which an XML comment is
+   * also very unlikely to do (XML 1.0 §2.5; every conformant parser skips comments) but only by
+   * inference. A documented field is evidence.
+   *
+   * WHY IT MATTERS, concretely: asked what FLEx's segnum numbering looks like, I measured 95
+   * .flextext files from Seth's corpus and concluded we already matched it. 68 of them turned out to
+   * have been written by THIS SERIALIZER, identifiable only by its indentation, so the finding was
+   * circular. A file that says what wrote it answers that in one line, years later, to somebody who
+   * has never seen this repo. Seth: "Our apps should leave metadata 'created by...' in exported
+   * files whenever the schema or file format allows that."
+   *
+   * `producedBy` is a PARAMETER (opts), never module state — same rule the rest of this module
+   * follows so a second writer can call it. Omitted entirely when the caller supplies nothing,
+   * rather than emitting a guess. */
+  const provenance = opts.producedBy ? ` exportSource="${esc(opts.producedBy)}"` : '';
+  lines.push(`<document version="${esc(doc.version || '2')}"${provenance}>`);
   const attrs = Object.entries(doc.textAttrs || {})
     .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
   lines.push(`  <interlinear-text${attrs}>`);

@@ -159,13 +159,32 @@ export function serializeEaf(doc, opts = {}) {
 
   const L = [];
   L.push('<?xml version="1.0" encoding="UTF-8"?>');
-  L.push(`<ANNOTATION_DOCUMENT AUTHOR="FlexText Editor" DATE="${esc(opts.date || new Date().toISOString())}" FORMAT="3.0" VERSION="3.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/EAFv3.0.xsd">`);
+  /* ⚠ AUTHOR IS A PERSON, AND WE MUST NOT SIT IN IT. It held "FlexText Editor" — a tool name in a
+   * field ELAN provides for the human who made the annotations (Seth: "What we don't want to do is
+   * repurpose a field like AUTHOR … THAT field is probably supposed to be for the speaker"). An
+   * archivist reading that later would be told, in the one place the format sets aside for a person,
+   * the name of a program. Empty is honest; a caller who knows the annotator can pass one.
+   *
+   * ⚠ AND IT IS REQUIRED (`use="required"` in EAFv3.0.xsd), so it cannot simply be dropped. Empty is
+   * what ELAN itself writes when it does not know, and is the honest value here.
+   *
+   * The TOOL goes in a HEADER <PROPERTY>, which the schema provides for exactly this:
+   *     <xsd:element name="PROPERTY" type="propType" minOccurs="0" maxOccurs="unbounded"/>
+   *     <xsd:attribute name="NAME" type="xsd:string" use="optional"/>
+   * — an arbitrary key/value extension point, optional, documented. That beats the XML comment this
+   * first used: same information, but machine-readable and sanctioned rather than merely tolerated.
+   * Seth's order of preference throughout: documented optional field, then a comment, and never a
+   * semantic field borrowed for something it does not mean. */
+  L.push(`<ANNOTATION_DOCUMENT AUTHOR="${esc(opts.author || '')}" DATE="${esc(opts.date || new Date().toISOString())}" FORMAT="3.0" VERSION="3.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/EAFv3.0.xsd">`);
   L.push('  <HEADER MEDIA_FILE="" TIME_UNITS="milliseconds">');
   if (mediaName) {
     // RELATIVE_MEDIA_URL beside a matching basename is what makes ELAN/SayMore find the media
     // with NO relinking dialog — the highest-value line in this writer (plan: media-relinking).
     L.push(`    <MEDIA_DESCRIPTOR MEDIA_URL="file:///./${esc(mediaName)}" MIME_TYPE="${esc(mediaMime)}" RELATIVE_MEDIA_URL="./${esc(mediaName)}"/>`);
   }
+  // ⚠ LAST IN THE HEADER: the XSD sequence is MEDIA_DESCRIPTOR*, LINKED_FILE_DESCRIPTOR*, PROPERTY*,
+  // so a PROPERTY emitted before a MEDIA_DESCRIPTOR would not validate.
+  if (opts.producedBy) L.push(`    <PROPERTY NAME="generator">${esc(String(opts.producedBy))}</PROPERTY>`);
   L.push('  </HEADER>');
   L.push('  <TIME_ORDER>');
   for (const s of slots) {
@@ -959,7 +978,8 @@ export function conversionCaps({ bytes = 0, isWav = false, max = CONV_DECODED_MA
  *   for embedded audio).
  * Returns [{ name, data: Blob }] in bundle order. */
 export async function assembleSegEntries({ doc, title = '', base = 'text', media = null, segMedia = null,
-                                           wants = {}, vern = 'und', anal = 'en', full = false } = {}) {
+                                           wants = {}, vern = 'und', anal = 'en', full = false,
+                                           producedBy = '' } = {}) {
   const entries = [];
   /* ⚠ ENCODE THE AUDIO AT MOST ONCE. The preview page and the .fxpa both embed base64 of the SAME
    * blob, and encoding it twice back to back costs roughly 4.3× the recording in transient heap for
@@ -976,7 +996,7 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
     : '';
   if (media && segMedia && (wants.eaf || wants.saymore || wants.preview)) {
     const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
-    const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
+    const eafOpts = { vern, anal, producedBy, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
     if (wants.eaf) {
       entries.push({ name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
       // ELAN reads display settings from a sidecar of the SAME BASENAME — this is what makes the
@@ -1316,7 +1336,7 @@ export function durationVerdict({ spanEndMs = 0, durationMs = 0, tolerantMs = 15
  *                    is noted, rather than the whole build dying on an undecodable file.
  * @returns { entries, zip, saveName, notes }  notes are REASON CODES, never sentences.
  */
-export async function buildLooseConversion({ kind, doc, base = 'text', title = '',
+export async function buildLooseConversion({ kind, doc, base = 'text', title = '', producedBy = '',
                                              flextextBlob = null, audio = null, plan = null,
                                              vern = 'und', anal = 'en', convertWav = null,
                                              onPhase = null } = {}) {
@@ -1385,7 +1405,7 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
   // media && segMedia, so this is built directly rather than by relaxing a gate five apps rely on.
   if ((kind === 'elan' || kind === 'eaf') && !segMedia) {
     say('annotations');
-    const o = { vern, anal, mediaName: '', mediaMime: '' };
+    const o = { vern, anal, producedBy, mediaName: '', mediaMime: '' };
     notes.push('eafNoMedia');
     const eafFile = { name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...o, profile: 'flex' })], { type: 'application/xml' }) };
     // eaf-only is ONE file, so it is handed over bare — no zip around a single document, and no

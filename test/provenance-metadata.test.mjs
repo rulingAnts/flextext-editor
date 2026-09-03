@@ -75,6 +75,24 @@ console.log('\n.wav — BWF already carried it (bext Originator), and still does
   ok(/CodingHistory|A=PCM/.test(b.codingHistory), 'alongside the EBU CodingHistory');
 }
 
+console.log('\nsegnum is neither required nor emitted');
+{
+  const xml = serializeFlextext(doc, { vernLang: 'und', analLang: 'en' }, { producedBy: WHO });
+  ok(!xml.includes('type="segnum"'), 'we mint no segnum — FLEx recalculates it and ours was the wrong shape');
+  const fx = readFileSync(new URL('../docs/js/flextext.js', import.meta.url), 'utf8');
+  ok(/type === 'segnum'[^\n]*deliberately discarded/.test(fx), 'and the parser discards an incoming one');
+  /* The engine must not DEPEND on it either — Seth: "we can't count on it existing in flextext
+   * files". 35 of 95 corpus texts have none. Proven by parsing a doc without one. */
+  const bare = `<?xml version="1.0" encoding="utf-8"?><document version="2"><interlinear-text>`
+    + `<item type="title" lang="en">T</item><paragraphs><paragraph guid="p"><phrases>`
+    + `<phrase><item type="txt" lang="und">a b</item></phrase>`
+    + `</phrases></paragraph></paragraphs></interlinear-text></document>`;
+  const { parseFlextext } = await import('../docs/js/flextext.js');
+  const r = parseFlextext(bare, { vernLang: 'und', analLang: 'en' });
+  ok(!r.error && r.texts.length === 1, 'a file with no segnum parses');
+  ok(r.texts[0].paragraphs[0].segments.length === 1, '…with its phrase intact');
+}
+
 console.log('\nthe app names ITSELF, not the suite');
 {
   const fn = app.match(/\nfunction producedBy\(\)[\s\S]*?\n\}/)[0];

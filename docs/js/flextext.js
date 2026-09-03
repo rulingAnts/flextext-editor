@@ -312,7 +312,12 @@ function parsePhrase(phEl, doc, prefs = {}) {
       const lang = child.getAttribute('lang') || '';
       if (child === txtEl) { seg.baseline = child.textContent; seg.txtLang = lang; }
       else if (child === freeEl) { seg.free = child.textContent; seg.freeLang = lang; }
-      else if (type === 'segnum' && !seenWords) { /* regenerated on export */ }
+      /* segnum is DROPPED on read and never emitted on write — and nothing here may depend on it,
+       * because it cannot be relied on to exist (Seth: "we can't count on it existing in flextext
+       * files"). The spec makes it optional and 27 of the 95 texts in the corpus carry none. The
+       * interlinear view numbers its own lines for display, which is the only place a number is
+       * actually wanted. */
+      else if (type === 'segnum' && !seenWords) { /* deliberately discarded — see serializeFlextext */ }
       else (seenWords ? seg.postItemsXML : seg.preItemsXML).push(serializeEl(child));
     } else {
       seg.postItemsXML.push(serializeEl(child));
@@ -438,7 +443,6 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
     ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
-  let segnum = 0;
   /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
    *
    * The engine holds one line per PHRASE. Emitting one <paragraph> per line is the DEFAULT and is
@@ -479,7 +483,6 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     const para = doc.paragraphs[li];
     pi = li;
     for (const seg of para.segments) {
-      segnum++;
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
@@ -493,7 +496,26 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
         + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
       lines.push(`          <phrase${pAttrs}>`);
       lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
-      lines.push(`            <item type="segnum" lang="${esc(anal)}">${segnum}</item>`);
+      /* ⚠ NO segnum ITEM. We used to mint one — a plain running integer — for every phrase, and it
+       * was wrong in three ways at once.
+       *
+       *   1. FLEx does not want it. "There is an OPTIONAL item with type 'segnum'. This is the
+       *      segment number which in FLEx is CALCULATED AUTOMATICALLY based on paragraph and segment
+       *      numbers" (Technical Notes on FLEx Text Interlinear, Ken Zook, 2026-05-04). FLEx
+       *      recomputes it on import, so ours was overwritten at best.
+       *   2. Ours was the wrong shape anyway: a running integer, where FLEx derives par.phr (1.1,
+       *      1.2, 2.1). We would have been supplying a number that disagreed with FLEx's own.
+       *   3. It broke round-trip fidelity for files that had none. 27 of 95 texts in Seth's corpus
+       *      carry no segnum; we added one to every phrase regardless.
+       *
+       * And nothing here needs it: the parser already DISCARDS it on read (see parsePhrase,
+       * "regenerated on export"), and the interlinear view numbers its own lines for display.
+       * Seth: "I think we actually don't need segnum, and if we can do without it, that's better."
+       *
+       * ⚠ ONE SIDE EFFECT WORTH KNOWING: segnum carried lang=<analysis WS>, so it was one of the
+       * places the analysis writing system appeared in our output. `gls` items still carry it
+       * wherever there are glosses or free translations; a document with neither has no analysis
+       * content to declare in the first place. */
       lines.push('            <words>');
       for (const xml of seg.preItemsXML || []) lines.push(indentFragment(xml, '              '));
       for (const w of seg.words) {

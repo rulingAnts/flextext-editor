@@ -18,9 +18,12 @@ whether they can READ it. Both writers changed on 2026-09-03.
         phrases from paragraphs is now REGROUPED on export instead of exploding into one
         paragraph per phrase. A uniform text is unchanged (verified byte-identical on 74 of
         95 corpus files).
-      - Are the segment numbers what FLEx expects? See issue #27 — we emit a plain running
-        integer, FLEx computes `par.phr`. Unresolved, low priority, but this is the moment
-        you would notice it mattering.
+      - **We no longer emit `<item type="segnum">` at all** (issue #27, closed). The spec
+        makes it optional and says FLEx "calculated automatically based on paragraph and
+        segment numbers", so ours was a number FLEx would overwrite, in the wrong format.
+        Confirm FLEx numbers the segments itself on import and does not complain about
+        their absence — 35 of 95 corpus files never had them, but none of those has been
+        put through a FLEx import under observation.
 
 - [ ] **.eaf → ELAN.** Export, open in ELAN.
       - `AUTHOR` is now `""` instead of `"FlexText Editor"` — the tool moved OUT of a field

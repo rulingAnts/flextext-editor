@@ -456,5 +456,17 @@ console.log('\nDone points `current` at the committed record — or the next upd
   ok(!/#view-texts|view-texts/.test(shell), '(the shell really has no #view-texts, so the guard cannot be relied on)');
 }
 
+console.log('\na partly matched text reopens WITH its pairs — leftovers are allowed, so the counts rarely agree');
+{
+  /* Seen on the dev rig, 2026-09-03: one span matched to one of 35 lines, Done, reopen — the span
+   * and the line were both there and neither knew about the other, and Done was disabled. The seed
+   * ran only when spans.length === lines.length, which a text with any leftover never satisfies. */
+  const load = fn(app, 'mgLoad');
+  ok(/id: 'sp' \+ i, at: i,/.test(load), 'each span remembers the paragraph index it was stored against');
+  ok(/for \(const sp of MG\.spans\) if \(MG\.lines\[sp\.at\]\) MG\.map\.set\(sp\.id, MG\.lines\[sp\.at\]\.id\);/.test(load),
+     'and every surviving span is paired with THAT line');
+  ok(!/spans\.length === MG\.lines\.length/.test(load), '⚠ not only when every line happens to have one');
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

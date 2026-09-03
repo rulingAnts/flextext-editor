@@ -7617,7 +7617,9 @@ function mgLoad(rec) {
      * TEXT side, and mgCommit already writes it back as timePending. */
     spans: docSegments(rec.doc)
       .map((s, i) => ({
-        id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
+        // `at` is the paragraph index this span was stored against — the index-locked model's own
+        // record of which line it belongs to, kept so the pairing below survives the filter.
+        id: 'sp' + i, at: i, start: Number(s.start) || 0, end: Number(s.end) || 0,
         timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
       }))
       .filter((sp) => !sp.timePending && sp.end > sp.start),
@@ -7629,11 +7631,15 @@ function mgLoad(rec) {
     map: new Map(),
     selSpan: null, selLine: null,
   };
-  // An already-index-locked doc arrives pre-matched: 1:1 in order. Presenting that as "nothing is
-  // mapped yet" would make a user re-do work the file already records.
-  if (MG.spans.length === MG.lines.length) {
-    MG.spans.forEach((sp, i) => MG.map.set(sp.id, MG.lines[i].id));
-  }
+  /* An already-index-locked doc arrives pre-matched: segment i belongs to line i. Presenting that
+   * as "nothing is mapped yet" would make a user re-do work the file already records.
+   *
+   * ⚠ PER SPAN, NOT "WHEN THE COUNTS AGREE". This used to seed only when every line had a span —
+   * so a text with leftovers (allowed on purpose: unmatched audio, lines with no recording yet)
+   * always reopened with its pairs forgotten and Done disabled, and the way to change one pairing
+   * was to redo all of them. The filter above dropped the placeholders but each survivor still
+   * knows its paragraph index, which is exactly the pairing the commit wrote. */
+  for (const sp of MG.spans) if (MG.lines[sp.at]) MG.map.set(sp.id, MG.lines[sp.at].id);
 }
 
 /* ⚠ NOT EVERYTHING HAS TO MATCH, AND REQUIRING IT WAS WRONG.

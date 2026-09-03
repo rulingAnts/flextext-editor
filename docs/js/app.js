@@ -8597,11 +8597,25 @@ async function mgPrepareAudio(docId) {
   }
   const p = getPlayer();
   playerDocId = docId;
-  if (p.loadedFor !== docId) {
-    p.loadedFor = docId;
+  /* ⚠ "LOADED" IS RECORDED AFTER THE LOAD, AND ONLY IF THE SURFER STILL EXISTS. Seth (2026-09-04):
+   * "There definitely are times when the big player and/or the segments don't load … Refreshing
+   * and exiting and opening the text again fixes that." This wrote loadedFor = docId BEFORE
+   * awaiting the load; Back during the decode (mgClose → hide → destroyWs), a decode error, or a
+   * throw here all left it set — and the next open of the same text believed the dock was loaded,
+   * skipped the load, and unhid an empty player. A refresh cleared the module state, which is why
+   * a refresh "fixed" it. Now: reload whenever this text is not the loaded one OR the waveform is
+   * gone (`!p.ws`), record success only after it, and never on the way out. */
+  if (p.loadedFor !== docId || !p.ws) {
+    p.loadedFor = null;
     playerReadyFor = null;
-    await p.load(media);
-    if (p.loadedFor === docId) playerReadyFor = docId;   // a newer load supersedes silently
+    try { await p.load(media); }
+    catch (err) {
+      if (live() && note) segProgress(note, t('mg.audioFailed', { msg: (err && err.message) || '' }), 0);
+      return;
+    }
+    if (!live()) return;                 // left, or a newer open owns the dock now
+    p.loadedFor = docId;
+    playerReadyFor = docId;
   }
   if (!live()) return;
   p.root.hidden = false;
@@ -8612,14 +8626,18 @@ async function mgPrepareAudio(docId) {
   if (p.el && p.el.cut) { p.el.cut.hidden = false; p.el.cut.onclick = () => mgSplitAtPlayhead(); }
   await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
   if (!live()) return;
-  if (note) note.hidden = true;
+  /* Peaks can fail (a decode the browser refuses, memory on a long file) while the dock still
+   * plays. Say so and carry on with the player's own duration, rather than a screen with no
+   * strips, no message and no way to cut. ensurePeaks retried once already. */
+  if (!peaksDurationMs()) { if (note) segProgress(note, t('mg.wavesFailed'), 0); }
+  else if (note) note.hidden = true;
   /* ⚠ A TEXT THAT HAS NEVER BEEN CUT MUST NOT OPEN INTO AN EMPTY PANE. That is the NORMAL starting
    * state for this app — you arrive with a recording and a text, and no cuts at all — and until now
    * it was a dead end: no spans meant nothing to play, nothing to split, and no way to make the
    * first one, because every editing verb here operates on an existing span. The Cut tab never had
    * this problem; renderCut seeds a whole-file span through reconcile(), and the matcher simply did
    * not inherit that. One span covering the recording makes the ✂ on it the first cut. */
-  const dur = peaksDurationMs();
+  const dur = peaksDurationMs() || (p.durationMs ? p.durationMs() : 0) || 0;
   if (dur > 0 && !MG.resumed) {
     // ⚠ NOT over a resumed draft: its spans are the user's own cutting, and appending a "remainder"
     // to them would invent a span they had deliberately not made.
@@ -8698,6 +8716,9 @@ function mgClose() {
   player?.onBoundaryDrag?.(null);   // the dock is shared; leave it as we found it
   if (player?.el?.cut) player.el.cut.hidden = true;
   player?.hide?.();
+  // hide() destroys the waveform; say so, or the next open of this text skips its load (the
+  // editor's own close does the same where refreshPlayer hides).
+  if (player) { player.loadedFor = null; playerReadyFor = null; }
   lastPlayTarget = null;
   show('segmenter');
 }

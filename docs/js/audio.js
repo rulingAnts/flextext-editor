@@ -793,6 +793,9 @@ export class Player {
         ? (this.labels.errorTruncated || this.labels.error)
         : this.labels.error;
       this.el.status.hidden = false;
+      // A failed load is not a load: forget it, so the next open of this text tries again rather
+      // than finding "already loaded" and showing this dead dock for ever.
+      this.loadedFor = null;
     });
     this.ws.on('play', () => { this.el.play.textContent = '⏸'; this._rewound = false; });
     this.ws.on('pause', () => { this.el.play.textContent = '▶'; });

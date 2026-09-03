@@ -520,5 +520,37 @@ console.log('\n✂ on the big player cuts the piece under the playhead (Seth, 20
   }
 }
 
+console.log('\nthe audio loads on EVERY open, not only the first one that was not interrupted');
+{
+  /* Seth, 2026-09-04: "There definitely are times when the big player and/or the segments don't
+   * load, like the audio doesn't make it into memory/active view correctly. Refreshing and exiting
+   * and opening the text again fixes that. But that shouldn't be necessary." loadedFor was written
+   * BEFORE the load; Back during the decode, a decode error, or a throw left it set, and the next
+   * open skipped the load and unhid an empty dock. */
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/if \(p\.loadedFor !== docId \|\| !p\.ws\)/.test(prep), 'a reload happens whenever the surfer is gone, not only for a different text');
+  ok(/p\.loadedFor = null;\s*\n\s*playerReadyFor = null;\s*\n\s*try \{ await p\.load\(media\); \}/.test(prep),
+     'and "loaded" is cleared BEFORE the await…');
+  ok(/if \(!live\(\)\) return;[^\n]*\n\s*p\.loadedFor = docId;\s*\n\s*playerReadyFor = docId;/.test(prep),
+     '…and recorded only AFTER it, and only if this open still owns the dock');
+  ok(/catch \(err\) \{[\s\S]*?mg\.audioFailed/.test(prep), 'a load that throws says so instead of hanging on "preparing"');
+  ok(/if \(player\) \{ player\.loadedFor = null; playerReadyFor = null; \}/.test(fn(app, 'mgClose')),
+     'Back forgets the load it just destroyed — as the editor\'s own close does');
+  ok(/this\.el\.status\.hidden = false;\s*\n[^\n]*\n[^\n]*\n\s*this\.loadedFor = null;/.test(read('docs/js/audio.js')),
+     'and the Player forgets a load that ERRORED, so the next open tries again');
+  ok(/if \(!peaksDurationMs\(\)\) \{ if \(note\) segProgress\(note, t\('mg\.wavesFailed'\), 0\); \}/.test(prep),
+     'failed peaks are SAID, and the screen carries on');
+  ok(/const dur = peaksDurationMs\(\) \|\| \(p\.durationMs \? p\.durationMs\(\) : 0\) \|\| 0;/.test(prep),
+     'using the player\'s own duration to seed the first span, so there is still something to cut');
+  const peaks = read('docs/js/segment-strips.js');
+  ok(/const decodeOnce = async \(\) =>/.test(peaks) && /await new Promise\(\(r\) => setTimeout\(r, 1500\)\);[\s\S]*?\[buf, ctx\] = await decodeOnce\(\)/.test(peaks),
+     'ensurePeaks retries a failed decode once, after a pause');
+  ok(/if \(peaksRun === myRun\) peaksCache = \{ docId: null, peaks: null, durationMs: 0 \};/.test(peaks),
+     'and forgets a failed attempt, so the next call recomputes rather than caching "no peaks" for ever');
+  for (const k of ['mg.audioFailed', 'mg.wavesFailed']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

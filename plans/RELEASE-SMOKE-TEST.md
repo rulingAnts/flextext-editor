@@ -88,6 +88,11 @@ that was fixed the same day; each is the gesture that reproduced it.
       ✨ Guess, then split/join on either side and watch the numbers and colours follow; `+` adds
       a blank line on the text side only; Done with more audio than lines adds blank lines at the
       end; Done with more lines than audio leaves the last lines without audio and says so.
+- [ ] **Interrupt a load, then reopen.** Open a text and press ← Back while the note still says
+      "Preparing…"; open the same text again. The big player must show its waveform and every strip
+      must draw — no refresh. (Seth, 2026-09-04: "there definitely are times when the big player
+      and/or the segments don't load … Refreshing and exiting and opening the text again fixes
+      that. But that shouldn't be necessary.")
 - [ ] **✂ on the big player** cuts the piece under the playhead, where the playhead is; Enter does
       the same when no field or button has focus; with the playhead at 0 or between pieces it says
       so instead of cutting nothing.

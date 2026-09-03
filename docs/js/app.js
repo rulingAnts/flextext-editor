@@ -998,10 +998,30 @@ function normalizePhraseLines(doc) {
    * paragraph; the rest mint fresh (FLEx honours guids — a split paragraph is genuinely new
    * containment, same rule as line identity). Text, words, glosses, free translations are the
    * same objects, untouched. */
-  if (doc.paragraphs.some((p) => (p.segments || []).length > 1)) {
-    doc.paragraphs = doc.paragraphs.flatMap((p) => (p.segments || []).length > 1
-      ? p.segments.map((s, k) => ({ guid: k === 0 ? p.guid : newGuid(), segments: [s] }))
-      : [p]);
+  /* ⚠ DID THE AUTHOR ACTUALLY DISTINGUISH PHRASES FROM PARAGRAPHS? Two shapes say no:
+   *
+   *   • ONE paragraph holding every phrase  — the break carries no extra meaning; the file simply
+   *     never used paragraphs. (Seth's older Excel-template editor exports this way.)
+   *   • MANY paragraphs of one phrase each  — already 1:1; there is nothing to remember.
+   *
+   * Anything else is a MIXTURE, and a mixture is a decision: Seth's recent FLEx texts use "phrase
+   * breaks for clauses, paragraph breaks for sentences". Only then is the grouping worth carrying,
+   * and only then does `paraOf` get set — so for every other document the export is bit-identical
+   * to what it has always been, which is what makes this safe to add.
+   *
+   * The flattening itself happens either way and is NOT entropy: it is what lets a paragraph-indexed
+   * alignment attach per phrase (phraseRows refuses segs[i] for a multi-phrase paragraph), and a
+   * maximally-split export is deliberate so an ELAN annotator only ever MERGES — ELAN cannot split
+   * at higher levels. See plans/preserve-paragraph-structure.md. */
+  const multi = doc.paragraphs.filter((p) => (p.segments || []).length > 1).length;
+  const structured = doc.paragraphs.length > 1 && multi > 0;
+  if (multi > 0) {
+    doc.paragraphs = doc.paragraphs.flatMap((p) => ((p.segments || []).length > 1
+      ? p.segments.map((s, k) => ({
+          guid: k === 0 ? p.guid : newGuid(), segments: [s],
+          ...(structured ? { paraOf: p.guid } : {}),
+        }))
+      : [structured ? { ...p, paraOf: p.guid } : p]));
     doc.segments = [];   // paragraph-indexed envelopes are now wrong; re-derive per phrase below
     changed = true;
   }
@@ -7551,7 +7571,11 @@ function mgLoad(rec) {
       id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
       timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
     })),
-    lines: paras.map((p, i) => ({ id: 'ln' + i, phrases: (p.segments || []).slice(), guid: p.guid })),
+    /* `paraOf` rides along untouched: it is the memory of which ORIGINAL paragraph this line came
+     * from, set only for files whose author distinguished phrases from paragraphs. The matcher never
+     * shows it — every phrase is its own line here regardless — but dropping it would silently
+     * flatten a deliberately structured text the first time somebody opened it to cut audio. */
+    lines: paras.map((p, i) => ({ id: 'ln' + i, phrases: (p.segments || []).slice(), guid: p.guid, paraOf: p.paraOf })),
     map: new Map(),
     selSpan: null, selLine: null,
   };
@@ -7638,9 +7662,12 @@ function mgSplitLine(id, wordIdx, ftCharIdx) {
   if (wordIdx <= 0 || wordIdx >= flat.length) { toast(t('mg.badSplit')); return; }
   const ft = mgLineText(line).free;
   const left = ft.slice(0, ftCharIdx).trim(), right = ft.slice(ftCharIdx).trim();
+  // Both halves belong to the paragraph the line came from — a split inside a sentence does not
+  // make a new sentence. (Seth: "as close as possible to where it originally was".)
   const mk = (words, free) => ({
     id: line.id + (free === left ? 'a' : 'b'),
     guid: newGuid(),
+    paraOf: line.paraOf,
     phrases: [makeSegment(words.map((w) => w.txt).join(' '), words, { free })],
   });
   MG.lines.splice(i, 1, mk(flat.slice(0, wordIdx), left), mk(flat.slice(wordIdx), right));
@@ -7652,7 +7679,11 @@ function mgJoinLine(id) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i <= 0) return;
   const prev = MG.lines[i - 1], cur = MG.lines[i];
-  MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, phrases: [...prev.phrases, ...cur.phrases] });
+  /* The merged line takes the FIRST line's paragraph. If the two were in different paragraphs the
+   * break between them is exactly what the user just removed, so losing it is the point — and if
+   * that leaves the second paragraph's remaining lines non-consecutive, serializeFlextext detects it
+   * and falls back to a flat export rather than emitting one guid on two <paragraph>s. */
+  MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf, phrases: [...prev.phrases, ...cur.phrases] });
   for (const [sp, ln] of [...MG.map]) if (ln === prev.id || ln === cur.id) MG.map.delete(sp);
   mgDraw();
 }
@@ -7691,7 +7722,10 @@ async function mgCommit() {
     return ext.timeEstimated ? { start: ext.start, end: ext.end, timeEstimated: true }
                              : { start: ext.start, end: ext.end };
   });
-  rec.doc.paragraphs = MG.lines.map((l) => ({ guid: l.guid || newGuid(), segments: l.phrases }));
+  rec.doc.paragraphs = MG.lines.map((l) => ({
+    guid: l.guid || newGuid(), segments: l.phrases,
+    ...(l.paraOf == null ? {} : { paraOf: l.paraOf }),
+  }));
   // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the
   // span count would have made this app's texts report a different kind of number from everyone
   // else's in the shared library list.

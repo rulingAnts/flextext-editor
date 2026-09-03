@@ -415,11 +415,45 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
     ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
   let segnum = 0;
+  /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
+   *
+   * The engine holds one line per PHRASE. Emitting one <paragraph> per line is the DEFAULT and is
+   * deliberate — a maximally-split export means an ELAN annotator only ever merges, which ELAN can
+   * do, never splits at a higher level, which it cannot (see plans/preserve-paragraph-structure.md).
+   *
+   * But when the source file distinguished the two — Seth's recent FLEx texts use phrase breaks for
+   * clauses and paragraph breaks for sentences — normalizePhraseLines tags each line with `paraOf`,
+   * and consecutive lines sharing one are emitted inside a single <paragraph> under the ORIGINAL
+   * guid. Uniform files (one paragraph of many phrases, or many of one) are never tagged, so they
+   * take the flat path below and their output is byte-identical to before this existed.
+   *
+   * ⚠ AND IT GIVES UP RATHER THAN GUESS. Cuts and joins move lines about, and a paragraph whose
+   * lines are no longer CONSECUTIVE cannot be emitted as one element — writing it as two would put
+   * the same guid on two <paragraph>s, which is invalid and which FLEx would read as two
+   * paragraphs anyway. So the runs are computed first and checked; if any guid appears in more than
+   * one run, the whole document falls back to flat. Seth: "preserve as close as possible, fall back
+   * to flat paragraph-breaking if it fails to produce a valid flextext or is uncertain enough."
+   *
+   * ⚠ THE SPAN INDEX STAYS PER LINE. doc.segments is 1:1 with LINES, never with emitted paragraphs.
+   */
+  const runs = [];
+  doc.paragraphs.forEach((para, i) => {
+    const key = para.paraOf == null ? null : String(para.paraOf);
+    const last = runs[runs.length - 1];
+    if (key !== null && last && last.key === key) last.lines.push(i);
+    else runs.push({ key, guid: para.paraOf || para.guid, lines: [i] });
+  });
+  const tagged = runs.map((r) => r.key).filter((k) => k !== null);
+  const canGroup = tagged.length === new Set(tagged).size;
+  const emit = canGroup ? runs : doc.paragraphs.map((para, i) => ({ guid: para.guid, lines: [i] }));
+
   let pi = -1;
-  for (const para of doc.paragraphs) {
-    pi++;
-    lines.push(`      <paragraph guid="${esc(para.guid)}">`);
+  for (const run of emit) {
+    lines.push(`      <paragraph guid="${esc(run.guid)}">`);
     lines.push('        <phrases>');
+    for (const li of run.lines) {
+    const para = doc.paragraphs[li];
+    pi = li;
     for (const seg of para.segments) {
       segnum++;
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
@@ -465,6 +499,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       }
       for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
       lines.push('          </phrase>');
+      }
     }
     lines.push('        </phrases>');
     lines.push('      </paragraph>');

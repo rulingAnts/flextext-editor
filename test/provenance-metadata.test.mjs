@@ -111,5 +111,27 @@ console.log('\nand it is a PARAMETER, never module state');
   ok(!/ENGINE_VERSION/.test(code(seg)), 'and still imports no app state — a second writer must be able to call it');
 }
 
+console.log('\nand every EAF / bundle writer actually PASSES it — v567\'s note claimed a property no file carried');
+{
+  /* seg-exports took `producedBy` as an option with an inert default, and the serializer emitted
+   * the PROPERTY when given one — and not one caller gave one. Every .eaf shipped with
+   * AUTHOR="" and no generator: strictly less provenance than before, under a release note
+   * saying the opposite. The writers are tested above; this pins the callers. */
+  const rp = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const calls = (src, name) =>
+    [...code(src).matchAll(new RegExp(`\\b${name}\\(\\{[\\s\\S]*?\\n\\s*\\}\\);`, 'g'))].map((m) => m[0]);
+  const appCalls = [...calls(app, 'assembleSegEntries'), ...calls(app, 'buildLooseConversion')];
+  const rpCalls = [...calls(rp, 'assembleSegEntries'), ...calls(rp, 'buildLooseConversion')];
+  ok(appCalls.length >= 2 && appCalls.every((c) => /producedBy: producedBy\(\)/.test(c)),
+     `the editor passes producedBy() at all ${appCalls.length} of its bundle / loose-conversion call sites`);
+  ok(rpCalls.length >= 2 && rpCalls.every((c) => /producedBy: deps\.producedBy/.test(c)),
+     `the panel passes it (via deps) at all ${rpCalls.length} of its call sites`);
+  ok((code(app).match(/producedBy: \(\) => producedBy\(\)/g) || []).length === 2,
+     'and the editor hands the panel that function in BOTH initResearcherPanel deps objects');
+  const loose = code(seg).match(/export async function buildLooseConversion[\s\S]*?\n\}/)[0];
+  ok(/assembleSegEntries\(\{[\s\S]*?\bproducedBy\b[\s\S]*?\}\)/.test(loose),
+     'buildLooseConversion forwards it to the assembler');
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

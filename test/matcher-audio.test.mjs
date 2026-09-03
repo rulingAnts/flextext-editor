@@ -424,5 +424,37 @@ ok(/\.mg-span \.seg-play\{grid-row:1;min-width:44px;height:44px\}/.test(phone), 
 // `flex:0 0 2rem` is inert inside a grid, which is how the badge came to measure 21px at all.
 ok(/\.mg-span \.mg-pick\{min-width:2rem\}/.test(css), 'and the badge carries an explicit width at every size, not an inert flex basis');
 
+console.log('\ntext ⤴ joins PHRASES into one — two phrases in a paragraph is what the next open re-splits');
+{
+  /* Found by the release audit (2026-09-03): the join committed a paragraph holding two segments;
+   * mgOpen's healFlatSegments then promoted each back to its own paragraph and cleared doc.segments
+   * to re-derive them — with no per-phrase time attributes to derive from. The join AND the whole
+   * alignment were gone, and persist() wrote the wipe. */
+  const join = fn(app, 'mgJoinLine');
+  ok(/phrases: \[mergePhrases\(\[\.\.\.prev\.phrases, \.\.\.cur\.phrases\]\)\]/.test(join),
+     'the merged line holds ONE phrase, built by mergePhrases (segments.js\'s mergeSegments joins AUDIO spans)');
+  ok(!/phrases: \[\.\.\.prev\.phrases, \.\.\.cur\.phrases\]/.test(join),
+     '⚠ and never the two side by side');
+  const split = fn(app, 'mgSplitLine');
+  ok(/if \(flat\[k\]\.punct\) continue;/.test(split),
+     'a split maps the VISIBLE word index onto the unfiltered word list (the pane hides punctuation)');
+  ok(/mk\(flat\.slice\(0, at\), left, 'a'\), mk\(flat\.slice\(at\), right, 'b'\)/.test(split),
+     'and the halves get distinct ids by construction, not by comparing free translations');
+  ok(split.indexOf('mgCapture()') > split.indexOf("toast(t('mg.badSplit'))"),
+     'a refused split leaves no undo step behind');
+}
+
+console.log('\nDone points `current` at the committed record — or the next update flush reverts it');
+{
+  /* persist() writes `current`; mgOpen set it to the PRE-session record and mgCommit wrote a fresh
+   * copy. persist()'s "skip on the list" guard reads #view-texts, which this shell does not have,
+   * so applyUpdateIfSafe() → persist() put the old record back over the commit — after the draft
+   * was already cleared — and stamped it modified, queueing the reverted text for upload. */
+  const commit = asyncFn(app, 'mgCommit');
+  ok(/await db\.putDoc\(rec\);\s*(\/\*[\s\S]*?\*\/\s*)?current = rec;/.test(commit),
+     'mgCommit assigns current = rec right after the write');
+  ok(!/#view-texts|view-texts/.test(shell), '(the shell really has no #view-texts, so the guard cannot be relied on)');
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

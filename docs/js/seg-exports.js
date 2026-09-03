@@ -1434,7 +1434,7 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
   // `full` IS "preview or fxpa" — the embedded-audio outputs, which are the slow ones worth naming.
   say(full ? 'embedding' : 'annotations');
   const entries = await assembleSegEntries({
-    doc, title, base, vern, anal, wants, full,
+    doc, title, base, vern, anal, wants, full, producedBy,
     media: dropAudio ? null : media, segMedia: dropAudio ? null : segMedia,
   });
 

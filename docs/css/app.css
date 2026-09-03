@@ -3043,3 +3043,8 @@ body.rp-standalone main { padding-top: 0; }
 .mg-ftgap{display:inline-block;width:.85rem;height:1.1em;vertical-align:text-bottom;margin:0 .05rem;
   border:0;border-radius:3px;background:hsl(20 80% 60% / .35);cursor:pointer}
 .mg-ftgap:hover{background:hsl(20 85% 55% / .8)}
+
+/* Companion-app links (Utilities, editor tab + panel modal): an <a> wearing the button class, so it
+ * needs the block/centring a <button> gets for free and must not underline like prose. */
+a.rp-app-link { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
+.toolbar a.rp-app-link { display: inline-block; width: auto; }

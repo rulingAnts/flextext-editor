@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v567';
+export const ENGINE_VERSION = 'v568';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1166,6 +1166,10 @@ internet after the first time.</p>
   'panel.util.ws': 'FLEx writing systems',
   'panel.util.wsIntro': 'Check — and fix — the writing-system codes in a .flextext file before importing it into FLEx, so FLEx does not create duplicate writing systems.',
   'panel.util.close': 'Close',
+  'panel.util.apps': 'Companion apps',
+  'panel.util.appsNote': 'Each opens in a new tab. Every app keeps its own texts; install it once and it works offline.',
+  'panel.util.segmenter': 'Audio Segmenter',
+  'panel.util.consent': 'Consent Collector',
   'panel.dev.engine': 'engine {v}',
   'panel.dev.stale': 'update needed',
   // Researcher/developer-facing only — never shown in the coworker's app. Explains a CONFIRMED
@@ -1373,6 +1377,7 @@ internet after the first time.</p>
     ,'panel.rel.new.matcherDraft': 'The Audio Segmenter saves unfinished matching as you work, so a reload, an app update or a mis-tapped Back no longer loses it.'
     ,'panel.rel.new.eafOnly': 'New download: the ELAN annotation on its own (.eaf), without the recording \u2014 for when you already have the audio.'
     ,'panel.rel.new.provenance': 'Exported files now record which app made them: exportSource on a .flextext, a generator property on an .eaf. AUTHOR on an .eaf is left for the person it is meant for.'
+    ,'panel.rel.new.appLinks': 'Both new apps are linked from Utilities — in this panel and on the editor’s Utilities tab — and open in a new tab.'
     ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
     ,'panel.rel.new.deviceHeader': 'Panel: each device row is tidier. New text, Settings and Move are icons on the device’s own line; Refresh has moved up into the header beside Sign out; and Unlink, Delete and Erase are grouped together, clear of the everyday buttons, with the erase button marked as the dangerous one. Unlink doubles as Link before a device is connected.'
@@ -3293,6 +3298,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.util.ws': 'Sistem penulisan FLEx',
   'panel.util.wsIntro': 'Periksa — dan perbaiki — kode sistem penulisan dalam berkas .flextext sebelum mengimpornya ke FLEx, agar FLEx tidak membuat sistem penulisan ganda.',
   'panel.util.close': 'Tutup',
+  'panel.util.apps': 'Aplikasi pendamping',
+  'panel.util.appsNote': 'Masing-masing terbuka di tab baru. Setiap aplikasi menyimpan teksnya sendiri; pasang sekali dan ia bekerja luring.',
+  'panel.util.segmenter': 'Pemotong Audio',
+  'panel.util.consent': 'Pengumpul Izin',
   'panel.dev.engine': 'mesin {v}',
   'panel.dev.stale': 'perlu diperbarui',
   'panel.dev.staleWhy': 'Perangkat ini masih menjalankan engine {running} sementara situs menyajikan {live}. Terkonfirmasi pada dua laporan berjarak minimal 6 jam, jadi ini bukan keterlambatan pembaruan biasa — proses rilis mungkin bermasalah.',
@@ -3447,6 +3456,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.matcherDraft': 'Pemotong Audio menyimpan pencocokan yang belum selesai sambil Anda bekerja, jadi memuat ulang, pembaruan aplikasi, atau salah tekan Kembali tidak menghilangkannya.'
     ,'panel.rel.new.eafOnly': 'Unduhan baru: anotasi ELAN saja (.eaf), tanpa rekamannya \u2014 untuk yang sudah punya audionya.'
     ,'panel.rel.new.provenance': 'Berkas yang diekspor kini mencatat aplikasi pembuatnya: exportSource pada .flextext, properti generator pada .eaf. AUTHOR pada .eaf dibiarkan untuk orangnya.'
+    ,'panel.rel.new.appLinks': 'Kedua aplikasi baru tertaut dari Peralatan — di panel ini dan di tab Utilitas editor — dan terbuka di tab baru.'
     ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'
     ,'panel.rel.new.deviceHeader': 'Panel: setiap baris perangkat lebih rapi. Teks baru, Pengaturan, dan Pindahkan kini berupa ikon pada baris perangkat itu sendiri; Segarkan pindah ke header di samping Keluar; dan Putuskan, Cabut, serta Hapus dikelompokkan bersama, terpisah dari tombol sehari-hari, dengan tombol hapus ditandai sebagai yang berbahaya. Putuskan berganti menjadi Tautkan sebelum perangkat terhubung.'

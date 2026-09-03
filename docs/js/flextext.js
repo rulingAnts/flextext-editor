@@ -92,6 +92,53 @@ export function makeSegment(baselineText, words, opts = {}) {
   };
 }
 
+/* Join phrases INTO ONE PHRASE — the matcher's text-side ⤴ (Seth: "join will join phrases").
+ *
+ * ⚠ Not "one paragraph holding both". That shape is exactly what normalizePhraseLines undoes on
+ * the next open: it promotes every phrase back to its own paragraph and clears doc.segments to
+ * re-derive them — which threw away the alignment the user had just committed, along with the
+ * join itself. A join has to produce the shape the rest of the suite already reads as ONE line,
+ * and that is one segment.
+ *
+ * What survives: every word (glosses ride on the word), the free translations joined with a space,
+ * the first phrase's guid (the merged line IS the first phrase, extended), and every unknown item
+ * from both sides — a note on the second phrase is not the matcher's to drop; a repeated item is
+ * visible in FLEx, a vanished one is not. Time offsets become the union when both phrases carry
+ * them, and are dropped when only one does: half an extent is not an extent.
+ *
+ * (Named for PHRASES: in this suite "segments" are the audio spans, and segments.js already owns a
+ * mergeSegments for those — app.js imports both, so the names cannot collide.) */
+export function mergePhrases(segs) {
+  const parts = (segs || []).filter(Boolean);
+  if (!parts.length) return makeSegment('', []);
+  if (parts.length === 1) return parts[0];
+  const [first] = parts;
+  const words = parts.flatMap((s) => s.words || []);
+  const attrs = { ...(first.attrs || { guid: newGuid() }) };
+  const begins = parts.map((s) => parseInt(s.attrs && s.attrs['begin-time-offset'], 10)).filter(Number.isFinite);
+  const ends = parts.map((s) => parseInt(s.attrs && s.attrs['end-time-offset'], 10)).filter(Number.isFinite);
+  if (begins.length === parts.length && ends.length === parts.length) {
+    attrs['begin-time-offset'] = String(Math.min(...begins));
+    attrs['end-time-offset'] = String(Math.max(...ends));
+  } else {
+    delete attrs['begin-time-offset'];
+    delete attrs['end-time-offset'];
+  }
+  const seg = makeSegment(
+    parts.map((s) => (s.baseline || '').trim()).filter(Boolean).join(' ') || baselineFromWords(words),
+    words,
+    {
+      attrs,
+      free: parts.map((s) => (s.free || '').trim()).filter(Boolean).join(' '),
+      freeLang: parts.map((s) => s.freeLang).find((l) => l) ?? null,
+      preItemsXML: parts.flatMap((s) => s.preItemsXML || []),
+      postItemsXML: parts.flatMap((s) => s.postItemsXML || []),
+    });
+  const txtLang = parts.map((s) => s.txtLang).find((l) => l);
+  if (txtLang) seg.txtLang = txtLang;
+  return seg;
+}
+
 export function makeDoc(settings, title = '') {
   return {
     version: '2',

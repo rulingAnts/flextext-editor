@@ -5,6 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
+  mergePhrases, baselineFromWords,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
@@ -32,7 +33,7 @@ import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
-import { initResearcherPanel } from './researcher-panel.js';
+import { initResearcherPanel, companionApps } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -4764,6 +4765,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   // downloads are built by the SAME function as the entries the device bundles.
   const segEntries = await assembleSegEntries({
     doc: rec.doc, title: rec.title || base, base, media, segMedia,
+    producedBy: producedBy(),
     wants: { eaf: wantEaf, saymore: wantSaymore, preview: wantPreview, fxpa: wantJson },
     vern: settings.vernLang || rec.doc.vernLang || 'und',
     anal: settings.analLang || rec.doc.analLang || 'en',
@@ -6504,6 +6506,7 @@ function wireFileExporter() {
     try {
       const r = await buildLooseConversion({
         kind, doc: st.doc, base: st.base, title: st.doc.title || st.base,
+        producedBy: producedBy(),
         flextextBlob: st.ftBlob, audio: st.audio, plan: st.plan,
         vern: st.doc.vernLang || settings.vernLang || 'und',
         anal: st.doc.analLang || settings.analLang || 'en',
@@ -7896,21 +7899,34 @@ function mgJoinSpan(id) {
 function mgSplitLine(id, wordIdx, ftCharIdx) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i < 0) return;
-  mgCapture();
   const line = MG.lines[i];
   const flat = line.phrases.flatMap((p) => p.words || []);
-  if (wordIdx <= 0 || wordIdx >= flat.length) { toast(t('mg.badSplit')); return; }
+  /* ⚠ wordIdx COUNTS VISIBLE WORDS. The pane draws mgLineText(line).words, which drops punctuation
+   * tokens, so the index the scissors carries is into THAT list — slicing `flat` with it landed one
+   * token early for every comma before the cut. Walk to the wordIdx-th lexical word instead; any
+   * punctuation sitting before it trails the word it follows, so it stays on the left. */
+  let seen = 0, at = -1;
+  for (let k = 0; k < flat.length; k++) {
+    if (flat[k].punct) continue;
+    if (seen === wordIdx) { at = k; break; }
+    seen++;
+  }
+  if (wordIdx <= 0 || at < 0) { toast(t('mg.badSplit')); return; }
+  mgCapture();   // after the refusal, or a split that did nothing still left an undo step behind
   const ft = mgLineText(line).free;
   const left = ft.slice(0, ftCharIdx).trim(), right = ft.slice(ftCharIdx).trim();
   // Both halves belong to the paragraph the line came from — a split inside a sentence does not
   // make a new sentence. (Seth: "as close as possible to where it originally was".)
-  const mk = (words, free) => ({
-    id: line.id + (free === left ? 'a' : 'b'),
+  // ⚠ The suffix is EXPLICIT. It used to come from which half a free translation matched, so with
+  // no free translation both halves were '…a' — two lines, one id, and a map that could only ever
+  // reach the first of them.
+  const mk = (words, free, sfx) => ({
+    id: line.id + sfx,
     guid: newGuid(),
     paraOf: line.paraOf,
-    phrases: [makeSegment(words.map((w) => w.txt).join(' '), words, { free })],
+    phrases: [makeSegment(baselineFromWords(words), words, { free })],
   });
-  MG.lines.splice(i, 1, mk(flat.slice(0, wordIdx), left), mk(flat.slice(wordIdx), right));
+  MG.lines.splice(i, 1, mk(flat.slice(0, at), left, 'a'), mk(flat.slice(at), right, 'b'));
   for (const [sp, ln] of [...MG.map]) if (ln === line.id) MG.map.delete(sp);
   mgDraw();
 }
@@ -7949,8 +7965,16 @@ function mgJoinLine(id) {
   /* The merged line takes the FIRST line's paragraph. If the two were in different paragraphs the
    * break between them is exactly what the user just removed, so losing it is the point — and if
    * that leaves the second paragraph's remaining lines non-consecutive, serializeFlextext detects it
-   * and falls back to a flat export rather than emitting one guid on two <paragraph>s. */
-  MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf, phrases: [...prev.phrases, ...cur.phrases] });
+   * and falls back to a flat export rather than emitting one guid on two <paragraph>s.
+   *
+   * ⚠ ONE PHRASE, NOT TWO. This line first concatenated the phrase arrays, which committed as a
+   * paragraph holding two segments — and the next mgOpen's healFlatSegments split it straight back
+   * and cleared doc.segments to re-derive them, so the join AND the whole matching session were
+   * gone before the list had finished drawing. mergePhrases builds the one segment the rest of
+   * the suite reads as one line; see it for what it keeps. (Not segments.js's mergeSegments —
+   * that one joins two AUDIO spans, which is the ⤴ on the other pane.) */
+  MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf,
+    phrases: [mergePhrases([...prev.phrases, ...cur.phrases])] });
   for (const [sp, ln] of [...MG.map]) if (ln === prev.id || ln === cur.id) MG.map.delete(sp);
   mgDraw();
 }
@@ -7999,6 +8023,13 @@ async function mgCommit() {
   Object.assign(rec, docStats(rec.doc));
   rec.modified = Date.now();
   await db.putDoc(rec);
+  /* ⚠ THE OBJECT persist() WRITES. mgOpen pointed `current` at the record as it was BEFORE this
+   * session; everything above went into a fresh copy. applyUpdateIfSafe() flushes persist() ahead
+   * of a service-worker update — and persist()'s "skip while on the list" guard looks for
+   * #view-texts, which the segmenter shell does not have — so the pre-match `current` was written
+   * straight over this commit, with a fresh `modified` that queued the reverted text for upload.
+   * Same rule as the draft: two writers, one record, so they hold the same object. */
+  current = rec;
   db.broadcastLive('docs');
   const droppedAudio = MG.spans.filter((sp) => !MG.map.has(sp.id)).length;
   const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
@@ -9726,6 +9757,7 @@ function setupResearcherMode() {
     openView: (v) => show(v),
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
     eraseAllData: () => eraseAllData(),
+    producedBy: () => producedBy(),
     canInstall: () => !!installPrompt,
     doInstall: async () => {
       if (!installPrompt) return;
@@ -9744,6 +9776,16 @@ function setupResearcherMode() {
  * - Space toggles the LAST-USED player when focus is not in a field or on a button (a focused
  *   button already Space-clicks natively — double-toggling would un-toggle it).
  * - ⏮ rewinds the last-used target to ITS OWN start: a segment to its span start, the dock to 0. */
+/* Companion-app links on the Utilities tab. The markup carries the production URLs as a fallback;
+ * this swaps in the panel's estate map so a staging editor links the staging apps and the dev rig
+ * its own. Satellite shells have no #companion-apps and get a no-op. */
+function wireCompanionLinks() {
+  for (const a of companionApps()) {
+    const el = document.querySelector(`#companion-apps [data-app="${a.key}"]`);
+    if (el && a.url) el.href = a.url;
+  }
+}
+
 function wirePlaybackKeys() {
   const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
   document.addEventListener('keydown', (e) => {
@@ -9848,6 +9890,7 @@ function wirePlaybackKeys() {
 
 function setup() {
   wirePlaybackKeys();
+  wireCompanionLinks();
   $('#btn-undo')?.addEventListener('click', doUndo);
   $('#btn-redo')?.addEventListener('click', doRedo);
   // Crowd mode boots FIRST — before applyUrlSettings/migrateSettings/SW/sync can
@@ -10210,6 +10253,7 @@ function setup() {
     openView: (v) => show(v),
     goHome: () => { renderDocList(); show('texts'); },
     eraseAllData: () => eraseAllData(),
+    producedBy: () => producedBy(),
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
     /* No onLocalSettingsSaved any more: the panel's "This device" settings modal is gone (Seth,
      * 2026-08-07). A researcher's own device is UNPAIRED, so it already has this app's Settings tab

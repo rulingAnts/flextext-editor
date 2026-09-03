@@ -319,6 +319,21 @@
     <div id="ex-rows" class="rp-ex-rows" hidden></div>
     <p class="note" id="ex-status" role="status" hidden></p>
   </div>
+
+  <hr>
+
+  <!-- The two companion apps. The hrefs here are the PRODUCTION fallback; app.js overwrites them at
+       boot from the panel's estate map (companionApps()), so a staging editor links the staging apps
+       and the dev rig its own. New tab (Seth, 2026-09-03): each app is its own origin with its own
+       texts, and this one stays open. -->
+  <h2 data-i18n="panel.util.apps">Companion apps</h2>
+  <p class="note" data-i18n="panel.util.appsNote"></p>
+  <div class="ws-form">
+    <div class="toolbar" id="companion-apps">
+      <a class="secondary-btn rp-app-link" data-app="segmenter" href="https://audio-segmenter.flextext.app/" target="_blank" rel="noopener"><span data-i18n="panel.util.segmenter">Audio Segmenter</span> ↗</a>
+      <a class="secondary-btn rp-app-link" data-app="consent" href="https://consent.flextext.app/" target="_blank" rel="noopener"><span data-i18n="panel.util.consent">Consent Collector</span> ↗</a>
+    </div>
+  </div>
 </section>
 
 <!-- ===== Help ===== -->

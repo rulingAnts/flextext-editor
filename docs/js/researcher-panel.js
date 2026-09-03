@@ -349,12 +349,19 @@ const ESTATES = {
     recorder: 'https://record.flextext.app/',
     crowd: 'https://crowd.flextext.app/',
     researcher: 'https://research.flextext.app/',
+    segmenter: 'https://audio-segmenter.flextext.app/',
+    consent: 'https://consent.flextext.app/',
   },
   pages: {
     editor: 'https://rulingants.github.io/flextext-editor/',
     recorder: 'https://rulingants.github.io/text-recorder/',
     crowd: 'https://rulingants.github.io/crowd-recorder/',
     researcher: 'https://rulingants.github.io/flextext-researcher/',
+    // The two newest apps have NO Pages twin (apps/segmenter/wrangler.toml says why), so the
+    // legacy panel links the only copies that exist. Naming the real one is honest; a Pages URL
+    // that 404s would not be.
+    segmenter: 'https://audio-segmenter.flextext.app/',
+    consent: 'https://consent.flextext.app/',
   },
   /* THE STAGING ESTATE (Seth, 2026-08-07) — an explicit map, and it has to be.
    *
@@ -379,6 +386,8 @@ const ESTATES = {
     researcher: 'https://staging-flextext-researcher.68mh29kgsd.workers.dev/',
     recorder: 'https://record.flextext.app/',
     crowd: 'https://crowd.flextext.app/',
+    segmenter: 'https://staging-audio-segmenter.68mh29kgsd.workers.dev/',
+    consent: 'https://staging-consent-collector.68mh29kgsd.workers.dev/',
     staging: true,
   },
 };
@@ -405,7 +414,8 @@ export function estateOf(origin = location.origin) {
   // The dev rig serves every app under the Pages sub-paths on one origin.
   if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) {
     return { editor: origin + '/flextext-editor/', recorder: origin + '/text-recorder/',
-             crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/', local: true };
+             crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/',
+             segmenter: origin + '/audio-segmenter/', consent: origin + '/consent-collector/', local: true };
   }
   // Staging / preview builds get an EXPLICIT map, never a guess from the current origin.
   if (/\.(workers|pages)\.dev$/.test(host)) return ESTATES.staging;
@@ -415,6 +425,17 @@ export function estateOf(origin = location.origin) {
 }
 
 const HOME = estateOf();
+
+/* The two newest apps, as links. The panel's Utilities modal and the editor's Utilities tab both
+ * list them FROM THIS ONE MAP, so neither can point at an estate the other does not — a staging
+ * editor sends you to the staging apps, the dev rig to its own. They open in a new tab (Seth,
+ * 2026-09-03): each is its own origin with its own texts, and the page you came from stays put. */
+export function companionApps(estate = HOME) {
+  return [
+    { key: 'segmenter', url: estate.segmenter, label: 'panel.util.segmenter' },
+    { key: 'consent',   url: estate.consent,   label: 'panel.util.consent' },
+  ];
+}
 
 /* DEPRECATION NOTICE — the legacy GitHub Pages panel only (Seth, 2026-08-05).
  *
@@ -1116,9 +1137,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v567', date: '2026-09-03', items: [
+  { v: 'v568', date: '2026-09-03', items: [
     { k: 'panel.rel.new.segmenterApp' },
     { k: 'panel.rel.new.consentApp' },
+    { k: 'panel.rel.new.appLinks' },
     { k: 'panel.rel.new.phraseLines' },
     { k: 'panel.rel.new.matcherDraft' },
     { k: 'panel.rel.new.eafOnly' },
@@ -3167,6 +3189,7 @@ async function buildSegEntriesFor(src, { title, base, wants, full = true }) {
   const entries = await assembleSegEntries({
     doc: src.doc, title, base, media: src.media, segMedia: src.segMedia, wants,
     vern: src.vern, anal: src.anal, full,
+    producedBy: deps.producedBy ? deps.producedBy() : '',
   });
   if ((wants.eaf || wants.saymore) && src.segMedia && !entries.some((x) => x.name === src.segMedia.name)) {
     entries.push({ name: src.segMedia.name, data: src.segMedia.blob });
@@ -7325,6 +7348,9 @@ function utilitiesModal() {
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
     <button class="primary-btn" data-m="export">${esc(t('exp.h'))}</button>
     <hr class="rp-sep">
+    <p class="note"><b>${esc(t('panel.util.apps'))}</b> — ${esc(t('panel.util.appsNote'))}</p>
+    ${companionApps().map((a) => `<a class="secondary-btn rp-app-link" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t(a.label))} ↗</a>`).join('')}
+    <hr class="rp-sep">
     <label class="rp-field"><span>${esc(t('panel.util.ttl'))}</span>
       <input id="rp-ttl" type="number" min="7" max="400" step="1" value="${assignTtlDays()}"></label>
     <p class="note">${esc(t('panel.util.ttlNote'))}</p>
@@ -7782,6 +7808,7 @@ function fileExporterModal() {
     try {
       const r = await buildLooseConversion({
         kind, doc: st.doc, base: st.base, title: st.doc.title || st.base,
+        producedBy: deps.producedBy ? deps.producedBy() : '',
         flextextBlob: st.ftBlob, audio: st.audio, plan: st.plan,
         vern: st.doc.vernLang || 'und', anal: st.doc.analLang || 'en',
         // The impure step seg-exports refuses to own — see its header.

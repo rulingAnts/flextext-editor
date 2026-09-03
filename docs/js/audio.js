@@ -678,6 +678,8 @@ export class Player {
     this.destroyWs();
     this.hideProgress();
     this.root.hidden = false;
+    // A different recording needs a different fit, and the observer only acts on a CHANGE.
+    this._fittedWidth = null;
     this.el.status.textContent = this.labels.preparing;
     this.el.status.hidden = false;
 
@@ -752,12 +754,20 @@ export class Player {
         } catch { /* peaks caching is best-effort */ }
       }
       // Initial zoom: fit the whole file in the visible width.
-      const fit = Math.max(ZOOM_MIN,
-        this.el.wave.clientWidth / Math.max(1, this.ws.getDuration()));
-      this.el.zoom.min = String(Math.floor(fit));
-      this.el.zoom.max = String(ZOOM_MAX);
-      this.el.zoom.value = String(Math.floor(fit));
+      this.fitZoom();
     });
+    /* ⚠ AND AGAIN WHEN THE BOX FINALLY HAS A WIDTH. `load()` unhides the dock and constructs
+     * wavesurfer in the same synchronous block, so layout has NOT run: el.wave.clientWidth is 0, the
+     * fit above collapses to ZOOM_MIN, and wavesurfer renders into a zero-width canvas. The result
+     * is a player with working transport controls and NO WAVEFORM — which reads as "broken", and
+     * which a reload silently fixes because by then the dock is already laid out. That made it look
+     * intermittent and kept it alive across apps: Seth hit it in the segmenter and had "similar
+     * problems with the editor app", which is the same bug reached from a different screen.
+     *
+     * One observer on the wave box, re-fitting whenever the width changes from what we last fitted
+     * to. Zooming changes the CANVAS width, never this element's CSS box, so there is no feedback
+     * loop — the same reasoning segment-strips' observeWave documents for the strip canvases. */
+    this.attachWaveResize();
     this.ws.on('error', (err) => {
       // Raw demuxer text ("DEMUXER_ERROR_COULD_NOT_OPEN") means nothing to a field user, so the
       // message stays plain — but it must not be USELESS either.
@@ -890,6 +900,37 @@ export class Player {
    * purpose, not by carelessness. Keep them here rather than "tidying" them into the stylesheet.
    *
    * They are pure decoration: pointer-events none, so the whole waveform stays a seek surface. */
+  /* Fit the whole recording into the visible width, and remember the width we fitted to.
+   * Returns false when there is nothing to fit yet (no player, no duration, or a box with no
+   * width), so the caller can tell "not ready" from "done". */
+  fitZoom() {
+    if (!this.ws) return false;
+    const w = this.el.wave.clientWidth;
+    let dur = 0;
+    try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
+    if (!(w > 0) || !(dur > 0)) return false;
+    const fit = Math.max(ZOOM_MIN, w / dur);
+    this.el.zoom.min = String(Math.floor(fit));
+    this.el.zoom.max = String(ZOOM_MAX);
+    this.el.zoom.value = String(Math.floor(fit));
+    // Re-apply it so wavesurfer actually re-renders at the new scale. Wrapped because a zoom before
+    // the decode has landed throws, and a failed fit must not kill the observer.
+    try { this.ws.zoom(fit); } catch { /* not ready yet; the observer will come back */ }
+    this._fittedWidth = w;
+    return true;
+  }
+
+  // One observer for the life of the Player — re-created loads share it, since the element does not
+  // change. Swept on destroy.
+  attachWaveResize() {
+    if (this._waveRO || typeof ResizeObserver === 'undefined') return;
+    this._waveRO = new ResizeObserver(() => {
+      const w = this.el.wave.clientWidth;
+      if (w > 0 && w !== this._fittedWidth) this.fitZoom();
+    });
+    try { this._waveRO.observe(this.el.wave); } catch { this._waveRO = null; }
+  }
+
   setBoundaries(list) {
     this._bounds = Array.isArray(list) ? list.filter((n) => Number.isFinite(n)) : [];
     this.renderBoundaries();

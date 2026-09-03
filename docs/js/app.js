@@ -933,6 +933,10 @@ function transportKeysApply(target, key) {
 }
 
 function segmentationEnabled() {
+  // The Audio Segmenter IS segmentation mode — there is nothing else for it to be, and a researcher
+  // setting that switched it off would leave an app whose every screen is about cutting audio
+  // quietly refusing to cut audio.
+  if (SEGMENTER_MODE) return true;
   try {
     if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
   } catch { /* noop */ }
@@ -8041,6 +8045,22 @@ async function mgOpen(id) {
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
   current = rec;
+  /* ⚠ ONE PHRASE PER LINE, AND THE ENGINE ALREADY KNOWS HOW. A FLExText commonly arrives with every
+   * phrase inside ONE paragraph — Seth's "Rumah Jatuh di Muara Suhu" is 1 paragraph holding 60
+   * phrases, and "Crocodile Woman" is 1 holding 77. mgLoad reads PARAGRAPHS, so such a text became a
+   * single matcher line: sixty phrases merged into one wall of words with a scissors in every gap,
+   * asking the user to re-cut by hand a segmentation the linguist had already done in FLEx.
+   *
+   * That is the wrong job. Seth: "the text is segmented (phrases), the audio is not, segment the
+   * audio and match it to text segments (phrases), but also have a way to adjust those phrase
+   * cuts/joins IF WE NEED TO, but not re-doing the phrase segmentation from scratch."
+   *
+   * healFlatSegments promotes each phrase to its own paragraph, keeping its words, glosses, free
+   * translation and any imported time offsets, and giving the first the paragraph's guid. It exists
+   * because the same import shape broke the gloss tab in v322; the matcher just never called it. The
+   * ✂ and ⤴ on the text side stay exactly as they were — they are now the ADJUSTMENT Seth describes,
+   * applied to real phrase boundaries, rather than the only way to get any boundaries at all. */
+  healFlatSegments(rec.doc);
   mgLoad(rec);
   const view = $('#view-matcher');
   if (view) {

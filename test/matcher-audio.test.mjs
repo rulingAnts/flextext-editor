@@ -15,6 +15,7 @@
  * Run: node test/matcher-audio.test.mjs
  */
 import { readFileSync } from 'node:fs';
+import { installMiniXmlDom } from './lib/mini-xml-dom.mjs';
 
 const read = (p) => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
 const app = read('docs/js/app.js');
@@ -39,6 +40,69 @@ const asyncFn = (src, name) => {
  * explanation got better. Crude but sufficient: this source has no regex literals or strings
  * containing `//`, and the assertions using it only ask whether an identifier is absent. */
 const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '$1');
+
+/* ⚠ THE TEXT ARRIVES ALREADY SEGMENTED, AND THAT SEGMENTATION IS THE LINGUIST'S WORK.
+ *
+ * Seth, on seeing his own "Rumah Jatuh di Muara Suhu" open as a single line: "the text is segmented
+ * (phrases), the audio is not, segment the audio and match it to text segments (phrases), but also
+ * have a way to adjust those phrase cuts/joins IF WE NEED TO, but not re-doing the phrase
+ * segmentation from scratch."
+ *
+ * A .flextext can hold every phrase inside ONE paragraph — that file is 1 paragraph containing 60
+ * phrases, and "Crocodile Woman" is 1 holding 77. (Provenance: Seth's older Excel-template FlexText
+ * editor exports this way, and it is also a shape FLEx itself produces — so it is *a* normal export,
+ * not an exotic one.) mgLoad reads PARAGRAPHS, so such a text became one wall of words with a
+ * scissors in every gap, asking the user to redo by hand what FLEx already knew.
+ *
+ * The engine has had the answer since v322 — healFlatSegments promotes each phrase to its own
+ * paragraph, keeping words, glosses, free translation and any imported offsets. The matcher simply
+ * never called it. */
+console.log('\nphrases are lines: the file\'s own segmentation survives into the matcher');
+{
+  installMiniXmlDom();
+  const { parseFlextext } = await import('../docs/js/flextext.js');
+  const phrase = (v, g, ft) => `<phrase><item type="txt" lang="und">${v.join(' ')}</item>`
+    + `<words>${v.map((w, i) => `<word><item type="txt" lang="und">${w}</item>`
+    + `<item type="gls" lang="en">${g[i]}</item></word>`).join('')}</words>`
+    + `<item type="gls" lang="en">${ft}</item></phrase>`;
+  // ONE paragraph, THREE phrases — the shape that was being flattened.
+  const xml = `<?xml version="1.0" encoding="utf-8"?><document version="2"><interlinear-text>`
+    + `<item type="title" lang="en">Rumah</item><paragraphs><paragraph><phrases>`
+    + phrase(['a', 'bo'], ['saya', 'cerita'], 'I tell this.')
+    + phrase(['Suhu', 'te'], ['suhu', 'di'], 'We slept at Suhu.')
+    + phrase(['pak', 'zeth'], ['pak', 'zeth'], 'With Pak Zeth.')
+    + `</phrases></paragraph></paragraphs></interlinear-text></document>`;
+  const { texts, error } = parseFlextext(xml, { vernLang: 'und', analLang: 'en' });
+  ok(!error, 'the fixture parses');
+  const doc = texts[0];
+  ok(doc.paragraphs.length === 1, 'it arrives as ONE paragraph, as such files do');
+  ok(doc.paragraphs[0].segments.length === 3, '…holding all three phrases');
+  // healFlatSegments' rule, applied here exactly as app.js applies it.
+  const healed = doc.paragraphs.some((x) => (x.segments || []).length > 1)
+    ? doc.paragraphs.flatMap((x) => (x.segments || []).length > 1
+        ? x.segments.map((seg) => ({ segments: [seg] })) : [x])
+    : doc.paragraphs;
+  ok(healed.length === 3, 'and becomes THREE matcher lines, not one');
+  ok(healed.every((x) => x.segments.length === 1), 'one phrase per line');
+  const frees = healed.map((x) => x.segments[0].free);
+  ok(frees[0] === 'I tell this.' && frees[2] === 'With Pak Zeth.',
+     'each line keeps its OWN free translation rather than a concatenation of all of them');
+  ok(healed[1].segments[0].words.map((w) => w.txt).join(' ') === 'Suhu te',
+     'and its own words, in order');
+}
+// The matcher must actually run that, and BEFORE it reads the paragraphs.
+{
+  const open = app.match(/\nasync function mgOpen\([^)]*\) \{[\s\S]*?\n\}/)[0];
+  ok(/healFlatSegments\(rec\.doc\)/.test(open), 'mgOpen heals the doc');
+  ok(open.indexOf('healFlatSegments') < open.indexOf('mgLoad(rec)'),
+     '…BEFORE mgLoad reads paragraphs, or the flattening it prevents has already happened');
+  ok(/if \(SEGMENTER_MODE\) return true;/.test(fn(app, 'segmentationEnabled')),
+     'and the segmenter forces segmentation on — healFlatSegments is gated on it, and this app IS segmentation');
+}
+/* The ✂ and ⤴ on the text side are now the ADJUSTMENT, not the only way to get any boundaries —
+ * "a way to adjust those phrase cuts/joins IF WE NEED TO". They stay exactly as they were. */
+ok(/function mgSplitLine/.test(app) && /function mgJoinLine/.test(app),
+   'splitting and joining a line remain available for the corrections that are still needed');
 
 console.log('\nthe audio row is built from the SHARED helpers, not a fourth copy of them');
 const draw = fn(app, 'mgDraw');

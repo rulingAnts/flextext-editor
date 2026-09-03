@@ -99,6 +99,24 @@ that was fixed the same day; each is the gesture that reproduced it.
 - [ ] **⤓ offers three downloads** — everything (zip), ELAN only (.eaf), .flextext only — and a
       six-minute WAV no longer fails with "allocation size overflow" in Firefox.
 
+## 2c. The segmenter as a THIRD invite kind (needs a researcher account — staging or the rig)
+
+No worker change: the segmenter pairs as its own device on its own origin; the invite modal
+prints the same one-time secret on a third base URL; the app reports itself as `segmenter`.
+
+- [ ] Panel → New device "Rig segmenter" → Settings (vern/anal, send = upload) → **Invite link**:
+      three rows now; copy the **Segmenter link**.
+- [ ] Open it on a fresh profile: consent modal + pair code → panel **Approve** → device toasts
+      "linked"; the panel's device badge reads **segmenter**.
+- [ ] Assign a `.flextext` **and** its recording → the segmenter list shows the row
+      "· from your researcher", audio arrives, Open enables.
+- [ ] Match, **Done** → the upload bar drains → the row reads "· sent to your researcher" → the
+      panel tile shows uploaded, and Files ▾ offers the ELAN zip and the `.eaf` (built on demand
+      from the uploaded `.flextext` + the audio the researcher already has).
+- [ ] Push a settings change from the panel → the list repaints, no console error.
+- [ ] Unpaired device: the list carries **Link to a researcher…** (paste box) beside Open, and ⤓
+      still works as the way out.
+
 ## 2b. The two apps are linked
 
 - [ ] Editor → Utilities → the two links at the bottom open the Audio Segmenter and the

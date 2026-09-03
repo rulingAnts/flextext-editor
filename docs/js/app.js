@@ -689,7 +689,7 @@ async function setDocDone(docId, wantDone) {
     toast(t('done.unmarked'), 4000);
   }
   Sync.reportNow();
-  renderDocList();
+  refreshList();   // whichever list this app has — the satellites have no #doc-list
 }
 // Kept though the in-editor button is gone (v330): setDocDone is the shared mechanism and this is
 // its "the open text" convenience. The Texts-list row toggle and the Done—send path both route
@@ -3770,7 +3770,7 @@ function deleteAfterUpload() {
 function deleteUploadedDoc(docId) {
   if (current && current.id === docId) {
     current = null;
-    if (!RECORD_MODE) show('texts');
+    if (!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE) show('texts');   // the satellites have no texts view
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {
     refreshList();
@@ -3910,6 +3910,10 @@ function applyLiveSettings() {
   const segBefore = settings.segmentation === true;
   settings = loadSettings();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
+  // The two newest satellites have no Settings tab, no #doc-list and no #view-research: the editor
+  // branch below dereferences all three and threw on the first pushed setting. Their lists read
+  // the settings they gate on (blank lines, delete, audio swap) at render time.
+  else if (CONSENT_MODE || SEGMENTER_MODE) { refreshList(); }
   else {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
@@ -4241,7 +4245,8 @@ async function syncGatherInventory() {
   // current (so the researcher can tell if a coworker hasn't updated). Both are E2EE in the report.
   // engineVersion is the TRUE running engine version (vs cachedApps, which reads cache NAMES that a
   // stale-body precache can make lie) — the reliable brick/stale signal. All E2EE in the report.
-  return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap,
+  // The kind this install reports. The worker stores nothing about it; the panel's badge shows it.
+  return { type: RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor', items, settings: snap,
            ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION,
            // Which shell this install runs in. Each shell is its own storage sandbox, so the
            // panel must be able to tell a PWA apart from an APK on the same handset.
@@ -4386,7 +4391,11 @@ function showInvitePasteModal() {
     status.hidden = false;
     status.textContent = t('invite.pasteWorking');
     const handled = await claimInvite(id, secret, true);
-    if (handled) { close(); applyInviteButton(); if (RECORD_MODE) renderRecordView(); }
+    if (handled) {
+      close(); applyInviteButton();
+      if (RECORD_MODE) renderRecordView();
+      if (SEGMENTER_MODE) renderSegmenterView();   // repaints without the paste button, like the recorder
+    }
     else { e.target.disabled = false; status.hidden = true; }
   });
   setTimeout(() => wrap.querySelector('#invite-paste-box').focus(), 0);
@@ -7616,9 +7625,17 @@ function renderSegmenterView() {
   view.innerHTML = `
     <p class="tab-hint" data-i18n-html="sg.hint"></p>
     <ul id="sg-list" class="doc-list"></ul>
-    <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>`;
+    <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>
+    ${!Sync.hasSession() ? '<button id="btn-paste-invite" type="button" class="secondary-btn delall-btn"></button>' : ''}`;
   applyI18n(view);
   satImportBar(view);
+  /* A THIRD KIND OF INVITE (Seth, 2026-09-04): this app pairs as its own device, exactly as the
+   * recorder does — the researcher's invite modal prints the same one-time link on this app's
+   * origin, and the URL claims it at boot. The paste box is the same second door the recorder has,
+   * for a link that arrived as text rather than as a tap. Nothing about the device is typed: the
+   * worker stores no kind, and the badge in the panel shows whatever this install reports. */
+  const pi = view.querySelector('#btn-paste-invite');
+  if (pi) { pi.textContent = t('invite.pasteBtn'); pi.addEventListener('click', showInvitePasteModal); }
   sgRenderList();
 }
 
@@ -7643,12 +7660,16 @@ async function sgRenderList() {
         <button class="sg-open secondary-btn"></button>
       </div>`;
     li.querySelector('.doc-name').textContent = d.title || t('untitled');
-    li.querySelector('.doc-meta').textContent =
-      d.hasDraft ? t('sg.inProgress')
+    const meta = d.hasDraft ? t('sg.inProgress')
       : st === 'noaudio' ? t('sg.noAudio')
       : st === 'coming' ? t('seg.loadingAudio')
       : st === 'some' ? (d.spanCount === 1 ? t('sg.oneSpan') : t('sg.someSpans').replace('{n}', d.spanCount))
       : t('sg.noSpans');
+    // Where a text stands with the researcher, on a paired device: the same rule as the inventory's
+    // uploadState — "sent" only while nothing has changed since the upload that landed.
+    const sent = d.uploadedFileId && d.uploadedModified === d.modified;
+    const trail = sent ? t('sg.sent') : d.assigned ? t('sg.fromResearcher') : '';
+    li.querySelector('.doc-meta').textContent = trail ? `${meta} · ${trail}` : meta;
     satRowControls(li.querySelector('.rec-item-actions'), d);
     const open = li.querySelector('.sg-open');
     open.textContent = t('sg.open');
@@ -8168,6 +8189,17 @@ async function mgCommit() {
    * Same rule as the draft: two writers, one record, so they hold the same object. */
   current = rec;
   db.broadcastLive('docs');
+  /* A PAIRED DEVICE SENDS. Done is this app's "finished", and on a device a researcher invited it
+   * behaves as the recorder's Send does: mark the text done and queue the bare .flextext — with
+   * its times — for the researcher's Drive. The recording came down from the researcher and never
+   * goes back up (queueMediaUpload refuses locked audio); the .eaf the panel builds on demand from
+   * that file and the audio it already holds. An unpaired device has ⤓ instead. */
+  if (Sync.workerUploadTarget && Sync.workerUploadTarget()) {
+    rec.done = true; rec.doneAt = Date.now();
+    await db.putDoc(rec);
+    try { await uploadDocById(rec.id); if (Sync.reportNow) Sync.reportNow(); }
+    catch (e) { toast(t('upload.error', { msg: e.message }), 9000); }
+  }
   const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
   await mgClearDraft(MG.docId);        // committed: the draft has served its purpose
   toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
@@ -8720,6 +8752,10 @@ function mgClose() {
   // editor's own close does the same where refreshPlayer hides).
   if (player) { player.loadedFor = null; playerReadyFor = null; }
   lastPlayTarget = null;
+  // Nothing is open now. persist() has no "on the list" guard in this shell, so a `current` left
+  // pointing at the text just closed would be written back with a fresh `modified` by the next
+  // update flush — and re-queued for upload as "changed" when nothing changed.
+  current = null;
   show('segmenter');
 }
 
@@ -10125,7 +10161,9 @@ function setup() {
   // Connectivity sync engine — inert unless an invite is/was claimed (plan P1).
   Sync.start({
     workerBase: () => workerBase(),
-    appType: () => RECORD_MODE ? 'recorder' : 'editor',
+    // Compared only against a LEGACY typed instance (sync.js); every device the panel creates now
+    // is untyped, and the panel's badge shows whatever this reports.
+    appType: () => RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor',
     dispatch: syncDispatch,
     gatherInventory: syncGatherInventory,
     /* ⚠ BEING UNLINKED IS NEWS, and the device used to swallow it. Sync clears the session on a

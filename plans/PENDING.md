@@ -307,9 +307,12 @@ the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.
   `normalizePhraseLines` on entry like any `.flextext`.
 - **The Audio Segmenter as a THIRD invite kind** (Seth, 2026-09-04: "turn 'audio segmenter' app
   into a third kind of invite link for devices and integrate it into our device/project/assignment
-  system") — in design; the system map is being assembled. A paired segmenter device receives
-  text + audio as an assignment and its Done rides the same upload path as the recorder; ⤓ becomes
-  the unpaired fallback.
+  system") — **built, v575, client-only** (no worker route, schema or origin change: the only
+  persisted kind is `instance.type`, and every device the panel creates is untyped). The panel
+  prints a third link; the app reports `segmenter`; Done on a paired device marks the text done
+  and queues the `.flextext` with its times; ⤓ stays as the unpaired way out. **End-to-end pairing
+  is unverified** — it needs a researcher account (staging) or the rig (`./devctl.sh start`);
+  `test/segmenter-pairing.test.mjs` pins the static half, and the sheet's §2c has the walk-through.
 
 ## 5 — Parked, and parked for reasons
 

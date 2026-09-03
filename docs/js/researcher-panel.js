@@ -529,7 +529,8 @@ function setLinkMode(v) {
 function sameOriginBases() {
   const o = location.origin;
   return { editor: o + '/flextext-editor/', recorder: o + '/text-recorder/',
-           crowd: o + '/crowd-recorder/', researcher: o + '/flextext-researcher/', local: true };
+           crowd: o + '/crowd-recorder/', researcher: o + '/flextext-researcher/',
+           segmenter: o + '/audio-segmenter/', consent: o + '/consent-collector/', local: true };
 }
 function linkOverride() {
   const m = linkMode();
@@ -1140,6 +1141,7 @@ const RELEASES = [
   { v: 'v574', date: '2026-09-04', items: [
     { k: 'panel.rel.new.segmenterApp' },
     { k: 'panel.rel.new.pairByRow' },
+    { k: 'panel.rel.new.segmenterInvite' },
     { k: 'panel.rel.new.consentApp' },
     { k: 'panel.rel.new.consentAudio' },
     { k: 'panel.rel.new.satExport' },
@@ -4361,7 +4363,11 @@ async function inviteModal(instanceId) {
     const estate = invite.estate || (cached && cached.estate);
     if (!estate) throw new Error('Could not determine which app this device should install — reload the panel and try again.');
     const B = basesFor(estate);
-    const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite) };
+    /* THREE LINKS, ONE INVITE (Seth, 2026-09-04): the segmenter pairs as its own device on its own
+     * origin — the same one-time secret, pasted onto a third base URL. The worker stores no kind;
+     * whichever app claims the link is what the device's badge will say it runs. */
+    const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite),
+                   segmenter: Researcher.inviteUrl(B.segmenter, invite) };
     const exp = invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '';
     const row = (label, key) => `
       <div class="rp-field"><span>${esc(label)}</span>
@@ -4392,6 +4398,7 @@ async function inviteModal(instanceId) {
       <p class="note rp-invite-warn">${esc(t('panel.invite.overrideWarn'))}</p>
       ${row(t('panel.invite.editorLink'), 'editor')}
       ${row(t('panel.invite.recorderLink'), 'recorder')}
+      ${row(t('panel.invite.segmenterLink'), 'segmenter')}
       ${exp ? `<p class="note">${esc(t('panel.invite.expires', { when: exp }))}</p>` : ''}
       <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`;
     m.el.querySelector('[data-m="close"]').onclick = m.close;

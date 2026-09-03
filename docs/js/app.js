@@ -5,6 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
+  mergePhrases, baselineFromWords,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
@@ -19,17 +20,20 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         wireWaveSeek, requestReveal, takeReveal, followLine,
+         wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
+         peaksDurationMs, guessedBoundaries,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
-import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
+// MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
+// satellite, so this adds no precache path and cannot repeat the v108 outage.
+import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
-import { initResearcherPanel } from './researcher-panel.js';
+import { initResearcherPanel, companionApps } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -63,6 +67,23 @@ const CROWD_MODE = typeof window !== 'undefined' && window.__MODE === 'crowd';
 // (js/paragraph-ui.js) and skips ALL field/editor wiring, like the researcher console. Shell-only
 // on purpose — no ?mode= entry: the editor page has no #pa-main container to boot into.
 const PARAGRAPH_MODE = typeof window !== 'undefined' && window.__MODE === 'paragraph';
+// Consent-collector mode: the "Flextext Consent Collector" satellite (window.__MODE='consent').
+// It exists because speaker permission can only be captured at doc CREATION in the record flow —
+// there is no path that adds it to a text that already exists. A back catalogue recorded before
+// the consent workflow therefore cannot be archived, and cannot be re-recorded either, because the
+// speakers have moved on or died. So this app takes texts in by assignment or import exactly as
+// the recorder does, adds the consent layer, and hands off through the normal upload/save/send
+// system. It sits at the RECORDER's position in setup() because it needs the same sync, upload and
+// consent machinery — it is the recorder's sibling, not the researcher's.
+// Shell-only, no ?mode= entry: the editor page has no #view-consent to boot into.
+const CONSENT_MODE = typeof window !== 'undefined' && window.__MODE === 'consent';
+// Segmenter mode: the "Flextext Audio Segmenter" satellite (window.__MODE='segmenter'). Cuts a
+// recording into segments and matches them to the lines of a text that already exists — the Cut
+// tab and the baseline strips, and deliberately nothing else: no glossing, no free translation,
+// no baseline text editing. It reuses segment-strips.js/segments.js unchanged; what makes it an
+// app rather than a tab is that it cannot do anything else, which is the same argument
+// plans/cut-tab.md makes for the Cut tab itself.
+const SEGMENTER_MODE = typeof window !== 'undefined' && window.__MODE === 'segmenter';
 
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
 // 'pair' = open a .flextext AND its recording together (v332). Its own key, so a researcher can
@@ -315,7 +336,7 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher'];
+const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher', 'consent', 'segmenter', 'matcher'];
 
 // The researcher panel is a SEPARATE full-screen view. Its standalone home is the "Flextext
 // Researcher" app (RESEARCHER_MODE); inside the editor it's reachable only via the managed-install
@@ -605,6 +626,8 @@ async function importFile(file) {
   if (error) { toast(t('toast.importFailed', { msg: error }), 6000); return; }
   let lastId = null;
   for (const doc of texts) {
+    // One phrase per paragraph BEFORE it is stored — see normalizePhraseLines.
+    normalizePhraseLines(doc);
     const rec = {
       id: newGuid(),
       title: doc.title || file.name.replace(/\.(flextext|xml)$/i, ''),
@@ -913,6 +936,10 @@ function transportKeysApply(target, key) {
 }
 
 function segmentationEnabled() {
+  // The Audio Segmenter IS segmentation mode — there is nothing else for it to be, and a researcher
+  // setting that switched it off would leave an app whose every screen is about cutting audio
+  // quietly refusing to cut audio.
+  if (SEGMENTER_MODE) return true;
   try {
     if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
   } catch { /* noop */ }
@@ -932,7 +959,29 @@ function isEditorTab(tab) { return tab === 'cut' || tab === 'baseline' || tab ==
  * have, so an UNEDITED legacy doc aligns on open instead of waiting for its first edit to trigger
  * reconcileBaseline. Idempotent; persists only when something actually changed. */
 function healFlatSegments(doc) {
-  if (!segmentationEnabled() || !doc || !doc.paragraphs) return;
+  if (!segmentationEnabled()) return;
+  // Everything this used to do inline is now the pure function below; only the persist is left,
+  // because only THIS caller knows the doc it healed is the open one.
+  if (normalizePhraseLines(doc)) schedulePersist();
+}
+
+/* ⚠ THE SAME REPAIR, AS A PURE FUNCTION ON ANY DOC — no `current`, no persist, no settings gate.
+ *
+ * It was reachable only from three switchTab paths in the editor, so a doc was carried in its
+ * imported shape from the moment it entered the library until somebody happened to open it on a
+ * tab that healed it. Everything reading it in between saw N phrases inside one paragraph while
+ * doc.segments indexed paragraphs — which is how the Audio Segmenter came to show a 60-phrase text
+ * as a single line (Seth: "this tool (and the rest of our suite) needs to be able to handle phrase
+ * breaks as if they were paragraph breaks in the way it renders/draws in the app", and "that
+ * particular issue is probably an engine-wide issue").
+ *
+ * Calling it where a foreign .flextext BECOMES a stored doc makes the canonical shape an entry
+ * condition instead of something each screen must remember to establish. The switchTab calls stay
+ * as belt-and-braces for docs that were stored before this.
+ *
+ * Returns whether anything changed, so the caller can decide about persisting. */
+function normalizePhraseLines(doc) {
+  if (!doc || !doc.paragraphs) return false;
   let changed = false;
   /* ⚠ FLATTEN MULTI-PHRASE PARAGRAPHS — one phrase per paragraph, each phrase KEEPING its own
    * offsets (v322; the "gloss join collapsed ALL segments on the first line" field bug).
@@ -950,10 +999,30 @@ function healFlatSegments(doc) {
    * paragraph; the rest mint fresh (FLEx honours guids — a split paragraph is genuinely new
    * containment, same rule as line identity). Text, words, glosses, free translations are the
    * same objects, untouched. */
-  if (doc.paragraphs.some((p) => (p.segments || []).length > 1)) {
-    doc.paragraphs = doc.paragraphs.flatMap((p) => (p.segments || []).length > 1
-      ? p.segments.map((s, k) => ({ guid: k === 0 ? p.guid : newGuid(), segments: [s] }))
-      : [p]);
+  /* ⚠ DID THE AUTHOR ACTUALLY DISTINGUISH PHRASES FROM PARAGRAPHS? Two shapes say no:
+   *
+   *   • ONE paragraph holding every phrase  — the break carries no extra meaning; the file simply
+   *     never used paragraphs. (Seth's older Excel-template editor exports this way.)
+   *   • MANY paragraphs of one phrase each  — already 1:1; there is nothing to remember.
+   *
+   * Anything else is a MIXTURE, and a mixture is a decision: Seth's recent FLEx texts use "phrase
+   * breaks for clauses, paragraph breaks for sentences". Only then is the grouping worth carrying,
+   * and only then does `paraOf` get set — so for every other document the export is bit-identical
+   * to what it has always been, which is what makes this safe to add.
+   *
+   * The flattening itself happens either way and is NOT entropy: it is what lets a paragraph-indexed
+   * alignment attach per phrase (phraseRows refuses segs[i] for a multi-phrase paragraph), and a
+   * maximally-split export is deliberate so an ELAN annotator only ever MERGES — ELAN cannot split
+   * at higher levels. See plans/preserve-paragraph-structure.md. */
+  const multi = doc.paragraphs.filter((p) => (p.segments || []).length > 1).length;
+  const structured = doc.paragraphs.length > 1 && multi > 0;
+  if (multi > 0) {
+    doc.paragraphs = doc.paragraphs.flatMap((p) => ((p.segments || []).length > 1
+      ? p.segments.map((s, k) => ({
+          guid: k === 0 ? p.guid : newGuid(), segments: [s],
+          ...(structured ? { paraOf: p.guid } : {}),
+        }))
+      : [structured ? { ...p, paraOf: p.guid } : p]));
     doc.segments = [];   // paragraph-indexed envelopes are now wrong; re-derive per phrase below
     changed = true;
   }
@@ -968,7 +1037,7 @@ function healFlatSegments(doc) {
     const derived = segmentsFromOffsets(doc);
     if (derived) { doc.segments = derived; changed = true; }
   }
-  if (changed) schedulePersist();
+  return changed;
 }
 
 function decorateGlossSegments() {
@@ -2437,7 +2506,11 @@ function applyWarmGate() {
 async function warmUpMic() {
   // Structural guard, not just a DOM check: these apps have no recording feature at all, so there
   // is no path on which opening the microphone could ever be correct.
-  if (PARAGRAPH_MODE || RESEARCHER_MODE) return;
+  /* ⚠ SEGMENTER_MODE belongs here and CONSENT_MODE deliberately does NOT. The segmenter only cuts
+   * audio that already exists, so opening a microphone would be a permission prompt for a feature
+   * it does not have. The consent collector RECORDS — the spoken "yes" is one of the three
+   * confirmation forms — so it must warm the mic exactly as the recorder does. */
+  if (PARAGRAPH_MODE || RESEARCHER_MODE || SEGMENTER_MODE) return;
   if (warmMic || warmMicPending || rec?.recording) return;
   // Only the AudioWorklet path benefits: native capture opens its own device, and MediaRecorder
   // cannot pre-roll (its chunks are encoded and not safely splittable).
@@ -2989,7 +3062,7 @@ async function finalizeAudioDownload(rec) {
   // The texts list paints "still arriving…" from pendingAudio; the arrival ticker only
   // repaints PROGRESS on existing rows. When the download completes, the row must be
   // rebuilt or the chip stays "arriving" until the next full render (i.e. a reload).
-  if (RECORD_MODE) renderRecordList(); else renderDocList();
+  refreshList();
   if (current && current.id === rec.id) {
     current = rec;
     if (player) player.loadedFor = null;
@@ -3250,7 +3323,7 @@ async function openUrlTask(task, mode = 'interactive') {
   // Background (remote 'assign'): show the new task in the visible list right away —
   // the field worker has no refresh button, so a pushed assignment must appear on its
   // own. (Audio downloads after this; the doc is listed immediately, pending state and all.)
-  else if (RECORD_MODE) renderRecordList(); else renderDocList();
+  else refreshList();
   if (task.flextextUrl && !gotFlextext) {
     if (interactive) toast(t('task.ftReceiving'), 6000);
     tryDownloadFlextext(rec);
@@ -3659,7 +3732,31 @@ function applyAllowedButtons() {
 // (unlinked) device always can — it's the user's own app. A researcher-managed device
 // gets it only when the researcher enables allowDelete: OFF by default, so a barely-
 // literate coworker can't lose a text by accident. (Mirrors deleteAllOn().)
+/* REPAINT WHICHEVER LIST THIS APP ACTUALLY HAS.
+ *
+ * ⚠ THERE WERE EIGHT COPIES OF `if (RECORD_MODE) renderRecordList(); else renderDocList()`, and
+ * every one of them was a latent crash in the two satellite apps: renderDocList() reads #doc-list
+ * and #doc-list-empty unguarded, and neither exists in the Consent Collector or the Audio
+ * Segmenter. Nothing had reached them yet only because those apps fork before the editor wiring —
+ * so the first satellite feature to call a shared path (deleting a text, below) would have been the
+ * one to find out. Five modes, one place, and the next mode added is one edit rather than nine.
+ *
+ * Researcher-controlled, default ON when this device has no researcher session at all — an unpaired
+ * device is somebody working alone, and there is nobody to ask for permission. */
+function refreshList() {
+  if (CONSENT_MODE) return ccRenderList();
+  if (SEGMENTER_MODE) return sgRenderList();
+  if (RECORD_MODE) return renderRecordList();
+  return renderDocList();
+}
+
 function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete === true; }
+// Researcher-controlled: may this device add a blank text line in the matcher? Same shape and
+// default as the two below — on when there is no researcher session.
+function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankLines === true; }
+// Researcher-controlled: may this device swap a text's recording for a different file?
+// Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on.
+function allowAudioSwapOn() { return !Sync.hasSession() || settings.allowAudioSwap === true; }
 // Researcher-controlled: show the coworker a "Done" button on texts (off by default).
 function doneFeatureOn() { return settings.doneEnabled === true; }
 
@@ -3676,7 +3773,7 @@ function deleteUploadedDoc(docId) {
     if (!RECORD_MODE) show('texts');
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
   });
 }
 
@@ -3745,7 +3842,7 @@ async function userDeleteDoc(docId, title) {
     if (current && current.id === docId) current = null;
     await db.deleteDoc(docId).catch(() => {});
     renderUploadQueue();
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
     Sync.reportNow();
     return;
   }
@@ -3758,7 +3855,7 @@ async function userDeleteDoc(docId, title) {
     if (current && current.id === docId) await doUpload(true);
     else await uploadDocById(docId);
   }
-  if (RECORD_MODE) renderRecordList(); else renderDocList();
+  refreshList();
 }
 
 // ---- auto-backup (device setting autoBackup + autoBackupMins) ----
@@ -3871,7 +3968,7 @@ function applyDeviceLang(lang) {
 // Re-render just the document list (a doc was added/changed/removed in another window).
 function refreshLiveLists() {
   if (RESEARCHER_MODE) return;
-  if (RECORD_MODE) renderRecordList(); else renderDocList();
+  refreshList();
 }
 
 // The researcher revoked this device — the sync engine auto-released the binding (poll saw 410). Scrub
@@ -4027,8 +4124,45 @@ async function listCachedApps() {
  *    running. See syncGatherInventory, which reports both for exactly that reason — the panel's
  *    cross-app staleness signal still gets `cachedApps`, and it is read there beside the
  *    authoritative number rather than shown alone on a screen. */
+/* WHO MADE THIS FILE — one string, for every export that can carry provenance.
+ *
+ * Seth, 2026-09-03: "Our apps should leave metadata 'created by...' in exported files whenever the
+ * schema or file format allows that." The immediate reason is an hour I had just wasted: asked what
+ * FLEx's numbering looks like, I measured 95 .flextext files from the corpus and concluded we
+ * matched it — then found that 68 of them had been written by THIS SERIALIZER, identifiable only by
+ * its indentation. The conclusion was circular and the provenance had to be reverse-engineered from
+ * whitespace. A file that says what wrote it answers that in one line, years later, to somebody who
+ * has never seen this repo.
+ *
+ * The app NAME matters as much as the version: five apps share this engine, and "which of them
+ * produced this" is exactly what a mixed corpus stops being able to tell you.
+ *
+ * ⚠ NOT read from module state by seg-exports — that module takes provenance as a PARAMETER by
+ * design (see its note: "the old version read app.js module state directly, which is exactly what a
+ * second writer cannot do"). This is the value the callers pass in. */
+function producedBy() {
+  const key = RESEARCHER_MODE ? 'research.appName'
+    : RECORD_MODE ? 'record.appName'
+    : PARAGRAPH_MODE ? 'para.appName'
+    : CONSENT_MODE ? 'consentapp.appName'
+    : SEGMENTER_MODE ? 'segapp.appName'
+    : 'app.name';
+  // English deliberately, not t(): this is a provenance record for an archive, not UI text, and it
+  // must read the same to whoever opens the file — which is not necessarily who made it.
+  const en = { 'research.appName': 'Flextext Researcher', 'record.appName': 'Flextext Recorder',
+               'para.appName': 'Flextext Paragraph Analysis Tool',
+               'consentapp.appName': 'Flextext Consent Collector',
+               'segapp.appName': 'Flextext Audio Segmenter', 'app.name': 'Flextext Editor' };
+  return `${en[key]} ${ENGINE_VERSION}${BUILD_TAG ? ' (' + BUILD_TAG + ')' : ''}`;
+}
+
 function showAppVersion() {
-  const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : (PARAGRAPH_MODE ? 'paragraph' : 'editor'));
+  const name = RESEARCHER_MODE ? 'researcher'
+    : RECORD_MODE ? 'recorder'
+    : PARAGRAPH_MODE ? 'paragraph'
+    : CONSENT_MODE ? 'consent'
+    : SEGMENTER_MODE ? 'segmenter'
+    : 'editor';
   let ver = ENGINE_VERSION;
   /* On a feature/staging build the human-facing name of the build LEADS, with the numeric version
    * kept after it — the number is still what every bug report, device report and deploy-order rule
@@ -4403,13 +4537,13 @@ function showInviteConsent() {
        * as long as anyone can be asking it. */
       refreshPairBanner();
     } else toast(t('invite.acceptFailed'), 6000);
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
   });
   wrap.querySelector('[data-iv="decline"]').addEventListener('click', () => {
     Sync.clearSession();                                   // abandon the binding entirely
     close();
     toast(t('invite.declined'), 6000);
-    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    refreshList();
   });
 }
 
@@ -4481,6 +4615,9 @@ async function buildDocFromFlextextUrl(url, title) {
   // surfaces it rather than spinning behind a silent empty placeholder.
   if (error || !texts.length) { const e = new Error(error || 'No readable text in the file.'); e.parseError = true; throw e; }
   const doc = texts[0];
+  // A researcher-assigned text is a foreign .flextext like any other, so it gets the same canonical
+  // shape on entry — see normalizePhraseLines. Its callers store it straight away.
+  normalizePhraseLines(doc);
   if (title) doc.title = title;
   return doc;
 }
@@ -4547,7 +4684,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled() });
+  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -4628,6 +4765,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   // downloads are built by the SAME function as the entries the device bundles.
   const segEntries = await assembleSegEntries({
     doc: rec.doc, title: rec.title || base, base, media, segMedia,
+    producedBy: producedBy(),
     wants: { eaf: wantEaf, saymore: wantSaymore, preview: wantPreview, fxpa: wantJson },
     vern: settings.vernLang || rec.doc.vernLang || 'und',
     anal: settings.analLang || rec.doc.analLang || 'en',
@@ -4677,7 +4815,7 @@ function serializeDocBlob(rec, mediaName) {
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
-  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled() })], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), producedBy: producedBy() })], { type: 'application/xml' });
 }
 
 function docFilename(rec) {
@@ -6368,6 +6506,7 @@ function wireFileExporter() {
     try {
       const r = await buildLooseConversion({
         kind, doc: st.doc, base: st.base, title: st.doc.title || st.base,
+        producedBy: producedBy(),
         flextextBlob: st.ftBlob, audio: st.audio, plan: st.plan,
         vern: st.doc.vernLang || settings.vernLang || 'und',
         anal: st.doc.analLang || settings.analLang || 'en',
@@ -6850,6 +6989,1674 @@ async function renderRecordList() {
     } else del.remove();   // researcher disabled deleting
     ul.appendChild(li);
   }
+}
+
+/* ─────────────────── CONSENT COLLECTOR (__MODE = 'consent') ───────────────────
+ * Adds speaker permission to texts that ALREADY EXIST.
+ *
+ * The engine can only attach consent at doc creation: newDocFromAudio consumes pendingAssent /
+ * pendingReceipt / pendingPromptAudio and nothing else ever writes those fields. That is fine for
+ * a text being recorded now and useless for a back catalogue — which cannot be re-recorded either,
+ * because the speakers have moved on or died. Archives require consent, so those texts are stuck.
+ *
+ * THE RECORD PRODUCED HERE IS NOT SECOND-CLASS. It runs the same requestConsentThen flow, builds
+ * the same receipt through buildConsentReceipt, stores the same three fields under the same media
+ * keys, and therefore exports and uploads through the existing Lane A path with no special case
+ * anywhere downstream. A retrofitted text and a natively recorded one are indistinguishable, which
+ * is the whole requirement: an archive cannot be asked to trust two grades of consent.
+ *
+ * GROUP CONSENT is the reason this is an app and not a button. Permission is given by a PERSON
+ * about THEIR body of work: a speaker sits down once and says yes to the fourteen stories they
+ * told you over three years. Walking them through fourteen identical dialogues is not more
+ * rigorous, it is worse, because it invites fatigue-clicking, which is exactly what consent must
+ * not be. So: group by speaker, select, ask once, copy the result to each text.
+ */
+
+// Docs carry no speaker field: the engine never needed one. The collector adds `consentSpeaker`,
+// because grouping is the point and there is nothing else to group on. Seeded from an existing
+// receipt's typed signature where there is one, so a text that already has consent lands in the
+// right group without being touched.
+const ccSpeakerOf = (d) => (d.consentSpeaker
+  || (d.consentReceipt && d.consentReceipt.signatureName)
+  || '').trim();
+
+// Three states, because "has a receipt" is not the same as "has everything it needs". A text whose
+// receipt says a recorded assent was collected but whose clip never reached this device is
+// INCOMPLETE, and saying so is the difference between a usable archive record and a surprise at
+// deposit time.
+function ccStateOf(d) {
+  const r = d.consentReceipt;
+  if (!r) return 'none';
+  const wantsClip = Array.isArray(r.responseTypes) && r.responseTypes.includes('recorded');
+  if (wantsClip && !d.consentClip) return 'partial';
+  return 'full';
+}
+
+let ccSelected = new Set();
+
+/* Write consent onto texts that already exist: the one capability the engine lacks.
+ *
+ * EACH TEXT GETS ITS OWN COPY of the receipt. captureConsentContext mutates the receipt object in
+ * place to fill in IP and location; a single shared object would make one text's lookup appear on
+ * every text in the group, and any later edit to one would silently rewrite all of them.
+ */
+async function ccAttachConsent(ids, { assent, receipt, promptAudio }) {
+  const attached = [];
+  for (const id of ids) {
+    const rec = await db.getDoc(id);
+    if (!rec) continue;
+    if (receipt) {
+      rec.consentReceipt = structuredClone(receipt);
+      rec.consentReceipt.collectedBy = 'Flextext Consent Collector';
+      // Recorded because it is a material fact about how permission was given: an auditor reading
+      // one of these should be able to see it was a single conversation covering N texts, not N
+      // separate askings.
+      if (ids.length > 1) {
+        rec.consentReceipt.groupConsent = { size: ids.length, textIds: ids.slice() };
+      }
+    }
+    if (assent) {
+      rec.consentClip = assent.name;
+      await db.putMedia('consent:' + id, assent).catch(() => {});
+    }
+    if (promptAudio) {
+      rec.consentPromptClip = promptAudio.name;
+      await db.putMedia('consent-prompt:' + id, promptAudio).catch(() => {});
+    }
+    rec.modified = Date.now();
+    await db.putDoc(rec);
+    attached.push(id);
+  }
+  db.broadcastLive('docs');
+  return attached;
+}
+
+// Run the shared consent flow, then fan the result out over the selection.
+async function ccCollectFor(ids) {
+  if (!ids.length) return;
+  await requestConsentThen(async () => {
+    // Consent is configured OFF: requestConsentThen calls back with no receipt built. Retrofitting
+    // nothing onto a text would be worse than refusing, so say why.
+    if (!pendingReceipt) { toast(t('cc.consentOff')); return; }
+    /* Let the IP/location fill finish BEFORE the receipt is copied. It mutates the object in
+     * place, so copying first would freeze N receipts at "unavailable" while the original filled
+     * in, and the group would carry weaker records than a single text would. The 5s cap is the
+     * same bound buildBundleFor uses: a slow lookup must not hold a speaker at the table. */
+    if (consentCapture && consentCapture.promise) {
+      await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
+    }
+    const payload = { assent: pendingAssent, receipt: pendingReceipt, promptAudio: pendingPromptAudio };
+    const done = await ccAttachConsent(ids, payload);
+    pendingAssent = null; pendingReceipt = null; pendingPromptAudio = null;
+    ccSelected.clear();
+    toast(done.length === 1 ? t('cc.savedOne') : t('cc.savedMany').replace('{n}', done.length));
+    renderConsentView();
+  });
+}
+
+function renderConsentView() {
+  const view = $('#view-consent');
+  if (!view) return;
+  view.innerHTML = `
+    <p class="tab-hint" data-i18n-html="cc.hint"></p>
+    <div id="cc-actions" class="cc-actions" hidden>
+      <span id="cc-count" class="cc-count"></span>
+      <button id="cc-collect" class="primary-btn"></button>
+      <button id="cc-clear" class="link-btn"></button>
+    </div>
+    <div id="cc-groups"></div>
+    <p id="cc-empty" class="empty-note" data-i18n-html="cc.empty" hidden></p>`;
+  applyI18n(view);
+  satImportBar(view);
+  ccRenderList();
+}
+
+async function ccRenderList() {
+  const box = $('#cc-groups');
+  if (!box) return;
+  const docs = await db.listDocs();
+  const empty = $('#cc-empty');
+  if (empty) empty.hidden = docs.length > 0;
+
+  // Group by speaker, unassigned last: it is a to-do pile, not a speaker.
+  const groups = new Map();
+  for (const d of docs) {
+    const k = ccSpeakerOf(d) || ' ';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(d);
+  }
+  const keys = [...groups.keys()].sort((a, b) =>
+    (a === ' ' ? 1 : b === ' ' ? -1 : a.localeCompare(b)));
+
+  box.innerHTML = '';
+  for (const k of keys) {
+    const items = groups.get(k);
+    const named = k !== ' ';
+    const missing = items.filter((d) => ccStateOf(d) !== 'full');
+    const sec = document.createElement('section');
+    sec.className = 'cc-group';
+    sec.innerHTML = `
+      <header class="cc-group-head">
+        <label class="cc-pick"><input type="checkbox" class="cc-group-all"></label>
+        <span class="cc-speaker"></span>
+        <span class="cc-tally"></span>
+      </header>
+      <ul class="cc-list"></ul>`;
+    const spk = sec.querySelector('.cc-speaker');
+    spk.textContent = named ? k : t('cc.unassigned');
+    if (!named) spk.classList.add('muted');
+    sec.querySelector('.cc-tally').textContent = missing.length
+      ? t('cc.tallyNeed').replace('{n}', missing.length).replace('{total}', items.length)
+      : t('cc.tallyDone').replace('{total}', items.length);
+
+    const ul = sec.querySelector('.cc-list');
+    for (const d of items) {
+      const st = ccStateOf(d);
+      const li = document.createElement('li');
+      li.className = 'cc-item cc-' + st;
+      li.innerHTML = `
+        <label class="cc-pick"><input type="checkbox" class="cc-one"></label>
+        <span class="cc-title"></span>
+        <span class="cc-state"></span>
+        <input class="cc-speaker-in" size="14">`;
+      li.querySelector('.cc-title').textContent = d.title || t('untitled');
+      satRowControls(li, d);
+      li.querySelector('.cc-state').textContent =
+        st === 'full' ? t('cc.stateFull') : st === 'partial' ? t('cc.statePartial') : t('cc.stateNone');
+      const cb = li.querySelector('.cc-one');
+      cb.checked = ccSelected.has(d.id);
+      cb.onchange = () => {
+        if (cb.checked) ccSelected.add(d.id); else ccSelected.delete(d.id);
+        ccSyncActions();
+      };
+      const sp = li.querySelector('.cc-speaker-in');
+      sp.value = ccSpeakerOf(d);
+      sp.placeholder = t('cc.speakerPh');
+      // Saved on change, not per keystroke: this rewrites the doc record.
+      sp.onchange = async () => {
+        const rec = await db.getDoc(d.id);
+        if (!rec) return;
+        rec.consentSpeaker = sp.value.trim();
+        rec.modified = Date.now();
+        await db.putDoc(rec);
+        db.broadcastLive('docs');
+        ccRenderList();
+      };
+      ul.appendChild(li);
+    }
+
+    const all = sec.querySelector('.cc-group-all');
+    all.checked = items.length > 0 && items.every((d) => ccSelected.has(d.id));
+    all.onchange = () => {
+      for (const d of items) {
+        if (all.checked) ccSelected.add(d.id); else ccSelected.delete(d.id);
+      }
+      ccRenderList();
+    };
+    box.appendChild(sec);
+  }
+  ccSyncActions();
+}
+
+function ccSyncActions() {
+  const bar = $('#cc-actions');
+  if (!bar) return;
+  const n = ccSelected.size;
+  bar.hidden = n === 0;
+  const count = $('#cc-count');
+  if (count) count.textContent = n === 1 ? t('cc.selOne') : t('cc.selMany').replace('{n}', n);
+  const go = $('#cc-collect');
+  if (go) { go.textContent = t('cc.collect'); go.onclick = () => ccCollectFor([...ccSelected]); }
+  const clr = $('#cc-clear');
+  if (clr) { clr.textContent = t('cc.clearSel'); clr.onclick = () => { ccSelected.clear(); ccRenderList(); }; }
+}
+
+function setupConsentMode() {
+  renderConsentView();
+  show('consent');
+}
+
+/* ─────────────────── BRINGING TEXTS INTO A SATELLITE ───────────────────
+ * Shared by the Consent Collector and the Audio Segmenter, because without it neither app can be
+ * used at all by anyone who is not already paired to a researcher.
+ *
+ * ⚠ EACH SATELLITE IS ITS OWN ORIGIN, AND THAT IS EASY TO FORGET WHILE DEVELOPING. On localhost
+ * every app is served from one port, so they share one IndexedDB and the recorder's texts simply
+ * appear here. In production consent.flextext.app and audio-segmenter.flextext.app are separate
+ * origins from the editor and the recorder, so they share NOTHING — a text recorded this morning is
+ * invisible to the collector this afternoon. The only cross-origin path the engine has is the
+ * researcher assignment channel, and that needs a pair code. So a colleague who installs either app
+ * and has not been paired sees an empty list with no way to fill it, for ever.
+ *
+ * Seth's brief for the collector said it plainly: "support moving texts from other devices". This is
+ * that. It is deliberately the SAME importer for both apps, differing only in its label, because
+ * the two apps want the same thing — a .flextext you already have, and for the segmenter the
+ * recording that goes with it.
+ *
+ * ⚠ NOT importFile(). That one ends by calling openDoc(), which enters the editor these apps do not
+ * have, and renderDocList(), which needs a library view they do not have either. Reusing it would
+ * mean giving the satellites a half-editor to be dropped into.
+ */
+const SAT_ACCEPT = '.flextext,.xml,.txt,text/plain,text/xml,application/xml,'
+  + 'audio/*,.mp3,.wav,.m4a,.flac,.ogg';
+
+const satIsText = (f) => /\.(flextext|xml|txt)$/i.test(f.name) || /(xml|text)/i.test(f.type || '');
+const satBase = (n) => n.replace(/\.[^.]+$/, '').toLowerCase();
+
+/* Pair a recording with its text: BY FILENAME when the names agree, OTHERWISE IN THE ORDER PICKED.
+ *
+ * ⚠ A MATCHING NAME IS A CONVENIENCE, NOT A REQUIREMENT (Seth): "I don't want you to require the
+ * input audio to have the same name as the flextext file … we can trust the user to be intelligent
+ * enough to notice it's not matching." Requiring it meant a linguist whose recorder writes
+ * REC0042.wav beside StoryOfTheFlood.flextext — which is what recorders actually do — got the text
+ * with no audio and a scolding, for picking exactly the two files they meant.
+ *
+ * So names are tried first (they make a folder of many pairs land correctly in one pick), and
+ * whatever is left over is paired in the order it was chosen.
+ *
+ * ⚠ THE ONE REFUSAL THAT STAYS is a .flextext holding SEVERAL texts: there is genuinely no way to
+ * know which of them a recording belongs to. That is not a naming question and no amount of user
+ * intelligence resolves it from the files alone — and a recording stapled to the wrong story is a
+ * mistake nobody can see afterwards. */
+async function satImportFiles(files) {
+  const list = [...files];
+  const textFiles = list.filter(satIsText);
+  const audioFiles = list.filter((f) => !satIsText(f));
+  if (!textFiles.length) { toast(t('sat.needText'), 7000); return; }
+
+  // Parse everything BEFORE pairing anything: how many texts a file holds decides whether it may
+  // take a recording at all, and that is not knowable from its name.
+  const parsed = [];
+  const failed = [];
+  for (const f of textFiles) {
+    let out;
+    try { out = parseFlextext(await f.text(), { vernLang: settings.vernLang, analLang: settings.analLang }); }
+    catch (err) { failed.push(f.name + ' — ' + err.message); continue; }
+    if (out.error) { failed.push(f.name + ' — ' + out.error); continue; }
+    const texts = out.texts || [];
+    if (!texts.length) { failed.push(f.name + ' — ' + t('sat.noTexts')); continue; }
+    parsed.push({ file: f, texts, mate: null });
+  }
+
+  /* ⚠ TWO PASSES, AND THE ORDER MATTERS. Claiming namesakes first is what stops an earlier text
+   * with no matching name from swallowing a later text's own recording: given
+   * [A.flextext, B.flextext, B.wav], a single greedy pass hands B.wav to A and leaves B silent —
+   * the two files whose names DO agree ending up apart, which is the one outcome naming was
+   * supposed to prevent. */
+  const claimed = new Set();
+  const single = (e) => e.texts.length === 1;      // several texts in a file ⇒ no recording, see below
+  for (const e of parsed) {
+    if (!single(e)) continue;
+    const named = audioFiles.find((a) => satBase(a.name) === satBase(e.file.name) && !claimed.has(a));
+    if (named) { e.mate = named; claimed.add(named); }
+  }
+  const spare = audioFiles.filter((a) => !claimed.has(a));
+  for (const e of parsed) {
+    if (e.mate || !single(e) || !spare.length) continue;
+    e.mate = spare.shift();
+    claimed.add(e.mate);
+  }
+  // A recording offered to a file holding several texts is reported, not silently dropped.
+  const ambiguous = parsed.some((e) => !single(e)
+    && audioFiles.some((a) => satBase(a.name) === satBase(e.file.name)));
+
+  let added = 0, paired = 0;
+  for (const e of parsed) {
+    for (const doc of e.texts) {
+      normalizePhraseLines(doc);      // canonical shape on entry — see normalizePhraseLines
+      const rec = {
+        id: newGuid(),
+        title: doc.title || e.file.name.replace(/\.(flextext|xml|txt)$/i, ''),
+        created: Date.now(), modified: Date.now(), doc,
+      };
+      Object.assign(rec, docStats(doc));
+      if (e.mate) {
+        await db.putMedia(rec.id, {
+          blob: e.mate, name: e.mate.name, mimeType: e.mate.type || 'audio/mpeg',
+          sourceUrl: '', peaks: null, duration: null,
+        });
+        rec.audioSource = 'local:' + e.mate.name;
+        rec.audioLocked = false;          // the user brought it themselves; they may remove it
+        ensureMediaRef(rec, e.mate.name, '');   // so an export still references the recording
+        paired++;
+      }
+      await db.putDoc(rec);
+      added++;
+    }
+  }
+
+  db.broadcastLive('docs');
+  refreshList();
+
+  // Say exactly what happened, including what did NOT: a recording silently dropped is the kind of
+  // thing a user only discovers weeks later, on the tab that needed it.
+  if (added) {
+    const key = added === 1
+      ? (paired ? 'sat.importedOneAudio' : 'sat.importedOne')
+      : (paired ? 'sat.importedManyAudio' : 'sat.importedMany');
+    toast(t(key, { n: added, paired }), 6000);
+  }
+  const orphans = audioFiles.filter((a) => !claimed.has(a));
+  if (ambiguous) toast(t('sat.audioAmbiguous'), 8000);
+  else if (orphans.length) toast(t('sat.audioUnmatched', { names: orphans.map((f) => f.name).join(', ') }), 8000);
+  for (const why of failed) toast(t('toast.importFailed', { msg: why }), 8000);
+}
+
+
+/* One file picker, as a promise. Built and thrown away per use so a stale <input> can never hand
+ * back last time's file. A cancelled picker fires 'cancel' in current browsers; where it does not,
+ * the element is simply removed and the promise never settles — the caller only awaits to decide
+ * whether to act, so nothing is stranded that matters. */
+function pickOneFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.hidden = true;
+    document.body.appendChild(input);
+    const done = (f) => { input.remove(); resolve(f || null); };
+    input.addEventListener('change', () => done(input.files && input.files[0]), { once: true });
+    input.addEventListener('cancel', () => done(null), { once: true });
+    input.click();
+  });
+}
+
+/* SWAP A TEXT'S RECORDING FOR A DIFFERENT FILE (researcher setting allowAudioSwap, default on when
+ * this device has no researcher session). The reason it exists is the ordinary one: you attached
+ * the wrong file, or a better copy of the right one turned up.
+ *
+ * ⚠ IT THROWS AWAY THE CUTS, AND IT HAS TO. Every span in doc.segments is a pair of times INTO THE
+ * OLD RECORDING. Against a different file those numbers are not approximately right, they are
+ * meaningless — line three would point at whatever happens to be at 0:47 of the new audio. Keeping
+ * them would leave a text that looks aligned and is not, which is worse than an obviously unaligned
+ * one because nobody re-checks a green tick. So it is said plainly first and only then done.
+ *
+ * ⚠ AND IT REFUSES ON AUDIO THE COWORKER DOES NOT OWN — isAudioLocked covers a recording that
+ * arrived from a researcher's task link, which this device may use but must not replace. */
+async function satReplaceAudio(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  if (isAudioLocked(rec)) { toast(t('sat.audioLocked'), 8000); return; }
+  const spans = docSegments(rec.doc).filter((x) => x && !x.timePending).length;
+  if (spans && !await confirmDialog(t('sat.replaceLosesCuts').replace('{n}', spans))) return;
+  const f = await pickOneFile('audio/*,.mp3,.wav,.m4a,.flac,.ogg');
+  if (!f) return;
+  const fresh = await db.getDoc(id);          // the dialog and the picker are both async
+  if (!fresh) { toast(t('toast.cantOpen')); return; }
+  await db.putMedia(id, {
+    blob: f, name: f.name, mimeType: f.type || 'audio/mpeg',
+    sourceUrl: '', peaks: null, duration: null,
+  });
+  /* The derived WAV working copy is a conversion OF THE OLD FILE and would otherwise keep being
+   * used in preference to the new one — segWorkingMedia looks it up by key, not by content. */
+  await db.deleteMedia('segwav:' + id).catch(() => {});
+  if (spans) fresh.doc.segments = [];
+  fresh.audioSource = 'local:' + f.name;
+  fresh.audioLocked = false;
+  delete fresh.pendingAudio;
+  delete fresh.audioError;
+  ensureMediaRef(fresh, f.name, '');
+  fresh.modified = Date.now();
+  await db.putDoc(fresh);
+  // The player may still be holding the old recording for this doc.
+  if (player && player.loadedFor === id) { player.loadedFor = null; playerReadyFor = null; }
+  db.broadcastLive('docs');
+  refreshList();
+  toast(t(spans ? 'sat.audioReplacedCuts' : 'sat.audioReplaced'), 6000);
+}
+
+/* The per-row controls both satellites share. Each is a researcher permission, and each defaults to
+ * ON for a device with no researcher session — an unpaired device is somebody working alone, and
+ * there is nobody to ask. */
+function satRowControls(host, d) {
+  if (allowAudioSwapOn() && SEGMENTER_MODE) {
+    const b = document.createElement('button');
+    b.className = 'icon-btn2 sat-swap';
+    b.textContent = '\u266B';                 // ♫ — a glyph, words in the tooltip, per the suite's rule
+    b.title = t('sat.replaceAudio');
+    b.setAttribute('aria-label', t('sat.replaceAudio'));
+    b.addEventListener('click', (e) => { e.stopPropagation(); satReplaceAudio(d.id); });
+    host.appendChild(b);
+  }
+  if (allowDeleteOn()) {
+    const b = document.createElement('button');
+    b.className = 'icon-btn2 sat-del';
+    b.textContent = '\uD83D\uDDD1';           // 🗑
+    b.title = t('texts.deleteTitle');
+    b.setAttribute('aria-label', t('texts.deleteTitle'));
+    // userDeleteDoc owns the whole rule — the confirm, the upload-first case, the queued-upload
+    // cancel — and now repaints through refreshList(), so it works here unchanged.
+    b.addEventListener('click', (e) => { e.stopPropagation(); userDeleteDoc(d.id, d.title); });
+    host.appendChild(b);
+  }
+}
+
+/* The one control, built in JS so neither shell needs its own copy of the markup (and so a shell
+ * that has not been rebuilt cannot end up with a button wired to nothing). */
+function satImportBar(host) {
+  const bar = document.createElement('div');
+  bar.className = 'sat-tools';
+  const btn = document.createElement('button');
+  btn.className = 'secondary-btn';
+  btn.id = 'sat-import';
+  btn.textContent = t(SEGMENTER_MODE ? 'sat.openPair' : 'sat.open');
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;          // a morning's worth of pairs in one go
+  input.accept = SAT_ACCEPT;
+  input.hidden = true;
+  btn.addEventListener('click', () => input.click());
+  input.addEventListener('change', (e) => {
+    const fs = [...e.target.files];
+    e.target.value = '';          // so picking the SAME file again still fires
+    if (fs.length) satImportFiles(fs).catch((err) => toast(t('toast.importFailed', { msg: err.message }), 6000));
+  });
+  bar.append(btn, input);
+  host.prepend(bar);
+}
+
+/* ─────────────────── AUDIO SEGMENTER (__MODE = 'segmenter') ───────────────────
+ * Cuts a recording into segments and matches them to the lines of a text that already exists.
+ * That is the entire product. No glossing, no free translation, no baseline text editing.
+ *
+ * IT ADDS NO SEGMENTATION ENGINE. Segmentation Mode already exists in the editor (v158+): the Cut
+ * tab, segment-strips.js and segments.js do the work, and this app reuses them unchanged by
+ * providing the same DOM and calling the same switchTab(). What makes it an app rather than a tab
+ * is that it cannot do anything else — the same argument plans/cut-tab.md makes for the Cut tab
+ * itself, applied one level up: a worker who can only segment cannot be half-segmenting and
+ * half-glossing, and does not have to decide which they are doing.
+ *
+ * ⚠ SEGMENTING EDITS TEXT. segments[i] IS baseline paragraph i, so a cut inserts an empty
+ * paragraph and a join merges two. That is why this app opens real docs and writes them back
+ * through the normal save path rather than treating audio as a separate artifact.
+ */
+
+// Segmentation only means something once the recording is attached and the text has lines to
+// match. Reporting that plainly is more useful than a disabled row with no reason on it.
+/* ⚠ BOTH SIGNALS USED TO BE WRONG, AND EITHER ONE ALONE MADE THIS APP UNUSABLE ON REAL DATA.
+ *
+ *  - "has audio" read `d.mediaName`, a field NOTHING IN THE SUITE WRITES (see db.mediaKeys). Every
+ *    text on a real device therefore reported "no recording attached" and had its Open button
+ *    disabled — the segmenter could not be entered at all except on a hand-made fixture that
+ *    happened to carry the field. The media store is the fact, and `have` is its key set.
+ *  - "how many spans" read `d.segCount`, which is docStats' count of PHRASES — how much TEXT the
+ *    doc holds. A 30-line transcript with no cuts made reported itself as fully segmented.
+ *    spanCount is the real one, counted from doc.segments in the projection.
+ *
+ * A text whose recording is still downloading is not "no audio": saying so would send a user to
+ * attach a file that is already on its way. */
+function sgStateOf(d, have) {
+  if (!have.has(d.id)) return d.pendingAudio ? 'coming' : 'noaudio';
+  return (Number(d.spanCount) || 0) > 0 ? 'some' : 'none';
+}
+
+function renderSegmenterView() {
+  const view = $('#view-segmenter');
+  if (!view) return;
+  view.innerHTML = `
+    <p class="tab-hint" data-i18n-html="sg.hint"></p>
+    <ul id="sg-list" class="doc-list"></ul>
+    <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>`;
+  applyI18n(view);
+  satImportBar(view);
+  sgRenderList();
+}
+
+async function sgRenderList() {
+  const ul = $('#sg-list');
+  if (!ul) return;
+  // One list read and one media-key read for the whole library, not a getMedia per row.
+  const [docs, have] = await Promise.all([db.listDocs(), db.mediaKeys().catch(() => new Set())]);
+  const empty = $('#sg-empty');
+  if (empty) empty.hidden = docs.length > 0;
+  ul.innerHTML = '';
+  for (const d of docs) {
+    const st = sgStateOf(d, have);
+    const li = document.createElement('li');
+    li.className = 'rec-item sg-' + st;
+    li.innerHTML = `
+      <div class="rec-item-main">
+        <span class="doc-name"></span>
+        <span class="doc-meta"></span>
+      </div>
+      <div class="rec-item-actions">
+        <button class="sg-open secondary-btn"></button>
+      </div>`;
+    li.querySelector('.doc-name').textContent = d.title || t('untitled');
+    li.querySelector('.doc-meta').textContent =
+      d.hasDraft ? t('sg.inProgress')
+      : st === 'noaudio' ? t('sg.noAudio')
+      : st === 'coming' ? t('seg.loadingAudio')
+      : st === 'some' ? (d.spanCount === 1 ? t('sg.oneSpan') : t('sg.someSpans').replace('{n}', d.spanCount))
+      : t('sg.noSpans');
+    satRowControls(li.querySelector('.rec-item-actions'), d);
+    const open = li.querySelector('.sg-open');
+    open.textContent = t('sg.open');
+    // No audio means nothing to match. Leaving the button live would open a matcher that can only
+    // say "attach a recording", which is a worse way to learn the same fact. A recording still on
+    // its way is the same for now, and the list re-renders when it lands (onLive → sgRenderList).
+    if (st === 'noaudio' || st === 'coming') open.disabled = true;
+    else open.addEventListener('click', () => mgOpen(d.id));
+    ul.appendChild(li);
+  }
+}
+
+async function sgOpen(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  current = rec;
+  // enterEditor() wires the tab row and the shared player dock, then switchTab('cut') runs the
+  // real Cut tab: same peaks pipeline, same strips, same guess-the-lines. Nothing is reimplemented.
+  enterEditor('cut');
+}
+
+/* ─────────────────── THE MATCHER (audio segmenter) ───────────────────
+ * Two panes. Audio spans on the left, text lines on the right, split and joined INDEPENDENTLY,
+ * then mapped piece to piece until everything is paired and the user presses Done.
+ *
+ * ⚠ THIS IS NOT THE ENGINE'S MODEL, AND THAT IS THE WHOLE BUILD. Everywhere else in the suite
+ * `segments[i]` IS baseline line i: the two are index-locked, so cutting audio inserts a text line
+ * and cutting text moves an audio boundary. That coupling is right for the Cut tab, where you are
+ * transcribing as you cut. It is wrong here, because the two jobs arrive already done and out of
+ * step: a recording cut by silence and a text typed by a linguist will not agree on where the
+ * pieces fall, and forcing them to agree while you work means every correction on one side damages
+ * the other.
+ *
+ * So the matcher holds three things — a span list, a line list, and a MAPPING between them — and
+ * only collapses back to the index-locked shape at the end, in mgCommit(). Nothing downstream has
+ * to learn a new model: the doc that comes out is the doc the rest of the suite already reads.
+ *
+ * The mapping is many-to-one on purpose: several spans may belong to one line (a speaker restarts,
+ * or pauses mid-sentence), and one span may cover several lines. What must be true at Done is only
+ * that nothing is left unmapped, which is what mgComplete() checks.
+ */
+
+let MG = null;   // { spans, lines, map, selSpan, selLine, docId }
+
+const mgFmt = (ms) => {
+  if (!Number.isFinite(ms)) return '—';
+  const s = Math.max(0, ms) / 1000;
+  return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+};
+
+// The interlinear line, as a line: vernacular words over their glosses, free translation beneath.
+// Rendered from the doc's own phrase objects, so what the linguist typed in FLEx is what shows.
+function mgLineText(line) {
+  const words = line.phrases.flatMap((p) => p.words || []);
+  return {
+    words: words.filter((w) => !w.punct).map((w) => ({ txt: w.txt || '', gls: w.gls || '' })),
+    free: line.phrases.map((p) => p.free || '').filter(Boolean).join(' '),
+  };
+}
+
+function mgLoad(rec) {
+  const paras = (rec.doc && rec.doc.paragraphs) || [];
+  MG = {
+    docId: rec.id,
+    // Spans carry their own ids so a split or join never depends on array position — the position
+    // is exactly what the user is about to change.
+    /* ⚠ `timePending`, NOT a local flag name. isAligned() — the gate every shared audio helper
+     * checks before it will play, seek or draw a span — reads that exact field, so a span whose
+     * pending state hid under a different name would be silently treated as aligned and offered a
+     * ▶ that plays from 0 to 0. `timeEstimated` rides along untouched: an estimate IS a timeline,
+     * so it stays playable, and mgCommit must give it back rather than promote it to a measurement. */
+    /* ⚠ doc.segments, NOT rec.segments. `doc.segments` is where the spans live and the ONLY place
+     * the rest of the suite looks: segment-strips writes it on every cut, join and guess; the
+     * flextext exporter and the EAF/bundle builders read it. Reading a top-level `rec.segments`
+     * found nothing on any text the Cut tab had actually produced — the left pane came up empty on
+     * every real document, and only a hand-made fixture that happened to store them at the top
+     * level made this look like it worked. */
+    /* ⚠ ONLY THE ALIGNED SEGMENTS ARE AUDIO. doc.segments is index-locked to the LINES, so a text
+     * with 14 lines and one cut holds 14 entries — one real span and thirteen `timePending`
+     * placeholders standing for lines, not for sound. Listing all of them put thirteen rows in the
+     * Audio pane reading "No time yet — scrub to the right spot and press Enter again" (Cut-tab
+     * guidance that means nothing here), each offering a ▶ for audio that does not exist — while
+     * the 61 seconds of recording that had NOT been cut appeared nowhere at all.
+     *
+     * The Audio pane is a list of pieces of audio. "This line has no recording" is a fact about the
+     * TEXT side, and mgCommit already writes it back as timePending. */
+    spans: docSegments(rec.doc)
+      .map((s, i) => ({
+        // `at` is the paragraph index this span was stored against — the index-locked model's own
+        // record of which line it belongs to, kept so the pairing below survives the filter.
+        id: 'sp' + i, at: i, start: Number(s.start) || 0, end: Number(s.end) || 0,
+        timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
+      }))
+      .filter((sp) => !sp.timePending && sp.end > sp.start),
+    /* `paraOf` rides along untouched: it is the memory of which ORIGINAL paragraph this line came
+     * from, set only for files whose author distinguished phrases from paragraphs. The matcher never
+     * shows it — every phrase is its own line here regardless — but dropping it would silently
+     * flatten a deliberately structured text the first time somebody opened it to cut audio. */
+    lines: paras.map((p, i) => ({ id: 'ln' + i, phrases: (p.segments || []).slice(), guid: p.guid, paraOf: p.paraOf })),
+    map: new Map(),
+    selSpan: null, selLine: null,
+  };
+  /* An already-index-locked doc arrives pre-matched: segment i belongs to line i. Presenting that
+   * as "nothing is mapped yet" would make a user re-do work the file already records.
+   *
+   * ⚠ PER SPAN, NOT "WHEN THE COUNTS AGREE". This used to seed only when every line had a span —
+   * so a text with leftovers (allowed on purpose: unmatched audio, lines with no recording yet)
+   * always reopened with its pairs forgotten and Done disabled, and the way to change one pairing
+   * was to redo all of them. The filter above dropped the placeholders but each survivor still
+   * knows its paragraph index, which is exactly the pairing the commit wrote. */
+  for (const sp of MG.spans) if (MG.lines[sp.at]) MG.map.set(sp.id, MG.lines[sp.at].id);
+}
+
+/* ⚠ NOT EVERYTHING HAS TO MATCH, AND REQUIRING IT WAS WRONG.
+ *
+ * Seth: "we should be able to have empty audio segments that don't map to text … it should be
+ * possible to skip lines of text before audio matches text again. Just like we can do with our
+ * editor and paragraph analysis tool."
+ *
+ * Both leftovers are legitimate and mean different things:
+ *   • AUDIO WITH NO TEXT — silence, a false start, the linguist talking, a dog. It is not part of
+ *     the text and never will be. mgCommit simply does not carry it into doc.segments.
+ *   • TEXT WITH NO AUDIO — a line whose recording has not been found, or was never made. The engine
+ *     has always had a word for that: the span is written `timePending`, exactly as the Cut tab
+ *     leaves an uncut line, and every downstream reader already handles it.
+ *
+ * Demanding a total bijection made a single unusable second of tape block Done for ever, on a job
+ * whose whole point is that the two sides do NOT correspond one to one. So Done needs only that the
+ * user has actually done something — one pair — and the status line reports the leftovers as
+ * information rather than as an error. */
+const mgComplete = () => !!MG && MG.map.size > 0;
+
+/* ─────────────── AUTOSAVE THE WORK IN PROGRESS ───────────────
+ *
+ * ⚠ THIS SCREEN USED TO HOLD EVERYTHING IN MEMORY AND WRITE NOTHING UNTIL "Done", AND SETH LOST A
+ * SESSION TO IT: "I was partway through my work and I lost it all. It jumped back to the start.
+ * That's fine while developing, but we don't want that to happen with real work later."
+ *
+ * I had reasoned about that trade the wrong way round. "Nothing is written until Done" reads as a
+ * safety property — Back discards cleanly, the doc is never half-edited — and it is, right up until
+ * a reload. Then it is simply an hour of matching a 40-minute recording, gone, with no warning that
+ * it was ever at risk. A service worker update, a browser tab reclaimed on a cheap phone, a
+ * mis-tapped Back: none of those are unusual in the field, and all of them cost everything.
+ *
+ * Everything else in this suite autosaves continuously (schedulePersist, 400ms). Seth: "It should
+ * be auto-saving just like the rest of our app does." So it does, on the same cadence.
+ *
+ * ⚠ THE DRAFT MUST NOT LOOK LIKE AN EDIT TO THE DOCUMENT. `modified` is what upload staleness is
+ * judged by (uploadedModified !== modified), so bumping it would queue a re-upload of a text whose
+ * content has not changed — over a village connection, repeatedly, every 400ms of matching. The
+ * draft is written beside the doc and `modified` is deliberately left alone. listDocs projects only
+ * named fields, so it costs the list nothing either.
+ *
+ * ⚠ AND BACK NO LONGER DISCARDS. It cannot: a control that throws away an hour of work on one tap
+ * has no business being the way out of a screen. Back keeps the draft and the row says so; the
+ * resume notice carries the explicit "start over". Done commits and clears it. */
+let mgDraftTimer = 0;
+function mgSaveDraft() {
+  if (!MG) return;
+  clearTimeout(mgDraftTimer);
+  mgDraftTimer = setTimeout(async () => {
+    if (!MG) return;
+    const id = MG.docId;
+    try {
+      const rec = await db.getDoc(id);
+      if (!rec || !MG || MG.docId !== id) return;      // left, or a different text, while we read
+      rec.matchDraft = {
+        at: Date.now(),
+        spans: MG.spans,
+        lines: MG.lines,
+        map: [...MG.map],
+      };
+      await db.putDoc(rec);        // ⚠ rec.modified deliberately NOT touched — see above
+      /* ⚠ AND KEEP `current` IN STEP, or persist() will quietly undo this.
+       *
+       * Two code paths write this record from DIFFERENT in-memory copies: mgSaveDraft re-reads it
+       * from storage, while persist() writes the `current` object captured when the text was opened.
+       * `current` never learns about a draft written after that moment — so the next persist()
+       * (healFlatSegments schedules one on open, and anything else may) writes the WHOLE record back
+       * with the draft it remembers, which is the starting state. Seth saw exactly that: "It said my
+       * work was saved, but what was saved was the starting state."
+       *
+       * A last-write-wins race between two writers of one record is not fixable by ordering; they
+       * have to agree on the value. So the draft is written to both. */
+      if (current && current.id === id) current.matchDraft = rec.matchDraft;
+      db.broadcastLive('docs');
+    } catch (e) {
+      toast(t(e && e.name === 'QuotaExceededError' ? 'toast.storageFull'
+                                                   : 'toast.autosaveFailed', { msg: e.message }), 8000);
+    }
+  }, 400);
+}
+
+// Committed, or explicitly started over: the draft has served its purpose.
+async function mgClearDraft(id) {
+  clearTimeout(mgDraftTimer);
+  try {
+    const rec = await db.getDoc(id);
+    if (!rec || !rec.matchDraft) return;
+    delete rec.matchDraft;
+    await db.putDoc(rec);
+    if (current && current.id === id) delete current.matchDraft;   // same two-writer rule
+    db.broadcastLive('docs');
+  } catch { /* a draft we could not clear is harmless: reopening simply offers to resume */ }
+}
+
+/* UNDO/REDO FOR THE MATCHER (Seth). The editor has had a ring since v323, but it snapshots
+ * current.doc — and the matcher's whole design is that it does NOT touch the doc until Done. Its
+ * state is MG: the spans, the lines and the mapping between them. So it needs its own ring, over
+ * that.
+ *
+ * Snapshot rather than an op log, for the same reason the editor chose one: every verb here
+ * (split, join, guess, map, unmap) rewrites the arrays wholesale, so an inverse-op scheme would be
+ * five inverses to get right and one to get wrong. A whole-state copy is a few kilobytes.
+ *
+ * ⚠ CAPTURED BEFORE THE CHANGE, by the mutating function itself — never by the click handler, so
+ * the keyboard and any future caller get the same history. And ✨ Guess captures too: it replaces
+ * every span at once, which is precisely the action a user most wants back.
+ *
+ * ⚠ SELECTION IS PART OF THE STATE. Undoing a pairing that was made by two clicks must not leave
+ * the first click still armed, or the next click pairs something the user never chose. */
+const MG_UNDO_MAX = 40;
+let mgUndoStack = [];
+let mgRedoStack = [];
+const mgSnap = () => ({
+  spans: MG.spans.map((s2) => ({ ...s2 })),
+  lines: MG.lines.map((l) => ({ ...l, phrases: structuredClone(l.phrases) })),
+  map: new Map(MG.map),
+  selSpan: MG.selSpan, selLine: MG.selLine, pendingWordCut: MG.pendingWordCut || null,
+});
+function mgCapture() {
+  if (!MG) return;
+  mgUndoStack.push(mgSnap());
+  if (mgUndoStack.length > MG_UNDO_MAX) mgUndoStack.shift();
+  mgRedoStack = [];                    // a new edit forks the future, as everywhere else
+}
+function mgApply(st) {
+  MG.spans = st.spans; MG.lines = st.lines; MG.map = st.map;
+  MG.selSpan = st.selSpan; MG.selLine = st.selLine; MG.pendingWordCut = st.pendingWordCut;
+  /* The player was watching spans that may no longer exist — the same rule applyUndoState follows
+   * in the editor. An audition running across an undo would stop at a boundary from the discarded
+   * state and throw the playhead back to a start that is not there any more. */
+  player?.clearSpan?.();
+  mgDraw();
+}
+function mgUndoOnce() { if (!MG || !mgUndoStack.length) return; mgRedoStack.push(mgSnap()); mgApply(mgUndoStack.pop()); }
+function mgRedoOnce() { if (!MG || !mgRedoStack.length) return; mgUndoStack.push(mgSnap()); mgApply(mgRedoStack.pop()); }
+
+/* Mapping is two clicks: pick a span, pick a line. Clicking a mapped pair again unmaps it, which
+ * is the only undo a matching screen actually needs — there is no partial state to unwind. */
+function mgPick(kind, id) {
+  if (kind === 'span') MG.selSpan = MG.selSpan === id ? null : id;
+  else MG.selLine = MG.selLine === id ? null : id;
+  if (MG.selSpan && MG.selLine) {
+    mgCapture();                     // only HERE: selecting alone changes nothing to undo
+    if (MG.map.get(MG.selSpan) === MG.selLine) MG.map.delete(MG.selSpan);
+    else MG.map.set(MG.selSpan, MG.selLine);
+    MG.selSpan = null; MG.selLine = null;
+  }
+  mgDraw();
+}
+
+/* ─────────────── MOVING A BOUNDARY ───────────────
+ *
+ * ⚠ ONE RULE, ONE FUNCTION, BOTH SURFACES. The overview marks and a span's own edges move the same
+ * thing — the join between span i and span i+1 — so they share this, and the ordering constraint
+ * cannot be enforced correctly in one place and sloppily in the other.
+ *
+ * Seth: "we have to make sure you can't drag them BEYOND other boundaries they run into. Like they
+ * have to stay in sequence." The clamp is expressed against the NEIGHBOURING SPANS rather than the
+ * neighbouring boundaries, which is the same constraint said in the form that cannot be got wrong:
+ * a boundary may not pass its own span's start, nor the next span's end, and must leave a real
+ * segment on each side (MIN_SEGMENT_MS — the same floor ✂ refuses below).
+ *
+ * Returns false when nothing moved, so a drag that hits the stop does not churn the display.
+ */
+function mgMoveBoundary(i, ms) {
+  if (!MG || !Number.isFinite(ms)) return false;
+  const a = MG.spans[i], b = MG.spans[i + 1];
+  if (!a || !b || a.timePending || b.timePending) return false;
+  const lo = a.start + MIN_SEGMENT_MS;
+  const hi = b.end - MIN_SEGMENT_MS;
+  if (hi <= lo) return false;                       // no room between the neighbours; refuse
+  const t = Math.round(Math.min(hi, Math.max(lo, ms)));
+  if (t === a.end) return false;
+  a.end = t;
+  b.start = t;
+  return true;
+}
+
+/* Repaint just the two rows a drag is moving, plus the overview marks.
+ *
+ * ⚠ NOT mgDraw(). A full redraw rebuilds every row and every canvas — measured at 58ms for 30 spans
+ * — which is fine for a click and useless at pointermove rates: the boundary would lag the finger
+ * by several frames, which is precisely the feedback the drag exists to give. The full redraw
+ * happens once, on release. */
+function mgLiveBoundary(i) {
+  const body = $('#mg-body');
+  if (!body || !MG) return;
+  for (const k of [i, i + 1]) {
+    const sp = MG.spans[k];
+    if (!sp) continue;
+    const row = body.querySelector(`.mg-span[data-sp="${CSS.escape(sp.id)}"]`);
+    if (!row) continue;
+    const time = row.querySelector('.mg-time');
+    if (time) time.textContent = `${mgFmt(sp.start)} – ${mgFmt(sp.end)}`;
+    const wave = row.querySelector('.mg-wave');
+    if (wave) drawSpanWave(wave, sp);
+  }
+  player?.setBoundaries?.(mgBoundaryTimes());
+}
+
+/* The gesture, shared by the overview marks and the span edges: capture once at the start (so a
+ * whole drag is ONE undo, not forty), move live, and settle with a full redraw. */
+function mgBoundaryDrag(i, ms, phase) {
+  if (!MG) return;
+  if (phase === 'start') { mgCapture(); player?.pause?.(); return; }
+  if (phase === 'end') { mgDraw(); return; }
+  if (mgMoveBoundary(i, ms)) mgLiveBoundary(i);
+}
+
+// ── independent editing, left side ────────────────────────────────────────────────────────────
+/* ⚠ CUT WHERE THE PLAYHEAD IS, and only fall back to the midpoint when it is somewhere else. The
+ * Cut tab has meant this by "split" since v158 (cutHere), and now that these rows carry the same
+ * waveform and the same click-to-park behaviour, a ✂ that ignored the parked playhead would look
+ * identical to the Cut tab's and do something different — the user listens to the join, parks the
+ * cursor on it, presses ✂, and the cut lands in the middle of the span instead. The midpoint is
+ * kept for the case it is actually right for: a span nobody has listened into yet. */
+function mgSplitSpan(id) {
+  const i = MG.spans.findIndex((s) => s.id === id);
+  if (i < 0) return;
+  mgCapture();
+  const sp = MG.spans[i];
+  const head = player?.playheadMs?.();
+  const inside = typeof head === 'number' && head > sp.start && head < sp.end;
+  const at = Math.round(inside ? head : (sp.start + sp.end) / 2);
+  if (at - sp.start < MIN_SEGMENT_MS || sp.end - at < MIN_SEGMENT_MS) { toast(t('mg.tooShort')); return; }
+  const a = { ...sp, id: sp.id + 'a', end: at };
+  const b = { ...sp, id: sp.id + 'b', start: at };
+  /* The two halves are new spans, so whatever the player was watching is gone — the same rule
+   * cutHere follows. Without this the audition runs on to a stop time that no longer exists. */
+  player?.clearSpan?.();
+  MG.spans.splice(i, 1, a, b);
+  // The old span's mapping cannot describe two pieces, so it is dropped and both are unmapped.
+  // Silently keeping it on one half would be a guess about which half the line belongs to.
+  const was = MG.map.get(sp.id);
+  MG.map.delete(sp.id);
+  if (was) toast(t('mg.splitUnmapped'));
+  mgDraw();
+}
+
+function mgJoinSpan(id) {
+  const i = MG.spans.findIndex((s) => s.id === id);
+  if (i <= 0) return;
+  mgCapture();
+  const prev = MG.spans[i - 1], cur = MG.spans[i];
+  /* An estimate joined to a measurement is an estimate: the merged span is only as good as its
+   * weaker half, and saying otherwise would launder a guess into a timestamp. */
+  MG.spans.splice(i - 1, 2, {
+    ...prev, id: prev.id + '+', end: cur.end,
+    timePending: !!(prev.timePending || cur.timePending),
+    timeEstimated: !!(prev.timeEstimated || cur.timeEstimated),
+  });
+  MG.map.delete(prev.id); MG.map.delete(cur.id);
+  player?.clearSpan?.();
+  mgDraw();
+}
+
+// ── independent editing, right side ───────────────────────────────────────────────────────────
+/* Splitting a text line takes TWO points, and that is not a UI flourish: an interlinear line is a
+ * word/gloss run plus a free translation, and the FT is prose that does not align word by word. So
+ * where the words break tells you nothing about where the translation breaks, and the user has to
+ * say both — a scissors position in the word run, and a space in the free translation. */
+function mgSplitLine(id, wordIdx, ftCharIdx) {
+  const i = MG.lines.findIndex((l) => l.id === id);
+  if (i < 0) return;
+  const line = MG.lines[i];
+  const flat = line.phrases.flatMap((p) => p.words || []);
+  /* ⚠ wordIdx COUNTS VISIBLE WORDS. The pane draws mgLineText(line).words, which drops punctuation
+   * tokens, so the index the scissors carries is into THAT list — slicing `flat` with it landed one
+   * token early for every comma before the cut. Walk to the wordIdx-th lexical word instead; any
+   * punctuation sitting before it trails the word it follows, so it stays on the left. */
+  let seen = 0, at = -1;
+  for (let k = 0; k < flat.length; k++) {
+    if (flat[k].punct) continue;
+    if (seen === wordIdx) { at = k; break; }
+    seen++;
+  }
+  if (wordIdx <= 0 || at < 0) { toast(t('mg.badSplit')); return; }
+  mgCapture();   // after the refusal, or a split that did nothing still left an undo step behind
+  const ft = mgLineText(line).free;
+  const left = ft.slice(0, ftCharIdx).trim(), right = ft.slice(ftCharIdx).trim();
+  // Both halves belong to the paragraph the line came from — a split inside a sentence does not
+  // make a new sentence. (Seth: "as close as possible to where it originally was".)
+  // ⚠ The suffix is EXPLICIT. It used to come from which half a free translation matched, so with
+  // no free translation both halves were '…a' — two lines, one id, and a map that could only ever
+  // reach the first of them.
+  const mk = (words, free, sfx) => ({
+    id: line.id + sfx,
+    guid: newGuid(),
+    paraOf: line.paraOf,
+    phrases: [makeSegment(baselineFromWords(words), words, { free })],
+  });
+  MG.lines.splice(i, 1, mk(flat.slice(0, at), left, 'a'), mk(flat.slice(at), right, 'b'));
+  for (const [sp, ln] of [...MG.map]) if (ln === line.id) MG.map.delete(sp);
+  mgDraw();
+}
+
+/* INSERT A BLANK TEXT LINE (researcher setting allowBlankLines, default on with no researcher
+ * session — the same shape as allowDeleteOn, and the same reasoning: an unpaired device is somebody
+ * working alone).
+ *
+ * The mirror of leftover audio. A recording contains things the transcript does not yet: an aside, a
+ * cough, a question from the linguist, a passage nobody has written down. Leaving that audio
+ * unmatched works (it is simply left out), but it is not always what you mean — sometimes the right
+ * answer is "this IS a line, we just have no words for it yet". A blank line can be paired with it,
+ * and comes out as a real segment with an empty phrase, which is exactly how the Cut tab has always
+ * represented a span whose words are not typed.
+ *
+ * Inherits paraOf from the line above, so inserting inside a sentence does not start a new one. */
+function mgInsertLine(after) {
+  if (!MG) return;
+  mgCapture();
+  const above = MG.lines[after];
+  const line = {
+    id: 'ln+' + (MG.lines.length + 1) + '-' + Math.random().toString(36).slice(2, 6),
+    guid: newGuid(),
+    phrases: [makeSegment('', [])],
+  };
+  if (above && above.paraOf != null) line.paraOf = above.paraOf;
+  MG.lines.splice(after + 1, 0, line);
+  mgDraw();
+}
+
+function mgJoinLine(id) {
+  const i = MG.lines.findIndex((l) => l.id === id);
+  if (i <= 0) return;
+  mgCapture();
+  const prev = MG.lines[i - 1], cur = MG.lines[i];
+  /* The merged line takes the FIRST line's paragraph. If the two were in different paragraphs the
+   * break between them is exactly what the user just removed, so losing it is the point — and if
+   * that leaves the second paragraph's remaining lines non-consecutive, serializeFlextext detects it
+   * and falls back to a flat export rather than emitting one guid on two <paragraph>s.
+   *
+   * ⚠ ONE PHRASE, NOT TWO. This line first concatenated the phrase arrays, which committed as a
+   * paragraph holding two segments — and the next mgOpen's healFlatSegments split it straight back
+   * and cleared doc.segments to re-derive them, so the join AND the whole matching session were
+   * gone before the list had finished drawing. mergePhrases builds the one segment the rest of
+   * the suite reads as one line; see it for what it keeps. (Not segments.js's mergeSegments —
+   * that one joins two AUDIO spans, which is the ⤴ on the other pane.) */
+  MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf,
+    phrases: [mergePhrases([...prev.phrases, ...cur.phrases])] });
+  for (const [sp, ln] of [...MG.map]) if (ln === prev.id || ln === cur.id) MG.map.delete(sp);
+  mgDraw();
+}
+
+/* Collapse back to the index-locked model the rest of the suite reads.
+ *
+ * Spans are ordered by time; each line takes the earliest span mapped to it, and lines with several
+ * spans are given the union of their extent. That is the only reading that cannot lose audio: a
+ * line covering three spans is one line of text that took three bursts to say, so its span runs
+ * from the first burst to the last.
+ */
+async function mgCommit() {
+  const rec = await db.getDoc(MG.docId);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  const byLine = new Map();
+  for (const sp of MG.spans) {
+    const ln = MG.map.get(sp.id);
+    if (!ln) continue;
+    if (sp.timePending) continue;   // an unaligned span contributes no timeline to the union
+    const cur = byLine.get(ln);
+    byLine.set(ln, cur
+      ? { start: Math.min(cur.start, sp.start), end: Math.max(cur.end, sp.end),
+          timeEstimated: !!(cur.timeEstimated || sp.timeEstimated) }
+      : { start: sp.start, end: sp.end, timeEstimated: !!sp.timeEstimated });
+  }
+  rec.doc = rec.doc || {};
+  /* ⚠ WRITE doc.segments, NOT rec.segments — the same field mgLoad reads and the only one anything
+   * else does. A top-level rec.segments is read by nothing in this suite, so a whole matching
+   * session written there would have been silently discarded: the toast said "saved", the record
+   * grew a field, and the document's alignment was exactly as it had been. */
+  rec.doc.segments = MG.lines.map((l) => {
+    const ext = byLine.get(l.id);
+    if (!ext) return { start: 0, end: 0, timePending: true };
+    // An estimated time stays labelled as one all the way through: exports and the archive care
+    // whether a boundary was measured or guessed, and the matcher is not what turns one into the other.
+    return ext.timeEstimated ? { start: ext.start, end: ext.end, timeEstimated: true }
+                             : { start: ext.start, end: ext.end };
+  });
+  rec.doc.paragraphs = MG.lines.map((l) => ({
+    guid: l.guid || newGuid(), segments: l.phrases,
+    ...(l.paraOf == null ? {} : { paraOf: l.paraOf }),
+  }));
+  // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the
+  // span count would have made this app's texts report a different kind of number from everyone
+  // else's in the shared library list.
+  Object.assign(rec, docStats(rec.doc));
+  rec.modified = Date.now();
+  await db.putDoc(rec);
+  /* ⚠ THE OBJECT persist() WRITES. mgOpen pointed `current` at the record as it was BEFORE this
+   * session; everything above went into a fresh copy. applyUpdateIfSafe() flushes persist() ahead
+   * of a service-worker update — and persist()'s "skip while on the list" guard looks for
+   * #view-texts, which the segmenter shell does not have — so the pre-match `current` was written
+   * straight over this commit, with a fresh `modified` that queued the reverted text for upload.
+   * Same rule as the draft: two writers, one record, so they hold the same object. */
+  current = rec;
+  db.broadcastLive('docs');
+  const droppedAudio = MG.spans.filter((sp) => !MG.map.has(sp.id)).length;
+  const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
+  await mgClearDraft(MG.docId);        // committed: the draft has served its purpose
+  toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
+  // Said AFTER the save and separately: what was left out is not a failure, but it must not be a
+  // surprise either — an audio piece dropped in silence is found weeks later, if ever.
+  if (droppedAudio || noAudio) {
+    toast(t('mg.committedLeftover').replace('{a}', droppedAudio).replace('{t}', noAudio), 9000);
+  }
+  mgClose();
+  sgRenderList();
+}
+
+// One "+" row. Icon, not a sentence — the suite's low-literacy rule; the words live in the tooltip.
+function mgInsertRow(after) {
+  const row = document.createElement('li');
+  row.className = 'mg-insertrow';
+  const b = document.createElement('button');
+  b.className = 'mg-insert';
+  b.type = 'button';
+  b.textContent = '+';
+  b.title = t('mg.addLine');
+  b.setAttribute('aria-label', t('mg.addLine'));
+  b.addEventListener('click', () => mgInsertLine(after));
+  row.appendChild(b);
+  return row;
+}
+
+function mgDraw() {
+  const box = $('#mg-body');
+  if (!box || !MG) return;
+  /* ⚠ KEEP BOTH PANES WHERE THEY WERE. mgDraw rebuilds the whole body on every pick, split, join and
+   * unmap — which was survivable when a row was one line of text and is not now: each pane scrolls
+   * independently (that is the point of two panes; the span you are matching and the line you are
+   * matching it to are rarely the same distance down), so a rebuild that reset both to the top threw
+   * the user back to the beginning of a 200-span recording every time they mapped a pair. Same
+   * failure renderCut fixed for the Cut tab in v357, same fix. */
+  const keep = ['#mg-spans .mg-list', '#mg-lines .mg-list']
+    .map((sel) => { const el = box.querySelector(sel); return el ? el.scrollTop : 0; });
+  const mapped = (id) => MG.map.has(id);
+  const lineHasSpan = (id) => [...MG.map.values()].includes(id);
+  /* A colour per pair: the pairing has to be readable at a glance, and on a cheap phone in daylight
+   * a thin connecting line would not be.
+   *
+   * ⚠ SPACED BY THE GOLDEN ANGLE, NOT HASHED. A string hash over the line ids gave adjacent lines
+   * adjacent hues — measured on a three-line text: 326°, 327°, 328°, three shades of the same pink.
+   * The colour channel was doing nothing, and doing nothing invisibly, because each pair genuinely
+   * had its "own" hue. Stepping by 137.508° from the line's INDEX is what actually separates
+   * neighbours, which is the only case that matters: nobody confuses line 1 with line 40. */
+  const lineOrder = new Map(MG.lines.map((l, i) => [l.id, i]));
+  const hueForLine = (lineId) => Math.round((lineOrder.get(lineId) || 0) * 137.508) % 360;
+
+  box.innerHTML = `
+    ${MG.resumed ? `<p class="mg-resumed"><span></span><button id="mg-fresh" class="link-btn"></button></p>` : ''}
+    <div class="mg-panes">
+      <section class="mg-pane" id="mg-spans">
+        <h3 data-i18n="mg.audio">Audio</h3>
+        <ul class="mg-list"></ul>
+      </section>
+      <section class="mg-pane" id="mg-lines">
+        <h3 data-i18n="mg.text">Text</h3>
+        <ul class="mg-list"></ul>
+      </section>
+    </div>`;
+  applyI18n(box);
+  if (MG.resumed) {
+    box.querySelector('.mg-resumed span').textContent = t('mg.resumed');
+    const fresh = box.querySelector('#mg-fresh');
+    fresh.textContent = t('mg.startOver');
+    fresh.onclick = () => mgStartOver();
+  }
+
+  /* ⚠ THE LEFT PANE IS THE CUT TAB'S ROW, NOT A LIST OF TIMESTAMPS. It was one — "0:04 – 0:09" as
+   * text — and that is unusable for the job: matching a span to a line means knowing WHICH span,
+   * and a span is identified by what it sounds like, not by when it starts. Seth, on this build:
+   * "it can definitely re-use/adapt/repurpose a lot of what we made on the cut tab (auto scrolling,
+   * big player/segments, sync between big player and segment player, etc)".
+   *
+   * So every piece here is the shared one, wired exactly as renderCut wires it: wireSegPlay for the
+   * ▶ (plays THIS span only, and pauses in place on a second press), wireWaveSeek for click-to-park
+   * and drag-to-scrub, attachSpanWave for the peaks and their resize/decode repair, and mgTicker for
+   * the cursor, the ▶/⏸ glyph and the follow-scroll. Nothing is a second implementation — the
+   * matcher would otherwise be the fourth waveform list in this suite and the first to feel wrong.
+   *
+   * The times stay, under the wave, because a matcher IS partly a bookkeeping screen. */
+  const su = box.querySelector('#mg-spans .mg-list');
+  MG.spans.forEach((sp, i) => {
+    const li = document.createElement('li');
+    li.className = 'mg-item mg-span' + (mapped(sp.id) ? ' mg-mapped' : '') + (MG.selSpan === sp.id ? ' mg-sel' : '')
+      + (sp.timePending ? ' seg-pending' : '') + (sp.timeEstimated ? ' seg-est' : '');
+    li.dataset.sp = sp.id;
+    if (mapped(sp.id)) li.dataset.ln = MG.map.get(sp.id);   // its partner, for the linked highlight
+    if (mapped(sp.id)) li.style.setProperty('--mg-hue', hueForLine(MG.map.get(sp.id)));
+    li.innerHTML = `<button class="mg-pick"></button>
+      <button class="seg-play mg-play"></button>
+      <div class="mg-wavewrap"><canvas class="seg-wave mg-wave"></canvas></div>
+      <span class="mg-time"></span>
+      <span class="mg-actions">
+        <button class="mg-split icon-btn2" title="${esc(t('mg.splitSpan'))}">✂</button>
+        <button class="mg-join icon-btn2" title="${esc(t('mg.joinPrev'))}"${i === 0 ? ' disabled' : ''}>⤴</button>
+      </span>`;
+    li.querySelector('.mg-time').textContent = sp.timePending
+      ? t('seg.pendingTip')
+      : `${mgFmt(sp.start)} – ${mgFmt(sp.end)}`;
+    const pick = li.querySelector('.mg-pick');
+    pick.textContent = String(i + 1);
+    pick.onclick = () => { mgLinkPair(MG.map.get(sp.id) || null); mgPick('span', sp.id); };
+    li.querySelector('.mg-split').onclick = () => mgSplitSpan(sp.id);
+    li.querySelector('.mg-join').onclick = () => mgJoinSpan(sp.id);
+
+    const play = li.querySelector('.mg-play');
+    const wave = li.querySelector('.mg-wave');
+    play.textContent = sp.timePending ? '⋯' : '▶';
+    play.setAttribute('aria-label', t(sp.timePending ? 'seg.pendingTip' : 'seg.playTip'));
+    wireSegPlay(play, sp, () => player, (s2) => { lastPlayTarget = s2; });
+    wireWaveSeek(wave, sp, () => player, (s2) => { lastPlayTarget = s2; });
+    // v326 everywhere else in the suite: touching a waveform selects it for Space/⏮ — including an
+    // unaligned one, which wireWaveSeek deliberately leaves unwired (no timeline to seek into).
+    if (sp.timePending) wave.addEventListener('pointerdown', () => { lastPlayTarget = sp; });
+    attachSpanWave(wave, sp);
+    /* ⚠ EDGE HANDLES ARE THE FINE ADJUSTMENT; the overview marks are the coarse one. Dragging an
+     * edge moves the boundary this span SHARES with its neighbour — the right edge of span i and
+     * the left edge of span i+1 are the same line, so both drag the same thing and either can be
+     * grabbed, whichever is nearer the thumb.
+     *
+     * ⚠ THE SCALE IS FROZEN AT PICK-UP. The strip is drawn to this span's own range, so the range
+     * changes as you drag it; recomputing ms-per-pixel each move would make the boundary accelerate
+     * away from the finger. Captured once, the gesture stays 1:1 with what was on screen when it
+     * began. The first and last edges of the recording are not boundaries and get no handle. */
+    const wrapEl = li.querySelector('.mg-wavewrap');
+    for (const side of ['l', 'r']) {
+      const bi = side === 'l' ? i - 1 : i;              // which boundary this edge is
+      if (bi < 0 || bi >= MG.spans.length - 1) continue;
+      const h = document.createElement('span');
+      h.className = 'mg-edge mg-edge-' + side;
+      h.title = t('mg.dragEdge');
+      h.setAttribute('aria-label', t('mg.dragEdge'));
+      h.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();      // not a seek, not a row select
+        try { h.setPointerCapture(ev.pointerId); } catch { /* comfort only */ }
+        const w = wave.clientWidth || 1;
+        const perPx = Math.max(1, sp.end - sp.start) / w;
+        const x0 = ev.clientX;
+        const t0 = bi === i ? sp.end : sp.start;
+        mgBoundaryDrag(bi, null, 'start');
+        const move = (e2) => mgBoundaryDrag(bi, t0 + (e2.clientX - x0) * perPx, 'move');
+        const up = () => {
+          h.removeEventListener('pointermove', move);
+          h.removeEventListener('pointerup', up);
+          h.removeEventListener('pointercancel', up);
+          mgBoundaryDrag(bi, null, 'end');
+        };
+        h.addEventListener('pointermove', move);
+        h.addEventListener('pointerup', up);
+        h.addEventListener('pointercancel', up);
+      });
+      wrapEl.appendChild(h);
+    }
+    su.appendChild(li);
+  });
+
+  const lu = box.querySelector('#mg-lines .mg-list');
+  MG.lines.forEach((ln, i) => {
+    const txt = mgLineText(ln);
+    const li = document.createElement('li');
+    li.className = 'mg-item mg-line' + (lineHasSpan(ln.id) ? ' mg-mapped' : '') + (MG.selLine === ln.id ? ' mg-sel' : '');
+    li.dataset.ln = ln.id;
+    if (lineHasSpan(ln.id)) li.style.setProperty('--mg-hue', hueForLine(ln.id));
+    li.innerHTML = `<button class="mg-pick"></button>
+      <div class="mg-interlinear"><div class="mg-words"></div><div class="mg-ft"></div></div>
+      <span class="mg-actions">
+        <button class="mg-join icon-btn2" title="${esc(t('mg.joinPrev'))}"${i === 0 ? ' disabled' : ''}>⤴</button>
+      </span>`;
+    li.querySelector('.mg-pick').textContent = String(i + 1);
+    li.querySelector('.mg-pick').onclick = () => { mgLinkPair(ln.id); mgPick('line', ln.id); };
+    /* ⚠ THIS HANDLER WAS MISSING and the button had been inert since the pane was built — it
+     * rendered, it enabled and disabled correctly on the first row, and it did nothing (Seth: "text
+     * join doesn't appear to be working"). The span row's ⤴ was wired two loops above, which is
+     * exactly why it went unnoticed: the control existed, looked identical, and worked on one side. */
+    li.querySelector('.mg-join').onclick = () => mgJoinLine(ln.id);
+    const wbox = li.querySelector('.mg-words');
+    txt.words.forEach((w, wi) => {
+      // The scissors BETWEEN word and gloss is the first of the two split points. It sits in the
+      // gap it would cut, so there is nothing to explain.
+      if (wi > 0) {
+        const cut = document.createElement('button');
+        cut.className = 'mg-scissors';
+        cut.textContent = '✂';
+        cut.title = t('mg.cutHere');
+        cut.onclick = () => { MG.pendingWordCut = { line: ln.id, at: wi }; mgDraw(); toast(t('mg.nowPickFt')); };
+        if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id && MG.pendingWordCut.at === wi) cut.classList.add('mg-armed');
+        wbox.appendChild(cut);
+      }
+      const stack = document.createElement('span');
+      stack.className = 'mg-wstack';
+      stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
+      stack.querySelector('.mg-w').textContent = w.txt;
+      stack.querySelector('.mg-g').textContent = w.gls;
+      wbox.appendChild(stack);
+    });
+    const ftbox = li.querySelector('.mg-ft');
+    if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id) {
+      // Second point: a space in the free translation. Every space is a target.
+      const ft = txt.free;
+      let last = 0;
+      ft.split(/(\s+)/).forEach((piece) => {
+        if (/^\s+$/.test(piece)) {
+          const b = document.createElement('button');
+          b.className = 'mg-ftgap';
+          b.title = t('mg.splitHere');
+          const at = last;
+          b.onclick = () => { const w = MG.pendingWordCut.at; MG.pendingWordCut = null; mgSplitLine(ln.id, w, at); };
+          ftbox.appendChild(b);
+        } else {
+          const s = document.createElement('span');
+          s.textContent = piece;
+          ftbox.appendChild(s);
+        }
+        last += piece.length;
+      });
+    } else {
+      ftbox.textContent = txt.free;
+    }
+    lu.appendChild(li);
+    /* ⚠ BETWEEN the rows it inserts between, and one ABOVE the first — the same positional rule the
+     * join controls follow (v322): a control that sits where its result will appear needs no label. */
+    if (allowBlankLinesOn()) {
+      if (i === 0) lu.insertBefore(mgInsertRow(-1), lu.firstChild);
+      lu.appendChild(mgInsertRow(i));
+    }
+  });
+
+  const bar = $('#mg-status');
+  if (bar) {
+    const unmappedSpans = MG.spans.filter((s) => !mapped(s.id)).length;
+    const unmappedLines = MG.lines.filter((l) => !lineHasSpan(l.id)).length;
+    /* Three states, because "nothing left over" and "leftovers the user chose" are different, and
+     * neither is an error. Naming what happens to each is the point: a user who leaves audio out
+     * should know it is being left out, and a user who leaves a line without audio should know the
+     * line survives. */
+    bar.textContent = !MG.map.size ? t('mg.nonePicked')
+      : (!unmappedSpans && !unmappedLines) ? t('mg.allMapped')
+      : t('mg.leftover').replace('{a}', unmappedSpans).replace('{t}', unmappedLines);
+  }
+  const done = $('#mg-done');
+  if (done) done.disabled = !mgComplete();
+  const u = $('#mg-undo'), r = $('#mg-redo');
+  if (u) u.disabled = !mgUndoStack.length;
+  if (r) r.disabled = !mgRedoStack.length;
+
+  ['#mg-spans .mg-list', '#mg-lines .mg-list'].forEach((sel, n) => {
+    const el = box.querySelector(sel);
+    if (el) el.scrollTop = keep[n];
+  });
+  /* ⚠ ONE HEAL ON A MACROTASK, NOT ONLY ON A FRAME. Every strip here is drawn in the same turn the
+   * rows are created, so layout has not run yet and each canvas measures 0 wide — the first paint is
+   * always at the default 300×150 and always wrong. The Cut tab lives with that because two things
+   * repair it: a ResizeObserver, and its rAF ticker. NEITHER RUNS IN A BACKGROUNDED TAB — both are
+   * tied to the rendering lifecycle — so a matcher opened in a tab the user then switched away from
+   * (or restored on a phone that backgrounded it) would come back to four flat grey slabs and no
+   * event left to fix them. A macrotask always runs, and the browser lays out before it: the same
+   * reason segment-strips' own loader yields with setTimeout rather than rAF. */
+  setTimeout(() => {
+    if (!MG) return;
+    box.querySelectorAll('.mg-wave').forEach((w) => healSpanWave(w));
+    /* The cut marks on the overview, pushed here as well as from the ticker. Every split and join
+     * moves them, and waiting a frame to say so makes the big waveform briefly disagree with the
+     * list beneath it — on the one screen whose whole job is that the two agree. The ticker's count
+     * check stays as the backstop for a player that reloads underneath us. */
+    player?.setBoundaries?.(mgBoundaryTimes());
+  }, 0);
+  /* ⚠ AUTOSAVE HANGS OFF THE REDRAW, not off each verb. Every change to MG — split, join, map,
+   * unmap, guess, insert, undo, redo, and whatever is added next — ends by calling mgDraw, so this
+   * is the one place that cannot be forgotten. The debounce means a flurry of clicks is one write. */
+  mgSaveDraft();
+  // The rows the ticker was writing into no longer exist; it looks them up fresh each frame, so it
+  // only has to be running. Restarting is what makes a redraw after the peaks land pick them up.
+  mgStartTicker();
+}
+
+/* The matcher's own rAF loop — the Cut tab's ticker, minus the parts that belong to cutting.
+ *
+ * It does four things, all of which the Cut tab already does and none of which survives being
+ * skipped here: moves the playhead cursor across the span it is inside, keeps that row's glyph
+ * showing ⏸ while it plays, scrolls the row into view when playback moves off screen (`followLine`,
+ * with its 4-second stand-off after a user scroll), and honours a "take me to that line" request
+ * from a seek on the big player (`takeReveal`). It also heals a strip drawn before its peaks
+ * finished decoding, which is the difference between a waveform and a plausible-looking wrong one.
+ *
+ * ⚠ NO SCISSORS UNDER THE CURSOR, unlike the Cut tab. There, ✂ cuts at the playhead and the row is
+ * the only control; here every row already carries its own ✂ in the actions column, and mgSplitSpan
+ * cuts at the playhead anyway — a second scissors would be the same action twice, six pixels apart. */
+/* KEEP A MATCHED PAIR TOGETHER ON SCREEN (Seth: "when numbers match both text and audio, we want
+ * both to scroll and highlight together").
+ *
+ * Two panes that scroll independently is the right layout — the span you are matching and the line
+ * you are matching it to are rarely the same distance down — but once a pair EXISTS the two halves
+ * are one thing, and having to find the other half by hand is the cost of that layout. So: whenever
+ * one side becomes current, its partner is highlighted and, if it is off screen, brought into view.
+ *
+ * ⚠ IT FOLLOWS PLAYBACK, not only clicks, which is where it earns its keep: listening down a
+ * recording, the text pane keeps pace on its own. The 4-second stand-off after a user scroll is the
+ * shared followLine rule — someone who has just scrolled the text pane deliberately is not fighting
+ * an auto-scroll for the next few seconds.
+ *
+ * `null` clears the pairing without moving anything, for when nothing is current. */
+let mgLinked = null;
+function mgLinkPair(lineId) {
+  const body = $('#mg-body');
+  if (!body) return;
+  if (mgLinked !== lineId) {
+    body.querySelectorAll('.mg-linked').forEach((el) => el.classList.remove('mg-linked'));
+    mgLinked = lineId;
+  }
+  if (!lineId) return;
+  const rows = body.querySelectorAll(`[data-ln="${CSS.escape(lineId)}"]`);
+  rows.forEach((el) => el.classList.add('mg-linked'));
+  // Reveal the TEXT side only: the audio side is already where the user (or the playhead) is.
+  const line = body.querySelector(`#mg-lines [data-ln="${CSS.escape(lineId)}"]`);
+  if (line) mgFollowLine = followLine(line, true, mgFollowLine, player);
+}
+let mgFollowLine = null;
+
+let mgRaf = 0;
+let mgFollowRow = null;
+function mgStopTicker() { if (mgRaf) cancelAnimationFrame(mgRaf); mgRaf = 0; mgFollowRow = null; }
+function mgStartTicker() {
+  mgStopTicker();
+  const tick = () => {
+    try {
+      if (!MG) { mgStopTicker(); return; }
+      const host = $('#mg-spans .mg-list');
+      if (!host) return;
+      const p = player;
+      const now = p?.playheadMs?.();
+      /* The cut marks live inside wavesurfer's own wrapper, so a player reload takes them with it.
+       * One property read per frame; re-pushed only when the counts disagree — same as the Cut tab. */
+      if (p && p.boundaryCount && p.durationMs?.()) {
+        const want = mgBoundaryTimes();
+        if (p.boundaryCount() !== want.length) p.setBoundaries(want);
+      }
+      host.querySelectorAll('.mg-span').forEach((row) => {
+        const sp = MG.spans.find((x) => x.id === row.dataset.sp);
+        const wave = row.querySelector('.mg-wave');
+        healSpanWave(wave);
+        if (!sp || sp.timePending || typeof now !== 'number') { row.querySelector('.seg-cursor')?.remove(); return; }
+        // The LAST span includes its own end — otherwise the cursor vanishes for the final instant
+        // of the recording, which is exactly where a user is looking. Same rule as the Cut ticker.
+        const last = sp === MG.spans[MG.spans.length - 1];
+        const inSeg = now >= sp.start && (now < sp.end || (last && now <= sp.end));
+        const rolling = !!p?.playing?.() && inSeg;
+        const btn = row.querySelector('.mg-play');
+        if (btn) { const want = rolling ? '⏸' : '▶'; if (btn.textContent !== want) btn.textContent = want; }
+        if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
+        let cur = row.querySelector('.seg-cursor');
+        if (!inSeg) { if (cur) cur.remove(); return; }
+        takeReveal(row);
+        mgFollowRow = followLine(row, rolling, mgFollowRow, p);
+        // …and bring its matched line along, so listening down a recording keeps the text in step.
+        if (rolling) mgLinkPair(MG.map.get(sp.id) || null);
+        // ⚠ INSIDE THE WAVE WRAPPER now, not the row: the wrapper is the positioned ancestor since
+        // the edge handles moved in, so a row-relative left would land in the wrong column.
+        const wrapEl = row.querySelector('.mg-wavewrap');
+        if (!wrapEl) return;
+        if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; wrapEl.appendChild(cur); }
+        const frac = Math.min(1, Math.max(0, (now - sp.start) / Math.max(1, sp.end - sp.start)));
+        cur.style.left = (frac * wrapEl.clientWidth) + 'px';
+      });
+    } finally {
+      if (MG) mgRaf = requestAnimationFrame(tick);
+    }
+  };
+  mgRaf = requestAnimationFrame(tick);
+}
+
+// The interior cuts, for the big player's own waveform: where one span ends and the next begins.
+// The final span's end is the end of the recording, which is not a cut anyone made.
+function mgBoundaryTimes() {
+  const out = [];
+  if (!MG) return out;
+  for (let i = 0; i < MG.spans.length - 1; i++) {
+    const sp = MG.spans[i];
+    if (!sp.timePending) out.push(sp.end);
+  }
+  return out;
+}
+
+/* Load the recording, then the peaks, then redraw — in that order, and each step announced.
+ *
+ * ⚠ THE PANE IS DRAWN BEFORE ANY OF THIS FINISHES, deliberately: peaks for a 40-minute recording are
+ * seconds of work, and the mapping the user came to do needs the TEXT pane, which is ready
+ * immediately. So the spans appear at once with flat strips and fill in behind — rather than holding
+ * a whole screen hostage to audio the user may not even play.
+ *
+ * Every await is followed by the same guard, because all of them are long enough for the user to
+ * have pressed Back: a late resolve must not load a player, draw peaks, or start a ticker for a
+ * document that is no longer open. */
+async function mgPrepareAudio(docId) {
+  const note = $('#mg-audio-note');
+  const prog = segPrep('#mg-audio-note');
+  const live = () => MG && MG.docId === docId;
+  if (note) note.hidden = false;
+  prog('read', null);
+  let media = await db.getMedia(docId).catch(() => null);
+  media = await segWorkingMedia(docId, media, current && current.title, prog);
+  if (!live()) return;
+  if (!media || !media.blob) {
+    // Reachable: sgRenderList disables Open for a text with no recording, but a text can lose its
+    // audio between the list rendering and the row being tapped. Say so rather than showing strips
+    // that will never draw.
+    if (note) segProgress(note, t('cut.noAudio'), 0);
+    return;
+  }
+  const p = getPlayer();
+  playerDocId = docId;
+  if (p.loadedFor !== docId) {
+    p.loadedFor = docId;
+    playerReadyFor = null;
+    await p.load(media);
+    if (p.loadedFor === docId) playerReadyFor = docId;   // a newer load supersedes silently
+  }
+  if (!live()) return;
+  p.root.hidden = false;
+  // ⚠ NO ✕. This app matches audio to text; detaching the recording is not one of its verbs, and the
+  // dock's remove button would delete the media out from under the very screen using it.
+  if (p.el && p.el.remove) p.el.remove.hidden = true;
+  await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
+  if (!live()) return;
+  if (note) note.hidden = true;
+  /* ⚠ A TEXT THAT HAS NEVER BEEN CUT MUST NOT OPEN INTO AN EMPTY PANE. That is the NORMAL starting
+   * state for this app — you arrive with a recording and a text, and no cuts at all — and until now
+   * it was a dead end: no spans meant nothing to play, nothing to split, and no way to make the
+   * first one, because every editing verb here operates on an existing span. The Cut tab never had
+   * this problem; renderCut seeds a whole-file span through reconcile(), and the matcher simply did
+   * not inherit that. One span covering the recording makes the ✂ on it the first cut. */
+  const dur = peaksDurationMs();
+  if (dur > 0 && !MG.resumed) {
+    // ⚠ NOT over a resumed draft: its spans are the user's own cutting, and appending a "remainder"
+    // to them would invent a span they had deliberately not made.
+    if (!MG.spans.length) {
+      MG.spans = [{ id: 'sp0', start: 0, end: dur, timePending: false, timeEstimated: false }];
+    } else if (dur - MG.spans[MG.spans.length - 1].end > 1000) {
+      /* ⚠ THE UNCUT REMAINDER MUST BE ON SCREEN, OR IT CANNOT BE CUT. Reopening a partly-matched
+       * text showed only what had already been aligned — Seth's file came back as a single
+       * 3-second span with the other 61 seconds nowhere, and no way to reach them, because every
+       * verb here operates on an existing span. Whatever follows the last span is appended as one
+       * more, so the pane always accounts for the whole recording. (Seth: "The remainder of
+       * unsegmented audio should show in the final line … on this particular file that should mean
+       * the rest of the audio shows in line two.")
+       *
+       * 1s tolerance, the same as coverTail's: a sliver at the end is rounding, not a missing piece. */
+      MG.spans.push({ id: 'tail', start: MG.spans[MG.spans.length - 1].end, end: dur,
+                      timePending: false, timeEstimated: false });
+    }
+  }
+  // Draggability FIRST, so the marks are built with their grips rather than rebuilt a moment later.
+  // (onBoundaryDrag forces a rebuild either way — see it — but the natural order costs nothing.)
+  p.onBoundaryDrag?.((i, t, phase) => mgBoundaryDrag(i, t, phase));
+  p.setBoundaries?.(mgBoundaryTimes());
+  mgDraw();          // redraw with real peaks — attachSpanWave paints from peaksCache
+}
+
+/* ✨ GUESS THE LINES — cut the recording at its pauses, the same detector the Cut tab uses, over the
+ * same peaks the waveforms are drawn from.
+ *
+ * ⚠ IT TOUCHES ONLY MG.spans, NEVER THE DOCUMENT. cutGuessSplits() rewrites the doc into N spans and
+ * N empty paragraphs, 1:1 — right for the Cut tab, and the exact coupling this app exists to avoid,
+ * since here the text already exists and its lines must survive. So the guess is a proposal on the
+ * audio side alone: nothing is written until Done, and Back discards it.
+ *
+ * The three guards are the Cut tab's, for the same reasons: refuse a recording longer than the
+ * detector's limit (one press on 40 minutes is hundreds of live canvases on a phone), say so when
+ * there are no clear pauses rather than silently doing nothing, and ask first if the user has
+ * already cut by hand — that work is exactly what this would throw away. */
+async function mgGuess() {
+  if (!MG) return;
+  const dur = peaksDurationMs();
+  if (!dur) { toast(t('cut.no.guessAudio'), 6000); return; }
+  if (dur > GUESS_MAX_MS) {
+    toast(t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) }), 9000);
+    return;
+  }
+  // >1 span means real cutting has happened. One whole-file span is the seed, not work.
+  if (MG.spans.length > 1 && !await confirmDialog(t('mg.guessReplace'))) return;
+  if (!MG) return;                      // the dialog is async; the user may have left
+  const cuts = guessedBoundaries();
+  if (!cuts.length) { toast(t('cut.no.guessNone'), 7000); return; }
+  mgCapture();                       // replacing every span at once is the edit most worth undoing
+  const edges = [0, ...cuts, dur];
+  MG.spans = edges.slice(0, -1).map((start, i) => ({
+    id: 'g' + i, start, end: edges[i + 1], timePending: false, timeEstimated: false,
+  }));
+  // Every mapping referred to spans that no longer exist. Silently keeping any of them would claim
+  // a pairing the user never made against audio they have not heard in these pieces.
+  MG.map.clear();
+  MG.selSpan = null;
+  player?.clearSpan?.();
+  toast(t('mg.guessed').replace('{n}', MG.spans.length), 5000);
+  mgDraw();
+}
+
+// One exit, so the ticker, the player and the open record are always released together. Three
+// callers (Back, Done, and a failed open) each releasing two of the three is how a rAF loop outlives
+// its screen and keeps scrolling a list nobody is looking at.
+function mgClose() {
+  mgStopTicker();
+  MG = null;
+  player?.pause?.();
+  player?.clearSpan?.();
+  // ⚠ AND HIDE THE DOCK. It is a sibling of the views, not part of one, so `show('segmenter')` does
+  // not touch it — the transport for a recording nobody has open stayed on screen above the text
+  // list, offering to play audio that belonged to whatever was last matched.
+  player?.onBoundaryDrag?.(null);   // the dock is shared; leave it as we found it
+  player?.hide?.();
+  lastPlayTarget = null;
+  show('segmenter');
+}
+
+/* Throw the unfinished work away and begin from the committed document. The ONLY path that
+ * discards a draft on purpose, and it asks first — this is the button whose whole job is to destroy
+ * the thing the autosave exists to protect. */
+async function mgStartOver() {
+  if (!MG) return;
+  if (!await confirmDialog(t('mg.startOverConfirm'))) return;
+  const id = MG.docId;
+  await mgClearDraft(id);
+  mgClose();
+  mgOpen(id);
+}
+
+async function mgOpen(id) {
+  const rec = await db.getDoc(id);
+  if (!rec) { toast(t('toast.cantOpen')); return; }
+  current = rec;
+  /* ⚠ ONE PHRASE PER LINE, AND THE ENGINE ALREADY KNOWS HOW. A FLExText commonly arrives with every
+   * phrase inside ONE paragraph — Seth's "Rumah Jatuh di Muara Suhu" is 1 paragraph holding 60
+   * phrases, and "Crocodile Woman" is 1 holding 77. mgLoad reads PARAGRAPHS, so such a text became a
+   * single matcher line: sixty phrases merged into one wall of words with a scissors in every gap,
+   * asking the user to re-cut by hand a segmentation the linguist had already done in FLEx.
+   *
+   * That is the wrong job. Seth: "the text is segmented (phrases), the audio is not, segment the
+   * audio and match it to text segments (phrases), but also have a way to adjust those phrase
+   * cuts/joins IF WE NEED TO, but not re-doing the phrase segmentation from scratch."
+   *
+   * healFlatSegments promotes each phrase to its own paragraph, keeping its words, glosses, free
+   * translation and any imported time offsets, and giving the first the paragraph's guid. It exists
+   * because the same import shape broke the gloss tab in v322; the matcher just never called it. The
+   * ✂ and ⤴ on the text side stay exactly as they were — they are now the ADJUSTMENT Seth describes,
+   * applied to real phrase boundaries, rather than the only way to get any boundaries at all. */
+  healFlatSegments(rec.doc);
+  mgLoad(rec);
+  /* Unfinished work wins over the stored document, because it is NEWER by construction — the doc
+   * holds the last COMMITTED state and the draft is everything since. Resumed rather than offered:
+   * a dialog on open is a decision the user has to make before they can see what they would be
+   * deciding about, and the answer is nearly always yes. The notice says what happened and carries
+   * the way out. */
+  const draft = rec.matchDraft;
+  if (draft && Array.isArray(draft.spans) && Array.isArray(draft.lines)) {
+    MG.spans = draft.spans;
+    MG.lines = draft.lines;
+    MG.map = new Map(draft.map || []);
+    MG.resumed = draft.at || Date.now();
+  }
+  mgUndoStack = []; mgRedoStack = [];   // history belongs to the text being matched, not the app
+  const view = $('#view-matcher');
+  if (view) {
+    view.innerHTML = `
+      <div class="mg-bar">
+        <button id="mg-back" class="link-btn"></button>
+        <span id="mg-title" class="mg-title"></span>
+        <span id="mg-status" class="mg-status"></span>
+        <button id="mg-undo" class="icon-btn2" disabled>&#8630;</button>
+        <button id="mg-redo" class="icon-btn2" disabled>&#8631;</button>
+        <button id="mg-guess" class="secondary-btn icon-btn2">✨</button>
+        <button id="mg-done" class="primary-btn" disabled></button>
+      </div>
+      <p id="mg-audio-note" class="note seg-loading" hidden role="status" aria-live="polite">
+        <span class="seg-loading-text"></span>
+        <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span>
+      </p>
+      <div id="mg-body"></div>`;
+    $('#mg-back').textContent = t('mg.back');
+    $('#mg-back').onclick = () => mgClose();
+    $('#mg-title').textContent = rec.title || t('untitled');
+    // ✨ not a sentence — same low-literacy rule as the Cut tab's: a glyph, with its words in the
+    // tooltip and the aria-label.
+    for (const [id, fn2, key] of [['#mg-undo', mgUndoOnce, 'edit.undo'], ['#mg-redo', mgRedoOnce, 'edit.redo']]) {
+      const b = $(id);
+      b.title = t(key); b.setAttribute('aria-label', t(key));
+      b.onclick = () => fn2();
+    }
+    const g = $('#mg-guess');
+    g.title = t('cut.guess');
+    g.setAttribute('aria-label', t('cut.guess'));
+    g.onclick = () => mgGuess();
+    $('#mg-done').textContent = t('mg.done');
+    $('#mg-done').onclick = () => mgCommit();
+  }
+  show('matcher');
+  mgDraw();
+  mgPrepareAudio(id);   // not awaited — see the comment on it
+}
+
+function setupSegmenterMode() {
+  renderSegmenterView();
+  /* ⚠ DOCUMENT-LEVEL, and gated on the matcher being open. There is no text box to hold focus on
+   * this screen — the same reason the Cut tab's keys are document-level — so a handler bound to a
+   * row would only work after the user had happened to click one. Guarded by `MG` so it cannot
+   * shadow the browser's own undo anywhere else in the app. */
+  document.addEventListener('keydown', (e) => {
+    if (!MG) return;
+    const k = (e.key || '').toLowerCase();
+    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
+    const el = e.target;
+    // Never steal it from a field the user is typing in (the speaker box, a future text input).
+    if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName || ''))) return;
+    e.preventDefault();
+    if (e.shiftKey) mgRedoOnce(); else mgUndoOnce();
+  });
+  show('segmenter');
 }
 
 function setupRecordMode() {
@@ -7956,6 +9763,7 @@ function setupResearcherMode() {
     openView: (v) => show(v),
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
     eraseAllData: () => eraseAllData(),
+    producedBy: () => producedBy(),
     canInstall: () => !!installPrompt,
     doInstall: async () => {
       if (!installPrompt) return;
@@ -7974,6 +9782,16 @@ function setupResearcherMode() {
  * - Space toggles the LAST-USED player when focus is not in a field or on a button (a focused
  *   button already Space-clicks natively — double-toggling would un-toggle it).
  * - ⏮ rewinds the last-used target to ITS OWN start: a segment to its span start, the dock to 0. */
+/* Companion-app links on the Utilities tab. The markup carries the production URLs as a fallback;
+ * this swaps in the panel's estate map so a staging editor links the staging apps and the dev rig
+ * its own. Satellite shells have no #companion-apps and get a no-op. */
+function wireCompanionLinks() {
+  for (const a of companionApps()) {
+    const el = document.querySelector(`#companion-apps [data-app="${a.key}"]`);
+    if (el && a.url) el.href = a.url;
+  }
+}
+
 function wirePlaybackKeys() {
   const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
   document.addEventListener('keydown', (e) => {
@@ -8078,6 +9896,7 @@ function wirePlaybackKeys() {
 
 function setup() {
   wirePlaybackKeys();
+  wireCompanionLinks();
   $('#btn-undo')?.addEventListener('click', doUndo);
   $('#btn-redo')?.addEventListener('click', doRedo);
   // Crowd mode boots FIRST — before applyUrlSettings/migrateSettings/SW/sync can
@@ -8187,6 +10006,8 @@ function setup() {
       setLang(langSel.value);
       applyI18n();
       if (RECORD_MODE) { renderRecordView(); renderRecordList(); return; }
+      if (CONSENT_MODE) { ccRenderList(); return; }   // a text arriving by assignment joins the list
+      if (SEGMENTER_MODE) { sgRenderList(); return; }
       applyHelpResearchVisibility();
       renderDocList();
       // The Settings tab's labels are baked by t() at build time, not by data-i18n attributes, so
@@ -8224,6 +10045,24 @@ function setup() {
   // ----- Record-only mode: show just the recorder UI and stop here. -----
   if (RECORD_MODE) {
     setupRecordMode();
+    return;
+  }
+
+  /* The consent collector and the segmenter fork HERE, at the recorder's position, and that
+   * placement is the design.
+   *
+   * Everything above this line has already run for them: settings, i18n, live cross-window sync,
+   * Sync.start, the upload retry pump, the shared modals, the service worker. Both apps need all
+   * of it — the collector because a retrofitted consent record has to upload through the same
+   * Lane A path as a native one, and the segmenter because segmentation results travel the same
+   * way. Forking earlier (the crowd/paragraph position) would have meant reimplementing sync and
+   * upload inside two more apps, which is exactly what the suite's design principle forbids. */
+  if (CONSENT_MODE) {
+    setupConsentMode();
+    return;
+  }
+  if (SEGMENTER_MODE) {
+    setupSegmenterMode();
     return;
   }
 
@@ -8328,6 +10167,15 @@ function setup() {
   $('#btn-refresh')?.addEventListener('click', async (e) => {
     const b = e.currentTarget;
     if (b) { b.classList.add('rp-spin'); b.disabled = true; }
+    /* ⚠ COMMIT WHAT IS ON SCREEN BEFORE RELOADING (Seth, 2026-09-01: "make sure unfocus and save
+     * changes fires before reload… if there's a risk of the current edit not getting saved").
+     * The home bar is shared by the Settings and Utilities tabs, which have real input fields, so
+     * "no text is open" does NOT mean "nothing is unsaved". Blur first — that is what fires the
+     * change handlers a field's value depends on — then flush the DEBOUNCED save rather than
+     * waiting for its timer, which the reload would otherwise cut off. This is the same loss the
+     * auto-update banner is already filed for; there is no reason to reproduce it in a button. */
+    try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch { /* noop */ }
+    try { clearTimeout(saveTimer); await persist(); } catch { /* nothing open, or save failed — reload anyway */ }
     try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); }
     catch { /* no worker, or update refused — reload anyway */ }
     finally { location.reload(); }
@@ -8411,6 +10259,7 @@ function setup() {
     openView: (v) => show(v),
     goHome: () => { renderDocList(); show('texts'); },
     eraseAllData: () => eraseAllData(),
+    producedBy: () => producedBy(),
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
     /* No onLocalSettingsSaved any more: the panel's "This device" settings modal is gone (Seth,
      * 2026-08-07). A researcher's own device is UNPAIRED, so it already has this app's Settings tab
@@ -8442,7 +10291,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled() }); },
+  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

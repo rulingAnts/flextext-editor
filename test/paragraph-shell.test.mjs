@@ -84,8 +84,14 @@ for (const p of ['/index.html', '/manifest.webmanifest', '/flextext-editor/js/ap
  * because the failure is a permission prompt on someone else's machine. */
 {
   const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
-  ok(/if \(PARAGRAPH_MODE \|\| RESEARCHER_MODE\) return;/.test(app),
+  ok(/if \(PARAGRAPH_MODE \|\| RESEARCHER_MODE \|\| SEGMENTER_MODE\) return;/.test(app),
      'warmUpMic refuses outright in the apps that have no recording feature');
+  /* ⚠ And the converse, which a "list the silent apps" test forgets: the consent collector RECORDS
+   * — the spoken "yes" is one of the three confirmation forms — so sweeping it into that guard
+   * would break the app quietly, by making the mic unavailable exactly where it is needed. */
+  const micGuard = (app.match(/if \(PARAGRAPH_MODE[^\n]*\) return;/) || [''])[0];
+  ok(!/CONSENT_MODE/.test(micGuard),
+     `the consent collector is NOT in the mic guard — it needs the microphone (${micGuard})`);
   ok(/const modal = \$\('#record-modal'\);\s*\n\s*if \(modal && !modal\.hidden/.test(app),
      'the modal must EXIST before its hidden flag is consulted');
   // The live check that matters: the visibility handler must not warm on a missing element.

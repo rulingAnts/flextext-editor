@@ -112,14 +112,25 @@ console.log('\ndo the two files even belong together? (the menu never has to ask
 
 console.log('\nPARITY with the Files ▾ menu — the same wants, the same full, the same names');
 {
-  const menu = panel.match(/const wants = \{ elan:[^\n]*\n/)[0];
-  ok(/elan: \{ eaf: true \}/.test(menu) && /saymore: \{ saymore: true \}/.test(menu)
-     && /preview: \{ preview: true \}/.test(menu) && /fxpa: \{ fxpa: true \}/.test(menu),
+  /* ⚠ MATCHED ACROSS LINES, not to the end of one. The map outgrew a single line when 'eaf' was
+   * added, and a `[^\n]*` pattern then saw only its first half — reporting a menu that had "changed"
+   * when only its formatting had. A parity test that trips on a line break is a test that gets
+   * edited to shut it up, which is how the parity it guards quietly stops being checked. */
+  const KINDS = ['elan: { eaf: true }', 'eaf: { eaf: true }', 'saymore: { saymore: true }',
+                 'preview: { preview: true }', 'fxpa: { fxpa: true }'];
+  const menu = panel.match(/const wants = \{ elan:[\s\S]*?\}\[kind\];/)[0];
+  ok(KINDS.every((k) => menu.includes(k)),
      'the menu maps kind → wants as expected (if this fails, the menu changed and so must we)');
   const mine = seg.match(/const wants = \{ elan: \{ eaf: true \}[\s\S]*?\}\[kind\];/)[0];
-  ok(/elan: \{ eaf: true \}/.test(mine) && /saymore: \{ saymore: true \}/.test(mine)
-     && /preview: \{ preview: true \}/.test(mine) && /fxpa: \{ fxpa: true \}/.test(mine),
-     'and the converter maps them identically');
+  ok(KINDS.every((k) => mine.includes(k)), 'and the converter maps them identically');
+  /* 'eaf' is 'elan' minus the packaging, on BOTH surfaces — the same wants (so the same EAF bytes),
+   * a bare file rather than a zip, and no gate on having the recording. */
+  ok(/kind === 'eaf' \? \/\\.eaf\$\/i/.test(seg) && /kind === 'eaf' \? \/\\.eaf\$\/i/.test(panel),
+     'both pick the .eaf out of the assembled entries and hand it over bare');
+  ok(/\(kind === 'elan' \|\| kind === 'eaf'\) && !segMedia/.test(seg),
+     'and the converter reaches the text-only EAF path with no recording — the EAF needs times, not audio');
+  ok(/kind !== 'fxpa' && kind !== 'eaf' && !src\.segMedia/.test(panel),
+     'the menu exempts it from the recording requirement for the same reason');
   ok(/const full = kind === 'preview' \|\| kind === 'fxpa';/.test(seg),
      'preview and fxpa are the embedded-audio outputs, exactly as the menu decides it');
   ok(/full: kind === 'preview' \|\| kind === 'fxpa'/.test(panel), '…which is what the menu says too');

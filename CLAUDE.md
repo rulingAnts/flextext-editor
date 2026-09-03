@@ -4,12 +4,35 @@ Offline-first interlinear text editor PWA for FLEx `.flextext` files (baseline
 transcription, word glossing, free translation). It's a **static site** served
 via GitHub Pages.
 
+## 🚩 SYNC WITH ORIGIN BEFORE YOU WRITE ANYTHING (Seth, 2026-09-02)
+
+**`git fetch origin && git rebase origin/main` before starting work. Every session, without
+exception.** A clone that has been sitting is the one hazard in this repo that looks like nothing at
+all: the tests pass, the files read sensibly, and the version number in front of you is a real
+version that really shipped.
+
+It cost an evening on 2026-09-02. A checkout sat at **v441 while origin was v566** — 336 commits and
+12 days — and two new satellite apps were built on it: written against an engine that had moved on
+by 125 releases, with every edit to a shared file aimed at a version that no longer existed. Nothing
+was lost and nothing was overwritten; git rejects a non-fast-forward push, so the damage was never
+data. It was WORK, and all of it had to be redone.
+
+- **`./check-freshness.sh`** reports how far behind you are and fails if it is far. `dev-serve.sh`
+  runs it at startup (warn-only) and `hooks/pre-push` runs it too — but by push time the work is
+  already done, so **the startup warning is the one that can still save anything.**
+- **Offline is not stale.** If the fetch cannot reach the remote it says so and exits 0. This suite
+  is for people with no connectivity; a guard that blocked work on a plane would be switched off.
+- `test/freshness-guard.test.mjs` drives the script against a synthetic repo. It exists because the
+  FIRST version of the guard called `timeout 20 git fetch` — and macOS has no `timeout(1)`, so it
+  reported "offline, skipping" and exited 0 while online. A guard that no-ops is worse than none: it
+  prints a reassuring line and checks nothing.
+
 ## Branches — READ THIS FIRST
 
 | Branch | Purpose |
 |---|---|
 | `main` | **Releasable trunk.** Small same-day changes and finished feature merges. A release is `merge --ff-only main` into `productionWeb`, so main must stay shippable at all times. |
-| `productionWeb` | **The live site.** The ONLY branch that builds on push: a push deploys all five Cloudflare Workers automatically, and GitHub Pages rebuilds https://rulingants.github.io/flextext-editor/ . ⚠ `sync-satellites.yml` no longer fires on push (v432) — the three Pages mirrors keep SERVING but stopped receiving updates; publish one deliberately with `workflow_dispatch` if ever needed. Never push without Seth's explicit test-drive sign-off. |
+| `productionWeb` | **The live site.** The ONLY branch that builds on push: a push deploys all seven Cloudflare Workers automatically, and GitHub Pages rebuilds https://rulingants.github.io/flextext-editor/ . ⚠ `sync-satellites.yml` no longer fires on push (v432) — the three Pages mirrors keep SERVING but stopped receiving updates; publish one deliberately with `workflow_dispatch` if ever needed. Never push without Seth's explicit test-drive sign-off. |
 | `staging` | **The dev site.** `main` + in-progress feature merges (`--no-ff`). ⚠ Since 2026-08-20 a `staging` push builds NOTHING — you deploy it deliberately: Actions → **Deploy to staging / preview**, ticking only the apps you are testing. They publish to `https://staging-<worker>.68mh29kgsd.workers.dev/` (editor, researcher, recorder, crowd, paragraph-analysis-tool). ⚠ The **Paragraph Analysis tool is a SEPARATE Worker** and is NOT on the editor origin — check its engine version by curling `/flextext-editor/js/i18n.js` for `ENGINE_VERSION`, not `/sw.js`. ⚠ Because apps are ticked individually, staging's five aliases can sit at DIFFERENT versions; tick everything a change spans. |
 | feature branches | e.g. `segmentation2` (shipped as v158), `seg-exports` (in test). Branch from `main`, merge `--no-ff` into `staging` to test, ff into `main` only when complete + approved. Their own preview estate is still available and is deliberately kept (Seth, 2026-08-20: *"usually not needed, but sometimes needed"*) — run the same staging workflow with that branch selected and it publishes to `<branch>-<worker>…`. |
 
@@ -77,10 +100,10 @@ takes in between each iteration."*
 | you do | what builds |
 |---|---|
 | push `main` / `staging` / a feature branch | **nothing** |
-| push `productionWeb` | all five apps, automatically, as before |
+| push `productionWeb` | all seven apps, automatically, as before |
 | Actions → **Deploy to staging / preview** | only the apps you tick, from the branch you pick |
 
-- **Cloudflare side:** each of the five app Workers has *Builds for non-production branches*
+- **Cloudflare side:** each of the seven app Workers has *Builds for non-production branches*
   **unchecked** (Settings → Build → Branch control). Production branch stays `productionWeb`; the
   Deploy and Version commands stay `bash deploy.sh`. That single checkbox is the whole mechanism —
   the git integration is still connected, so a production push works exactly as it always did.
@@ -162,7 +185,7 @@ docs-only push cost a build of every Worker. **That cost is gone** for `main`, `
 branches — push documentation whenever you like.
 
 ⚠ **The one place the old caution still holds is `productionWeb`**: a docs commit pushed there does
-still build all five. Keep prose off that branch, and land the version commit LAST in a release push
+still build all seven. Keep prose off that branch, and land the version commit LAST in a release push
 — Cloudflare labels a build with the TIP commit, so a release whose tip is a `plans:` commit shows up
 in the dashboard looking like a docs build, which is exactly the wrong thing to be reading during
 release verification. (That happened on v433.)
@@ -216,7 +239,7 @@ untested code than there is. Between v306 and v315, EIGHT versions carried nothi
 - Docs-only commit (planning notes, DEVELOPERS.md, this file) → **commit and push, no bump.**
 - Any change to `docs/js/`, `docs/css/`, `docs/index.html`, or anything a sw.js precaches →
   **bump**, because that is what a bump is for.
-- The version-sync test only requires the five sites to AGREE; it never requires a bump, so nothing
+- The version-sync test only requires the seven sites to AGREE; it never requires a bump, so nothing
   fails when you skip one.
 
 When reporting what is on staging, say which versions carry code and which carry documents. "Eleven
@@ -737,12 +760,33 @@ approval AND a stated cost estimate first.**
 - Safety valve: with **no payment method on file, GitHub blocks usage at the quota and
   cannot bill** — keep it that way, or set stop-usage budgets.
 
-So WITHOUT Seth's explicit OK (and cost), do **not**: add or change `.github/workflows/**`;
-use a non-standard `runs-on:`; add a `schedule:` (cron) trigger; create Codespaces; use
-Git LFS; publish private Packages; or change the plan / budgets. The local
-`.git/hooks/pre-push` blocks workflow pushes (override `ALLOW_WORKFLOW_PUSH=1`) and
-production-branch pushes (`ALLOW_MAIN_PUSH=1`) — set those flags only after Seth approves
-that specific push.
+So WITHOUT Seth's explicit OK (and cost), do **not**: use a non-standard `runs-on:`; add a
+`schedule:` (cron) trigger; create Codespaces; use Git LFS; publish private Packages; or
+change the plan / budgets. The local `.git/hooks/pre-push` blocks workflow pushes (override
+`ALLOW_WORKFLOW_PUSH=1`) and production-branch pushes (`ALLOW_MAIN_PUSH=1`).
+
+### 🚩 AMENDED (Seth, 2026-09-03): when the cost is KNOWN to be zero, just go
+
+> *"IF you know the cost is free, then you may go for it without asking for approval first…
+> If cost is the blocker."*
+
+**Claude may set `ALLOW_WORKFLOW_PUSH=1` itself when it has ESTABLISHED that the change is
+free** — that is, all of: this repo is **public**, the workflow uses only **standard**
+GitHub-hosted runners, and the change adds **no** `schedule:`/cron trigger, no larger or GPU
+runner, no Codespaces, no LFS, and no private Packages. Editing an existing manual
+(`workflow_dispatch`) workflow — adding an input, extending an app list — is the ordinary
+case and is free.
+
+Two limits on that, and they are the point:
+
+1. **"Free" must be established, not assumed.** If you have not actually checked the repo's
+   visibility and the `runs-on:` lines in the file you are touching, you do not know, and
+   the old rule applies. Uncertainty is not a tie-breaker in favour of pushing.
+2. **The relaxation covers COST ONLY.** *"If cost is the blocker."* A workflow change can
+   deserve a pause for reasons that have nothing to do with billing — it alters what
+   deploys, or when, or could strand a release path. That judgement is unchanged and still
+   Seth's. The guard's message no longer decides for you which kind of change you have; you
+   do.
 
 ---
 

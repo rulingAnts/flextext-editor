@@ -13,7 +13,14 @@
 # can't — mixed content). For the researcher panel, also run the dev worker:
 #   flextext-r2-worker/dev-worker.sh
 set -euo pipefail
+
+# ⚠ THE POINT OF INTERCEPTION. Starting a dev server is the moment before coding, which is the only
+# moment a staleness warning can still save the work rather than describe its loss. Warn-only and
+# non-blocking on purpose: offline is normal here, and a dev server that refuses to start because a
+# laptop is on a plane would be turned off, not obeyed.
+[ -x "$(dirname "$0")/check-freshness.sh" ] && "$(dirname "$0")/check-freshness.sh" --warn --quiet
 PORT="${1:-8012}"
+SELF="$(cd "$(dirname "$0")" && pwd)"
 MIRROR="$HOME/GIT/.flextext-devserve-$PORT"    # PER-PORT: a second instance must not re-point this one's symlinks
 # The published site now lives in docs/ (GitHub Pages serves productionWeb:/docs), so the
 # symlink that becomes /flextext-editor/ must point THERE, not at the repo root.
@@ -41,9 +48,15 @@ ln -s "$EDITOR" "$MIRROR/flextext-editor"
 [ -d "$RECORDER" ] && ln -s "$RECORDER" "$MIRROR/text-recorder" || echo "(note: text-recorder repo not found — editor only)"
 [ -d "$CROWD" ] && ln -s "$CROWD" "$MIRROR/crowd-recorder" || echo "(note: crowd-recorder repo not found — skipping)"
 [ -d "$PARAGRAPH" ] && ln -s "$PARAGRAPH" "$MIRROR/paragraph-analysis" || echo "(note: paragraph-analysis shell not found — skipping)"
+# The two newest satellites live IN THIS REPO under satellites/, so unlike the recorder they need
+# no sibling clone — link them straight from the tree being edited.
+ln -s "$SELF/satellites/consent-collector" "$MIRROR/consent-collector"
+ln -s "$SELF/satellites/audio-segmenter"   "$MIRROR/audio-segmenter"
 echo "Serving on http://localhost:$PORT"
 echo "  Editor:    http://localhost:$PORT/flextext-editor/"
 echo "  Recorder:  http://localhost:$PORT/text-recorder/"
+echo "  Consent:   http://localhost:$PORT/consent-collector/"
+echo "  Segmenter: http://localhost:$PORT/audio-segmenter/"
 echo "  Crowd:     http://localhost:$PORT/crowd-recorder/"
 echo "  Paragraph: http://localhost:$PORT/paragraph-analysis/"
 # Send no-store on every response so the browser NEVER caches dev assets (a plain

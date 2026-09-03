@@ -678,6 +678,8 @@ export class Player {
     this.destroyWs();
     this.hideProgress();
     this.root.hidden = false;
+    // A different recording needs a different fit, and the observer only acts on a CHANGE.
+    this._fittedWidth = null;
     this.el.status.textContent = this.labels.preparing;
     this.el.status.hidden = false;
 
@@ -752,12 +754,20 @@ export class Player {
         } catch { /* peaks caching is best-effort */ }
       }
       // Initial zoom: fit the whole file in the visible width.
-      const fit = Math.max(ZOOM_MIN,
-        this.el.wave.clientWidth / Math.max(1, this.ws.getDuration()));
-      this.el.zoom.min = String(Math.floor(fit));
-      this.el.zoom.max = String(ZOOM_MAX);
-      this.el.zoom.value = String(Math.floor(fit));
+      this.fitZoom();
     });
+    /* ⚠ AND AGAIN WHEN THE BOX FINALLY HAS A WIDTH. `load()` unhides the dock and constructs
+     * wavesurfer in the same synchronous block, so layout has NOT run: el.wave.clientWidth is 0, the
+     * fit above collapses to ZOOM_MIN, and wavesurfer renders into a zero-width canvas. The result
+     * is a player with working transport controls and NO WAVEFORM — which reads as "broken", and
+     * which a reload silently fixes because by then the dock is already laid out. That made it look
+     * intermittent and kept it alive across apps: Seth hit it in the segmenter and had "similar
+     * problems with the editor app", which is the same bug reached from a different screen.
+     *
+     * One observer on the wave box, re-fitting whenever the width changes from what we last fitted
+     * to. Zooming changes the CANVAS width, never this element's CSS box, so there is no feedback
+     * loop — the same reasoning segment-strips' observeWave documents for the strip canvases. */
+    this.attachWaveResize();
     this.ws.on('error', (err) => {
       // Raw demuxer text ("DEMUXER_ERROR_COULD_NOT_OPEN") means nothing to a field user, so the
       // message stays plain — but it must not be USELESS either.
@@ -890,6 +900,37 @@ export class Player {
    * purpose, not by carelessness. Keep them here rather than "tidying" them into the stylesheet.
    *
    * They are pure decoration: pointer-events none, so the whole waveform stays a seek surface. */
+  /* Fit the whole recording into the visible width, and remember the width we fitted to.
+   * Returns false when there is nothing to fit yet (no player, no duration, or a box with no
+   * width), so the caller can tell "not ready" from "done". */
+  fitZoom() {
+    if (!this.ws) return false;
+    const w = this.el.wave.clientWidth;
+    let dur = 0;
+    try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
+    if (!(w > 0) || !(dur > 0)) return false;
+    const fit = Math.max(ZOOM_MIN, w / dur);
+    this.el.zoom.min = String(Math.floor(fit));
+    this.el.zoom.max = String(ZOOM_MAX);
+    this.el.zoom.value = String(Math.floor(fit));
+    // Re-apply it so wavesurfer actually re-renders at the new scale. Wrapped because a zoom before
+    // the decode has landed throws, and a failed fit must not kill the observer.
+    try { this.ws.zoom(fit); } catch { /* not ready yet; the observer will come back */ }
+    this._fittedWidth = w;
+    return true;
+  }
+
+  // One observer for the life of the Player — re-created loads share it, since the element does not
+  // change. Swept on destroy.
+  attachWaveResize() {
+    if (this._waveRO || typeof ResizeObserver === 'undefined') return;
+    this._waveRO = new ResizeObserver(() => {
+      const w = this.el.wave.clientWidth;
+      if (w > 0 && w !== this._fittedWidth) this.fitZoom();
+    });
+    try { this._waveRO.observe(this.el.wave); } catch { this._waveRO = null; }
+  }
+
   setBoundaries(list) {
     this._bounds = Array.isArray(list) ? list.filter((n) => Number.isFinite(n)) : [];
     this.renderBoundaries();
@@ -917,19 +958,106 @@ export class Player {
       wrap.appendChild(layer);
       this._boundLayer = layer;
     }
-    layer.replaceChildren();
     let dur = 0;
     try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
-    if (!dur || !this._bounds || !this._bounds.length) return;
-    for (const ms of this._bounds) {
+    const want = (dur && this._bounds) ? this._bounds.filter((ms) => {
       const f = (ms / 1000) / dur;
-      if (!(f > 0) || f >= 1) continue;     // 0 and the file end are edges, not boundaries
+      return f > 0 && f < 1;                 // 0 and the file end are edges, not boundaries
+    }) : [];
+
+    /* ⚠ REUSE THE NODES WHEN THE COUNT HAS NOT CHANGED, AND NEVER replaceChildren DURING A DRAG.
+     *
+     * This used to rebuild the whole layer on every call. The matcher calls setBoundaries on every
+     * pointermove so the overview keeps up with the drag — which destroyed the very <span> holding
+     * the pointer capture, one frame in. The drag then died after a single move, and because the
+     * grab box was offset from the line the one move it did apply jumped LEFT: "Dragging boundaries
+     * on the preview player only moves to the left, even when I drag right" (Seth).
+     *
+     * Moving a boundary never changes how many there are, so the reuse path is the one a drag takes
+     * — the node under the finger survives, and the update is a style write instead of a rebuild. */
+    if (layer.children.length === want.length) {
+      want.forEach((ms, i) => {
+        const el = layer.children[i];
+        el.style.left = (((ms / 1000) / dur) * 100) + '%';
+        el.dataset.bi = String(i);
+      });
+      return;
+    }
+    layer.replaceChildren();
+    if (!want.length) return;
+    /* ⚠ DRAGGABLE ONLY WHEN SOMEBODY IS LISTENING. `onBoundaryDrag` is opt-in: the Cut tab draws
+     * these same marks and has never offered to move them, and silently making them draggable there
+     * would add a destructive gesture to a screen whose users did not ask for one. The matcher sets
+     * it; nothing else does. The LAYER stays pointer-events:none so it cannot swallow clicks meant
+     * for the waveform underneath — only the marks themselves become targets. */
+    const drag = this._onBoundaryDrag;
+    want.forEach((ms, i) => {
+      const f = (ms / 1000) / dur;
       const b = document.createElement('span');
       b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
         + 'border-left:2px dotted rgba(108,118,133,.85);';
       b.style.left = (f * 100) + '%';
+      b.dataset.bi = String(i);
+      if (drag) {
+        /* ⚠ THE GRAB AREA IS A CHILD, so the LINE stays exactly on the boundary.
+         *
+         * Widening the mark itself and pulling it back with margin-left moved the drawn line 7px
+         * off the time it represents — and since the drag sets an absolute position, grabbing the
+         * line you can see and moving one pixel snapped the boundary 7px-worth to the left before
+         * it tracked anything. A 2px line is still not a tap target, so the hit area is a separate
+         * transparent box centred on it: invisible, 15px wide, and it cannot displace its parent. */
+        b.style.pointerEvents = 'none';
+        const hit = document.createElement('i');
+        hit.style.cssText = 'position:absolute;top:0;bottom:0;left:-7px;width:15px;'
+          + 'pointer-events:auto;cursor:col-resize;touch-action:none;';
+        b.appendChild(hit);
+        hit.addEventListener('pointerdown', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();             // never let the drag double as a seek
+          try { hit.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }
+          const box = () => wrap.getBoundingClientRect();
+          const at = (e2) => {
+            const r = box();
+            return r.width > 0 ? ((e2.clientX - r.left) / r.width) * dur * 1000 : null;
+          };
+          /* ⚠ GRAB OFFSET, so the boundary does not jump to the finger on the first move. The hit box
+           * is 15px wide; without this, grabbing its edge snaps the boundary by up to 7px-worth of
+           * time before it tracks anything, which on a long recording is a real amount. Measured
+           * once against where the boundary actually is, then held for the gesture. */
+          const t0 = at(ev);
+          const grab = (t0 == null) ? 0 : t0 - ms;
+          drag(i, null, 'start');
+          const move = (e2) => { const t = at(e2); if (t != null) drag(i, t - grab, 'move'); };
+          const up = (e2) => {
+            hit.removeEventListener('pointermove', move);
+            hit.removeEventListener('pointerup', up);
+            hit.removeEventListener('pointercancel', up);
+            drag(i, null, 'end');
+          };
+          hit.addEventListener('pointermove', move);
+          hit.addEventListener('pointerup', up);
+          hit.addEventListener('pointercancel', up);
+        });
+      }
       layer.appendChild(b);
-    }
+    });
+  }
+
+  /* Let a caller move the marks. `fn(index, ms, phase)` where phase is 'start' | 'move' | 'end';
+   * ms is null if the pointer left the measurable area. Passing null disables dragging again. */
+  onBoundaryDrag(fn) {
+    this._onBoundaryDrag = fn || null;
+    /* ⚠ FORCE A REBUILD, never the reuse path. Whether a mark is draggable is baked into the node
+     * when it is built (the transparent hit child is only added when a handler exists), and the
+     * reuse path in renderBoundaries only rewrites `left`. So turning dragging on AFTER the marks
+     * already existed left them exactly as they were: inert, with no grip.
+     *
+     * That is not hypothetical — it is the order mgPrepareAudio uses, since it pushes the boundary
+     * times as soon as the peaks land and enables dragging immediately after. The marks came back
+     * un-grabbable and the whole feature was dead on arrival. Dropping the children makes the next
+     * render take the build path. */
+    this._boundLayer?.replaceChildren();
+    this.renderBoundaries();
   }
 
   /** Park the playhead at an absolute position WITHOUT changing play/pause state — strip

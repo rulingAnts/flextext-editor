@@ -38,6 +38,14 @@ on:
         description: 'Paragraph Analysis Tool (paragraph-analysis-tool)'
         type: boolean
         default: false
+      consent:
+        description: 'Consent Collector (consent-collector)'
+        type: boolean
+        default: false
+      segmenter:
+        description: 'Audio Segmenter (audio-segmenter)'
+        type: boolean
+        default: false
 
 jobs:
   plan:
@@ -67,6 +75,8 @@ jobs:
           if [ "${{ inputs.recorder }}"   = "true" ]; then apps+=('"apps/recorder"'); fi
           if [ "${{ inputs.crowd }}"      = "true" ]; then apps+=('"apps/crowd"'); fi
           if [ "${{ inputs.paragraph }}"  = "true" ]; then apps+=('"paragraph-analysis"'); fi
+          if [ "${{ inputs.consent }}"    = "true" ]; then apps+=('"apps/consent"'); fi
+          if [ "${{ inputs.segmenter }}"  = "true" ]; then apps+=('"apps/segmenter"'); fi
           if [ ${#apps[@]} -eq 0 ]; then
             echo "::error::No apps ticked — nothing to deploy. Tick at least one and run it again."
             exit 1

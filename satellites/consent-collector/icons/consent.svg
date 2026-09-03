@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#7c3aed"/>
+  <!-- Consent Collector: a SPOKEN permission, confirmed. A speech bubble (the speaker's
+       voice, as in the recorder's mic) carrying a tick (the permission given). Sibling of
+       the recorder/researcher marks: same 512 canvas, same 96 corner radius, white on a
+       single flat brand colour. -->
+  <path d="M 96 132 h 320 a 40 40 0 0 1 40 40 v 176 a 40 40 0 0 1 -40 40 h -168 l -84 68 v -68 h -68 a 40 40 0 0 1 -40 -40 v -176 a 40 40 0 0 1 40 -40 z" fill="#ffffff"/>
+  <path d="M 168 258 l 58 58 l 122 -122" fill="none" stroke="#7c3aed" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

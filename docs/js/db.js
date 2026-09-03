@@ -60,8 +60,30 @@ export async function listDocs() {
         // pendingAudio rides along too: renderDocList's assigned-audio arrival branch (progress
         // bar + ticker) keys on it, and without it in this projection that branch was DEAD — an
         // arriving recording showed a plain row, no bar, ever (found auditing issue #11's list).
-        const { id, title, modified, created, segCount, glossed, done, pendingFlextext, pendingAudio } = cur.value;
-        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext, pendingAudio: pendingAudio || '' });
+        // The consent fields ride along for the same reason as the two above: the Consent
+        // Collector groups by speaker and shows a per-text permission state, and reading the whole
+        // record per row to learn them would be a second read for every text on the device.
+        // consentReceipt is carried whole because the state depends on what was COLLECTED
+        // (responseTypes), not merely on the receipt existing — a receipt promising a recorded
+        // answer whose clip never arrived is incomplete, and only the receipt says so.
+        const { id, title, modified, created, segCount, glossed, done, pendingFlextext, pendingAudio,
+          consentSpeaker, consentReceipt, consentClip, doc, matchDraft } = cur.value;
+        /* ⚠ spanCount IS NOT segCount. segCount is docStats' count of PHRASES — how much text the
+         * doc holds. The Audio Segmenter needs the count of AUDIO SPANS, which is a different
+         * number living in a different place (doc.segments, the field the Cut tab writes), and
+         * reading segCount for it made a text with 30 typed lines and no cuts report itself as
+         * fully segmented. Counted here from the record the cursor has already deserialized, so it
+         * costs nothing, and counted ALIGNED-only because a timePending span is a placeholder for
+         * a cut nobody has made yet. */
+        const segs = (doc && Array.isArray(doc.segments)) ? doc.segments : [];
+        const spanCount = segs.filter((s) => s && !s.timePending
+          && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start).length;
+        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext, pendingAudio: pendingAudio || '',
+          consentSpeaker: consentSpeaker || '', consentReceipt: consentReceipt || null,
+          consentClip: consentClip || '', spanCount,
+          // ⚠ A FLAG, never the draft itself: it holds every line's words, and the list would then
+          // carry the whole corpus in memory to render one caption.
+          hasDraft: !!(matchDraft && Array.isArray(matchDraft.spans)) });
         cur.continue();
       } else {
         out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
@@ -116,6 +138,28 @@ export async function putMedia(docId, record) {
   return new Promise((resolve, reject) => {
     const req = mediaTx(db, 'readwrite').put(record, docId);
     req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* WHICH DOCS HAVE A RECORDING ON THIS DEVICE — the one authoritative answer, in one transaction.
+ *
+ * ⚠ THERE IS NO FIELD FOR THIS ON THE DOC RECORD. `rec.mediaName` looks like one and is never
+ * written by anything: every mediaName in the sources is a local export option. The Audio
+ * Segmenter gated its Open button on it, so every text on a real device reported "no recording
+ * attached" and could not be opened at all — the app was unusable on anything but a hand-made
+ * fixture. `audioSource` is closer but lies in the other direction: it survives on the record
+ * after the media is deleted, and it is absent on texts stored before it existed.
+ *
+ * The media store IS the fact. getAllKeys is one read for the whole library rather than a getMedia
+ * per row, and the doc's own recording is stored under the bare doc id (consent clips, prompt
+ * clips and the derived segmentation WAV all carry a `<kind>:` prefix, so they cannot be mistaken
+ * for one). */
+export async function mediaKeys() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const req = mediaTx(db, 'readonly').getAllKeys();
+    req.onsuccess = () => resolve(new Set((req.result || []).filter((k) => typeof k === 'string' && !k.includes(':'))));
     req.onerror = () => reject(req.error);
   });
 }

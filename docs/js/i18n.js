@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v565';
+export const ENGINE_VERSION = 'v568';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v565';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'refresh-hard v1';
+export const BUILD_TAG = '';
 
 const S = {
 en: {
@@ -91,6 +91,80 @@ en: {
   'record.titleLabel': 'Title for this text',
   'record.titlePh': 'Give this recording a name',
   'record.appName': 'Flextext Recorder',
+  // ── Consent Collector (satellite) ──
+  'consentapp.appName': 'Flextext Consent Collector',
+  'cc.hint': 'Add speaker permission to texts you already have. Group them by speaker, tick the ones that person agrees to, and ask <b>once</b> for all of them.',
+  'cc.empty': 'No texts on this device yet. Open a .flextext file with the button above, or wait for your researcher to send you some.',
+  'cc.unassigned': 'Not yet assigned to a speaker',
+  'cc.speakerPh': 'speaker',
+  'cc.stateNone': 'no permission yet',
+  'cc.statePartial': 'incomplete — the recorded answer is missing',
+  'cc.stateFull': 'permission on file',
+  'cc.tallyNeed': 'still to ask: {n} of {total}',
+  'cc.tallyDone': 'all have permission ({total})',
+  'cc.selOne': '1 text selected',
+  'cc.selMany': '{n} texts selected',
+  'cc.collect': 'Ask for permission',
+  'cc.clearSel': 'Clear selection',
+  'cc.savedOne': 'Permission saved for 1 text.',
+  'cc.savedMany': 'Permission saved for {n} texts.',
+  'cc.consentOff': 'No permission questions are set up yet, so there is nothing to record. Ask your researcher to turn them on.',
+  // Bringing texts in — shared by both satellites (see satImportFiles).
+  'sat.open': 'Open .flextext file\u2026',
+  'sat.openPair': 'Open text + recording together\u2026',
+  'sat.needText': 'Pick a .flextext file too \u2014 a recording on its own has no text to work with.',
+  'sat.noTexts': 'no texts found in the file',
+  'sat.importedOne': 'Opened 1 text.',
+  'sat.importedOneAudio': 'Opened 1 text, with its recording.',
+  'sat.importedMany': 'Opened {n} texts.',
+  'sat.importedManyAudio': 'Opened {n} texts. Recordings attached: {paired}.',
+  'sat.audioAmbiguous': 'The recording was left off: that file holds several texts, and there is no way to tell which one it belongs to. Export the text on its own and try again.',
+  'sat.audioUnmatched': 'These recordings had no text left to go with, so they were left out: {names}.',
+  'sat.replaceAudio': 'Use a different recording for this text',
+  'sat.replaceLosesCuts': 'This text is cut into {n} pieces, and those cuts are times into the CURRENT recording — against a different file they would point at the wrong words. Changing the recording will clear them. Go ahead?',
+  'sat.audioReplaced': 'Recording changed.',
+  'sat.audioReplacedCuts': 'Recording changed. The old cuts were cleared — cut this one again.',
+  'sat.audioLocked': 'This recording came from your researcher, so it cannot be replaced here.',
+  // ── Audio Segmenter (satellite) ──
+  'segapp.appName': 'Flextext Audio Segmenter',
+  'sg.hint': 'Cut a recording into lines and match them to the text. Open a text to start cutting.',
+  'sg.empty': 'No texts on this device yet. Open a text and its recording with the button above, or wait for your researcher to send you some.',
+  'sg.open': 'Open',
+  'sg.noAudio': 'no recording attached',
+  'sg.noSpans': 'not cut yet',
+  'sg.inProgress': 'matching in progress — unsaved work kept',
+  // One/many split, not "{n} piece(s)": t() is a string replace with no plural machinery, and a
+  // text cut into a single span is the commonest state after opening one that was never cut.
+  'sg.someSpans': 'cut into {n} pieces',
+  'sg.oneSpan': 'cut into 1 piece',
+  'mg.audio': 'Audio',
+  'mg.text': 'Text',
+  'mg.back': '← Back',
+  'mg.done': 'Done',
+  'mg.allMapped': 'Everything is matched.',
+  // ⚠ COUNT-AGNOSTIC ON PURPOSE. t() has no plural machinery (it is a string replace), so a
+  // sentence carrying a number reads "1 audio pieces" at exactly the moment the user is nearly
+  // finished. A labelled pair is correct at every count and scans faster besides.
+  'mg.remaining': 'Still to match — audio: {a}, text: {t}',
+  'mg.nonePicked': 'Match at least one piece of audio to a line to finish.',
+  'mg.addLine': 'Add a blank line here (for audio with no words yet)',
+  'mg.dragEdge': 'Drag to move this boundary',
+  'mg.resumed': 'Picked up where you left off — your unfinished matching was saved automatically.',
+  'mg.startOver': 'Start over',
+  'mg.startOverConfirm': 'Throw away the unfinished matching and start again from the saved text? This cannot be undone.',
+  'mg.leftover': 'Not matched — audio: {a}, text: {t}. That is allowed: leftover audio is left out, and a line with no audio keeps its words.',
+  'mg.committedLeftover': 'Left out {a} piece(s) of audio; {t} line(s) saved without audio.',
+  'mg.splitSpan': 'Split this audio piece in two',
+  'mg.joinPrev': 'Join to the one above',
+  'mg.cutHere': 'Split the words here',
+  'mg.splitHere': 'Split the translation here',
+  'mg.nowPickFt': 'Now click the space in the translation where it should break.',
+  'mg.tooShort': 'Too short to split.',
+  'mg.badSplit': 'Pick a point between two words.',
+  'mg.splitUnmapped': 'That piece was matched — both halves now need matching again.',
+  'mg.committed': 'Saved. Lines matched: {n}',
+  'mg.guessed': 'Cut the recording into {n} pieces at its pauses. Nothing is saved until you press Done.',
+  'mg.guessReplace': 'Guessing the lines will replace the pieces you have cut, and unmatch everything. Go ahead?',
   'record.welcomeDefault': 'Record {lang} texts here.',
   'record.savedH': 'Your recordings',
   'record.empty': 'No recordings yet. Tap Record to make one.',
@@ -1092,6 +1166,10 @@ internet after the first time.</p>
   'panel.util.ws': 'FLEx writing systems',
   'panel.util.wsIntro': 'Check — and fix — the writing-system codes in a .flextext file before importing it into FLEx, so FLEx does not create duplicate writing systems.',
   'panel.util.close': 'Close',
+  'panel.util.apps': 'Companion apps',
+  'panel.util.appsNote': 'Each opens in a new tab. Every app keeps its own texts; install it once and it works offline.',
+  'panel.util.segmenter': 'Audio Segmenter',
+  'panel.util.consent': 'Consent Collector',
   'panel.dev.engine': 'engine {v}',
   'panel.dev.stale': 'update needed',
   // Researcher/developer-facing only — never shown in the coworker's app. Explains a CONFIRMED
@@ -1293,6 +1371,14 @@ internet after the first time.</p>
   // ── upload a text to a PROJECT, no device (issue #4) ──
   'panel.proj.newText': 'New text…',
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
+    ,'panel.rel.new.segmenterApp': 'New app — Audio Segmenter: cut a recording into pieces and match them to the lines of a text you already have. It guesses the cuts from the pauses, you adjust them by dragging, and unfinished work is saved as you go.'
+    ,'panel.rel.new.consentApp': 'New app — Consent Collector: add speaker permission to texts you already have. Group a speaker\u2019s texts, ask once, and every text gets its own full record.'
+    ,'panel.rel.new.phraseLines': 'A .flextext whose phrases all sit inside one paragraph now opens as one line per phrase \u2014 everywhere in the suite, and from the moment it is imported rather than whenever it happens to be opened.'
+    ,'panel.rel.new.matcherDraft': 'The Audio Segmenter saves unfinished matching as you work, so a reload, an app update or a mis-tapped Back no longer loses it.'
+    ,'panel.rel.new.eafOnly': 'New download: the ELAN annotation on its own (.eaf), without the recording \u2014 for when you already have the audio.'
+    ,'panel.rel.new.provenance': 'Exported files now record which app made them: exportSource on a .flextext, a generator property on an .eaf. AUTHOR on an .eaf is left for the person it is meant for.'
+    ,'panel.rel.new.appLinks': 'Both new apps are linked from Utilities — in this panel and on the editor’s Utilities tab — and open in a new tab.'
+    ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
     ,'panel.rel.new.deviceHeader': 'Panel: each device row is tidier. New text, Settings and Move are icons on the device’s own line; Refresh has moved up into the header beside Sign out; and Unlink, Delete and Erase are grouped together, clear of the everyday buttons, with the erase button marked as the dangerous one. Unlink doubles as Link before a device is connected.'
     ,'panel.rel.new.uploadChipAll': 'Panel: a text is only marked “uploaded ✓” once ALL of its files have arrived. It used to say so as soon as the text itself landed, while the recording was still going up.'
@@ -1322,6 +1408,8 @@ internet after the first time.</p>
   'panel.assign.sendAnyway': 'Send anyway',
   'panel.dl.elanZip': 'ELAN package (.zip)',
   'panel.dl.elanZipSub': 'EAF + tier order + WAV — built here, on click',
+  'panel.dl.eafOnly': 'ELAN annotation only (.eaf)',
+  'panel.dl.eafOnlySub': 'The .eaf by itself, no recording — for when you already have the audio',
   'panel.dl.saymoreZip': 'SayMore package (.zip)',
   'panel.dl.saymoreZipSub': 'annotations.eaf + WAV — built here, on click',
   'panel.dl.preview': 'Listening page (.html)',
@@ -2244,6 +2332,74 @@ id: {
   'record.titleLabel': 'Judul untuk teks ini',
   'record.titlePh': 'Beri nama rekaman ini',
   'record.appName': 'Perekam Flextext',
+  // ── Consent Collector (satelit) ──
+  'consentapp.appName': 'Pengumpul Izin Flextext',
+  'cc.hint': 'Tambahkan izin penutur untuk teks yang sudah ada. Kelompokkan menurut penutur, centang yang disetujui orang itu, lalu minta izin <b>sekali saja</b> untuk semuanya.',
+  'cc.empty': 'Belum ada teks di perangkat ini. Buka berkas .flextext dengan tombol di atas, atau tunggu kiriman dari peneliti Anda.',
+  'cc.unassigned': 'Belum ada penuturnya',
+  'cc.speakerPh': 'penutur',
+  'cc.stateNone': 'belum ada izin',
+  'cc.statePartial': 'belum lengkap — rekaman jawabannya tidak ada',
+  'cc.stateFull': 'izin sudah ada',
+  'cc.tallyNeed': 'masih perlu ditanya: {n} dari {total}',
+  'cc.tallyDone': 'semua sudah ada izinnya ({total})',
+  'cc.selOne': '1 teks dipilih',
+  'cc.selMany': '{n} teks dipilih',
+  'cc.collect': 'Minta izin',
+  'cc.clearSel': 'Batalkan pilihan',
+  'cc.savedOne': 'Izin tersimpan untuk 1 teks.',
+  'cc.savedMany': 'Izin tersimpan untuk {n} teks.',
+  'cc.consentOff': 'Belum ada pertanyaan izin yang disiapkan, jadi tidak ada yang bisa direkam. Minta peneliti Anda menyalakannya.',
+  'sat.open': 'Buka berkas .flextext\u2026',
+  'sat.openPair': 'Buka teks + rekaman sekaligus\u2026',
+  'sat.needText': 'Pilih juga berkas .flextext \u2014 rekaman saja tidak ada teksnya.',
+  'sat.noTexts': 'tidak ada teks di dalam berkas itu',
+  'sat.importedOne': 'Satu teks dibuka.',
+  'sat.importedOneAudio': 'Satu teks dibuka, beserta rekamannya.',
+  'sat.importedMany': '{n} teks dibuka.',
+  'sat.importedManyAudio': '{n} teks dibuka. Rekaman yang terpasang: {paired}.',
+  'sat.audioAmbiguous': 'Rekamannya tidak disertakan: berkas itu berisi beberapa teks, jadi tidak bisa dipastikan rekaman itu milik yang mana. Ekspor teksnya sendiri lalu coba lagi.',
+  'sat.audioUnmatched': 'Rekaman ini tidak ada teks yang tersisa untuknya, jadi dilewati: {names}.',
+  'sat.replaceAudio': 'Pakai rekaman lain untuk teks ini',
+  'sat.replaceLosesCuts': 'Teks ini terpotong menjadi {n} bagian, dan potongan itu adalah waktu pada rekaman SAAT INI — pada berkas lain akan menunjuk kata yang salah. Mengganti rekaman akan menghapusnya. Lanjutkan?',
+  'sat.audioReplaced': 'Rekaman diganti.',
+  'sat.audioReplacedCuts': 'Rekaman diganti. Potongan lama dihapus — potong lagi yang ini.',
+  'sat.audioLocked': 'Rekaman ini berasal dari peneliti Anda, jadi tidak bisa diganti di sini.',
+  // ── Pemotong Audio (satelit) ──
+  'segapp.appName': 'Pemotong Audio Flextext',
+  'sg.hint': 'Potong rekaman menjadi baris-baris dan cocokkan dengan teksnya. Buka sebuah teks untuk mulai memotong.',
+  'sg.empty': 'Belum ada teks di perangkat ini. Buka teks beserta rekamannya dengan tombol di atas, atau tunggu kiriman dari peneliti Anda.',
+  'sg.open': 'Buka',
+  'sg.noAudio': 'tidak ada rekaman',
+  'sg.noSpans': 'belum dipotong',
+  'sg.inProgress': 'sedang dicocokkan — pekerjaan tersimpan',
+  'sg.someSpans': 'dipotong menjadi {n} bagian',
+  'sg.oneSpan': 'dipotong menjadi 1 bagian',
+  'mg.audio': 'Audio',
+  'mg.text': 'Teks',
+  'mg.back': '← Kembali',
+  'mg.done': 'Selesai',
+  'mg.allMapped': 'Semua sudah dicocokkan.',
+  'mg.remaining': 'Belum dicocokkan — audio: {a}, teks: {t}',
+  'mg.nonePicked': 'Cocokkan setidaknya satu potongan audio dengan satu baris untuk menyelesaikan.',
+  'mg.addLine': 'Tambahkan baris kosong di sini (untuk audio yang belum ada kata-katanya)',
+  'mg.dragEdge': 'Seret untuk memindahkan batas ini',
+  'mg.resumed': 'Dilanjutkan dari tempat Anda berhenti — pencocokan yang belum selesai tersimpan otomatis.',
+  'mg.startOver': 'Mulai dari awal',
+  'mg.startOverConfirm': 'Buang pencocokan yang belum selesai dan mulai lagi dari teks tersimpan? Ini tidak bisa dibatalkan.',
+  'mg.leftover': 'Belum dicocokkan — audio: {a}, teks: {t}. Itu boleh: audio sisa tidak disertakan, dan baris tanpa audio tetap ada kata-katanya.',
+  'mg.committedLeftover': 'Audio yang tidak disertakan: {a}; baris tersimpan tanpa audio: {t}.',
+  'mg.splitSpan': 'Bagi potongan audio ini menjadi dua',
+  'mg.joinPrev': 'Gabungkan dengan yang di atas',
+  'mg.cutHere': 'Potong kata-katanya di sini',
+  'mg.splitHere': 'Potong terjemahannya di sini',
+  'mg.nowPickFt': 'Sekarang klik spasi pada terjemahan tempat pemotongannya.',
+  'mg.tooShort': 'Terlalu pendek untuk dibagi.',
+  'mg.badSplit': 'Pilih titik di antara dua kata.',
+  'mg.splitUnmapped': 'Potongan itu sudah dicocokkan — kedua bagiannya perlu dicocokkan lagi.',
+  'mg.committed': 'Tersimpan. Baris yang cocok: {n}',
+  'mg.guessed': 'Rekaman dipotong menjadi {n} bagian pada jedanya. Belum ada yang tersimpan sampai Anda menekan Selesai.',
+  'mg.guessReplace': 'Menebak baris akan mengganti potongan yang sudah Anda buat, dan membatalkan semua pencocokan. Lanjutkan?',
   'record.welcomeDefault': 'Rekam teks {lang} di sini.',
   'record.savedH': 'Rekaman Anda',
   'record.empty': 'Belum ada rekaman. Ketuk Rekam untuk membuatnya.',
@@ -3142,6 +3298,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.util.ws': 'Sistem penulisan FLEx',
   'panel.util.wsIntro': 'Periksa — dan perbaiki — kode sistem penulisan dalam berkas .flextext sebelum mengimpornya ke FLEx, agar FLEx tidak membuat sistem penulisan ganda.',
   'panel.util.close': 'Tutup',
+  'panel.util.apps': 'Aplikasi pendamping',
+  'panel.util.appsNote': 'Masing-masing terbuka di tab baru. Setiap aplikasi menyimpan teksnya sendiri; pasang sekali dan ia bekerja luring.',
+  'panel.util.segmenter': 'Pemotong Audio',
+  'panel.util.consent': 'Pengumpul Izin',
   'panel.dev.engine': 'mesin {v}',
   'panel.dev.stale': 'perlu diperbarui',
   'panel.dev.staleWhy': 'Perangkat ini masih menjalankan engine {running} sementara situs menyajikan {live}. Terkonfirmasi pada dua laporan berjarak minimal 6 jam, jadi ini bukan keterlambatan pembaruan biasa — proses rilis mungkin bermasalah.',
@@ -3290,6 +3450,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.title': 'Tugaskan teks',
   'panel.proj.newText': 'Teks baru…',
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
+    ,'panel.rel.new.segmenterApp': 'Aplikasi baru \u2014 Pemotong Audio: potong rekaman menjadi bagian-bagian dan cocokkan dengan baris teks yang sudah ada. Ia menebak potongannya dari jeda, Anda menyesuaikannya dengan menyeret, dan pekerjaan yang belum selesai tersimpan otomatis.'
+    ,'panel.rel.new.consentApp': 'Aplikasi baru \u2014 Pengumpul Izin: tambahkan izin penutur untuk teks yang sudah ada. Kelompokkan teks satu penutur, minta izin sekali, dan setiap teks mendapat catatannya sendiri.'
+    ,'panel.rel.new.phraseLines': 'Berkas .flextext yang semua frasanya dalam satu paragraf kini terbuka satu baris per frasa \u2014 di seluruh aplikasi, dan sejak diimpor, bukan menunggu sampai dibuka.'
+    ,'panel.rel.new.matcherDraft': 'Pemotong Audio menyimpan pencocokan yang belum selesai sambil Anda bekerja, jadi memuat ulang, pembaruan aplikasi, atau salah tekan Kembali tidak menghilangkannya.'
+    ,'panel.rel.new.eafOnly': 'Unduhan baru: anotasi ELAN saja (.eaf), tanpa rekamannya \u2014 untuk yang sudah punya audionya.'
+    ,'panel.rel.new.provenance': 'Berkas yang diekspor kini mencatat aplikasi pembuatnya: exportSource pada .flextext, properti generator pada .eaf. AUTHOR pada .eaf dibiarkan untuk orangnya.'
+    ,'panel.rel.new.appLinks': 'Kedua aplikasi baru tertaut dari Peralatan — di panel ini dan di tab Utilitas editor — dan terbuka di tab baru.'
+    ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'
     ,'panel.rel.new.deviceHeader': 'Panel: setiap baris perangkat lebih rapi. Teks baru, Pengaturan, dan Pindahkan kini berupa ikon pada baris perangkat itu sendiri; Segarkan pindah ke header di samping Keluar; dan Putuskan, Cabut, serta Hapus dikelompokkan bersama, terpisah dari tombol sehari-hari, dengan tombol hapus ditandai sebagai yang berbahaya. Putuskan berganti menjadi Tautkan sebelum perangkat terhubung.'
     ,'panel.rel.new.uploadChipAll': 'Panel: sebuah teks baru ditandai “terunggah ✓” setelah SEMUA berkasnya sampai. Sebelumnya ia menandainya begitu teksnya sendiri sampai, padahal rekamannya masih diunggah.'
@@ -3319,6 +3487,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.sendAnyway': 'Tetap kirim',
   'panel.dl.elanZip': 'Paket ELAN (.zip)',
   'panel.dl.elanZipSub': 'EAF + urutan tier + WAV — dibuat di sini saat diklik',
+  'panel.dl.eafOnly': 'Anotasi ELAN saja (.eaf)',
+  'panel.dl.eafOnlySub': 'Berkas .eaf saja, tanpa rekaman — untuk yang sudah punya audionya',
   'panel.dl.saymoreZip': 'Paket SayMore (.zip)',
   'panel.dl.saymoreZipSub': 'annotations.eaf + WAV — dibuat di sini saat diklik',
   'panel.dl.preview': 'Halaman dengar (.html)',

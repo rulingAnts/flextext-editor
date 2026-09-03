@@ -34,4 +34,9 @@ mkdir -p public
 cp -R ../docs public/flextext-editor
 cp index.html manifest.webmanifest sw.js public/
 cp -R icons public/icons
+# A staging deploy under an unchanged VERSION would leave every browser serving the OLD
+# cache for ever (cache-first, keyed by VERSION). Preview builds only; production is exempt.
+# (repo root is two levels up for apps/*, one for paragraph-analysis — find it rather than assume)
+for R in ../.. ..; do [ -f "$R/stamp-preview-cache.sh" ] && bash "$R/stamp-preview-cache.sh" public/sw.js && break; done
+
 echo "assembled public/: $(find public -type f | wc -l | tr -d ' ') files"

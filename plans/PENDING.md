@@ -366,3 +366,46 @@ copying the plan into plans/ then deleting).
 4. **Write the regression check before the fix, and watch it FAIL.** Twice on 2026-08-14 a test
    passed with the bug still present — once because the fixture was too short to show it, once
    because it measured the wrong thing entirely. A test nobody has seen fail is a comment.
+
+## Audio Segmenter — the matcher is TWO PANES, not the Cut tab (Seth, 2026-09-03)
+
+> *"I'm not sure whether we want to reuse the existing Cut tab exactly... I was thinking a left
+> column/area that's roughly the same as the cut tab and a right column/area/frame that has
+> interlinear text lines. And then we match them (we can split or join text lines, but have to click
+> the two points — the scissors between the word and the gloss, and a space on the free translation
+> line)."*
+
+- **Left**: the Cut-tab surface — waveform, spans, guess-the-lines.
+- **Right**: the interlinear lines of the text, as lines.
+- **Matching** is the product: line ↔ span.
+- **Splitting a text line takes TWO clicks, and that is the interesting part.** An interlinear line
+  is a word/gloss stack plus a free translation, and the FT is prose that does not align word by
+  word — so where the words break does not tell you where the translation breaks. The user says
+  both: a point in the word/gloss run (the scissors), and a space in the free translation.
+- Joining is the inverse.
+
+### The two sides are INDEPENDENT, and that is the architectural point (Seth, 2026-09-03)
+
+> *"Splitting and joining on the audio segments and on the text lines should be independent of each
+> other — and then you map/match the pieces graphically until they're all mapped and the user clicks
+> done."*
+
+So the flow is: cut the audio however it falls, cut the text however it reads, **then** map piece to
+piece, and finish when everything is mapped.
+
+⚠ **This is NOT the engine's current model, and that is the whole build.** Today `segments[i]` IS
+baseline paragraph i (`segments.js` cutAtPlayhead / joinWithPrevious): the two are index-locked, so
+cutting audio inserts a paragraph and cutting text moves audio boundaries. Under Seth's design they
+are two independently editable lists plus an explicit MAPPING between them, and the index-lock is
+only re-established at the end, when the user clicks Done and the mapping is applied.
+
+That means the app needs:
+- an audio-span list it can split/join without touching the text,
+- a text-line list it can split/join without touching the audio,
+- a mapping (span ↔ line) held separately, drawn between the panes,
+- a completeness check — "all mapped" is what enables Done,
+- and one commit step that writes the mapping back into the index-locked model the rest of the
+  suite already understands, so nothing downstream needs to learn a new shape.
+
+Splitting a text line still takes TWO clicks (the scissors in the word/gloss run, and a space in the
+free translation), because the FT is prose and does not align word by word.

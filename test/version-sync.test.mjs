@@ -18,7 +18,7 @@
  *
  * Run: node test/version-sync.test.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 let fail = 0;
@@ -48,11 +48,20 @@ ok(/^v\d+$/.test(swVer || ''), `version looks like v<number> (${swVer})`);
 
 // The paragraph-analysis satellite lives at the repo root (its own Cloudflare Worker deploy,
 // not a satellites/ Pages mirror) but follows the exact same versioning discipline.
+/* ⚠ DISCOVERED FROM DISK, not listed here. A hard-coded list is the same silent no-op this whole
+ * section exists to prevent, one level up: add a satellite, forget to add it here, and its ENGINE
+ * is never checked — so it ships pinned to whatever engine it was born with and nobody finds out
+ * until a field device is dead offline. Anything under satellites/ with an sw.js is checked, plus
+ * paragraph-analysis, which lives at the repo root because it is its own Worker deploy rather than
+ * a Pages mirror. (crowd-recorder has no sw.js by design and is skipped.) */
 const SATELLITE_SW = [
-  ['text-recorder', '../satellites/text-recorder/sw.js'],
-  ['flextext-researcher', '../satellites/flextext-researcher/sw.js'],
+  ...readdirSync(new URL('../satellites/', import.meta.url), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(new URL(`../satellites/${d.name}/sw.js`, import.meta.url)))
+    .map((d) => [d.name, `../satellites/${d.name}/sw.js`]),
   ['paragraph-analysis', '../paragraph-analysis/sw.js'],
-];
+].sort((a, b) => a[0].localeCompare(b[0]));
+ok(SATELLITE_SW.length >= 4,
+   `found the satellites on disk (${SATELLITE_SW.length}: ${SATELLITE_SW.map((x) => x[0]).join(', ')})`);
 
 /* ⚠ ONE NUMBER ACROSS ALL FIVE SITES (Seth, 2026-08-28) — this assertion was DELIBERATELY WEAKENED
  * before, and strengthening it is the point of the change.
@@ -78,6 +87,21 @@ const SATELLITE_SW = [
  * were ever ABOVE the engine, unifying would lower it, and a browser holding the higher-numbered
  * cache would be reasoning about a version that had already existed with different contents. Check
  * that before ever re-basing these numbers again. */
+/* ⚠ AND bump-version.sh MUST FIND THEM ALL BY ITSELF. It carried a hard-coded list of three
+ * satellites, twice, and silently missed the Audio Segmenter and the Consent Collector on the day
+ * they were added: `./bump-version.sh v567` moved the editor, recorder and researcher and left
+ * those two behind. THIS test caught it — but only after a push, and only because someone ran it.
+ * The list was the bug, so the script now asks the disk, and this pins that it keeps doing so. */
+console.log('\nthe bump script discovers version sites rather than listing them');
+{
+  const bump = readFileSync(new URL('../bump-version.sh', import.meta.url), 'utf8');
+  ok(/SATS="\$\(grep -l "\^const VERSION = 'v" satellites\/\*\/sw\.js/.test(bump),
+     'it globs satellites/*/sw.js for the constant instead of naming files');
+  ok(!/satellites\/text-recorder\/sw\.js satellites\/flextext-researcher/.test(bump),
+     'and the hard-coded triples are gone — both of them');
+  ok(/\[ -n "\$SATS" \]/.test(bump), 'failing loudly if the glob finds nothing, rather than bumping only the editor');
+}
+
 console.log('\nall five version sites carry the SAME number');
 for (const [name, path] of SATELLITE_SW) {
   const src = read(path);
@@ -124,13 +148,23 @@ for (const [name, path] of SATELLITE_SW) {
  * guards, or a misconfiguration reaches production silently. */
 console.log('\nevery Cloudflare deploy folder keeps its contract');
 {
+  /* ⚠ ALSO DISCOVERED FROM DISK, for the same reason. Seth caught the previous omission of this
+   * kind in a build log; the fix then was to list the other four, which left the NEXT app to be
+   * caught the same way. Every apps/* folder plus paragraph-analysis is checked, and each must
+   * name its own Worker — so a copied-and-not-renamed wrangler.toml (two folders deploying to one
+   * Worker) fails here rather than in production. */
   const APPS = [
     ['../paragraph-analysis', 'paragraph-analysis-tool'],
-    ['../apps/editor',        'flextext-editor'],
-    ['../apps/recorder',      'flextext-recorder'],
-    ['../apps/researcher',    'flextext-researcher'],
-    ['../apps/crowd',         'flextext-crowd'],
+    ...readdirSync(new URL('../apps/', import.meta.url), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const toml = read(`../apps/${d.name}/wrangler.toml`);
+        return [`../apps/${d.name}`, (toml.match(/^name = "([^"]+)"$/m) || [])[1]];
+      }),
   ];
+  ok(APPS.length >= 6, `found the deploy folders on disk (${APPS.length})`);
+  ok(new Set(APPS.map((a) => a[1])).size === APPS.length,
+     'no two deploy folders target the same Worker name');
   for (const [dir, worker] of APPS) {
     const toml = read(dir + '/wrangler.toml');
     ok(new RegExp('^name = "' + worker + '"$', 'm').test(toml),

@@ -30,7 +30,18 @@ perl -pi -e "s/export const ENGINE_VERSION = 'v\\d+';/export const ENGINE_VERSIO
 #
 # Every site now carries ONE number, set explicitly, and version-sync asserts they are equal rather
 # than merely parseable — the check that would have caught the 2026-08-04 v166 drift.
-for sat in satellites/text-recorder/sw.js satellites/flextext-researcher/sw.js paragraph-analysis/sw.js; do
+# ⚠ DISCOVERED, NOT LISTED. This was a hard-coded list of three, twice — and it silently missed
+# the Audio Segmenter and the Consent Collector the day they were added: `./bump-version.sh v567`
+# moved the editor, recorder and researcher and left those two at v566, which version-sync then
+# failed at deploy time. The guard caught it, but only after a push; the list is the bug.
+#
+# Any shell that declares `const VERSION = 'vN'` is a version site by definition, so ask the disk.
+# A satellite that does not cache (and so has no such constant) is skipped, which is correct — the
+# researcher's are inert constants it keeps precisely so this script can find them.
+SATS="$(grep -l "^const VERSION = 'v" satellites/*/sw.js paragraph-analysis/sw.js 2>/dev/null || true)"
+[ -n "$SATS" ] || { echo "FAIL: no satellite version sites found — has the layout moved?" >&2; exit 1; }
+
+for sat in $SATS; do
   perl -pi -e "s/const VERSION = 'v\\d+';/const VERSION = '$V';/" "$sat"
   perl -pi -e "s/const ENGINE = 'v\\d+';/const ENGINE = '$V';/" "$sat"
 done
@@ -41,7 +52,7 @@ grep -q "ENGINE_VERSION = '$V';" docs/js/i18n.js      || { echo "FAIL: i18n not 
 # BOTH constants, on every satellite — VERSION as well as ENGINE, now that they are one number.
 # Checking only ENGINE would let a satellite's VERSION silently miss the set and leave its installed
 # service worker convinced it is already current.
-for sat in satellites/text-recorder/sw.js satellites/flextext-researcher/sw.js paragraph-analysis/sw.js; do
+for sat in $SATS; do
   grep -q "const VERSION = '$V';" "$sat" || { echo "FAIL: $sat VERSION not at $V" >&2; fail=1; }
   grep -q "const ENGINE = '$V';"  "$sat" || { echo "FAIL: $sat ENGINE not at $V" >&2; fail=1; }
 done

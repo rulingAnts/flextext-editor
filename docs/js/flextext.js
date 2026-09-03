@@ -92,6 +92,53 @@ export function makeSegment(baselineText, words, opts = {}) {
   };
 }
 
+/* Join phrases INTO ONE PHRASE — the matcher's text-side ⤴ (Seth: "join will join phrases").
+ *
+ * ⚠ Not "one paragraph holding both". That shape is exactly what normalizePhraseLines undoes on
+ * the next open: it promotes every phrase back to its own paragraph and clears doc.segments to
+ * re-derive them — which threw away the alignment the user had just committed, along with the
+ * join itself. A join has to produce the shape the rest of the suite already reads as ONE line,
+ * and that is one segment.
+ *
+ * What survives: every word (glosses ride on the word), the free translations joined with a space,
+ * the first phrase's guid (the merged line IS the first phrase, extended), and every unknown item
+ * from both sides — a note on the second phrase is not the matcher's to drop; a repeated item is
+ * visible in FLEx, a vanished one is not. Time offsets become the union when both phrases carry
+ * them, and are dropped when only one does: half an extent is not an extent.
+ *
+ * (Named for PHRASES: in this suite "segments" are the audio spans, and segments.js already owns a
+ * mergeSegments for those — app.js imports both, so the names cannot collide.) */
+export function mergePhrases(segs) {
+  const parts = (segs || []).filter(Boolean);
+  if (!parts.length) return makeSegment('', []);
+  if (parts.length === 1) return parts[0];
+  const [first] = parts;
+  const words = parts.flatMap((s) => s.words || []);
+  const attrs = { ...(first.attrs || { guid: newGuid() }) };
+  const begins = parts.map((s) => parseInt(s.attrs && s.attrs['begin-time-offset'], 10)).filter(Number.isFinite);
+  const ends = parts.map((s) => parseInt(s.attrs && s.attrs['end-time-offset'], 10)).filter(Number.isFinite);
+  if (begins.length === parts.length && ends.length === parts.length) {
+    attrs['begin-time-offset'] = String(Math.min(...begins));
+    attrs['end-time-offset'] = String(Math.max(...ends));
+  } else {
+    delete attrs['begin-time-offset'];
+    delete attrs['end-time-offset'];
+  }
+  const seg = makeSegment(
+    parts.map((s) => (s.baseline || '').trim()).filter(Boolean).join(' ') || baselineFromWords(words),
+    words,
+    {
+      attrs,
+      free: parts.map((s) => (s.free || '').trim()).filter(Boolean).join(' '),
+      freeLang: parts.map((s) => s.freeLang).find((l) => l) ?? null,
+      preItemsXML: parts.flatMap((s) => s.preItemsXML || []),
+      postItemsXML: parts.flatMap((s) => s.postItemsXML || []),
+    });
+  const txtLang = parts.map((s) => s.txtLang).find((l) => l);
+  if (txtLang) seg.txtLang = txtLang;
+  return seg;
+}
+
 export function makeDoc(settings, title = '') {
   return {
     version: '2',
@@ -169,6 +216,9 @@ export function parseFlextext(xmlString, prefs = {}) {
   const err = dom.querySelector('parsererror');
   if (err) return { texts: [], error: 'XML parse error: ' + err.textContent.slice(0, 300) };
   const docEl = dom.documentElement;
+  // Read provenance back as well as writing it — "look for that" (Seth). This is what lets a future
+  // survey ask "which tool wrote this?" instead of fingerprinting whitespace.
+  const exportSource = docEl.getAttribute && docEl.getAttribute('exportSource');
   if (docEl.tagName !== 'document') return { texts: [], error: 'Not a flextext document (root element is <' + docEl.tagName + '>)' };
   const version = docEl.getAttribute('version') || '2';
   const texts = [];
@@ -309,7 +359,12 @@ function parsePhrase(phEl, doc, prefs = {}) {
       const lang = child.getAttribute('lang') || '';
       if (child === txtEl) { seg.baseline = child.textContent; seg.txtLang = lang; }
       else if (child === freeEl) { seg.free = child.textContent; seg.freeLang = lang; }
-      else if (type === 'segnum' && !seenWords) { /* regenerated on export */ }
+      /* segnum is DROPPED on read and never emitted on write — and nothing here may depend on it,
+       * because it cannot be relied on to exist (Seth: "we can't count on it existing in flextext
+       * files"). The spec makes it optional and 27 of the 95 texts in the corpus carry none. The
+       * interlinear view numbers its own lines for display, which is the only place a number is
+       * actually wanted. */
+      else if (type === 'segnum' && !seenWords) { /* deliberately discarded — see serializeFlextext */ }
       else (seenWords ? seg.postItemsXML : seg.preItemsXML).push(serializeEl(child));
     } else {
       seg.postItemsXML.push(serializeEl(child));
@@ -392,7 +447,28 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const anal = authored ? (settings.analLang || doc.analLang || 'en') : (doc.analLang || settings.analLang || 'en');
   const lines = [];
   lines.push('<?xml version="1.0" encoding="utf-8"?>');
-  lines.push(`<document version="${esc(doc.version || '2')}">`);
+  /* ⚠ WHO MADE THIS FILE — and in FLEx's OWN schema, not a convention of ours.
+   *
+   * "Technical Notes on FLEx Text Interlinear" (Ken Zook, 5 May 2026) gives the <document> element
+   * two optional attributes for exactly this:
+   *     <xs:attribute name="exportSource" type="xs:string" use="optional"/>
+   *     <xs:attribute name="exportTarget" type="xs:string" use="optional"/>
+   * Being in the published XSD as optional, it cannot break a FLEx import — which an XML comment is
+   * also very unlikely to do (XML 1.0 §2.5; every conformant parser skips comments) but only by
+   * inference. A documented field is evidence.
+   *
+   * WHY IT MATTERS, concretely: asked what FLEx's segnum numbering looks like, I measured 95
+   * .flextext files from Seth's corpus and concluded we already matched it. 68 of them turned out to
+   * have been written by THIS SERIALIZER, identifiable only by its indentation, so the finding was
+   * circular. A file that says what wrote it answers that in one line, years later, to somebody who
+   * has never seen this repo. Seth: "Our apps should leave metadata 'created by...' in exported
+   * files whenever the schema or file format allows that."
+   *
+   * `producedBy` is a PARAMETER (opts), never module state — same rule the rest of this module
+   * follows so a second writer can call it. Omitted entirely when the caller supplies nothing,
+   * rather than emitting a guess. */
+  const provenance = opts.producedBy ? ` exportSource="${esc(opts.producedBy)}"` : '';
+  lines.push(`<document version="${esc(doc.version || '2')}"${provenance}>`);
   const attrs = Object.entries(doc.textAttrs || {})
     .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
   lines.push(`  <interlinear-text${attrs}>`);
@@ -414,14 +490,46 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
     ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
-  let segnum = 0;
+  /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
+   *
+   * The engine holds one line per PHRASE. Emitting one <paragraph> per line is the DEFAULT and is
+   * deliberate — a maximally-split export means an ELAN annotator only ever merges, which ELAN can
+   * do, never splits at a higher level, which it cannot (see plans/preserve-paragraph-structure.md).
+   *
+   * But when the source file distinguished the two — Seth's recent FLEx texts use phrase breaks for
+   * clauses and paragraph breaks for sentences — normalizePhraseLines tags each line with `paraOf`,
+   * and consecutive lines sharing one are emitted inside a single <paragraph> under the ORIGINAL
+   * guid. Uniform files (one paragraph of many phrases, or many of one) are never tagged, so they
+   * take the flat path below and their output is byte-identical to before this existed.
+   *
+   * ⚠ AND IT GIVES UP RATHER THAN GUESS. Cuts and joins move lines about, and a paragraph whose
+   * lines are no longer CONSECUTIVE cannot be emitted as one element — writing it as two would put
+   * the same guid on two <paragraph>s, which is invalid and which FLEx would read as two
+   * paragraphs anyway. So the runs are computed first and checked; if any guid appears in more than
+   * one run, the whole document falls back to flat. Seth: "preserve as close as possible, fall back
+   * to flat paragraph-breaking if it fails to produce a valid flextext or is uncertain enough."
+   *
+   * ⚠ THE SPAN INDEX STAYS PER LINE. doc.segments is 1:1 with LINES, never with emitted paragraphs.
+   */
+  const runs = [];
+  doc.paragraphs.forEach((para, i) => {
+    const key = para.paraOf == null ? null : String(para.paraOf);
+    const last = runs[runs.length - 1];
+    if (key !== null && last && last.key === key) last.lines.push(i);
+    else runs.push({ key, guid: para.paraOf || para.guid, lines: [i] });
+  });
+  const tagged = runs.map((r) => r.key).filter((k) => k !== null);
+  const canGroup = tagged.length === new Set(tagged).size;
+  const emit = canGroup ? runs : doc.paragraphs.map((para, i) => ({ guid: para.guid, lines: [i] }));
+
   let pi = -1;
-  for (const para of doc.paragraphs) {
-    pi++;
-    lines.push(`      <paragraph guid="${esc(para.guid)}">`);
+  for (const run of emit) {
+    lines.push(`      <paragraph guid="${esc(run.guid)}">`);
     lines.push('        <phrases>');
+    for (const li of run.lines) {
+    const para = doc.paragraphs[li];
+    pi = li;
     for (const seg of para.segments) {
-      segnum++;
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
@@ -435,7 +543,26 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
         + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
       lines.push(`          <phrase${pAttrs}>`);
       lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
-      lines.push(`            <item type="segnum" lang="${esc(anal)}">${segnum}</item>`);
+      /* ⚠ NO segnum ITEM. We used to mint one — a plain running integer — for every phrase, and it
+       * was wrong in three ways at once.
+       *
+       *   1. FLEx does not want it. "There is an OPTIONAL item with type 'segnum'. This is the
+       *      segment number which in FLEx is CALCULATED AUTOMATICALLY based on paragraph and segment
+       *      numbers" (Technical Notes on FLEx Text Interlinear, Ken Zook, 2026-05-04). FLEx
+       *      recomputes it on import, so ours was overwritten at best.
+       *   2. Ours was the wrong shape anyway: a running integer, where FLEx derives par.phr (1.1,
+       *      1.2, 2.1). We would have been supplying a number that disagreed with FLEx's own.
+       *   3. It broke round-trip fidelity for files that had none. 27 of 95 texts in Seth's corpus
+       *      carry no segnum; we added one to every phrase regardless.
+       *
+       * And nothing here needs it: the parser already DISCARDS it on read (see parsePhrase,
+       * "regenerated on export"), and the interlinear view numbers its own lines for display.
+       * Seth: "I think we actually don't need segnum, and if we can do without it, that's better."
+       *
+       * ⚠ ONE SIDE EFFECT WORTH KNOWING: segnum carried lang=<analysis WS>, so it was one of the
+       * places the analysis writing system appeared in our output. `gls` items still carry it
+       * wherever there are glosses or free translations; a document with neither has no analysis
+       * content to declare in the first place. */
       lines.push('            <words>');
       for (const xml of seg.preItemsXML || []) lines.push(indentFragment(xml, '              '));
       for (const w of seg.words) {
@@ -465,6 +592,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       }
       for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
       lines.push('          </phrase>');
+      }
     }
     lines.push('        </phrases>');
     lines.push('      </paragraph>');

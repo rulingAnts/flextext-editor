@@ -349,12 +349,19 @@ const ESTATES = {
     recorder: 'https://record.flextext.app/',
     crowd: 'https://crowd.flextext.app/',
     researcher: 'https://research.flextext.app/',
+    segmenter: 'https://audio-segmenter.flextext.app/',
+    consent: 'https://consent.flextext.app/',
   },
   pages: {
     editor: 'https://rulingants.github.io/flextext-editor/',
     recorder: 'https://rulingants.github.io/text-recorder/',
     crowd: 'https://rulingants.github.io/crowd-recorder/',
     researcher: 'https://rulingants.github.io/flextext-researcher/',
+    // The two newest apps have NO Pages twin (apps/segmenter/wrangler.toml says why), so the
+    // legacy panel links the only copies that exist. Naming the real one is honest; a Pages URL
+    // that 404s would not be.
+    segmenter: 'https://audio-segmenter.flextext.app/',
+    consent: 'https://consent.flextext.app/',
   },
   /* THE STAGING ESTATE (Seth, 2026-08-07) — an explicit map, and it has to be.
    *
@@ -379,6 +386,8 @@ const ESTATES = {
     researcher: 'https://staging-flextext-researcher.68mh29kgsd.workers.dev/',
     recorder: 'https://record.flextext.app/',
     crowd: 'https://crowd.flextext.app/',
+    segmenter: 'https://staging-audio-segmenter.68mh29kgsd.workers.dev/',
+    consent: 'https://staging-consent-collector.68mh29kgsd.workers.dev/',
     staging: true,
   },
 };
@@ -405,7 +414,8 @@ export function estateOf(origin = location.origin) {
   // The dev rig serves every app under the Pages sub-paths on one origin.
   if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) {
     return { editor: origin + '/flextext-editor/', recorder: origin + '/text-recorder/',
-             crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/', local: true };
+             crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/',
+             segmenter: origin + '/audio-segmenter/', consent: origin + '/consent-collector/', local: true };
   }
   // Staging / preview builds get an EXPLICIT map, never a guess from the current origin.
   if (/\.(workers|pages)\.dev$/.test(host)) return ESTATES.staging;
@@ -415,6 +425,17 @@ export function estateOf(origin = location.origin) {
 }
 
 const HOME = estateOf();
+
+/* The two newest apps, as links. The panel's Utilities modal and the editor's Utilities tab both
+ * list them FROM THIS ONE MAP, so neither can point at an estate the other does not — a staging
+ * editor sends you to the staging apps, the dev rig to its own. They open in a new tab (Seth,
+ * 2026-09-03): each is its own origin with its own texts, and the page you came from stays put. */
+export function companionApps(estate = HOME) {
+  return [
+    { key: 'segmenter', url: estate.segmenter, label: 'panel.util.segmenter' },
+    { key: 'consent',   url: estate.consent,   label: 'panel.util.consent' },
+  ];
+}
 
 /* DEPRECATION NOTICE — the legacy GitHub Pages panel only (Seth, 2026-08-05).
  *
@@ -1116,7 +1137,17 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v564', date: '2026-09-01', items: [
+  { v: 'v568', date: '2026-09-03', items: [
+    { k: 'panel.rel.new.segmenterApp' },
+    { k: 'panel.rel.new.consentApp' },
+    { k: 'panel.rel.new.appLinks' },
+    { k: 'panel.rel.new.phraseLines' },
+    { k: 'panel.rel.new.matcherDraft' },
+    { k: 'panel.rel.new.eafOnly' },
+    { k: 'panel.rel.new.provenance' },
+  ] },
+  { v: 'v566', date: '2026-09-01', items: [
+    { k: 'panel.rel.new.hardRefresh' },
     { k: 'panel.rel.new.deviceOnce', issue: 6 },
     { k: 'panel.rel.new.moveVersionAge', issue: 16 },
     { k: 'panel.rel.new.deviceHeader' },
@@ -2934,8 +2965,16 @@ async function populateFilesMenu(wrap) {
      * arrived — because both mean "real row, not available right now". */
     const convOff = (labelKey, why) => rows.push(`<span class="rp-dl-item rp-dl-pending" role="menuitem" aria-disabled="true">
       <span class="rp-dl-name">${esc(t('panel.dl.' + labelKey))}</span><span class="rp-dl-sub">${esc(why)}</span></span>`);
+    if (audioF) conv('elan', 'elanZip', true);
+    /* ⚠ THE ONLY CONVERSION ROW THAT IS NOT GATED ON AUDIO, and loosePlan says why: "THE EAF NEEDS
+     * TIMES, NOT AUDIO". serializeEaf omits the MEDIA_DESCRIPTOR when there is no media name and is
+     * otherwise a perfectly legal ELAN file, so a text with offsets and no recording on this device
+     * still yields one. It is also the only annotation output whose cost is O(text) rather than
+     * O(audio) — no WAV conversion, no zip, nothing to weigh — so it carries no size estimate and
+     * can never be refused for one. That is the whole point of offering it beside the package: the
+     * researcher who already HAS the recordings should not download them again to get the tiers. */
+    conv('eaf', 'eafOnly', false);
     if (audioF) {
-      conv('elan', 'elanZip', true);
       conv('saymore', 'saymoreZip', true);
       // The one output whose whole value IS the embedded audio, so it refuses rather than degrades.
       if (caps.preview) conv('preview', 'preview', true);
@@ -3150,6 +3189,7 @@ async function buildSegEntriesFor(src, { title, base, wants, full = true }) {
   const entries = await assembleSegEntries({
     doc: src.doc, title, base, media: src.media, segMedia: src.segMedia, wants,
     vern: src.vern, anal: src.anal, full,
+    producedBy: deps.producedBy ? deps.producedBy() : '',
   });
   if ((wants.eaf || wants.saymore) && src.segMedia && !entries.some((x) => x.name === src.segMedia.name)) {
     entries.push({ name: src.segMedia.name, data: src.segMedia.blob });
@@ -3190,9 +3230,15 @@ async function runMenuConversion(wrap, kind, itemEl) {
     if (kind === 'preview' && !src.caps.preview) {
       deps.toast(t('panel.dl.previewTooBig', { size: fmtSize(src.caps.est) }), 8000); return;
     }
-    if (kind !== 'fxpa' && !src.segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
+    // 'eaf' joins 'fxpa' in not needing the recording — see the menu row's note. It still needs
+    // ALIGNMENT, which the src.aligned check above already enforced for every kind but fxpa.
+    if (kind !== 'fxpa' && kind !== 'eaf' && !src.segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
     paint(t('panel.dl.working'));
-    const wants = { elan: { eaf: true }, saymore: { saymore: true }, preview: { preview: true }, fxpa: { fxpa: true } }[kind];
+    /* ⚠ 'eaf' ASKS FOR EXACTLY WHAT 'elan' ASKS FOR. The difference is what is KEPT below, not what
+     * is built — so the .eaf a researcher gets here is byte-for-byte the one inside the ELAN zip.
+     * A second, slimmer EAF path would be a second EAF implementation, and the two would drift. */
+    const wants = { elan: { eaf: true }, eaf: { eaf: true }, saymore: { saymore: true },
+                    preview: { preview: true }, fxpa: { fxpa: true } }[kind];
     if (!wants) return;
     /* An oversized .fxpa is built WITHOUT audio rather than refused — the grouping analysis is the
      * point of the file, and buildFxpa's audio has always been optional (a text-only .fxpa is what
@@ -3207,7 +3253,8 @@ async function runMenuConversion(wrap, kind, itemEl) {
       // The file is already saved — these say what the researcher is holding, not that it failed.
       if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);
     } else {
-      const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
+      const pick = kind === 'preview' ? /\.preview\.html$/i : kind === 'eaf' ? /\.eaf$/i : /\.fxpa$/i;
+      const one = entries.find((x) => pick.test(x.name));
       if (!one) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
       saveBlobAs(one.data, one.name);
       if (dropAudio) deps.toast(t('panel.dl.fxpaNoAudio', { size: fmtSize(src.caps.est) }), 9000);
@@ -7301,6 +7348,9 @@ function utilitiesModal() {
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
     <button class="primary-btn" data-m="export">${esc(t('exp.h'))}</button>
     <hr class="rp-sep">
+    <p class="note"><b>${esc(t('panel.util.apps'))}</b> — ${esc(t('panel.util.appsNote'))}</p>
+    ${companionApps().map((a) => `<a class="secondary-btn rp-app-link" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t(a.label))} ↗</a>`).join('')}
+    <hr class="rp-sep">
     <label class="rp-field"><span>${esc(t('panel.util.ttl'))}</span>
       <input id="rp-ttl" type="number" min="7" max="400" step="1" value="${assignTtlDays()}"></label>
     <p class="note">${esc(t('panel.util.ttlNote'))}</p>
@@ -7758,6 +7808,7 @@ function fileExporterModal() {
     try {
       const r = await buildLooseConversion({
         kind, doc: st.doc, base: st.base, title: st.doc.title || st.base,
+        producedBy: deps.producedBy ? deps.producedBy() : '',
         flextextBlob: st.ftBlob, audio: st.audio, plan: st.plan,
         vern: st.doc.vernLang || 'und', anal: st.doc.analLang || 'en',
         // The impure step seg-exports refuses to own — see its header.

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#b45309"/>
+  <!-- Audio Segmenter: a waveform DIVIDED. The bars are the audio; the two vertical rules
+       are the segment boundaries the app exists to place. Sibling of the recorder mark:
+       same canvas, same corner radius, white on one flat brand colour. -->
+  <g fill="#ffffff">
+    <rect x="70"  y="216" width="26" height="80"  rx="13"/>
+    <rect x="116" y="176" width="26" height="160" rx="13"/>
+    <rect x="162" y="136" width="26" height="240" rx="13"/>
+    <rect x="243" y="196" width="26" height="120" rx="13"/>
+    <rect x="289" y="156" width="26" height="200" rx="13"/>
+    <rect x="370" y="186" width="26" height="140" rx="13"/>
+    <rect x="416" y="226" width="26" height="60"  rx="13"/>
+  </g>
+  <!-- the cuts -->
+  <g stroke="#fde68a" stroke-width="18" stroke-linecap="round">
+    <line x1="215" y1="92" x2="215" y2="420"/>
+    <line x1="342" y1="92" x2="342" y2="420"/>
+  </g>
+</svg>

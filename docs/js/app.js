@@ -7991,6 +7991,19 @@ function mgSplitSpan(id) {
   mgDraw();
 }
 
+/* ✂ ON THE BIG PLAYER (Seth, 2026-09-04): cut whichever piece the playhead is inside, where it is.
+ * The same verb as a row's own ✂ — mgSplitSpan already cuts at the playhead when it is inside the
+ * piece — reached from the transport instead of the list, so a long recording can be cut while
+ * listening down it without hunting for the row. Enter does the same, as on the Cut tab. */
+function mgSplitAtPlayhead() {
+  if (!MG) return;
+  const head = player?.playheadMs?.();
+  const sp = typeof head === 'number'
+    ? MG.spans.find((s) => !s.timePending && head > s.start && head < s.end) : null;
+  if (!sp) { toast(t('mg.cutNoSpan'), 5000); return; }
+  mgSplitSpan(sp.id);
+}
+
 function mgJoinSpan(id) {
   const i = MG.spans.findIndex((s) => s.id === id);
   if (i <= 0) return;
@@ -8595,6 +8608,8 @@ async function mgPrepareAudio(docId) {
   // ⚠ NO ✕. This app matches audio to text; detaching the recording is not one of its verbs, and the
   // dock's remove button would delete the media out from under the very screen using it.
   if (p.el && p.el.remove) p.el.remove.hidden = true;
+  // …but the ✂ is this screen's own: shown while the matcher owns the dock, hidden again by mgClose.
+  if (p.el && p.el.cut) { p.el.cut.hidden = false; p.el.cut.onclick = () => mgSplitAtPlayhead(); }
   await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
   if (!live()) return;
   if (note) note.hidden = true;
@@ -8681,6 +8696,7 @@ function mgClose() {
   // not touch it — the transport for a recording nobody has open stayed on screen above the text
   // list, offering to play audio that belonged to whatever was last matched.
   player?.onBoundaryDrag?.(null);   // the dock is shared; leave it as we found it
+  if (player?.el?.cut) player.el.cut.hidden = true;
   player?.hide?.();
   lastPlayTarget = null;
   show('segmenter');
@@ -8778,11 +8794,14 @@ function setupSegmenterMode() {
    * shadow the browser's own undo anywhere else in the app. */
   document.addEventListener('keydown', (e) => {
     if (!MG) return;
-    const k = (e.key || '').toLowerCase();
-    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
     const el = e.target;
     // Never steal it from a field the user is typing in (the speaker box, a future text input).
     if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName || ''))) return;
+    const k = (e.key || '').toLowerCase();
+    // Enter cuts at the playhead, as on the Cut tab — but not when a button has focus, where Enter
+    // is that button's own click (wirePlaybackKeys already swallows it on the play controls).
+    if (e.key === 'Enter' && !(el && /^button$/i.test(el.tagName || ''))) { e.preventDefault(); mgSplitAtPlayhead(); return; }
+    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
     if (e.shiftKey) mgRedoOnce(); else mgUndoOnce();
   });

@@ -299,6 +299,18 @@ back-translation (format problem first) · standalone segmentation/matching app 
 collision warning · invite-link-overrides warning · localization expansion (decisions still Seth's) ·
 the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.
 
+- **Toolbox / SFM → FLExText import, one text or many per file** (Seth, 2026-09-04: "a quick
+  Toolbox/SFM -> FLExText import path (which would need to support either individual texts or
+  multiple texts in one file)") — near-future, suite-wide. Scoped in
+  [#29](https://github.com/rulingAnts/flextext-editor/issues/29): a pure DOM-free parser beside
+  `flextext.js`, marker→line mapping with defaults, `\p`/`\ref` → paragraph/phrase, then
+  `normalizePhraseLines` on entry like any `.flextext`.
+- **The Audio Segmenter as a THIRD invite kind** (Seth, 2026-09-04: "turn 'audio segmenter' app
+  into a third kind of invite link for devices and integrate it into our device/project/assignment
+  system") — in design; the system map is being assembled. A paired segmenter device receives
+  text + audio as an assignment and its Done rides the same upload path as the recorder; ⤓ becomes
+  the unpaired fallback.
+
 ## 5 — Parked, and parked for reasons
 
 `parked-panel-and-matching` · `parked-v319-v321` · Files ▾ drop-down hidden · the inferred

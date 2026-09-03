@@ -631,6 +631,9 @@ export class Player {
       time: root.querySelector('.player-time'),
       status: root.querySelector('.player-status'),
       remove: root.querySelector('.player-remove'),
+      // Optional: only the segmenter's shell carries it. The host shows it and wires it; the
+      // Player itself never cuts anything.
+      cut: root.querySelector('.player-cut'),
       progress: root.querySelector('.player-progress'),
       fill: root.querySelector('.player-progress-fill'),
     };

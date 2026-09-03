@@ -360,8 +360,9 @@ console.log('\nundo/redo over the MATCHER\'s state, not the document\'s');
   ok(/mgCapture\(\);\s*\/\/ replacing every span/.test(app), 'and so does ✨ Guess');
   ok(!/mgCapture/.test(fn(app, 'mgPick')), 'selecting is not an edit, so it captures nothing');
   ok(/mgUndoStack = \[\]; mgRedoStack = \[\]/.test(asyncFn(app, 'mgOpen')), 'history is per text, not per app');
-  ok(/if \(!MG\) return;[\s\S]{0,400}metaKey \|\| e\.ctrlKey/.test(fn(app, 'setupSegmenterMode')),
-     'the keyboard shortcut is gated on the matcher being open, so it cannot shadow the browser elsewhere');
+  // The Enter handler now sits between the gate and the undo chord, hence the wider window.
+  ok(/if \(!MG\) return;[\s\S]{0,900}metaKey \|\| e\.ctrlKey/.test(fn(app, 'setupSegmenterMode')),
+     'the keyboard shortcuts are gated on the matcher being open, so they cannot shadow the browser elsewhere');
 }
 
 console.log('\nblank lines, for audio that deserves a line but has no words yet');
@@ -498,6 +499,25 @@ console.log('\nan older draft still resumes — its spans and lines, with any ma
   const open = asyncFn(app, 'mgOpen');
   ok(/MG\.spans = draft\.spans;\s*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
      'a v567–v570 draft (149 cuts, nine joins, a map of picks) comes back as rows; the picks are simply not a thing any more');
+}
+
+console.log('\n✂ on the big player cuts the piece under the playhead (Seth, 2026-09-04)');
+{
+  const cut = fn(app, 'mgSplitAtPlayhead');
+  ok(/player\?\.playheadMs\?\.\(\)/.test(cut), 'it reads the dock\'s playhead');
+  ok(/!s\.timePending && head > s\.start && head < s\.end/.test(cut), 'and finds the REAL piece the playhead is inside');
+  ok(/mgSplitSpan\(sp\.id\)/.test(cut), 'then cuts it with the row\'s own verb — one implementation of a cut');
+  ok(/toast\(t\('mg\.cutNoSpan'\)/.test(cut), 'and says so when the playhead is between pieces or at 0');
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/p\.el\.cut\.hidden = false; p\.el\.cut\.onclick = \(\) => mgSplitAtPlayhead\(\)/.test(prep), 'the matcher shows and wires the button');
+  ok(/player\.el\.cut\.hidden = true/.test(fn(app, 'mgClose')), 'and hides it again on the way out — the dock is shared');
+  ok(/cut: root\.querySelector\('\.player-cut'\)/.test(read('docs/js/audio.js')), 'the Player only looks it up; it never cuts');
+  ok(/class="player-cut icon-btn2" data-i18n-title="player\.cut" hidden/.test(shell), 'the segmenter shell carries it, hidden by default');
+  ok(!/player-cut/.test(read('docs/index.html')), 'the editor\'s dock does not — the Cut tab has its own Enter');
+  ok(/e\.key === 'Enter'[^\n]*mgSplitAtPlayhead\(\)/.test(fn(app, 'setupSegmenterMode')), 'Enter does the same, as on the Cut tab');
+  for (const k of ['player.cut', 'mg.cutNoSpan']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');

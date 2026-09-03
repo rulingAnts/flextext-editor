@@ -88,6 +88,9 @@ that was fixed the same day; each is the gesture that reproduced it.
       ✨ Guess, then split/join on either side and watch the numbers and colours follow; `+` adds
       a blank line on the text side only; Done with more audio than lines adds blank lines at the
       end; Done with more lines than audio leaves the last lines without audio and says so.
+- [ ] **✂ on the big player** cuts the piece under the playhead, where the playhead is; Enter does
+      the same when no field or button has focus; with the playhead at 0 or between pieces it says
+      so instead of cutting nothing.
 - [ ] **⤓ offers three downloads** — everything (zip), ELAN only (.eaf), .flextext only — and a
       six-minute WAV no longer fails with "allocation size overflow" in Firefox.
 

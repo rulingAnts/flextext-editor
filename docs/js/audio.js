@@ -1047,6 +1047,16 @@ export class Player {
    * ms is null if the pointer left the measurable area. Passing null disables dragging again. */
   onBoundaryDrag(fn) {
     this._onBoundaryDrag = fn || null;
+    /* ⚠ FORCE A REBUILD, never the reuse path. Whether a mark is draggable is baked into the node
+     * when it is built (the transparent hit child is only added when a handler exists), and the
+     * reuse path in renderBoundaries only rewrites `left`. So turning dragging on AFTER the marks
+     * already existed left them exactly as they were: inert, with no grip.
+     *
+     * That is not hypothetical — it is the order mgPrepareAudio uses, since it pushes the boundary
+     * times as soon as the peaks land and enables dragging immediately after. The marks came back
+     * un-grabbable and the whole feature was dead on arrival. Dropping the children makes the next
+     * render take the build path. */
+    this._boundLayer?.replaceChildren();
     this.renderBoundaries();
   }
 

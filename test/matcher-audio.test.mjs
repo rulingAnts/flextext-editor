@@ -255,6 +255,8 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
      'and the grab area is a CHILD, so the drawn line stays exactly on the boundary rather than 7px off it');
   ok(/const grab = \(t0 == null\) \? 0 : t0 - ms;/.test(aud),
      'with a grab offset, so the boundary does not snap to the finger on the first move');
+  ok(/this\._boundLayer\?\.replaceChildren\(\);\s*\n\s*this\.renderBoundaries\(\);/.test(aud),
+     '⚠ enabling dragging FORCES a rebuild — the reuse path only rewrites `left`, so marks built before the handler existed stayed grip-less and inert');
   ok(/p\.onBoundaryDrag\?\.\(\(i, t, phase\) => mgBoundaryDrag/.test(asyncFn(app, 'mgPrepareAudio')),
      'the matcher opts in');
   ok(/player\?\.onBoundaryDrag\?\.\(null\)/.test(fn(app, 'mgClose')),

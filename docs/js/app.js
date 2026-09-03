@@ -8455,9 +8455,10 @@ async function mgPrepareAudio(docId) {
                       timePending: false, timeEstimated: false });
     }
   }
-  p.setBoundaries?.(mgBoundaryTimes());
-  // The marks on the overview become draggable HERE and nowhere else — see Player.onBoundaryDrag.
+  // Draggability FIRST, so the marks are built with their grips rather than rebuilt a moment later.
+  // (onBoundaryDrag forces a rebuild either way — see it — but the natural order costs nothing.)
   p.onBoundaryDrag?.((i, t, phase) => mgBoundaryDrag(i, t, phase));
+  p.setBoundaries?.(mgBoundaryTimes());
   mgDraw();          // redraw with real peaks — attachSpanWave paints from peaksCache
 }
 

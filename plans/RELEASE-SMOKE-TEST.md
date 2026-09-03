@@ -60,9 +60,30 @@ still stands.
 - [ ] A 40+ minute recording — see the memory ceiling note in
       plans/preserve-paragraph-structure.md. Expect trouble; this is the known one.
 
+Two ninety-second checks the release audit (2026-09-03) asked for by name. Each is a bug
+that was fixed the same day; each is the gesture that reproduced it.
+
+- [ ] **Commit, then take an update.** Match a text, press Done, stay on the list, and
+      force an update (Ctrl/⌘+Alt+U, or wait for one). Reopen the text: the match must still
+      be there. Before the fix, persist() wrote the pre-session record back over the commit.
+- [ ] **Join two text lines, press Done, reopen.** The joined line must come back as ONE
+      line with its audio still attached. Before the fix, the next open re-split it and
+      cleared every span with it.
+- [ ] **Split a line that has a comma before the cut**, in a text with no free translation.
+      The cut must land where the scissors was, and both halves must be pickable.
+
+## 2b. The two apps are linked
+
+- [ ] Editor → Utilities → the two links at the bottom open the Audio Segmenter and the
+      Consent Collector **in a new tab**, on the SAME estate you are on (staging links
+      staging). Same from the researcher panel's Utilities.
+- [ ] Export an .eaf from the panel's Files ▾ menu and open it in a text editor: the HEADER
+      ends with `<PROPERTY NAME="generator">Flextext Researcher v568</PROPERTY>` and
+      `AUTHOR=""`. v567 would have had neither.
+
 ## 3. Version
 
-- [ ] **`./bump-version.sh vNNN` BEFORE deploying.** The service worker caches by VERSION.
+- [x] **`./bump-version.sh v568` — done 2026-09-03.** The service worker caches by VERSION.
       Deploying changed code under an unchanged number means every device that has already
       opened the app keeps the old files — demonstrated accidentally on 2026-09-03, when a
       staging deploy kept serving stale code until the SW was unregistered by hand.

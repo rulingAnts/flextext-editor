@@ -32,7 +32,7 @@ data. It was WORK, and all of it had to be redone.
 | Branch | Purpose |
 |---|---|
 | `main` | **Releasable trunk.** Small same-day changes and finished feature merges. A release is `merge --ff-only main` into `productionWeb`, so main must stay shippable at all times. |
-| `productionWeb` | **The live site.** The ONLY branch that builds on push: a push deploys all five Cloudflare Workers automatically, and GitHub Pages rebuilds https://rulingants.github.io/flextext-editor/ . ⚠ `sync-satellites.yml` no longer fires on push (v432) — the three Pages mirrors keep SERVING but stopped receiving updates; publish one deliberately with `workflow_dispatch` if ever needed. Never push without Seth's explicit test-drive sign-off. |
+| `productionWeb` | **The live site.** The ONLY branch that builds on push: a push deploys all seven Cloudflare Workers automatically, and GitHub Pages rebuilds https://rulingants.github.io/flextext-editor/ . ⚠ `sync-satellites.yml` no longer fires on push (v432) — the three Pages mirrors keep SERVING but stopped receiving updates; publish one deliberately with `workflow_dispatch` if ever needed. Never push without Seth's explicit test-drive sign-off. |
 | `staging` | **The dev site.** `main` + in-progress feature merges (`--no-ff`). ⚠ Since 2026-08-20 a `staging` push builds NOTHING — you deploy it deliberately: Actions → **Deploy to staging / preview**, ticking only the apps you are testing. They publish to `https://staging-<worker>.68mh29kgsd.workers.dev/` (editor, researcher, recorder, crowd, paragraph-analysis-tool). ⚠ The **Paragraph Analysis tool is a SEPARATE Worker** and is NOT on the editor origin — check its engine version by curling `/flextext-editor/js/i18n.js` for `ENGINE_VERSION`, not `/sw.js`. ⚠ Because apps are ticked individually, staging's five aliases can sit at DIFFERENT versions; tick everything a change spans. |
 | feature branches | e.g. `segmentation2` (shipped as v158), `seg-exports` (in test). Branch from `main`, merge `--no-ff` into `staging` to test, ff into `main` only when complete + approved. Their own preview estate is still available and is deliberately kept (Seth, 2026-08-20: *"usually not needed, but sometimes needed"*) — run the same staging workflow with that branch selected and it publishes to `<branch>-<worker>…`. |
 
@@ -100,10 +100,10 @@ takes in between each iteration."*
 | you do | what builds |
 |---|---|
 | push `main` / `staging` / a feature branch | **nothing** |
-| push `productionWeb` | all five apps, automatically, as before |
+| push `productionWeb` | all seven apps, automatically, as before |
 | Actions → **Deploy to staging / preview** | only the apps you tick, from the branch you pick |
 
-- **Cloudflare side:** each of the five app Workers has *Builds for non-production branches*
+- **Cloudflare side:** each of the seven app Workers has *Builds for non-production branches*
   **unchecked** (Settings → Build → Branch control). Production branch stays `productionWeb`; the
   Deploy and Version commands stay `bash deploy.sh`. That single checkbox is the whole mechanism —
   the git integration is still connected, so a production push works exactly as it always did.
@@ -185,7 +185,7 @@ docs-only push cost a build of every Worker. **That cost is gone** for `main`, `
 branches — push documentation whenever you like.
 
 ⚠ **The one place the old caution still holds is `productionWeb`**: a docs commit pushed there does
-still build all five. Keep prose off that branch, and land the version commit LAST in a release push
+still build all seven. Keep prose off that branch, and land the version commit LAST in a release push
 — Cloudflare labels a build with the TIP commit, so a release whose tip is a `plans:` commit shows up
 in the dashboard looking like a docs build, which is exactly the wrong thing to be reading during
 release verification. (That happened on v433.)
@@ -239,7 +239,7 @@ untested code than there is. Between v306 and v315, EIGHT versions carried nothi
 - Docs-only commit (planning notes, DEVELOPERS.md, this file) → **commit and push, no bump.**
 - Any change to `docs/js/`, `docs/css/`, `docs/index.html`, or anything a sw.js precaches →
   **bump**, because that is what a bump is for.
-- The version-sync test only requires the five sites to AGREE; it never requires a bump, so nothing
+- The version-sync test only requires the seven sites to AGREE; it never requires a bump, so nothing
   fails when you skip one.
 
 When reporting what is on staging, say which versions carry code and which carry documents. "Eleven

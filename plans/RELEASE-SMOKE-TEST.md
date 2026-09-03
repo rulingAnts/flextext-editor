@@ -81,8 +81,15 @@ that was fixed the same day; each is the gesture that reproduced it.
       flextext and audio"): a `.m4a`/`.wav` alone becomes a text titled from the filename with no
       words; a `.flextext` alone still works; the two together pair as before. The button reads
       "Open text and/or recording…".
-- [ ] **A v567 draft with joined lines** (Birds vs Snakes on the feature preview): open, pair,
-      Done, reopen — the joined lines must come back as ONE line each, with the audio attached.
+- [ ] **A v567 draft with joined lines** (Birds vs Snakes on the feature preview): open — the 149
+      cuts and 136 lines come back as rows, paired by number — Done, reopen: the joined lines
+      must come back as ONE line each, with the audio attached, and 13 blank lines at the end.
+- [ ] **Pairing is the row number** (Seth, 2026-09-03). One list, audio left beside text right.
+      ✨ Guess, then split/join on either side and watch the numbers and colours follow; `+` adds
+      a blank line on the text side only; Done with more audio than lines adds blank lines at the
+      end; Done with more lines than audio leaves the last lines without audio and says so.
+- [ ] **⤓ offers three downloads** — everything (zip), ELAN only (.eaf), .flextext only — and a
+      six-minute WAV no longer fails with "allocation size overflow" in Firefox.
 
 ## 2b. The two apps are linked
 

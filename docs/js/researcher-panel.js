@@ -1139,6 +1139,7 @@ const RELEASES = [
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
   { v: 'v571', date: '2026-09-03', items: [
     { k: 'panel.rel.new.segmenterApp' },
+    { k: 'panel.rel.new.pairByRow' },
     { k: 'panel.rel.new.consentApp' },
     { k: 'panel.rel.new.consentAudio' },
     { k: 'panel.rel.new.satExport' },

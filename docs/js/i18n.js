@@ -118,6 +118,12 @@ en: {
   'sat.exportDraft': 'Unfinished matching is not in this file yet \u2014 press Done first if you want it included.',
   'sat.exportNoAudio': 'No recording attached \u2014 the download carries the text only.',
   'sat.exportFailed': 'Could not build the download: {msg}',
+  'sat.exportTitle': 'Download this text',
+  'sat.exportAll': 'Everything \u2014 the .flextext with its times, the ELAN .eaf and the recording, in one zip',
+  'sat.exportEaf': 'ELAN only (.eaf)',
+  'sat.exportFlextext': '.flextext only (with its times)',
+  'sat.exportNoEaf': 'No ELAN file yet: this text has no timed lines. Match it first.',
+  'share.trimmedBig': 'The recording is too big to embed inside the listening page or the .fxpa, so those were left out of this bundle. The recording itself is included as a file.',
   'sat.needText': 'Pick a .flextext file too \u2014 a recording on its own has no text to work with.',
   'sat.noTexts': 'no texts found in the file',
   'sat.importedOne': 'Opened 1 text.',
@@ -149,19 +155,19 @@ en: {
   'mg.text': 'Text',
   'mg.back': '← Back',
   'mg.done': 'Done',
-  'mg.allMapped': 'Everything is matched.',
+  'mg.countsMatch': 'Audio and text line up: {n} rows each. Done saves them as pairs.',
   // ⚠ COUNT-AGNOSTIC ON PURPOSE. t() has no plural machinery (it is a string replace), so a
   // sentence carrying a number reads "1 audio pieces" at exactly the moment the user is nearly
   // finished. A labelled pair is correct at every count and scans faster besides.
-  'mg.remaining': 'Still to match — audio: {a}, text: {t}',
-  'mg.nonePicked': 'Match at least one piece of audio to a line to finish.',
+  'mg.moreAudio': 'Audio: {a} \u00b7 Text: {t} \u2014 {n} more audio than lines. Done adds a blank line for each extra piece at the end; press + to place one earlier, or join pieces.',
+  'mg.moreText': 'Audio: {a} \u00b7 Text: {t} \u2014 {n} more lines than audio. The last lines will have no audio; cut the recording, or join lines.',
   'mg.addLine': 'Add a blank line here (for audio with no words yet)',
   'mg.dragEdge': 'Drag to move this boundary',
   'mg.resumed': 'Picked up where you left off — your unfinished matching was saved automatically.',
   'mg.startOver': 'Start over',
   'mg.startOverConfirm': 'Throw away the unfinished matching and start again from the saved text? This cannot be undone.',
-  'mg.leftover': 'Not matched — audio: {a}, text: {t}. That is allowed: leftover audio is left out, and a line with no audio keeps its words.',
-  'mg.committedLeftover': 'Left out {a} piece(s) of audio; {t} line(s) saved without audio.',
+  'mg.noAudioRow': 'No audio for this line',
+  'mg.committedLeftover': 'Blank lines added for audio at the end: {a}. Lines saved without audio: {t}.',
   'mg.splitSpan': 'Split this audio piece in two',
   'mg.joinPrev': 'Join to the one above',
   'mg.cutHere': 'Split the words here',
@@ -169,7 +175,9 @@ en: {
   'mg.nowPickFt': 'Now click the space in the translation where it should break.',
   'mg.tooShort': 'Too short to split.',
   'mg.badSplit': 'Pick a point between two words.',
-  'mg.splitUnmapped': 'That piece was matched — both halves now need matching again.',
+  'mg.badgeTip': 'Show the matching row on the other side',
+  'mg.noAudioCell': 'No audio for this line yet \u2014 cut the recording, or join text lines.',
+  'mg.noLineCell': 'No line for this audio yet \u2014 Done adds a blank line here, or press + to add one now.',
   'mg.committed': 'Saved. Lines matched: {n}',
   'mg.guessed': 'Cut the recording into {n} pieces at its pauses. Nothing is saved until you press Done.',
   'mg.guessReplace': 'Guessing the lines will replace the pieces you have cut, and unmatch everything. Go ahead?',
@@ -1387,6 +1395,7 @@ internet after the first time.</p>
     ,'panel.rel.new.provenance': 'Exported files now record which app made them: exportSource on a .flextext, a generator property on an .eaf. AUTHOR on an .eaf is left for the person it is meant for.'
     ,'panel.rel.new.appLinks': 'Both new apps are linked from Utilities — in this panel and on the editor’s Utilities tab — and open in a new tab.'
     ,'panel.rel.new.satExport': 'The Audio Segmenter and the Consent Collector can now download a text on their own \u2014 the .flextext with its times, the ELAN .eaf and the recording in one zip \u2014 so a device that is not paired with a researcher still has a way to get its work out.'
+    ,'panel.rel.new.pairByRow': 'The Audio Segmenter no longer asks you to pair pieces of audio with lines: row 1 on the left IS row 1 on the right, in one shared list. Split and join on either side, add a blank line with + where the recording has no words, and Done saves the rows as pairs \u2014 adding blank lines for any audio left over at the end. Rows that line up colour themselves.'
     ,'panel.rel.new.consentAudio': 'The Consent Collector opens a recording on its own, a .flextext on its own, or the two together \u2014 permission attaches to a story that has only been recorded as readily as to one that has been typed.'
     ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
@@ -2368,6 +2377,12 @@ id: {
   'sat.exportDraft': 'Pencocokan yang belum selesai belum masuk ke berkas ini \u2014 tekan Selesai dulu jika ingin disertakan.',
   'sat.exportNoAudio': 'Tidak ada rekaman terlampir \u2014 unduhan hanya berisi teksnya.',
   'sat.exportFailed': 'Tidak bisa menyiapkan unduhan: {msg}',
+  'sat.exportTitle': 'Unduh teks ini',
+  'sat.exportAll': 'Semuanya \u2014 .flextext dengan waktunya, .eaf ELAN, dan rekamannya, dalam satu zip',
+  'sat.exportEaf': 'ELAN saja (.eaf)',
+  'sat.exportFlextext': '.flextext saja (dengan waktunya)',
+  'sat.exportNoEaf': 'Belum ada berkas ELAN: teks ini belum punya baris berwaktu. Cocokkan dulu.',
+  'share.trimmedBig': 'Rekamannya terlalu besar untuk disematkan di halaman dengar atau .fxpa, jadi keduanya tidak disertakan dalam paket ini. Rekamannya sendiri tetap disertakan sebagai berkas.',
   'sat.needText': 'Pilih juga berkas .flextext \u2014 rekaman saja tidak ada teksnya.',
   'sat.noTexts': 'tidak ada teks di dalam berkas itu',
   'sat.importedOne': 'Satu teks dibuka.',
@@ -2397,16 +2412,16 @@ id: {
   'mg.text': 'Teks',
   'mg.back': '← Kembali',
   'mg.done': 'Selesai',
-  'mg.allMapped': 'Semua sudah dicocokkan.',
-  'mg.remaining': 'Belum dicocokkan — audio: {a}, teks: {t}',
-  'mg.nonePicked': 'Cocokkan setidaknya satu potongan audio dengan satu baris untuk menyelesaikan.',
+  'mg.countsMatch': 'Audio dan teks sudah sejajar: {n} baris masing-masing. Selesai menyimpannya berpasangan.',
+  'mg.moreAudio': 'Audio: {a} \u00b7 Teks: {t} \u2014 audio lebih banyak {n} dari baris. Selesai menambahkan baris kosong untuk tiap potongan lebih di akhir; tekan + untuk menaruhnya lebih awal, atau gabungkan potongan.',
+  'mg.moreText': 'Audio: {a} \u00b7 Teks: {t} \u2014 baris lebih banyak {n} dari audio. Baris terakhir tidak akan punya audio; potong rekamannya, atau gabungkan baris.',
   'mg.addLine': 'Tambahkan baris kosong di sini (untuk audio yang belum ada kata-katanya)',
   'mg.dragEdge': 'Seret untuk memindahkan batas ini',
   'mg.resumed': 'Dilanjutkan dari tempat Anda berhenti — pencocokan yang belum selesai tersimpan otomatis.',
   'mg.startOver': 'Mulai dari awal',
   'mg.startOverConfirm': 'Buang pencocokan yang belum selesai dan mulai lagi dari teks tersimpan? Ini tidak bisa dibatalkan.',
-  'mg.leftover': 'Belum dicocokkan — audio: {a}, teks: {t}. Itu boleh: audio sisa tidak disertakan, dan baris tanpa audio tetap ada kata-katanya.',
-  'mg.committedLeftover': 'Audio yang tidak disertakan: {a}; baris tersimpan tanpa audio: {t}.',
+  'mg.noAudioRow': 'Tidak ada audio untuk baris ini',
+  'mg.committedLeftover': 'Baris kosong ditambahkan untuk audio di akhir: {a}. Baris tersimpan tanpa audio: {t}.',
   'mg.splitSpan': 'Bagi potongan audio ini menjadi dua',
   'mg.joinPrev': 'Gabungkan dengan yang di atas',
   'mg.cutHere': 'Potong kata-katanya di sini',
@@ -2414,7 +2429,9 @@ id: {
   'mg.nowPickFt': 'Sekarang klik spasi pada terjemahan tempat pemotongannya.',
   'mg.tooShort': 'Terlalu pendek untuk dibagi.',
   'mg.badSplit': 'Pilih titik di antara dua kata.',
-  'mg.splitUnmapped': 'Potongan itu sudah dicocokkan — kedua bagiannya perlu dicocokkan lagi.',
+  'mg.badgeTip': 'Tampilkan baris pasangannya di sisi lain',
+  'mg.noAudioCell': 'Belum ada audio untuk baris ini \u2014 potong rekamannya, atau gabungkan baris teks.',
+  'mg.noLineCell': 'Belum ada baris untuk audio ini \u2014 Selesai menambahkan baris kosong di sini, atau tekan + untuk menambahkannya sekarang.',
   'mg.committed': 'Tersimpan. Baris yang cocok: {n}',
   'mg.guessed': 'Rekaman dipotong menjadi {n} bagian pada jedanya. Belum ada yang tersimpan sampai Anda menekan Selesai.',
   'mg.guessReplace': 'Menebak baris akan mengganti potongan yang sudah Anda buat, dan membatalkan semua pencocokan. Lanjutkan?',
@@ -3476,6 +3493,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.provenance': 'Berkas yang diekspor kini mencatat aplikasi pembuatnya: exportSource pada .flextext, properti generator pada .eaf. AUTHOR pada .eaf dibiarkan untuk orangnya.'
     ,'panel.rel.new.appLinks': 'Kedua aplikasi baru tertaut dari Peralatan — di panel ini dan di tab Utilitas editor — dan terbuka di tab baru.'
     ,'panel.rel.new.satExport': 'Pemotong Audio dan Pengumpul Izin kini bisa mengunduh teks sendiri \u2014 .flextext dengan waktunya, .eaf ELAN, dan rekamannya dalam satu zip \u2014 sehingga perangkat yang tidak dipasangkan dengan peneliti tetap punya jalan mengeluarkan hasil kerjanya.'
+    ,'panel.rel.new.pairByRow': 'Pemotong Audio tidak lagi meminta Anda memasangkan potongan audio dengan baris: baris 1 di kiri ADALAH baris 1 di kanan, dalam satu daftar bersama. Potong dan gabungkan di sisi mana pun, tambahkan baris kosong dengan + di tempat rekaman tidak ada katanya, dan Selesai menyimpan baris-baris itu berpasangan \u2014 menambahkan baris kosong untuk audio yang tersisa di akhir. Baris yang sejajar mewarnai dirinya sendiri.'
     ,'panel.rel.new.consentAudio': 'Pengumpul Izin bisa membuka rekaman saja, .flextext saja, atau keduanya \u2014 izin melekat pada cerita yang baru direkam sama mudahnya dengan yang sudah diketik.'
     ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'

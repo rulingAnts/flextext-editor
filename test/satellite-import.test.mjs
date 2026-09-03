@@ -106,7 +106,8 @@ ok(!/text\(s\)|\(s\)/.test(i18n.match(/'sat\.imported[^\n]*/g)?.join('\n') || ''
 const en = i18n.slice(0, i18n.indexOf("'cc.hint'", i18n.indexOf("'cc.hint'") + 10));
 ok(/'cc\.tallyNeed': 'still to ask: \{n\} of \{total\}'/.test(en), 'cc.tallyNeed reads correctly at 1');
 ok(/'cc\.tallyDone': 'all have permission \(\{total\}\)'/.test(en), 'and so does cc.tallyDone');
-ok(/'mg\.remaining': 'Still to match — audio: \{a\}, text: \{t\}'/.test(en), 'and the matcher status');
+ok(/'mg\.moreAudio': 'Audio: \{a\} \\u00b7 Text: \{t\}/.test(en) && /'mg\.moreText': 'Audio: \{a\} \\u00b7 Text: \{t\}/.test(en),
+   'and the matcher status, which now names both counts');
 
 console.log('\nrow controls: delete a text, swap its recording — on by default when unpaired');
 const swap = asyncFn(app, 'satReplaceAudio');
@@ -148,7 +149,21 @@ console.log('\nan unpaired device can get a text OUT — the first real text had
   ok(/sat-export/.test(ctl) && /satExport\(d\.id\)/.test(ctl), 'the row carries a download control');
   ok(/if \(SEGMENTER_MODE \|\| CONSENT_MODE\)/.test(ctl), 'in both satellites');
   const ex = asyncFn(app, 'satExport');
-  ok(/buildBundleFor\(rec, true, \{ full: true \}\)/.test(ex), 'built by the SAME bundle a paired device uploads, in full');
+  ok(/buildBundleFor\(rec, true, \{ full: true, wants: \{ eaf: true, saymore: false, preview: false, fxpa: false \} \}\)/.test(ex),
+     'built by the SAME bundle a paired device uploads — minus every output that embeds the recording as base64');
+  /* "allocation size overflow" (Firefox, a six-minute WAV): the listening page and the .fxpa each
+   * hold the recording as base64, several copies of a ~100 MB string alive at once. */
+  ok(/const caps = media \? conversionCaps\(/.test(asyncFn(app, 'buildBundleFor')) && /trimmed\.push\('preview'\)/.test(asyncFn(app, 'buildBundleFor')),
+     'and buildBundleFor itself gates those outputs on conversionCaps, so the editor\'s Share cannot overflow either');
+  ok(/share\.trimmedBig/.test(asyncFn(app, 'openShareMenu')), 'which the editor SAYS when it happens');
+  // Seth: "we do want direct ELAN export from the audio segmenter."
+  ok(/const kind = await satExportChoice\(\)/.test(ex), 'the user chooses what to keep of it');
+  ok(/kind === 'flextext'/.test(ex) && /kind === 'eaf'/.test(ex) && /\\\.eaf\$/.test(ex),
+     'everything, the .eaf alone, or the .flextext alone');
+  ok(/sat\.exportNoEaf/.test(ex), 'and an unmatched text says why there is no .eaf rather than downloading nothing');
+  for (const k of ['sat.exportTitle', 'sat.exportAll', 'sat.exportEaf', 'sat.exportFlextext', 'sat.exportNoEaf', 'share.trimmedBig']) {
+    ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
   ok(/if \(rec\.matchDraft\) toast\(t\('sat\.exportDraft'\)/.test(ex), 'and it says when unfinished matching is not in it');
   ok(/if \(!bundle\.zipped\) toast\(t\('sat\.exportNoAudio'\)/.test(ex), 'and when there was no recording to include');
   for (const k of ['sat.export', 'sat.exporting', 'sat.exportDraft', 'sat.exportNoAudio', 'sat.exportFailed']) {

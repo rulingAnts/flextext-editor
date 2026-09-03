@@ -363,6 +363,16 @@ console.log('\nwork in progress is autosaved — losing it was the one unaccepta
   ok(/dur > 0 && !MG\.resumed/.test(prep),
      'and a resumed draft is not re-seeded or given a tail, which would invent spans the user did not make');
   ok(/await mgClearDraft\(MG\.docId\)/.test(asyncFn(app, 'mgCommit')), 'Done clears it');
+  /* ⚠ TWO WRITERS, ONE RECORD. mgSaveDraft re-reads the record from storage; persist() writes the
+   * `current` object captured when the text was opened, and `current` never learns about a draft
+   * written after that moment — so the next persist() puts the record back with the draft it
+   * remembers, which is the STARTING state. Seth: "It said my work was saved, but what was saved
+   * was the starting state." Ordering cannot fix a last-write-wins race; the writers have to agree
+   * on the value, so the draft is written to both. */
+  ok(/if \(current && current\.id === id\) current\.matchDraft = rec\.matchDraft;/.test(save),
+     'the draft is written to `current` as well as to storage, or persist() silently reverts it');
+  ok(/if \(current && current\.id === id\) delete current\.matchDraft;/.test(asyncFn(app, 'mgClearDraft')),
+     'and clearing follows the same rule, or a cleared draft comes back');
   const close = fn(app, 'mgClose');
   ok(!/mgClearDraft/.test(close),
      '⚠ and BACK DOES NOT — a control that throws away an hour of work on one tap has no business being the way out');

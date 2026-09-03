@@ -7693,6 +7693,18 @@ function mgSaveDraft() {
         map: [...MG.map],
       };
       await db.putDoc(rec);        // ⚠ rec.modified deliberately NOT touched — see above
+      /* ⚠ AND KEEP `current` IN STEP, or persist() will quietly undo this.
+       *
+       * Two code paths write this record from DIFFERENT in-memory copies: mgSaveDraft re-reads it
+       * from storage, while persist() writes the `current` object captured when the text was opened.
+       * `current` never learns about a draft written after that moment — so the next persist()
+       * (healFlatSegments schedules one on open, and anything else may) writes the WHOLE record back
+       * with the draft it remembers, which is the starting state. Seth saw exactly that: "It said my
+       * work was saved, but what was saved was the starting state."
+       *
+       * A last-write-wins race between two writers of one record is not fixable by ordering; they
+       * have to agree on the value. So the draft is written to both. */
+      if (current && current.id === id) current.matchDraft = rec.matchDraft;
       db.broadcastLive('docs');
     } catch (e) {
       toast(t(e && e.name === 'QuotaExceededError' ? 'toast.storageFull'
@@ -7709,6 +7721,7 @@ async function mgClearDraft(id) {
     if (!rec || !rec.matchDraft) return;
     delete rec.matchDraft;
     await db.putDoc(rec);
+    if (current && current.id === id) delete current.matchDraft;   // same two-writer rule
     db.broadcastLive('docs');
   } catch { /* a draft we could not clear is harmless: reopening simply offers to resume */ }
 }

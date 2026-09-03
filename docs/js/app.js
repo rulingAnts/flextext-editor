@@ -7769,6 +7769,65 @@ function mgPick(kind, id) {
   mgDraw();
 }
 
+/* ─────────────── MOVING A BOUNDARY ───────────────
+ *
+ * ⚠ ONE RULE, ONE FUNCTION, BOTH SURFACES. The overview marks and a span's own edges move the same
+ * thing — the join between span i and span i+1 — so they share this, and the ordering constraint
+ * cannot be enforced correctly in one place and sloppily in the other.
+ *
+ * Seth: "we have to make sure you can't drag them BEYOND other boundaries they run into. Like they
+ * have to stay in sequence." The clamp is expressed against the NEIGHBOURING SPANS rather than the
+ * neighbouring boundaries, which is the same constraint said in the form that cannot be got wrong:
+ * a boundary may not pass its own span's start, nor the next span's end, and must leave a real
+ * segment on each side (MIN_SEGMENT_MS — the same floor ✂ refuses below).
+ *
+ * Returns false when nothing moved, so a drag that hits the stop does not churn the display.
+ */
+function mgMoveBoundary(i, ms) {
+  if (!MG || !Number.isFinite(ms)) return false;
+  const a = MG.spans[i], b = MG.spans[i + 1];
+  if (!a || !b || a.timePending || b.timePending) return false;
+  const lo = a.start + MIN_SEGMENT_MS;
+  const hi = b.end - MIN_SEGMENT_MS;
+  if (hi <= lo) return false;                       // no room between the neighbours; refuse
+  const t = Math.round(Math.min(hi, Math.max(lo, ms)));
+  if (t === a.end) return false;
+  a.end = t;
+  b.start = t;
+  return true;
+}
+
+/* Repaint just the two rows a drag is moving, plus the overview marks.
+ *
+ * ⚠ NOT mgDraw(). A full redraw rebuilds every row and every canvas — measured at 58ms for 30 spans
+ * — which is fine for a click and useless at pointermove rates: the boundary would lag the finger
+ * by several frames, which is precisely the feedback the drag exists to give. The full redraw
+ * happens once, on release. */
+function mgLiveBoundary(i) {
+  const body = $('#mg-body');
+  if (!body || !MG) return;
+  for (const k of [i, i + 1]) {
+    const sp = MG.spans[k];
+    if (!sp) continue;
+    const row = body.querySelector(`.mg-span[data-sp="${CSS.escape(sp.id)}"]`);
+    if (!row) continue;
+    const time = row.querySelector('.mg-time');
+    if (time) time.textContent = `${mgFmt(sp.start)} – ${mgFmt(sp.end)}`;
+    const wave = row.querySelector('.mg-wave');
+    if (wave) drawSpanWave(wave, sp);
+  }
+  player?.setBoundaries?.(mgBoundaryTimes());
+}
+
+/* The gesture, shared by the overview marks and the span edges: capture once at the start (so a
+ * whole drag is ONE undo, not forty), move live, and settle with a full redraw. */
+function mgBoundaryDrag(i, ms, phase) {
+  if (!MG) return;
+  if (phase === 'start') { mgCapture(); player?.pause?.(); return; }
+  if (phase === 'end') { mgDraw(); return; }
+  if (mgMoveBoundary(i, ms)) mgLiveBoundary(i);
+}
+
 // ── independent editing, left side ────────────────────────────────────────────────────────────
 /* ⚠ CUT WHERE THE PLAYHEAD IS, and only fall back to the midpoint when it is somewhere else. The
  * Cut tab has meant this by "split" since v158 (cutHere), and now that these rows carry the same
@@ -8023,7 +8082,7 @@ function mgDraw() {
     if (mapped(sp.id)) li.style.setProperty('--mg-hue', hueForLine(MG.map.get(sp.id)));
     li.innerHTML = `<button class="mg-pick"></button>
       <button class="seg-play mg-play"></button>
-      <canvas class="seg-wave mg-wave"></canvas>
+      <div class="mg-wavewrap"><canvas class="seg-wave mg-wave"></canvas></div>
       <span class="mg-time"></span>
       <span class="mg-actions">
         <button class="mg-split icon-btn2" title="${esc(t('mg.splitSpan'))}">✂</button>
@@ -8048,6 +8107,44 @@ function mgDraw() {
     // unaligned one, which wireWaveSeek deliberately leaves unwired (no timeline to seek into).
     if (sp.timePending) wave.addEventListener('pointerdown', () => { lastPlayTarget = sp; });
     attachSpanWave(wave, sp);
+    /* ⚠ EDGE HANDLES ARE THE FINE ADJUSTMENT; the overview marks are the coarse one. Dragging an
+     * edge moves the boundary this span SHARES with its neighbour — the right edge of span i and
+     * the left edge of span i+1 are the same line, so both drag the same thing and either can be
+     * grabbed, whichever is nearer the thumb.
+     *
+     * ⚠ THE SCALE IS FROZEN AT PICK-UP. The strip is drawn to this span's own range, so the range
+     * changes as you drag it; recomputing ms-per-pixel each move would make the boundary accelerate
+     * away from the finger. Captured once, the gesture stays 1:1 with what was on screen when it
+     * began. The first and last edges of the recording are not boundaries and get no handle. */
+    const wrapEl = li.querySelector('.mg-wavewrap');
+    for (const side of ['l', 'r']) {
+      const bi = side === 'l' ? i - 1 : i;              // which boundary this edge is
+      if (bi < 0 || bi >= MG.spans.length - 1) continue;
+      const h = document.createElement('span');
+      h.className = 'mg-edge mg-edge-' + side;
+      h.title = t('mg.dragEdge');
+      h.setAttribute('aria-label', t('mg.dragEdge'));
+      h.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();      // not a seek, not a row select
+        try { h.setPointerCapture(ev.pointerId); } catch { /* comfort only */ }
+        const w = wave.clientWidth || 1;
+        const perPx = Math.max(1, sp.end - sp.start) / w;
+        const x0 = ev.clientX;
+        const t0 = bi === i ? sp.end : sp.start;
+        mgBoundaryDrag(bi, null, 'start');
+        const move = (e2) => mgBoundaryDrag(bi, t0 + (e2.clientX - x0) * perPx, 'move');
+        const up = () => {
+          h.removeEventListener('pointermove', move);
+          h.removeEventListener('pointerup', up);
+          h.removeEventListener('pointercancel', up);
+          mgBoundaryDrag(bi, null, 'end');
+        };
+        h.addEventListener('pointermove', move);
+        h.addEventListener('pointerup', up);
+        h.addEventListener('pointercancel', up);
+      });
+      wrapEl.appendChild(h);
+    }
     su.appendChild(li);
   });
 
@@ -8250,11 +8347,13 @@ function mgStartTicker() {
         mgFollowRow = followLine(row, rolling, mgFollowRow, p);
         // …and bring its matched line along, so listening down a recording keeps the text in step.
         if (rolling) mgLinkPair(MG.map.get(sp.id) || null);
-        if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
+        // ⚠ INSIDE THE WAVE WRAPPER now, not the row: the wrapper is the positioned ancestor since
+        // the edge handles moved in, so a row-relative left would land in the wrong column.
+        const wrapEl = row.querySelector('.mg-wavewrap');
+        if (!wrapEl) return;
+        if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; wrapEl.appendChild(cur); }
         const frac = Math.min(1, Math.max(0, (now - sp.start) / Math.max(1, sp.end - sp.start)));
-        cur.style.left = (wave.offsetLeft + frac * wave.offsetWidth) + 'px';
-        cur.style.top = wave.offsetTop + 'px';
-        cur.style.height = wave.offsetHeight + 'px';
+        cur.style.left = (frac * wrapEl.clientWidth) + 'px';
       });
     } finally {
       if (MG) mgRaf = requestAnimationFrame(tick);
@@ -8344,6 +8443,8 @@ async function mgPrepareAudio(docId) {
     }
   }
   p.setBoundaries?.(mgBoundaryTimes());
+  // The marks on the overview become draggable HERE and nowhere else — see Player.onBoundaryDrag.
+  p.onBoundaryDrag?.((i, t, phase) => mgBoundaryDrag(i, t, phase));
   mgDraw();          // redraw with real peaks — attachSpanWave paints from peaksCache
 }
 
@@ -8397,6 +8498,7 @@ function mgClose() {
   // ⚠ AND HIDE THE DOCK. It is a sibling of the views, not part of one, so `show('segmenter')` does
   // not touch it — the transport for a recording nobody has open stayed on screen above the text
   // list, offering to play audio that belonged to whatever was last matched.
+  player?.onBoundaryDrag?.(null);   // the dock is shared; leave it as we found it
   player?.hide?.();
   lastPlayTarget = null;
   show('segmenter');

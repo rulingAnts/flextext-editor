@@ -220,6 +220,43 @@ ok(/timeEstimated: true/.test(commit), 'an estimated boundary is written back as
 ok(/rec\.doc\.paragraphs = MG\.lines\.map/.test(commit) && /rec\.doc\.segments = MG\.lines\.map/.test(commit),
    'segments and paragraphs come out the same length and in the same order — segments[i] IS paragraph i');
 
+console.log('\ndragging a boundary — and it can never pass its neighbours');
+{
+  /* Seth: "we have to make sure you can't drag them BEYOND other boundaries they run into. Like
+   * they have to stay in sequence." */
+  const mv = fn(app, 'mgMoveBoundary');
+  ok(!!mv, 'mgMoveBoundary exists');
+  ok(/const lo = a\.start \+ MIN_SEGMENT_MS;/.test(mv) && /const hi = b\.end - MIN_SEGMENT_MS;/.test(mv),
+     'clamped against the NEIGHBOURING SPANS — the ordering constraint in the form that cannot be got wrong');
+  ok(/Math\.min\(hi, Math\.max\(lo, ms\)\)/.test(mv), 'so a drag stops at the neighbour instead of passing it');
+  ok(/if \(hi <= lo\) return false;/.test(mv), 'and refuses outright when there is no room between them');
+  ok(/if \(t === a\.end\) return false;/.test(mv), 'a drag that does not move it does not churn the display');
+  ok(/a\.end = t;\s*\n\s*b\.start = t;/.test(mv), 'both sides of the join move together — no gap, no overlap');
+
+  const drag = fn(app, 'mgBoundaryDrag');
+  ok(/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag), 'ONE undo per drag, captured at pick-up');
+  ok(/phase === 'end'[\s\S]{0,40}mgDraw\(\)/.test(drag), 'and one full redraw on release');
+  ok(/mgLiveBoundary\(i\)/.test(drag), 'with a cheap live repaint in between');
+  const live = fn(app, 'mgLiveBoundary');
+  ok(/for \(const k of \[i, i \+ 1\]\)/.test(live),
+     'which touches only the two rows the boundary joins — a full redraw is 58ms and would lag the finger');
+  ok(/setBoundaries/.test(live), 'and keeps the overview marks in step');
+
+  // Both surfaces, one rule.
+  ok(/onBoundaryDrag/.test(read('docs/js/audio.js')), 'the Player exposes draggable marks');
+  ok(/this\._onBoundaryDrag/.test(read('docs/js/audio.js')),
+     'opt-in — the Cut tab draws the same marks and must not silently gain a destructive gesture');
+  ok(/p\.onBoundaryDrag\?\.\(\(i, t, phase\) => mgBoundaryDrag/.test(asyncFn(app, 'mgPrepareAudio')),
+     'the matcher opts in');
+  ok(/player\?\.onBoundaryDrag\?\.\(null\)/.test(fn(app, 'mgClose')),
+     'and opts out on the way, since the dock is shared with the editor');
+  const draw = fn(app, 'mgDraw');
+  ok(/if \(bi < 0 \|\| bi >= MG\.spans\.length - 1\) continue;/.test(draw),
+     'the first and last edges of the recording are not boundaries and get no handle');
+  ok(/const perPx = Math\.max\(1, sp\.end - sp\.start\) \/ w;/.test(draw),
+     'the edge scale is frozen at pick-up, or the boundary would accelerate away from the finger');
+}
+
 console.log('\nleftovers on BOTH sides are legitimate, not an error');
 {
   /* Seth: "we should be able to have empty audio segments that don't map to text … it should be
@@ -350,7 +387,9 @@ ok(dockAt < matcherAt, 'the player element precedes #view-matcher');
 console.log('\nthe row\'s CSS is what the shared cursor and waveform need');
 ok(/\.mg-span\{position:relative;display:grid/.test(css),
    '.mg-span is position:relative — the absolutely-positioned .seg-cursor resolves against it');
-ok(/\.mg-span \.seg-wave\{grid-column:3/.test(css), 'the waveform is moved to its own column (the shared rule puts it in column 2)');
+ok(/\.mg-span \.mg-wavewrap\{grid-column:3;grid-row:1;position:relative/.test(css),
+   'the wave WRAPPER holds the grid cell and is the positioned ancestor (the cursor and the edge handles sit in it)');
+ok(/\.mg-span \.seg-wave\{width:100%/.test(css), 'and the canvas fills it');
 ok(/\.mg-list\{[^}]*overflow:auto/.test(css), 'each pane scrolls on its own — the span and its line are rarely the same distance down');
 ok(!/\.mg-bar\{position:sticky/.test(css), 'the bar is NOT sticky: the dock already claims top:0 and would cover it');
 

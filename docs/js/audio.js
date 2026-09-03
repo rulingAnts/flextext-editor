@@ -962,15 +962,57 @@ export class Player {
     let dur = 0;
     try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
     if (!dur || !this._bounds || !this._bounds.length) return;
-    for (const ms of this._bounds) {
+    /* ⚠ DRAGGABLE ONLY WHEN SOMEBODY IS LISTENING. `onBoundaryDrag` is opt-in: the Cut tab draws
+     * these same marks and has never offered to move them, and silently making them draggable there
+     * would add a destructive gesture to a screen whose users did not ask for one. The matcher sets
+     * it; nothing else does. The LAYER stays pointer-events:none so it cannot swallow clicks meant
+     * for the waveform underneath — only the marks themselves become targets. */
+    const drag = this._onBoundaryDrag;
+    this._bounds.forEach((ms, i) => {
       const f = (ms / 1000) / dur;
-      if (!(f > 0) || f >= 1) continue;     // 0 and the file end are edges, not boundaries
+      if (!(f > 0) || f >= 1) return;       // 0 and the file end are edges, not boundaries
       const b = document.createElement('span');
       b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
         + 'border-left:2px dotted rgba(108,118,133,.85);';
       b.style.left = (f * 100) + '%';
+      if (drag) {
+        /* A 2px line is not a tap target. The grab area is a transparent 15px-wide box centred on
+         * the line — invisible, so the mark still reads as a hairline, and wide enough for a thumb.
+         * cursor:col-resize is the only thing that says it can be moved, which is the convention. */
+        b.style.cssText += 'width:15px;margin-left:-7px;pointer-events:auto;cursor:col-resize;'
+          + 'touch-action:none;';
+        b.dataset.bi = String(i);
+        b.addEventListener('pointerdown', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();             // never let the drag double as a seek
+          try { b.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }
+          const box = () => wrap.getBoundingClientRect();
+          const at = (e2) => {
+            const r = box();
+            return r.width > 0 ? ((e2.clientX - r.left) / r.width) * dur * 1000 : null;
+          };
+          drag(i, at(ev), 'start');
+          const move = (e2) => { const t = at(e2); if (t != null) drag(i, t, 'move'); };
+          const up = (e2) => {
+            b.removeEventListener('pointermove', move);
+            b.removeEventListener('pointerup', up);
+            b.removeEventListener('pointercancel', up);
+            const t = at(e2); drag(i, t == null ? null : t, 'end');
+          };
+          b.addEventListener('pointermove', move);
+          b.addEventListener('pointerup', up);
+          b.addEventListener('pointercancel', up);
+        });
+      }
       layer.appendChild(b);
-    }
+    });
+  }
+
+  /* Let a caller move the marks. `fn(index, ms, phase)` where phase is 'start' | 'move' | 'end';
+   * ms is null if the pointer left the measurable area. Passing null disables dragging again. */
+  onBoundaryDrag(fn) {
+    this._onBoundaryDrag = fn || null;
+    this.renderBoundaries();
   }
 
   /** Park the playhead at an absolute position WITHOUT changing play/pause state — strip

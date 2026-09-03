@@ -2968,7 +2968,20 @@ body.rp-standalone main { padding-top: 0; }
    against — omit it and the playhead draws somewhere up the page. */
 .mg-span{position:relative;display:grid;align-items:center;
   grid-template-columns:auto auto minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px .5rem}
-.mg-span .seg-wave{grid-column:3;grid-row:1;height:38px}
+/* The wave and its furniture: the playhead cursor and the two edge handles all position against
+   this box, so it is the positioned ancestor rather than the row. */
+.mg-span .mg-wavewrap{grid-column:3;grid-row:1;position:relative;min-width:0}
+.mg-span .seg-wave{width:100%;height:38px;display:block}
+.mg-span .seg-cursor{top:0;bottom:0;height:auto}
+/* ⚠ A GRAB AREA WIDER THAN THE LINE IT MOVES. The boundary is a hairline; the handle is 14px and
+   transparent, so the strip still reads as a waveform and a thumb can still find it. The tint
+   appears only on hover/press — a row of visible grips on every strip would read as chrome. */
+.mg-edge{position:absolute;top:0;bottom:0;width:14px;cursor:col-resize;touch-action:none;
+  background:transparent;z-index:3}
+.mg-edge-l{left:-7px}
+.mg-edge-r{right:-7px}
+.mg-edge:hover,.mg-edge:active{background:linear-gradient(90deg,transparent 38%,
+  hsl(210 70% 45% / .55) 38%,hsl(210 70% 45% / .55) 62%,transparent 62%)}
 .mg-span .mg-pick{grid-row:1 / span 2}
 .mg-span .seg-play{grid-row:1 / span 2;min-width:34px;height:34px}
 .mg-span .mg-time{grid-column:3;grid-row:2;padding-top:0;font-size:.8rem;color:var(--muted,#667)}

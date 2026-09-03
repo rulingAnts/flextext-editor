@@ -2981,6 +2981,9 @@ body.rp-standalone main { padding-top: 0; }
 .mg-item.mg-linked{box-shadow:0 0 0 2px hsl(var(--mg-hue,200) 65% 45% / .85)}
 /* The "+" that adds a blank line, between the rows it inserts between. Quiet until hovered: it sits
    between every pair of lines, and a column of loud buttons would read as the content. */
+.mg-resumed{display:flex;align-items:center;gap:.6rem;margin:0 .6rem .5rem;padding:.45rem .7rem;
+  border-radius:8px;background:hsl(45 90% 95%);border:1px solid hsl(45 60% 78%);font-size:.88rem}
+.mg-resumed span{flex:1}
 .mg-insertrow{list-style:none;text-align:center;line-height:1;margin:-.15rem 0 .2rem}
 .mg-insert{border:1px dashed var(--line,#d7dbe0);background:transparent;color:var(--muted,#667);
   border-radius:6px;min-width:44px;height:20px;font-size:13px;cursor:pointer;opacity:.45}

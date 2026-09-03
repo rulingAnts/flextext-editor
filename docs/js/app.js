@@ -7521,7 +7521,8 @@ async function sgRenderList() {
       </div>`;
     li.querySelector('.doc-name').textContent = d.title || t('untitled');
     li.querySelector('.doc-meta').textContent =
-      st === 'noaudio' ? t('sg.noAudio')
+      d.hasDraft ? t('sg.inProgress')
+      : st === 'noaudio' ? t('sg.noAudio')
       : st === 'coming' ? t('seg.loadingAudio')
       : st === 'some' ? (d.spanCount === 1 ? t('sg.oneSpan') : t('sg.someSpans').replace('{n}', d.spanCount))
       : t('sg.noSpans');
@@ -7650,6 +7651,67 @@ function mgLoad(rec) {
  * user has actually done something — one pair — and the status line reports the leftovers as
  * information rather than as an error. */
 const mgComplete = () => !!MG && MG.map.size > 0;
+
+/* ─────────────── AUTOSAVE THE WORK IN PROGRESS ───────────────
+ *
+ * ⚠ THIS SCREEN USED TO HOLD EVERYTHING IN MEMORY AND WRITE NOTHING UNTIL "Done", AND SETH LOST A
+ * SESSION TO IT: "I was partway through my work and I lost it all. It jumped back to the start.
+ * That's fine while developing, but we don't want that to happen with real work later."
+ *
+ * I had reasoned about that trade the wrong way round. "Nothing is written until Done" reads as a
+ * safety property — Back discards cleanly, the doc is never half-edited — and it is, right up until
+ * a reload. Then it is simply an hour of matching a 40-minute recording, gone, with no warning that
+ * it was ever at risk. A service worker update, a browser tab reclaimed on a cheap phone, a
+ * mis-tapped Back: none of those are unusual in the field, and all of them cost everything.
+ *
+ * Everything else in this suite autosaves continuously (schedulePersist, 400ms). Seth: "It should
+ * be auto-saving just like the rest of our app does." So it does, on the same cadence.
+ *
+ * ⚠ THE DRAFT MUST NOT LOOK LIKE AN EDIT TO THE DOCUMENT. `modified` is what upload staleness is
+ * judged by (uploadedModified !== modified), so bumping it would queue a re-upload of a text whose
+ * content has not changed — over a village connection, repeatedly, every 400ms of matching. The
+ * draft is written beside the doc and `modified` is deliberately left alone. listDocs projects only
+ * named fields, so it costs the list nothing either.
+ *
+ * ⚠ AND BACK NO LONGER DISCARDS. It cannot: a control that throws away an hour of work on one tap
+ * has no business being the way out of a screen. Back keeps the draft and the row says so; the
+ * resume notice carries the explicit "start over". Done commits and clears it. */
+let mgDraftTimer = 0;
+function mgSaveDraft() {
+  if (!MG) return;
+  clearTimeout(mgDraftTimer);
+  mgDraftTimer = setTimeout(async () => {
+    if (!MG) return;
+    const id = MG.docId;
+    try {
+      const rec = await db.getDoc(id);
+      if (!rec || !MG || MG.docId !== id) return;      // left, or a different text, while we read
+      rec.matchDraft = {
+        at: Date.now(),
+        spans: MG.spans,
+        lines: MG.lines,
+        map: [...MG.map],
+      };
+      await db.putDoc(rec);        // ⚠ rec.modified deliberately NOT touched — see above
+      db.broadcastLive('docs');
+    } catch (e) {
+      toast(t(e && e.name === 'QuotaExceededError' ? 'toast.storageFull'
+                                                   : 'toast.autosaveFailed', { msg: e.message }), 8000);
+    }
+  }, 400);
+}
+
+// Committed, or explicitly started over: the draft has served its purpose.
+async function mgClearDraft(id) {
+  clearTimeout(mgDraftTimer);
+  try {
+    const rec = await db.getDoc(id);
+    if (!rec || !rec.matchDraft) return;
+    delete rec.matchDraft;
+    await db.putDoc(rec);
+    db.broadcastLive('docs');
+  } catch { /* a draft we could not clear is harmless: reopening simply offers to resume */ }
+}
 
 /* UNDO/REDO FOR THE MATCHER (Seth). The editor has had a ring since v323, but it snapshots
  * current.doc — and the matcher's whole design is that it does NOT touch the doc until Done. Its
@@ -7868,6 +7930,7 @@ async function mgCommit() {
   db.broadcastLive('docs');
   const droppedAudio = MG.spans.filter((sp) => !MG.map.has(sp.id)).length;
   const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
+  await mgClearDraft(MG.docId);        // committed: the draft has served its purpose
   toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
   // Said AFTER the save and separately: what was left out is not a failure, but it must not be a
   // surprise either — an audio piece dropped in silence is found weeks later, if ever.
@@ -7918,6 +7981,7 @@ function mgDraw() {
   const hueForLine = (lineId) => Math.round((lineOrder.get(lineId) || 0) * 137.508) % 360;
 
   box.innerHTML = `
+    ${MG.resumed ? `<p class="mg-resumed"><span></span><button id="mg-fresh" class="link-btn"></button></p>` : ''}
     <div class="mg-panes">
       <section class="mg-pane" id="mg-spans">
         <h3 data-i18n="mg.audio">Audio</h3>
@@ -7929,6 +7993,12 @@ function mgDraw() {
       </section>
     </div>`;
   applyI18n(box);
+  if (MG.resumed) {
+    box.querySelector('.mg-resumed span').textContent = t('mg.resumed');
+    const fresh = box.querySelector('#mg-fresh');
+    fresh.textContent = t('mg.startOver');
+    fresh.onclick = () => mgStartOver();
+  }
 
   /* ⚠ THE LEFT PANE IS THE CUT TAB'S ROW, NOT A LIST OF TIMESTAMPS. It was one — "0:04 – 0:09" as
    * text — and that is unusable for the job: matching a span to a line means knowing WHICH span,
@@ -8091,6 +8161,10 @@ function mgDraw() {
      * check stays as the backstop for a player that reloads underneath us. */
     player?.setBoundaries?.(mgBoundaryTimes());
   }, 0);
+  /* ⚠ AUTOSAVE HANGS OFF THE REDRAW, not off each verb. Every change to MG — split, join, map,
+   * unmap, guess, insert, undo, redo, and whatever is added next — ends by calling mgDraw, so this
+   * is the one place that cannot be forgotten. The debounce means a flurry of clicks is one write. */
+  mgSaveDraft();
   // The rows the ticker was writing into no longer exist; it looks them up fresh each frame, so it
   // only has to be running. Restarting is what makes a redraw after the peaks land pick them up.
   mgStartTicker();
@@ -8250,7 +8324,9 @@ async function mgPrepareAudio(docId) {
    * this problem; renderCut seeds a whole-file span through reconcile(), and the matcher simply did
    * not inherit that. One span covering the recording makes the ✂ on it the first cut. */
   const dur = peaksDurationMs();
-  if (dur > 0) {
+  if (dur > 0 && !MG.resumed) {
+    // ⚠ NOT over a resumed draft: its spans are the user's own cutting, and appending a "remainder"
+    // to them would invent a span they had deliberately not made.
     if (!MG.spans.length) {
       MG.spans = [{ id: 'sp0', start: 0, end: dur, timePending: false, timeEstimated: false }];
     } else if (dur - MG.spans[MG.spans.length - 1].end > 1000) {
@@ -8326,6 +8402,18 @@ function mgClose() {
   show('segmenter');
 }
 
+/* Throw the unfinished work away and begin from the committed document. The ONLY path that
+ * discards a draft on purpose, and it asks first — this is the button whose whole job is to destroy
+ * the thing the autosave exists to protect. */
+async function mgStartOver() {
+  if (!MG) return;
+  if (!await confirmDialog(t('mg.startOverConfirm'))) return;
+  const id = MG.docId;
+  await mgClearDraft(id);
+  mgClose();
+  mgOpen(id);
+}
+
 async function mgOpen(id) {
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
@@ -8347,6 +8435,18 @@ async function mgOpen(id) {
    * applied to real phrase boundaries, rather than the only way to get any boundaries at all. */
   healFlatSegments(rec.doc);
   mgLoad(rec);
+  /* Unfinished work wins over the stored document, because it is NEWER by construction — the doc
+   * holds the last COMMITTED state and the draft is everything since. Resumed rather than offered:
+   * a dialog on open is a decision the user has to make before they can see what they would be
+   * deciding about, and the answer is nearly always yes. The notice says what happened and carries
+   * the way out. */
+  const draft = rec.matchDraft;
+  if (draft && Array.isArray(draft.spans) && Array.isArray(draft.lines)) {
+    MG.spans = draft.spans;
+    MG.lines = draft.lines;
+    MG.map = new Map(draft.map || []);
+    MG.resumed = draft.at || Date.now();
+  }
   mgUndoStack = []; mgRedoStack = [];   // history belongs to the text being matched, not the app
   const view = $('#view-matcher');
   if (view) {

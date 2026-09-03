@@ -306,6 +306,34 @@ console.log('\na matched pair scrolls and highlights together');
      'and it follows PLAYBACK, not only clicks — listening down a recording keeps the text in step');
 }
 
+console.log('\nwork in progress is autosaved — losing it was the one unacceptable failure');
+{
+  /* Seth lost a session: "I was partway through my work and I lost it all… we don't want that to
+   * happen with real work later… It should be auto-saving just like the rest of our app does." */
+  const save = fn(app, 'mgSaveDraft');
+  ok(!!save, 'there is a draft autosave');
+  ok(/}, 400\);/.test(save), 'on the same 400ms debounce as schedulePersist — "like the rest of our app"');
+  ok(/mgSaveDraft\(\);/.test(fn(app, 'mgDraw')),
+     'hung off mgDraw, the one chokepoint every change passes through, so no verb can forget it');
+  ok(!/rec\.modified/.test(code(save)),
+     '⚠ it does NOT bump modified — that drives upload staleness, and a draft is not a content change');
+  ok(/hasDraft: !!\(matchDraft/.test(read('docs/js/db.js')),
+     'the list projects a FLAG, never the draft (which holds every line of the text)');
+  const open = asyncFn(app, 'mgOpen');
+  ok(/const draft = rec\.matchDraft;/.test(open) && /MG\.resumed/.test(open),
+     'reopening resumes it rather than asking — the draft is newer than the doc by construction');
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/dur > 0 && !MG\.resumed/.test(prep),
+     'and a resumed draft is not re-seeded or given a tail, which would invent spans the user did not make');
+  ok(/await mgClearDraft\(MG\.docId\)/.test(asyncFn(app, 'mgCommit')), 'Done clears it');
+  const close = fn(app, 'mgClose');
+  ok(!/mgClearDraft/.test(close),
+     '⚠ and BACK DOES NOT — a control that throws away an hour of work on one tap has no business being the way out');
+  const over = asyncFn(app, 'mgStartOver');
+  ok(/confirmDialog/.test(over) && /mgClearDraft/.test(over),
+     'the only deliberate discard asks first, because destroying the draft is its whole job');
+}
+
 console.log('\nleaving releases everything at once');
 const close = fn(app, 'mgClose');
 ok(/mgStopTicker\(\)/.test(close), 'the frame loop stops (it would otherwise outlive its screen)');

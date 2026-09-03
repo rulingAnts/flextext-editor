@@ -246,6 +246,15 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
   ok(/onBoundaryDrag/.test(read('docs/js/audio.js')), 'the Player exposes draggable marks');
   ok(/this\._onBoundaryDrag/.test(read('docs/js/audio.js')),
      'opt-in — the Cut tab draws the same marks and must not silently gain a destructive gesture');
+  /* ⚠ THE TWO BUGS THAT MADE IT "ONLY MOVE LEFT" (Seth). They compounded: one killed the drag after
+   * a single move, the other made that one move jump the wrong way. */
+  const aud = read('docs/js/audio.js');
+  ok(/if \(layer\.children\.length === want\.length\) \{/.test(aud),
+     'renderBoundaries REUSES nodes when the count is unchanged — replaceChildren destroyed the very element holding the pointer capture');
+  ok(/b\.style\.pointerEvents = 'none';/.test(aud) && /const hit = document\.createElement\('i'\);/.test(aud),
+     'and the grab area is a CHILD, so the drawn line stays exactly on the boundary rather than 7px off it');
+  ok(/const grab = \(t0 == null\) \? 0 : t0 - ms;/.test(aud),
+     'with a grab offset, so the boundary does not snap to the finger on the first move');
   ok(/p\.onBoundaryDrag\?\.\(\(i, t, phase\) => mgBoundaryDrag/.test(asyncFn(app, 'mgPrepareAudio')),
      'the matcher opts in');
   ok(/player\?\.onBoundaryDrag\?\.\(null\)/.test(fn(app, 'mgClose')),

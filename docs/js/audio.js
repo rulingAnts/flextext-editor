@@ -958,50 +958,85 @@ export class Player {
       wrap.appendChild(layer);
       this._boundLayer = layer;
     }
-    layer.replaceChildren();
     let dur = 0;
     try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
-    if (!dur || !this._bounds || !this._bounds.length) return;
+    const want = (dur && this._bounds) ? this._bounds.filter((ms) => {
+      const f = (ms / 1000) / dur;
+      return f > 0 && f < 1;                 // 0 and the file end are edges, not boundaries
+    }) : [];
+
+    /* ⚠ REUSE THE NODES WHEN THE COUNT HAS NOT CHANGED, AND NEVER replaceChildren DURING A DRAG.
+     *
+     * This used to rebuild the whole layer on every call. The matcher calls setBoundaries on every
+     * pointermove so the overview keeps up with the drag — which destroyed the very <span> holding
+     * the pointer capture, one frame in. The drag then died after a single move, and because the
+     * grab box was offset from the line the one move it did apply jumped LEFT: "Dragging boundaries
+     * on the preview player only moves to the left, even when I drag right" (Seth).
+     *
+     * Moving a boundary never changes how many there are, so the reuse path is the one a drag takes
+     * — the node under the finger survives, and the update is a style write instead of a rebuild. */
+    if (layer.children.length === want.length) {
+      want.forEach((ms, i) => {
+        const el = layer.children[i];
+        el.style.left = (((ms / 1000) / dur) * 100) + '%';
+        el.dataset.bi = String(i);
+      });
+      return;
+    }
+    layer.replaceChildren();
+    if (!want.length) return;
     /* ⚠ DRAGGABLE ONLY WHEN SOMEBODY IS LISTENING. `onBoundaryDrag` is opt-in: the Cut tab draws
      * these same marks and has never offered to move them, and silently making them draggable there
      * would add a destructive gesture to a screen whose users did not ask for one. The matcher sets
      * it; nothing else does. The LAYER stays pointer-events:none so it cannot swallow clicks meant
      * for the waveform underneath — only the marks themselves become targets. */
     const drag = this._onBoundaryDrag;
-    this._bounds.forEach((ms, i) => {
+    want.forEach((ms, i) => {
       const f = (ms / 1000) / dur;
-      if (!(f > 0) || f >= 1) return;       // 0 and the file end are edges, not boundaries
       const b = document.createElement('span');
       b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
         + 'border-left:2px dotted rgba(108,118,133,.85);';
       b.style.left = (f * 100) + '%';
+      b.dataset.bi = String(i);
       if (drag) {
-        /* A 2px line is not a tap target. The grab area is a transparent 15px-wide box centred on
-         * the line — invisible, so the mark still reads as a hairline, and wide enough for a thumb.
-         * cursor:col-resize is the only thing that says it can be moved, which is the convention. */
-        b.style.cssText += 'width:15px;margin-left:-7px;pointer-events:auto;cursor:col-resize;'
-          + 'touch-action:none;';
-        b.dataset.bi = String(i);
-        b.addEventListener('pointerdown', (ev) => {
+        /* ⚠ THE GRAB AREA IS A CHILD, so the LINE stays exactly on the boundary.
+         *
+         * Widening the mark itself and pulling it back with margin-left moved the drawn line 7px
+         * off the time it represents — and since the drag sets an absolute position, grabbing the
+         * line you can see and moving one pixel snapped the boundary 7px-worth to the left before
+         * it tracked anything. A 2px line is still not a tap target, so the hit area is a separate
+         * transparent box centred on it: invisible, 15px wide, and it cannot displace its parent. */
+        b.style.pointerEvents = 'none';
+        const hit = document.createElement('i');
+        hit.style.cssText = 'position:absolute;top:0;bottom:0;left:-7px;width:15px;'
+          + 'pointer-events:auto;cursor:col-resize;touch-action:none;';
+        b.appendChild(hit);
+        hit.addEventListener('pointerdown', (ev) => {
           ev.preventDefault();
           ev.stopPropagation();             // never let the drag double as a seek
-          try { b.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }
+          try { hit.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }
           const box = () => wrap.getBoundingClientRect();
           const at = (e2) => {
             const r = box();
             return r.width > 0 ? ((e2.clientX - r.left) / r.width) * dur * 1000 : null;
           };
-          drag(i, at(ev), 'start');
-          const move = (e2) => { const t = at(e2); if (t != null) drag(i, t, 'move'); };
+          /* ⚠ GRAB OFFSET, so the boundary does not jump to the finger on the first move. The hit box
+           * is 15px wide; without this, grabbing its edge snaps the boundary by up to 7px-worth of
+           * time before it tracks anything, which on a long recording is a real amount. Measured
+           * once against where the boundary actually is, then held for the gesture. */
+          const t0 = at(ev);
+          const grab = (t0 == null) ? 0 : t0 - ms;
+          drag(i, null, 'start');
+          const move = (e2) => { const t = at(e2); if (t != null) drag(i, t - grab, 'move'); };
           const up = (e2) => {
-            b.removeEventListener('pointermove', move);
-            b.removeEventListener('pointerup', up);
-            b.removeEventListener('pointercancel', up);
-            const t = at(e2); drag(i, t == null ? null : t, 'end');
+            hit.removeEventListener('pointermove', move);
+            hit.removeEventListener('pointerup', up);
+            hit.removeEventListener('pointercancel', up);
+            drag(i, null, 'end');
           };
-          b.addEventListener('pointermove', move);
-          b.addEventListener('pointerup', up);
-          b.addEventListener('pointercancel', up);
+          hit.addEventListener('pointermove', move);
+          hit.addEventListener('pointerup', up);
+          hit.addEventListener('pointercancel', up);
         });
       }
       layer.appendChild(b);

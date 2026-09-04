@@ -88,8 +88,50 @@ that was fixed the same day; each is the gesture that reproduced it.
       ✨ Guess, then split/join on either side and watch the numbers and colours follow; `+` adds
       a blank line on the text side only; Done with more audio than lines adds blank lines at the
       end; Done with more lines than audio leaves the last lines without audio and says so.
+- [ ] **Interrupt a load, then reopen.** Open a text and press ← Back while the note still says
+      "Preparing…"; open the same text again. The big player must show its waveform and every strip
+      must draw — no refresh. (Seth, 2026-09-04: "there definitely are times when the big player
+      and/or the segments don't load … Refreshing and exiting and opening the text again fixes
+      that. But that shouldn't be necessary.")
+- [ ] **✂ on the big player** cuts the piece under the playhead, where the playhead is; Enter does
+      the same when no field or button has focus; with the playhead at 0 or between pieces it says
+      so instead of cutting nothing.
 - [ ] **⤓ offers three downloads** — everything (zip), ELAN only (.eaf), .flextext only — and a
       six-minute WAV no longer fails with "allocation size overflow" in Firefox.
+
+## 2c. The segmenter as a THIRD invite kind (needs a researcher account — staging or the rig)
+
+No worker change: the segmenter pairs as its own device on its own origin; the invite modal
+prints the same one-time secret on a third base URL; the app reports itself as `segmenter`.
+
+- [ ] Panel → New device "Rig segmenter" → Settings (vern/anal, send = upload) → **Invite link**:
+      three rows now; copy the **Segmenter link**.
+- [ ] Open it on a fresh profile: consent modal + pair code → panel **Approve** → device toasts
+      "linked"; the panel's device badge reads **segmenter**.
+- [ ] Assign a `.flextext` **and** its recording → the segmenter list shows the row
+      "· from your researcher", audio arrives, Open enables.
+- [ ] Match, **Done** → the upload bar drains → the row reads "· sent to your researcher" → the
+      panel tile shows uploaded, and Files ▾ offers the ELAN zip and the `.eaf` (built on demand
+      from the uploaded `.flextext` + the audio the researcher already has).
+- [ ] Push a settings change from the panel → the list repaints, no console error.
+- [ ] Unpaired device: the list carries **Link to a researcher…** (paste box) beside Open, and ⤓
+      still works as the way out.
+
+## 2d. Settings and editing in the segmenter (Seth, 2026-09-04)
+
+- [ ] **Unpaired: a Settings tab** beside Texts, with only Languages (codes), Segmentation (the
+      timing-note switch + the four export formats — no segmentation switch: always on here) and
+      Other (delete / blank lines / edit in place, greyed with the standalone note). Hide it with
+      the button; Ctrl+Alt+R brings it back. Pair the device: the tab disappears.
+- [ ] **Timing as notes**: untick it, export a `.flextext` — the begin/end attributes are there,
+      the `audio 0:01.000–…` note items are not. Re-tick, both are back. Same switch in the panel's
+      Segmentation section for a managed device.
+- [ ] **Edit in place** (on by default unpaired; the researcher's `allowTextEdit` when paired):
+      tap a word → type → Enter or tap away; Escape restores. Space at the END of a word adds an
+      empty pair after it with the caret in it; at the START, before it. Backspace in an empty
+      word removes the pair. Tap the free translation to edit it. Every step undoes.
+- [ ] **The dock loads every time**: Back during the decode, then reopen; a text whose decode
+      failed once; reopening the same text — no more refresh-to-fix.
 
 ## 2b. The two apps are linked
 

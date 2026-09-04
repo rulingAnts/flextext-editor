@@ -13,7 +13,8 @@
  * Decoupling: this module knows NOTHING about app internals. app.js calls
  * Sync.start(iface) with an injected interface:
  *   iface.workerBase()        -> string   (settings.relayWorker || DEFAULT_WORKER)
- *   iface.appType()           -> 'editor' | 'recorder'  (must match the invite type)
+ *   iface.appType()           -> 'editor' | 'recorder' | 'segmenter' | 'consent'
+ *                                (compared only against a LEGACY typed instance; new ones are '')
  *   iface.dispatch(command)   -> Promise   (apply ONE command via the app's existing
  *                                           idempotent, never-clobber handlers)
  *   iface.gatherInventory()   -> Promise<object>  (metadata-only list to report)

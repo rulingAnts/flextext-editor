@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v572';
+export const ENGINE_VERSION = 'v576';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -123,6 +123,8 @@ en: {
   'sat.exportEaf': 'ELAN only (.eaf)',
   'sat.exportFlextext': '.flextext only (with its times)',
   'sat.exportNoEaf': 'No ELAN file yet: this text has no timed lines. Match it first.',
+  'sg.sent': 'sent to your researcher',
+  'sg.fromResearcher': 'from your researcher',
   'share.trimmedBig': 'The recording is too big to embed inside the listening page or the .fxpa, so those were left out of this bundle. The recording itself is included as a file.',
   'sat.needText': 'Pick a .flextext file too \u2014 a recording on its own has no text to work with.',
   'sat.noTexts': 'no texts found in the file',
@@ -176,6 +178,13 @@ en: {
   'mg.tooShort': 'Too short to split.',
   'mg.badSplit': 'Pick a point between two words.',
   'mg.badgeTip': 'Show the matching row on the other side',
+  'mg.cutNoSpan': 'The playhead is not inside a piece of audio \u2014 play, or tap the big waveform where you want the cut.',
+  'mg.editTip': 'Tap a word, a gloss or the translation to edit it. In a word, Space at the start adds a pair before it, Space at the end adds one after; Backspace in an empty word removes it.',
+  'mg.tapWord': 'word',
+  'mg.tapGloss': 'gloss',
+  'mg.tapFree': 'free translation',
+  'mg.audioFailed': 'The recording could not be loaded: {msg}. Go back and open the text again; if it keeps failing, the file may be damaged.',
+  'mg.wavesFailed': 'The waveforms could not be drawn for this recording, but it still plays. Go back and open the text again to retry.',
   'mg.noAudioCell': 'No audio for this line yet \u2014 cut the recording, or join text lines.',
   'mg.noLineCell': 'No line for this audio yet \u2014 Done adds a blank line here, or press + to add one now.',
   'mg.committed': 'Saved. Lines matched: {n}',
@@ -408,6 +417,8 @@ en: {
   'setup.off.autoBackup': 'Auto-backup sends changed texts to a researcher\u2019s Google Drive. A standalone app has no Drive account to send them to.',
   'setup.off.deleteAllEnabled': 'A standalone app always has Delete All \u2014 it is your own app, so it is never withheld. A researcher can switch it off on a device they manage.',
   'setup.off.allowDelete': 'A standalone app always lets you delete texts. A researcher can switch that off on a device they manage, so a coworker cannot lose work by accident.',
+  'setup.off.allowBlankLines': 'A standalone app always lets you add blank lines. A researcher can switch that off on a device they manage.',
+  'setup.off.allowTextEdit': 'A standalone app always lets you edit words, glosses and translations in place. A researcher can switch that off on a device they manage.',
   'setup.off.doneEnabled': 'The Finished button reports to a researcher and sends the text to their Drive. A standalone app has neither, so the button would have nothing to do.',
   'setup.off.relay': 'This explains how very large audio files reach a researcher\u2019s Drive. A standalone app does not upload, so it does not apply.',
   'setup.consentFileNote': 'Choose a sound file from this device. The app keeps its own copy, so the reminder keeps working offline and even if you later move or delete the original. A researcher-managed device is given this by its researcher instead.',
@@ -651,7 +662,7 @@ en: {
   'toast.autosaveFailed': 'Autosave failed: {msg}',
   'toast.setupReceived': 'Language settings received and saved. You’re ready to start a new text.',
   'toast.linked': 'Linked for remote management.',
-  'toast.linkMismatch': 'That invite is for the other app.',
+  'toast.linkMismatch': 'That invite is for a different app.',
   'invite.title': 'Connect this device?',
   'invite.warn': 'This lets them manage this device and receive the texts you choose to send them. Only accept if you asked to connect to this person.',
   'invite.accept': 'Connect',
@@ -682,6 +693,7 @@ en: {
   'player.speedNormal': 'Normal',
   'player.zoom': 'Zoom',
   'player.remove': 'Remove audio from this text',
+  'player.cut': 'Cut the piece here, at the playhead (Enter)',
   'player.attach': 'Attach audio…',
   'player.preparing': 'Preparing waveform…',
   'player.error': 'Could not play this audio file.',
@@ -1362,7 +1374,7 @@ internet after the first time.</p>
   'panel.new.cancel': 'Cancel',
   'panel.new.needNick': 'Give the device a name.',
   'panel.new.configure': 'Device created — now set its languages and other settings.',
-  'panel.new.unifiedNote': 'One device = one person’s phone, tablet, or browser. It can run the editor, the recorder, or both — you’ll get a link for each.',
+  'panel.new.unifiedNote': 'One device = one person\u2019s phone, tablet, or browser. It can run the editor, the recorder, or the audio segmenter \u2014 you\u2019ll get a link for each.',
   'panel.new.intoProject': 'This device will belong to the project “{name}” (the tab you have open).',
   'panel.new.intoShared': 'This device will be created inside “{name}” — the shared project you have open. It will belong to that project’s owner, and you keep managing it.',
   'panel.new.sharedNoCap': 'You don’t have permission to add devices to the shared project “{name}”, so this device will be created in your own account instead.',
@@ -1370,9 +1382,10 @@ internet after the first time.</p>
   'panel.invite.title': 'Invite link',
   'panel.invite.loading': 'Creating link…',
   'panel.invite.intro': 'Send this one-time link to the field worker. The secret rides the link fragment and is used only once.',
-  'panel.invite.introUnified': 'Send the link for whichever app the worker will use — or both; they bind the same device. The secret rides the link fragment and is used only once.',
+  'panel.invite.introUnified': 'Send the link for the app the worker will use. The editor and recorder links bind the same device; the segmenter link pairs the phone as a device of its own. The secret rides the link fragment and is used only once.',
   'panel.invite.editorLink': 'Editor link (transcribe + gloss)',
   'panel.invite.recorderLink': 'Recorder link (record audio only)',
+  'panel.invite.segmenterLink': 'Segmenter link (cut a recording into the lines of a text)',
   'panel.invite.expires': 'Expires {when}',
   'panel.invite.copy': 'Copy link',
   'panel.invite.freshNote': 'This is a newly made link — links are shown once and can never be re-displayed, by anyone. If another researcher already sent this device a link, that one stays valid too; this is a new one, not a copy of theirs.',
@@ -1396,6 +1409,10 @@ internet after the first time.</p>
     ,'panel.rel.new.appLinks': 'Both new apps are linked from Utilities — in this panel and on the editor’s Utilities tab — and open in a new tab.'
     ,'panel.rel.new.satExport': 'The Audio Segmenter and the Consent Collector can now download a text on their own \u2014 the .flextext with its times, the ELAN .eaf and the recording in one zip \u2014 so a device that is not paired with a researcher still has a way to get its work out.'
     ,'panel.rel.new.pairByRow': 'The Audio Segmenter no longer asks you to pair pieces of audio with lines: row 1 on the left IS row 1 on the right, in one shared list. Split and join on either side, add a blank line with + where the recording has no words, and Done saves the rows as pairs \u2014 adding blank lines for any audio left over at the end. Rows that line up colour themselves.'
+    ,'panel.rel.new.segmenterInvite': 'The Audio Segmenter can now be invited like the recorder: the invite modal prints a third link, the phone pairs as a device of its own, assigned texts and recordings arrive in its list, and Done sends the timed .flextext back to your Drive.'
+    ,'panel.rel.new.editInPlace': 'In the Audio Segmenter, words, glosses and free translations can be edited in place — tap to type; Space at the edge of a word adds a pair; Backspace in an empty word removes it. On by default when working alone; the researcher switches it (and blank lines) on or off for a managed device.'
+    ,'panel.rel.new.segmenterSettings': 'The Audio Segmenter has a Settings tab of its own when unpaired: writing-system codes, whether audio times also ride the .flextext as note items, and which export formats to write. Audio segmentation itself is always on there.'
+    ,'panel.rel.new.dockLoads': 'The big player and the strips no longer come up blank after a Back during decoding or a failed decode — reopening a text loads it every time, and a failure says so.'
     ,'panel.rel.new.consentAudio': 'The Consent Collector opens a recording on its own, a .flextext on its own, or the two together \u2014 permission attaches to a story that has only been recorded as readily as to one that has been typed.'
     ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
@@ -1881,6 +1898,10 @@ internet after the first time.</p>
   'panel.f.buttons': 'Visible toolbar buttons',
   'panel.f.deleteAllEnabled': 'Allow “Delete all data” on this device (full local wipe)',
   'panel.f.allowDelete': 'Let the coworker delete individual texts',
+  'panel.f.segTimeNotes': 'Also write each line\u2019s audio times as a note item (shown on FLEx\u2019s Note line), not only as begin/end attributes',
+  'panel.f.segTimeNotesNote': 'Off = attributes only. The times still round-trip either way; FLEx just shows no note line for them.',
+  'panel.f.allowBlankLines': 'Audio Segmenter: let the coworker add blank text lines (for audio with no words yet)',
+  'panel.f.allowTextEdit': 'Audio Segmenter: let the coworker edit and add words, glosses and free translations in place',
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
   'panel.f.sortAlpha': 'Keep the texts list in alphabetical order (otherwise: most recent first)',
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
@@ -2382,6 +2403,8 @@ id: {
   'sat.exportEaf': 'ELAN saja (.eaf)',
   'sat.exportFlextext': '.flextext saja (dengan waktunya)',
   'sat.exportNoEaf': 'Belum ada berkas ELAN: teks ini belum punya baris berwaktu. Cocokkan dulu.',
+  'sg.sent': 'terkirim ke peneliti Anda',
+  'sg.fromResearcher': 'dari peneliti Anda',
   'share.trimmedBig': 'Rekamannya terlalu besar untuk disematkan di halaman dengar atau .fxpa, jadi keduanya tidak disertakan dalam paket ini. Rekamannya sendiri tetap disertakan sebagai berkas.',
   'sat.needText': 'Pilih juga berkas .flextext \u2014 rekaman saja tidak ada teksnya.',
   'sat.noTexts': 'tidak ada teks di dalam berkas itu',
@@ -2430,6 +2453,13 @@ id: {
   'mg.tooShort': 'Terlalu pendek untuk dibagi.',
   'mg.badSplit': 'Pilih titik di antara dua kata.',
   'mg.badgeTip': 'Tampilkan baris pasangannya di sisi lain',
+  'mg.cutNoSpan': 'Posisi putar tidak berada di dalam potongan audio \u2014 putar, atau ketuk gelombang besar di tempat yang ingin dipotong.',
+  'mg.editTip': 'Ketuk kata, glos, atau terjemahan untuk menyuntingnya. Di dalam kata, Spasi di awal menambah pasangan sebelumnya, Spasi di akhir menambah sesudahnya; Backspace di kata kosong menghapusnya.',
+  'mg.tapWord': 'kata',
+  'mg.tapGloss': 'glos',
+  'mg.tapFree': 'terjemahan bebas',
+  'mg.audioFailed': 'Rekaman tidak bisa dimuat: {msg}. Kembali lalu buka teksnya lagi; jika terus gagal, berkasnya mungkin rusak.',
+  'mg.wavesFailed': 'Gelombang suara tidak bisa digambar untuk rekaman ini, tetapi masih bisa diputar. Kembali lalu buka teksnya lagi untuk mencoba ulang.',
   'mg.noAudioCell': 'Belum ada audio untuk baris ini \u2014 potong rekamannya, atau gabungkan baris teks.',
   'mg.noLineCell': 'Belum ada baris untuk audio ini \u2014 Selesai menambahkan baris kosong di sini, atau tekan + untuk menambahkannya sekarang.',
   'mg.committed': 'Tersimpan. Baris yang cocok: {n}',
@@ -2643,6 +2673,8 @@ id: {
   'setup.off.autoBackup': 'Cadangan otomatis mengirim teks yang berubah ke Google Drive peneliti. Aplikasi mandiri tidak punya akun Drive tujuan.',
   'setup.off.deleteAllEnabled': 'Aplikasi mandiri selalu punya Hapus Semua \u2014 ini aplikasi Anda sendiri, jadi tidak pernah ditahan. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowDelete': 'Aplikasi mandiri selalu mengizinkan penghapusan teks. Peneliti dapat mematikannya di perangkat yang mereka kelola, agar rekan kerja tidak kehilangan pekerjaan karena tidak sengaja.',
+  'setup.off.allowBlankLines': 'Aplikasi mandiri selalu mengizinkan penambahan baris kosong. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
+  'setup.off.allowTextEdit': 'Aplikasi mandiri selalu mengizinkan penyuntingan kata, glos, dan terjemahan di tempat. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.doneEnabled': 'Tombol Selesai melapor ke peneliti dan mengirim teks ke Drive mereka. Aplikasi mandiri tidak punya keduanya, jadi tombol itu tidak akan ada gunanya.',
   'setup.off.relay': 'Ini menjelaskan cara berkas audio sangat besar sampai ke Drive peneliti. Aplikasi mandiri tidak mengunggah, jadi tidak berlaku.',
   'setup.consentFileNote': 'Pilih berkas suara dari perangkat ini. Aplikasi menyimpan salinannya sendiri, jadi pengingat tetap berfungsi luring dan bahkan jika berkas aslinya nanti dipindah atau dihapus. Perangkat yang dikelola peneliti menerimanya dari peneliti.',
@@ -2871,7 +2903,7 @@ id: {
   'toast.autosaveFailed': 'Simpan otomatis gagal: {msg}',
   'toast.setupReceived': 'Pengaturan bahasa diterima dan disimpan. Anda siap membuat teks baru.',
   'toast.linked': 'Terhubung untuk pengelolaan jarak jauh.',
-  'toast.linkMismatch': 'Undangan itu untuk aplikasi yang lain.',
+  'toast.linkMismatch': 'Undangan itu untuk aplikasi yang berbeda.',
   'invite.title': 'Hubungkan perangkat ini?',
   'invite.warn': 'Ini memungkinkan mereka mengelola perangkat ini dan menerima teks yang Anda pilih untuk dikirim. Terima hanya jika Anda memang meminta terhubung dengan orang ini.',
   'invite.accept': 'Hubungkan',
@@ -2901,6 +2933,7 @@ id: {
   'player.speedNormal': 'Biasa',
   'player.zoom': 'Perbesar',
   'player.remove': 'Hapus audio dari teks ini',
+  'player.cut': 'Potong potongan di sini, pada posisi putar (Enter)',
   'player.attach': 'Lampirkan audio…',
   'player.preparing': 'Menyiapkan gambar gelombang…',
   'player.error': 'File audio ini tidak bisa diputar.',
@@ -3461,7 +3494,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.new.cancel': 'Batal',
   'panel.new.needNick': 'Beri nama perangkat.',
   'panel.new.configure': 'Perangkat dibuat — sekarang atur bahasa dan pengaturan lainnya.',
-  'panel.new.unifiedNote': 'Satu perangkat = satu ponsel, tablet, atau peramban seseorang. Bisa menjalankan editor, perekam, atau keduanya — Anda akan mendapat tautan untuk masing-masing.',
+  'panel.new.unifiedNote': 'Satu perangkat = satu ponsel, tablet, atau peramban seseorang. Bisa menjalankan editor, perekam, atau pemotong audio \u2014 Anda akan mendapat tautan untuk masing-masing.',
   'panel.new.intoProject': 'Perangkat ini akan menjadi bagian proyek “{name}” (tab yang sedang Anda buka).',
   'panel.new.intoShared': 'Perangkat ini akan dibuat di dalam “{name}” — proyek berbagi yang sedang Anda buka. Perangkat ini milik pemilik proyek, dan Anda tetap dapat mengelolanya.',
   'panel.new.sharedNoCap': 'Anda tidak punya izin menambah perangkat ke proyek berbagi “{name}”, jadi perangkat ini akan dibuat di akun Anda sendiri.',
@@ -3469,9 +3502,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.title': 'Tautan undangan',
   'panel.invite.loading': 'Membuat tautan…',
   'panel.invite.intro': 'Kirim tautan sekali-pakai ini ke pekerja lapangan. Rahasianya ada di fragmen tautan dan hanya dipakai sekali.',
-  'panel.invite.introUnified': 'Kirim tautan untuk aplikasi yang akan dipakai pekerja — atau keduanya; keduanya mengikat perangkat yang sama. Rahasianya ada di fragmen tautan dan hanya dipakai sekali.',
+  'panel.invite.introUnified': 'Kirim tautan untuk aplikasi yang akan dipakai pekerja. Tautan editor dan perekam mengikat perangkat yang sama; tautan pemotong memasangkan ponsel itu sebagai perangkat tersendiri. Rahasianya ada di fragmen tautan dan hanya dipakai sekali.',
   'panel.invite.editorLink': 'Tautan Editor (transkripsi + terjemahan)',
   'panel.invite.recorderLink': 'Tautan Perekam (rekam audio saja)',
+  'panel.invite.segmenterLink': 'Tautan Pemotong (potong rekaman menjadi baris-baris teks)',
   'panel.invite.expires': 'Kedaluwarsa {when}',
   'panel.invite.copy': 'Salin tautan',
   'panel.invite.freshNote': 'Ini tautan yang baru dibuat — tautan hanya ditampilkan sekali dan tidak bisa ditampilkan ulang oleh siapa pun. Jika peneliti lain sudah mengirim tautan untuk perangkat ini, tautan itu tetap berlaku; yang ini tautan baru, bukan salinannya.',
@@ -3494,6 +3528,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.appLinks': 'Kedua aplikasi baru tertaut dari Peralatan — di panel ini dan di tab Utilitas editor — dan terbuka di tab baru.'
     ,'panel.rel.new.satExport': 'Pemotong Audio dan Pengumpul Izin kini bisa mengunduh teks sendiri \u2014 .flextext dengan waktunya, .eaf ELAN, dan rekamannya dalam satu zip \u2014 sehingga perangkat yang tidak dipasangkan dengan peneliti tetap punya jalan mengeluarkan hasil kerjanya.'
     ,'panel.rel.new.pairByRow': 'Pemotong Audio tidak lagi meminta Anda memasangkan potongan audio dengan baris: baris 1 di kiri ADALAH baris 1 di kanan, dalam satu daftar bersama. Potong dan gabungkan di sisi mana pun, tambahkan baris kosong dengan + di tempat rekaman tidak ada katanya, dan Selesai menyimpan baris-baris itu berpasangan \u2014 menambahkan baris kosong untuk audio yang tersisa di akhir. Baris yang sejajar mewarnai dirinya sendiri.'
+    ,'panel.rel.new.segmenterInvite': 'Pemotong Audio kini bisa diundang seperti perekam: modal undangan mencetak tautan ketiga, ponsel dipasangkan sebagai perangkat tersendiri, teks dan rekaman yang ditugaskan masuk ke daftarnya, dan Selesai mengirim .flextext berwaktu kembali ke Drive Anda.'
+    ,'panel.rel.new.editInPlace': 'Di Pemotong Audio, kata, glos, dan terjemahan bebas bisa disunting di tempat — ketuk untuk mengetik; Spasi di tepi kata menambah pasangan; Backspace di kata kosong menghapusnya. Aktif secara bawaan saat bekerja sendiri; peneliti yang menyalakan atau mematikannya (juga baris kosong) di perangkat yang dikelola.'
+    ,'panel.rel.new.segmenterSettings': 'Pemotong Audio punya tab Pengaturan sendiri saat tidak dipasangkan: kode sistem penulisan, apakah waktu audio juga ditulis ke .flextext sebagai item catatan, dan format ekspor mana yang ditulis. Pemotongan audio sendiri selalu aktif di sana.'
+    ,'panel.rel.new.dockLoads': 'Pemutar besar dan potongan gelombang tidak lagi muncul kosong setelah Kembali saat decoding atau decoding gagal — membuka ulang teks selalu memuatnya, dan kegagalan disebutkan.'
     ,'panel.rel.new.consentAudio': 'Pengumpul Izin bisa membuka rekaman saja, .flextext saja, atau keduanya \u2014 izin melekat pada cerita yang baru direkam sama mudahnya dengan yang sudah diketik.'
     ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'
@@ -3907,6 +3945,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.buttons': 'Tombol toolbar yang tampak',
   'panel.f.deleteAllEnabled': 'Izinkan “Hapus semua data” di perangkat ini (hapus total lokal)',
   'panel.f.allowDelete': 'Izinkan rekan kerja menghapus teks satu per satu',
+  'panel.f.segTimeNotes': 'Tulis juga waktu audio tiap baris sebagai item catatan (tampil di baris Catatan FLEx), bukan hanya sebagai atribut awal/akhir',
+  'panel.f.segTimeNotesNote': 'Mati = atribut saja. Waktunya tetap ikut bolak-balik; FLEx hanya tidak menampilkan baris catatannya.',
+  'panel.f.allowBlankLines': 'Pemotong Audio: izinkan rekan kerja menambah baris teks kosong (untuk audio yang belum ada katanya)',
+  'panel.f.allowTextEdit': 'Pemotong Audio: izinkan rekan kerja menyunting dan menambah kata, glos, dan terjemahan bebas di tempat',
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
   'panel.f.sortAlpha': 'Urutkan daftar teks menurut abjad (jika tidak: yang terbaru dahulu)',
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',

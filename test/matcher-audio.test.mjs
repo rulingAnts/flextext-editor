@@ -360,8 +360,9 @@ console.log('\nundo/redo over the MATCHER\'s state, not the document\'s');
   ok(/mgCapture\(\);\s*\/\/ replacing every span/.test(app), 'and so does ✨ Guess');
   ok(!/mgCapture/.test(fn(app, 'mgPick')), 'selecting is not an edit, so it captures nothing');
   ok(/mgUndoStack = \[\]; mgRedoStack = \[\]/.test(asyncFn(app, 'mgOpen')), 'history is per text, not per app');
-  ok(/if \(!MG\) return;[\s\S]{0,400}metaKey \|\| e\.ctrlKey/.test(fn(app, 'setupSegmenterMode')),
-     'the keyboard shortcut is gated on the matcher being open, so it cannot shadow the browser elsewhere');
+  // The Enter handler now sits between the gate and the undo chord, hence the wider window.
+  ok(/if \(!MG\) return;[\s\S]{0,900}metaKey \|\| e\.ctrlKey/.test(fn(app, 'setupSegmenterMode')),
+     'the keyboard shortcuts are gated on the matcher being open, so they cannot shadow the browser elsewhere');
 }
 
 console.log('\nblank lines, for audio that deserves a line but has no words yet');
@@ -498,6 +499,104 @@ console.log('\nan older draft still resumes — its spans and lines, with any ma
   const open = asyncFn(app, 'mgOpen');
   ok(/MG\.spans = draft\.spans;\s*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
      'a v567–v570 draft (149 cuts, nine joins, a map of picks) comes back as rows; the picks are simply not a thing any more');
+}
+
+console.log('\n✂ on the big player cuts the piece under the playhead (Seth, 2026-09-04)');
+{
+  const cut = fn(app, 'mgSplitAtPlayhead');
+  ok(/player\?\.playheadMs\?\.\(\)/.test(cut), 'it reads the dock\'s playhead');
+  ok(/!s\.timePending && head > s\.start && head < s\.end/.test(cut), 'and finds the REAL piece the playhead is inside');
+  ok(/mgSplitSpan\(sp\.id\)/.test(cut), 'then cuts it with the row\'s own verb — one implementation of a cut');
+  ok(/toast\(t\('mg\.cutNoSpan'\)/.test(cut), 'and says so when the playhead is between pieces or at 0');
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/p\.el\.cut\.hidden = false; p\.el\.cut\.onclick = \(\) => mgSplitAtPlayhead\(\)/.test(prep), 'the matcher shows and wires the button');
+  ok(/player\.el\.cut\.hidden = true/.test(fn(app, 'mgClose')), 'and hides it again on the way out — the dock is shared');
+  ok(/cut: root\.querySelector\('\.player-cut'\)/.test(read('docs/js/audio.js')), 'the Player only looks it up; it never cuts');
+  ok(/class="player-cut icon-btn2" data-i18n-title="player\.cut" hidden/.test(shell), 'the segmenter shell carries it, hidden by default');
+  ok(!/player-cut/.test(read('docs/index.html')), 'the editor\'s dock does not — the Cut tab has its own Enter');
+  ok(/e\.key === 'Enter'[^\n]*mgSplitAtPlayhead\(\)/.test(fn(app, 'setupSegmenterMode')), 'Enter does the same, as on the Cut tab');
+  for (const k of ['player.cut', 'mg.cutNoSpan']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+}
+
+console.log('\nthe audio loads on EVERY open, not only the first one that was not interrupted');
+{
+  /* Seth, 2026-09-04: "There definitely are times when the big player and/or the segments don't
+   * load, like the audio doesn't make it into memory/active view correctly. Refreshing and exiting
+   * and opening the text again fixes that. But that shouldn't be necessary." loadedFor was written
+   * BEFORE the load; Back during the decode, a decode error, or a throw left it set, and the next
+   * open skipped the load and unhid an empty dock. */
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/if \(p\.loadedFor !== docId \|\| !p\.ws\)/.test(prep), 'a reload happens whenever the surfer is gone, not only for a different text');
+  ok(/p\.loadedFor = null;\s*\n\s*playerReadyFor = null;\s*\n\s*try \{ await p\.load\(media\); \}/.test(prep),
+     'and "loaded" is cleared BEFORE the await…');
+  ok(/if \(!live\(\)\) return;[^\n]*\n\s*p\.loadedFor = docId;\s*\n\s*playerReadyFor = docId;/.test(prep),
+     '…and recorded only AFTER it, and only if this open still owns the dock');
+  ok(/catch \(err\) \{[\s\S]*?mg\.audioFailed/.test(prep), 'a load that throws says so instead of hanging on "preparing"');
+  ok(/if \(player\) \{ player\.loadedFor = null; playerReadyFor = null; \}/.test(fn(app, 'mgClose')),
+     'Back forgets the load it just destroyed — as the editor\'s own close does');
+  ok(/this\.el\.status\.hidden = false;\s*\n[^\n]*\n[^\n]*\n\s*this\.loadedFor = null;/.test(read('docs/js/audio.js')),
+     'and the Player forgets a load that ERRORED, so the next open tries again');
+  ok(/if \(!peaksDurationMs\(\)\) \{ if \(note\) segProgress\(note, t\('mg\.wavesFailed'\), 0\); \}/.test(prep),
+     'failed peaks are SAID, and the screen carries on');
+  ok(/const dur = peaksDurationMs\(\) \|\| \(p\.durationMs \? p\.durationMs\(\) : 0\) \|\| 0;/.test(prep),
+     'using the player\'s own duration to seed the first span, so there is still something to cut');
+  const peaks = read('docs/js/segment-strips.js');
+  ok(/const decodeOnce = async \(\) =>/.test(peaks) && /await new Promise\(\(r\) => setTimeout\(r, 1500\)\);[\s\S]*?\[buf, ctx\] = await decodeOnce\(\)/.test(peaks),
+     'ensurePeaks retries a failed decode once, after a pause');
+  ok(/if \(peaksRun === myRun\) peaksCache = \{ docId: null, peaks: null, durationMs: 0 \};/.test(peaks),
+     'and forgets a failed attempt, so the next call recomputes rather than caching "no peaks" for ever');
+  for (const k of ['mg.audioFailed', 'mg.wavesFailed']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+}
+
+console.log('\nedit in place — tap a word, a gloss or the translation; Space at a word\'s edge adds a pair (Seth, 2026-09-04)');
+{
+  ok(/function allowTextEditOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowTextEdit === true; \}/.test(app),
+     'researcher-settable, on when working alone — the same shape as allowBlankLinesOn');
+  const draw = fn(app, 'mgDraw');
+  ok(/const editable = allowTextEditOn\(\);/.test(draw) && /mgWordStack\(ln, w, wi, editable\)/.test(draw), 'every pair is built by one helper that knows whether it is editable');
+  ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
+     'a blank line gets one empty pair, so there is somewhere to type');
+  ok(/if \(editable\) mgWireEditable\(ftbox, ln, -1, 'free'\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
+  const wire = fn(app, 'mgWireEditable');
+  ok(/el\.contentEditable = 'plaintext-only'/.test(wire) && /el\.contentEditable = 'true'/.test(wire), 'plaintext where the browser has it, plain elsewhere');
+  ok(/if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); el\.blur\(\); return; \}/.test(wire), 'Enter commits');
+  ok(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); el\.textContent = was; el\.blur\(\); return; \}/.test(wire), 'Escape restores');
+  ok(/e\.key === ' ' && at >= 0 && len > 0 && \(at === 0 \|\| at === len\)/.test(wire), 'Space adds a pair only at the START or END of a non-empty word');
+  ok(/mgInsertWord\(ln\.id, wi, at === 0 \? 'before' : 'after'\)/.test(wire), 'before or after, by where the caret was');
+  ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); mgDeleteWord\(ln\.id, wi\); \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
+  ok(/el\.addEventListener\('blur', \(\) => mgCommitEdit\(el, ln, wi, field\)\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
+  const edit = fn(app, 'mgEditWord');
+  ok(/if \(\(ph\.words\[k\]\[field\] \|\| ''\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write)');
+  ok(/mgCapture\(\);/.test(edit) && !/mgDraw\(\)/.test(edit) && /mgSaveDraft\(\);/.test(edit),
+     'a changed one captures for undo and autosaves WITHOUT redrawing — Tab keeps walking the line');
+  ok(/if \(field === 'txt'\) ph\.baseline = baselineFromWords\(ph\.words\);/.test(edit), 'the phrase baseline follows the words');
+  ok(/mgDraw\(\);\s*\n\s*mgFocusWord\(id, where === 'before' \? wi : wi \+ 1\);/.test(fn(app, 'mgInsertWord')), 'adding a pair redraws and puts the caret in the new word');
+  ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace');
+  ok(/if \(line\.phrases\.length > 1\) line\.phrases = \[mergePhrases\(line\.phrases\)\];/.test(fn(app, 'mgLinePhrase')), 'a legacy two-phrase line is merged before it is edited');
+  ok(/\{ k: 'allowBlankLines', type: 'checkbox' \},\s*\n\s*\{ k: 'allowTextEdit', type: 'checkbox' \}/.test(read('docs/js/researcher-panel.js')),
+     'the panel has BOTH switches (blank lines had a gate but no checkbox)');
+  for (const k of ['mg.editTip', 'mg.tapWord', 'mg.tapGloss', 'mg.tapFree', 'panel.f.allowTextEdit', 'panel.f.allowBlankLines']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+  ok(/\.mg-edit:empty::before\{content:attr\(data-ph\)/.test(css), 'an empty editable shows its prompt');
+}
+
+console.log('\nthe dock loads every time — "loaded" is recorded after the load, never before');
+{
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/if \(p\.loadedFor !== docId \|\| !p\.ws\) \{\s*\n\s*p\.loadedFor = null;/.test(prep), 'a missing waveform (hide() destroyed it) forces a reload');
+  ok(/try \{ await p\.load\(media\); \}\s*\n\s*catch \(err\) \{[\s\S]*?mg\.audioFailed/.test(prep), 'a failed load says so instead of leaving a dead dock');
+  ok(/if \(!live\(\)\) return;[^\n]*\n\s*p\.loadedFor = docId;\s*\n\s*playerReadyFor = docId;/.test(prep), 'and loadedFor is set only after a load that finished for THIS text');
+  ok(/if \(!peaksDurationMs\(\)\) \{ if \(note\) segProgress\(note, t\('mg\.wavesFailed'\), 0\); \}/.test(prep), 'no peaks → said, not blank');
+  ok(/if \(p\.loadedFor !== current\.id \|\| !p\.ws\) \{/.test(app) && /catch \(err\) \{ p\.showPending\(t\('player\.error'\)\); return; \}/.test(app),
+     'the editor\'s own load path takes the same rule');
+  for (const k of ['mg.audioFailed', 'mg.wavesFailed']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');

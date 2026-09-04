@@ -529,7 +529,8 @@ function setLinkMode(v) {
 function sameOriginBases() {
   const o = location.origin;
   return { editor: o + '/flextext-editor/', recorder: o + '/text-recorder/',
-           crowd: o + '/crowd-recorder/', researcher: o + '/flextext-researcher/', local: true };
+           crowd: o + '/crowd-recorder/', researcher: o + '/flextext-researcher/',
+           segmenter: o + '/audio-segmenter/', consent: o + '/consent-collector/', local: true };
 }
 function linkOverride() {
   const m = linkMode();
@@ -614,6 +615,9 @@ const GROUPS = [
     // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
     // an UNSET value follows the mode. toFormValues prefils these with the EFFECTIVE value so the
     // checkboxes never lie about what the device actually exports.
+    // Whether the times ALSO ride the .flextext as a note item FLEx shows on its own line — the
+    // begin/end attributes are always written. Default on. (Seth, 2026-09-04.)
+    { k: 'segTimeNotes', type: 'checkbox' },
     { k: 'exportEaf', type: 'checkbox' },
     { k: 'exportSaymore', type: 'checkbox' },
     { k: 'exportPreview', type: 'checkbox' },
@@ -653,6 +657,10 @@ const GROUPS = [
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.
     { k: 'allowDelete', type: 'checkbox' },
+    // Audio Segmenter only (the engine gates read them; other apps ignore them). Both default ON
+    // for an unpaired device — somebody working alone — and are the researcher's to switch off.
+    { k: 'allowBlankLines', type: 'checkbox' },
+    { k: 'allowTextEdit', type: 'checkbox' },
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
@@ -1137,9 +1145,13 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v572', date: '2026-09-03', items: [
+  { v: 'v576', date: '2026-09-04', items: [
     { k: 'panel.rel.new.segmenterApp' },
     { k: 'panel.rel.new.pairByRow' },
+    { k: 'panel.rel.new.segmenterInvite' },
+    { k: 'panel.rel.new.editInPlace' },
+    { k: 'panel.rel.new.segmenterSettings' },
+    { k: 'panel.rel.new.dockLoads' },
     { k: 'panel.rel.new.consentApp' },
     { k: 'panel.rel.new.consentAudio' },
     { k: 'panel.rel.new.satExport' },
@@ -4361,7 +4373,11 @@ async function inviteModal(instanceId) {
     const estate = invite.estate || (cached && cached.estate);
     if (!estate) throw new Error('Could not determine which app this device should install — reload the panel and try again.');
     const B = basesFor(estate);
-    const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite) };
+    /* THREE LINKS, ONE INVITE (Seth, 2026-09-04): the segmenter pairs as its own device on its own
+     * origin — the same one-time secret, pasted onto a third base URL. The worker stores no kind;
+     * whichever app claims the link is what the device's badge will say it runs. */
+    const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite),
+                   segmenter: Researcher.inviteUrl(B.segmenter, invite) };
     const exp = invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '';
     const row = (label, key) => `
       <div class="rp-field"><span>${esc(label)}</span>
@@ -4392,6 +4408,7 @@ async function inviteModal(instanceId) {
       <p class="note rp-invite-warn">${esc(t('panel.invite.overrideWarn'))}</p>
       ${row(t('panel.invite.editorLink'), 'editor')}
       ${row(t('panel.invite.recorderLink'), 'recorder')}
+      ${row(t('panel.invite.segmenterLink'), 'segmenter')}
       ${exp ? `<p class="note">${esc(t('panel.invite.expires', { when: exp }))}</p>` : ''}
       <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`;
     m.el.querySelector('[data-m="close"]').onclick = m.close;
@@ -8465,6 +8482,7 @@ function toFormValues(s) {
      * the basic editor until the researcher toggled the box (Seth, 2026-08-12). Only an explicit
      * false stays false. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
+    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;   // default on, so an unset one shows ticked
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;

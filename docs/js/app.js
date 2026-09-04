@@ -689,7 +689,7 @@ async function setDocDone(docId, wantDone) {
     toast(t('done.unmarked'), 4000);
   }
   Sync.reportNow();
-  renderDocList();
+  refreshList();   // whichever list this app has — the satellites have no #doc-list
 }
 // Kept though the in-editor button is gone (v330): setDocDone is the shared mechanism and this is
 // its "the open text" convenience. The Texts-list row toggle and the Done—send path both route
@@ -1743,13 +1743,20 @@ async function refreshPlayer() {
   p.el.remove.hidden = isAudioLocked(current);
   if (media) {
     updateDlControls('done');
-    // Re-load only when switching docs (avoid resetting playback position).
-    if (p.loadedFor !== current.id) {
+    // Re-load only when switching docs (avoid resetting playback position) — or when the waveform
+    // is gone (`!p.ws`: hide() destroyed it while loadedFor still named this text).
+    if (p.loadedFor !== current.id || !p.ws) {
       const loadId = current.id;
-      p.loadedFor = loadId;
+      /* ⚠ "LOADED" IS RECORDED AFTER THE LOAD, not before it — the same race the matcher had (Seth,
+       * 2026-09-04: "times when the big player and/or the segments don't load … refreshing and
+       * exiting and opening the text again fixes that"). Set before the await, a load that threw or
+       * was superseded left it naming this text, and the next visit skipped the load and unhid an
+       * empty player until a refresh cleared the module state. */
+      p.loadedFor = null;
       playerReadyFor = null;
-      await p.load(media);
-      if (p.loadedFor === loadId) playerReadyFor = loadId;   // a newer load supersedes silently
+      try { await p.load(media); }
+      catch (err) { p.showPending(t('player.error')); return; }
+      if (current && current.id === loadId && playerDocId === loadId) { p.loadedFor = loadId; playerReadyFor = loadId; }
     } else {
       p.root.hidden = false;
     }
@@ -3770,7 +3777,7 @@ function deleteAfterUpload() {
 function deleteUploadedDoc(docId) {
   if (current && current.id === docId) {
     current = null;
-    if (!RECORD_MODE) show('texts');
+    if (!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE) show('texts');   // the satellites have no texts view
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {
     refreshList();
@@ -3910,6 +3917,10 @@ function applyLiveSettings() {
   const segBefore = settings.segmentation === true;
   settings = loadSettings();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
+  // The two newest satellites have no Settings tab, no #doc-list and no #view-research: the editor
+  // branch below dereferences all three and threw on the first pushed setting. Their lists read
+  // the settings they gate on (blank lines, delete, audio swap) at render time.
+  else if (CONSENT_MODE || SEGMENTER_MODE) { applyResearchVisibility(); fillDeviceSetup(); refreshList(); }
   else {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
@@ -4241,7 +4252,8 @@ async function syncGatherInventory() {
   // current (so the researcher can tell if a coworker hasn't updated). Both are E2EE in the report.
   // engineVersion is the TRUE running engine version (vs cachedApps, which reads cache NAMES that a
   // stale-body precache can make lie) — the reliable brick/stale signal. All E2EE in the report.
-  return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap,
+  // The kind this install reports. The worker stores nothing about it; the panel's badge shows it.
+  return { type: RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor', items, settings: snap,
            ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION,
            // Which shell this install runs in. Each shell is its own storage sandbox, so the
            // panel must be able to tell a PWA apart from an APK on the same handset.
@@ -4386,7 +4398,11 @@ function showInvitePasteModal() {
     status.hidden = false;
     status.textContent = t('invite.pasteWorking');
     const handled = await claimInvite(id, secret, true);
-    if (handled) { close(); applyInviteButton(); if (RECORD_MODE) renderRecordView(); }
+    if (handled) {
+      close(); applyInviteButton();
+      if (RECORD_MODE) renderRecordView();
+      if (SEGMENTER_MODE) renderSegmenterView();   // repaints without the paste button, like the recorder
+    }
     else { e.target.disabled = false; status.hidden = true; }
   });
   setTimeout(() => wrap.querySelector('#invite-paste-box').focus(), 0);
@@ -4684,7 +4700,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() });
+  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -4831,7 +4847,7 @@ function serializeDocBlob(rec, mediaName) {
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
-  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), producedBy: producedBy() })], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() })], { type: 'application/xml' });
 }
 
 function docFilename(rec) {
@@ -5617,6 +5633,9 @@ const SETUP_GROUPS = [
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
+    // The times ride the .flextext as begin/end attributes always; this is whether they ALSO ride
+    // as a note item FLEx shows on its own line. Default on (the behaviour every export had).
+    { k: 'segTimeNotes', type: 'checkbox', note: 'panel.f.segTimeNotesNote' },
     // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
     // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
     // about what leaves this machine.
@@ -5672,6 +5691,11 @@ const SETUP_GROUPS = [
     // standalone app these are already ON and cannot be turned off — the switch would be a lie.
     { k: 'deleteAllEnabled', type: 'checkbox', off: 'setup.off.deleteAllEnabled' },
     { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
+    // The Audio Segmenter's own two (only: they appear in ITS Settings tab, not the editor's), with
+    // the same standalone rule as allowDelete: always on when working alone, the researcher's to
+    // switch off on a device they manage.
+    { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
+    { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
     // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
@@ -5849,6 +5873,7 @@ function deviceSetupValues() {
      * then SAVE a false, which is exactly how a paired device lost the mode on its first push
      * (Seth, 2026-08-12). One default, three surfaces. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
+    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
@@ -5915,7 +5940,9 @@ function readDeviceSetup(box) {
    * every time would pin them the moment anybody opened this page — so turning the mode on and
    * saving in one go would silently write the exports OFF, and the .eaf files the mode promises
    * would never appear with nothing anywhere to explain it. */
-  const segOn = !!raw.segmentation;
+  // Audio segmentation is the Audio Segmenter's whole purpose, so it is ALWAYS on there and has no
+  // switch in its form; the export toggles then "follow the mode" against true.
+  const segOn = SEGMENTER_MODE ? true : !!raw.segmentation;
   for (const k of SETUP_EXPORT_KEYS) if (has(k)) patch[k] = (!!raw[k] === segOn) ? undefined : !!raw[k];
   patch.autoDelUploaded = !!raw.autoDel;                                  // the key the field client reads
   patch.maxRecordSeconds = parseInt(raw.maxRecordSeconds, 10) || 0;       // 0 = no limit
@@ -6128,6 +6155,22 @@ function updateSetupConditionals(box) {
  *
  * ⚠ RULE 2 IS ENFORCED HERE, not only by the tab's visibility: a paired device gets NO editable
  * surface, because its settings come from its researcher and a second one would disagree. */
+/* WHICH SETTINGS THIS APP SHOWS (Seth, 2026-09-04: "our standard language/writing system settings,
+ * and the yes/no setting for exporting audio segment timing as notes … export formats checked and
+ * unchecked, etc. … Audio segmenting should ALWAYS be enabled, because that's the whole purpose of
+ * this app"). The Audio Segmenter's Settings tab is the editor's form with the fields that mean
+ * something here: the writing-system codes, the timing note, the export formats, and its own three
+ * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
+ * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
+const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit']);
+function setupGroupsFor() {
+  const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
+  return SETUP_GROUPS
+    .map((g) => ({ ...g, fields: g.fields.filter((f) => (!f.only || f.only === mode) && (!SEGMENTER_MODE || SEGMENTER_SETUP_KEYS.has(f.k))) }))
+    .filter((g) => g.fields.length);
+}
+
 function renderDeviceSetup() {
   const box = $('#device-setup');
   if (!box) return;                                   // satellite shells have no Settings tab
@@ -6137,11 +6180,12 @@ function renderDeviceSetup() {
    * by replacing #device-setup's children. Attaching them to #device-setup itself would stack a new
    * set on every entry to the Settings tab — that element survives a re-render, so one Save click
    * would eventually save N times. Discarding the wrapper discards its listeners with it. */
+  const setupGroups = setupGroupsFor();
   const form = document.createElement('div');
   form.innerHTML = `
-    <div class="rp-tabs" role="tablist">${SETUP_GROUPS.map((g, i) =>
+    <div class="rp-tabs" role="tablist">${setupGroups.map((g, i) =>
       `<button type="button" class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="ds-tab-${g.id}" aria-controls="ds-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
-    <div class="rp-groups">${SETUP_GROUPS.map(setupGroupHtml).join('')}</div>
+    <div class="rp-groups">${setupGroups.map(setupGroupHtml).join('')}</div>
     <p class="note rp-enc">${esc(t('setup.localNote'))}</p>
     <p class="note ds-saved" id="ds-saved" role="status" aria-live="polite"></p>`;
   box.replaceChildren(form);
@@ -6160,7 +6204,7 @@ function renderDeviceSetup() {
     });
   };
   form.querySelectorAll('.rp-tab').forEach((b) => b.addEventListener('click', () => showGroup(b.dataset.tab)));
-  showGroup(SETUP_GROUPS[0].id);
+  showGroup(setupGroups[0].id);
 
   form.addEventListener('change', (e) => {
     // Only when the MODE switch itself moves: re-deriving on every change would undo an export the
@@ -6735,9 +6779,10 @@ function applyResearchVisibility() {
   // (passphrase-gated). A non-managed device uses the normal hide toggle.
   const hidden = isResearchHidden() || Sync.hasSession();
   $$('#topbar-home .top-tab[data-view="research"]').forEach(b => { b.hidden = hidden; });
-  if (hidden && !$('#view-research').hidden) {
-    renderDocList();
-    show('texts');
+  const rv = $('#view-research');
+  if (hidden && rv && !rv.hidden) {
+    refreshList();
+    show(SEGMENTER_MODE ? 'segmenter' : CONSENT_MODE ? 'consent' : 'texts');   // the satellites' home
   }
   markSetupTabProblems();
   applyHelpResearchVisibility();
@@ -7616,9 +7661,17 @@ function renderSegmenterView() {
   view.innerHTML = `
     <p class="tab-hint" data-i18n-html="sg.hint"></p>
     <ul id="sg-list" class="doc-list"></ul>
-    <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>`;
+    <p id="sg-empty" class="empty-note" data-i18n-html="sg.empty" hidden></p>
+    ${!Sync.hasSession() ? '<button id="btn-paste-invite" type="button" class="secondary-btn delall-btn"></button>' : ''}`;
   applyI18n(view);
   satImportBar(view);
+  /* A THIRD KIND OF INVITE (Seth, 2026-09-04): this app pairs as its own device, exactly as the
+   * recorder does — the researcher's invite modal prints the same one-time link on this app's
+   * origin, and the URL claims it at boot. The paste box is the same second door the recorder has,
+   * for a link that arrived as text rather than as a tap. Nothing about the device is typed: the
+   * worker stores no kind, and the badge in the panel shows whatever this install reports. */
+  const pi = view.querySelector('#btn-paste-invite');
+  if (pi) { pi.textContent = t('invite.pasteBtn'); pi.addEventListener('click', showInvitePasteModal); }
   sgRenderList();
 }
 
@@ -7643,12 +7696,16 @@ async function sgRenderList() {
         <button class="sg-open secondary-btn"></button>
       </div>`;
     li.querySelector('.doc-name').textContent = d.title || t('untitled');
-    li.querySelector('.doc-meta').textContent =
-      d.hasDraft ? t('sg.inProgress')
+    const meta = d.hasDraft ? t('sg.inProgress')
       : st === 'noaudio' ? t('sg.noAudio')
       : st === 'coming' ? t('seg.loadingAudio')
       : st === 'some' ? (d.spanCount === 1 ? t('sg.oneSpan') : t('sg.someSpans').replace('{n}', d.spanCount))
       : t('sg.noSpans');
+    // Where a text stands with the researcher, on a paired device: the same rule as the inventory's
+    // uploadState — "sent" only while nothing has changed since the upload that landed.
+    const sent = d.uploadedFileId && d.uploadedModified === d.modified;
+    const trail = sent ? t('sg.sent') : d.assigned ? t('sg.fromResearcher') : '';
+    li.querySelector('.doc-meta').textContent = trail ? `${meta} · ${trail}` : meta;
     satRowControls(li.querySelector('.rec-item-actions'), d);
     const open = li.querySelector('.sg-open');
     open.textContent = t('sg.open');
@@ -7879,6 +7936,11 @@ function mgCapture() {
   mgUndoStack.push(mgSnap());
   if (mgUndoStack.length > MG_UNDO_MAX) mgUndoStack.shift();
   mgRedoStack = [];                    // a new edit forks the future, as everywhere else
+  // An in-place edit captures WITHOUT redrawing (so Tab keeps walking the line), so the buttons
+  // are refreshed here rather than only in mgDraw — or Undo looked dead after the first edit.
+  const u = $('#mg-undo'), r = $('#mg-redo');
+  if (u) u.disabled = false;
+  if (r) r.disabled = true;
 }
 function mgApply(st) {
   MG.spans = st.spans; MG.lines = st.lines;
@@ -7991,6 +8053,19 @@ function mgSplitSpan(id) {
   mgDraw();
 }
 
+/* ✂ ON THE BIG PLAYER (Seth, 2026-09-04): cut whichever piece the playhead is inside, where it is.
+ * The same verb as a row's own ✂ — mgSplitSpan already cuts at the playhead when it is inside the
+ * piece — reached from the transport instead of the list, so a long recording can be cut while
+ * listening down it without hunting for the row. Enter does the same, as on the Cut tab. */
+function mgSplitAtPlayhead() {
+  if (!MG) return;
+  const head = player?.playheadMs?.();
+  const sp = typeof head === 'number'
+    ? MG.spans.find((s) => !s.timePending && head > s.start && head < s.end) : null;
+  if (!sp) { toast(t('mg.cutNoSpan'), 5000); return; }
+  mgSplitSpan(sp.id);
+}
+
 function mgJoinSpan(id) {
   const i = MG.spans.findIndex((s) => s.id === id);
   if (i <= 0) return;
@@ -8070,6 +8145,157 @@ function mgInsertLine(after) {
   if (above && above.paraOf != null) line.paraOf = above.paraOf;
   MG.lines.splice(after + 1, 0, line);
   mgDraw();
+}
+
+/* ─── EDIT IN PLACE (researcher setting allowTextEdit; on when working alone) ────────────────
+ *
+ * Seth, 2026-09-04: "the optional (enable/disable) ability for the user to edit (and add)
+ * interlinear word/gloss pairs (maybe by pressing space before or after to add another word/gloss
+ * pair before or after) and free translation … without adding UI complexity."
+ *
+ * No buttons and no mode. A word, a gloss or the free translation is tapped and typed into; the
+ * edit lands on blur or Enter, and Escape puts the old text back. Space with the caret at the START
+ * of a word adds an empty pair before it, at the END adds one after, and focus moves there.
+ * Backspace in an empty word whose gloss is also empty removes the pair. A plain edit changes the
+ * model in place (no redraw, so Tab keeps walking the line); adding or removing a pair redraws.
+ * Every change is one undo step and rides the autosaved draft like everything else here. */
+function allowTextEditOn() { return !Sync.hasSession() || settings.allowTextEdit === true; }
+
+function mgWordStack(ln, w, wi, editable) {
+  const stack = document.createElement('span');
+  stack.className = 'mg-wstack';
+  stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
+  const we = stack.querySelector('.mg-w'), ge = stack.querySelector('.mg-g');
+  we.textContent = w.txt;
+  ge.textContent = w.gls;
+  if (editable) { mgWireEditable(we, ln, wi, 'txt'); mgWireEditable(ge, ln, wi, 'gls'); }
+  return stack;
+}
+
+function mgWireEditable(el, ln, wi, field) {
+  // plaintext-only where the browser has it (Chromium); Firefox gets the plain flavour and the
+  // commit strips whatever formatting a paste might carry.
+  try { el.contentEditable = 'plaintext-only'; } catch { /* below */ }
+  if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
+  el.spellcheck = false;
+  el.classList.add('mg-edit');
+  el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
+  let was = el.textContent;
+  el.addEventListener('focus', () => { was = el.textContent; });
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());   // not a row pick
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); el.textContent = was; el.blur(); return; }
+    if (field !== 'txt') return;
+    const len = el.textContent.length;
+    const at = mgCaretOffset(el);
+    if (e.key === ' ' && at >= 0 && len > 0 && (at === 0 || at === len)) {
+      e.preventDefault();
+      mgCommitEdit(el, ln, wi, field);                  // keep what was typed so far
+      mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after');
+      return;
+    }
+    if (e.key === 'Backspace' && len === 0) { e.preventDefault(); mgDeleteWord(ln.id, wi); }
+  });
+  el.addEventListener('blur', () => mgCommitEdit(el, ln, wi, field));
+}
+// Caret position within the editable, or -1 when the selection is not a collapsed caret inside it.
+function mgCaretOffset(el) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || !sel.isCollapsed || !el.contains(sel.anchorNode)) return -1;
+  const r = sel.getRangeAt(0).cloneRange();
+  r.selectNodeContents(el);
+  r.setEnd(sel.anchorNode, sel.anchorOffset);
+  return r.toString().length;
+}
+function mgCommitEdit(el, ln, wi, field) {
+  const value = el.textContent.replace(/\s+/g, ' ').trim();
+  if (field === 'free') mgEditFree(ln.id, value); else mgEditWord(ln.id, wi, field, value);
+}
+// One phrase per line is the shape everything here assumes; a legacy draft's two-phrase line is
+// merged the first time it is edited, exactly as Done would merge it.
+function mgLinePhrase(line) {
+  if (line.phrases.length > 1) line.phrases = [mergePhrases(line.phrases)];
+  if (!line.phrases.length) line.phrases = [makeSegment('', [])];
+  return line.phrases[0];
+}
+// The pane numbers VISIBLE words (punctuation hidden); the model keeps punctuation tokens in line.
+function mgRealIndex(words, wi) {
+  let seen = 0;
+  for (let k = 0; k < words.length; k++) {
+    if (words[k].punct) continue;
+    if (seen === wi) return k;
+    seen++;
+  }
+  return -1;
+}
+function mgEditWord(id, wi, field, value) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  let k = mgRealIndex(ph.words, wi);
+  if (k < 0) {
+    if (!value) return;                         // the blank line's empty pair, left empty
+    mgCapture();
+    ph.words.push(makeWord('', {}));
+    k = ph.words.length - 1;
+  } else {
+    if ((ph.words[k][field] || '') === value) return;
+    mgCapture();
+  }
+  ph.words[k][field] = value;
+  if (field === 'txt') ph.baseline = baselineFromWords(ph.words);
+  mgSaveDraft();
+}
+function mgEditFree(id, value) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  if ((ph.free || '') === value) return;
+  mgCapture();
+  ph.free = value;
+  mgSaveDraft();
+}
+function mgInsertWord(id, wi, where) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  const k = mgRealIndex(ph.words, wi);
+  mgCapture();
+  const at = k < 0 ? ph.words.length : (where === 'before' ? k : k + 1);
+  ph.words.splice(at, 0, makeWord('', {}));
+  ph.baseline = baselineFromWords(ph.words);
+  mgDraw();
+  mgFocusWord(id, where === 'before' ? wi : wi + 1);
+}
+function mgDeleteWord(id, wi) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  const k = mgRealIndex(ph.words, wi);
+  if (k < 0) return;
+  const w = ph.words[k];
+  if ((w.txt || '') || (w.gls || '')) return;     // only an EMPTY pair goes on Backspace
+  mgCapture();
+  ph.words.splice(k, 1);
+  ph.baseline = baselineFromWords(ph.words);
+  mgDraw();
+  mgFocusWord(id, Math.max(0, wi - 1));
+}
+// After a redraw: put the caret at the end of the wi-th word of the line. A macrotask, not rAF —
+// rAF never fires in a background tab (segment-strips' own lesson).
+function mgFocusWord(id, wi) {
+  setTimeout(() => {
+    const rows = $('#mg-rows');
+    const row = rows && rows.querySelector(`.mg-line[data-ln="${CSS.escape(id)}"]`);
+    const el = row && row.querySelectorAll('.mg-wstack .mg-w')[wi];
+    if (!el) return;
+    el.focus();
+    try {
+      const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    } catch { /* caret placement is comfort */ }
+  }, 0);
 }
 
 function mgJoinLine(id) {
@@ -8155,6 +8381,17 @@ async function mgCommit() {
    * Same rule as the draft: two writers, one record, so they hold the same object. */
   current = rec;
   db.broadcastLive('docs');
+  /* A PAIRED DEVICE SENDS. Done is this app's "finished", and on a device a researcher invited it
+   * behaves as the recorder's Send does: mark the text done and queue the bare .flextext — with
+   * its times — for the researcher's Drive. The recording came down from the researcher and never
+   * goes back up (queueMediaUpload refuses locked audio); the .eaf the panel builds on demand from
+   * that file and the audio it already holds. An unpaired device has ⤓ instead. */
+  if (Sync.workerUploadTarget && Sync.workerUploadTarget()) {
+    rec.done = true; rec.doneAt = Date.now();
+    await db.putDoc(rec);
+    try { await uploadDocById(rec.id); if (Sync.reportNow) Sync.reportNow(); }
+    catch (e) { toast(t('upload.error', { msg: e.message }), 9000); }
+  }
   const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
   await mgClearDraft(MG.docId);        // committed: the draft has served its purpose
   toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
@@ -8335,6 +8572,8 @@ function mgDraw() {
      * exactly why it went unnoticed: the control existed, looked identical, and worked on one side. */
     li.querySelector('.mg-join').onclick = () => mgJoinLine(ln.id);
     const wbox = li.querySelector('.mg-words');
+    const editable = allowTextEditOn();
+    if (editable) wbox.title = t('mg.editTip');
     txt.words.forEach((w, wi) => {
       // The scissors BETWEEN word and gloss is the first of the two split points. It sits in the
       // gap it would cut, so there is nothing to explain.
@@ -8347,13 +8586,10 @@ function mgDraw() {
         if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id && MG.pendingWordCut.at === wi) cut.classList.add('mg-armed');
         wbox.appendChild(cut);
       }
-      const stack = document.createElement('span');
-      stack.className = 'mg-wstack';
-      stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
-      stack.querySelector('.mg-w').textContent = w.txt;
-      stack.querySelector('.mg-g').textContent = w.gls;
-      wbox.appendChild(stack);
+      wbox.appendChild(mgWordStack(ln, w, wi, editable));
     });
+    // A blank line (from +) has nowhere to type until it has a word: give it one empty pair.
+    if (editable && !txt.words.length) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
     const ftbox = li.querySelector('.mg-ft');
     if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id) {
       // Second point: a space in the free translation. Every space is a target.
@@ -8376,6 +8612,7 @@ function mgDraw() {
       });
     } else {
       ftbox.textContent = txt.free;
+      if (editable) mgWireEditable(ftbox, ln, -1, 'free');
     }
     const cell = document.createElement('div');
     cell.className = 'mg-cell';
@@ -8584,27 +8821,47 @@ async function mgPrepareAudio(docId) {
   }
   const p = getPlayer();
   playerDocId = docId;
-  if (p.loadedFor !== docId) {
-    p.loadedFor = docId;
+  /* ⚠ "LOADED" IS RECORDED AFTER THE LOAD, AND ONLY IF THE SURFER STILL EXISTS. Seth (2026-09-04):
+   * "There definitely are times when the big player and/or the segments don't load … Refreshing
+   * and exiting and opening the text again fixes that." This wrote loadedFor = docId BEFORE
+   * awaiting the load; Back during the decode (mgClose → hide → destroyWs), a decode error, or a
+   * throw here all left it set — and the next open of the same text believed the dock was loaded,
+   * skipped the load, and unhid an empty player. A refresh cleared the module state, which is why
+   * a refresh "fixed" it. Now: reload whenever this text is not the loaded one OR the waveform is
+   * gone (`!p.ws`), record success only after it, and never on the way out. */
+  if (p.loadedFor !== docId || !p.ws) {
+    p.loadedFor = null;
     playerReadyFor = null;
-    await p.load(media);
-    if (p.loadedFor === docId) playerReadyFor = docId;   // a newer load supersedes silently
+    try { await p.load(media); }
+    catch (err) {
+      if (live() && note) segProgress(note, t('mg.audioFailed', { msg: (err && err.message) || '' }), 0);
+      return;
+    }
+    if (!live()) return;                 // left, or a newer open owns the dock now
+    p.loadedFor = docId;
+    playerReadyFor = docId;
   }
   if (!live()) return;
   p.root.hidden = false;
   // ⚠ NO ✕. This app matches audio to text; detaching the recording is not one of its verbs, and the
   // dock's remove button would delete the media out from under the very screen using it.
   if (p.el && p.el.remove) p.el.remove.hidden = true;
+  // …but the ✂ is this screen's own: shown while the matcher owns the dock, hidden again by mgClose.
+  if (p.el && p.el.cut) { p.el.cut.hidden = false; p.el.cut.onclick = () => mgSplitAtPlayhead(); }
   await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
   if (!live()) return;
-  if (note) note.hidden = true;
+  /* Peaks can fail (a decode the browser refuses, memory on a long file) while the dock still
+   * plays. Say so and carry on with the player's own duration, rather than a screen with no
+   * strips, no message and no way to cut. ensurePeaks retried once already. */
+  if (!peaksDurationMs()) { if (note) segProgress(note, t('mg.wavesFailed'), 0); }
+  else if (note) note.hidden = true;
   /* ⚠ A TEXT THAT HAS NEVER BEEN CUT MUST NOT OPEN INTO AN EMPTY PANE. That is the NORMAL starting
    * state for this app — you arrive with a recording and a text, and no cuts at all — and until now
    * it was a dead end: no spans meant nothing to play, nothing to split, and no way to make the
    * first one, because every editing verb here operates on an existing span. The Cut tab never had
    * this problem; renderCut seeds a whole-file span through reconcile(), and the matcher simply did
    * not inherit that. One span covering the recording makes the ✂ on it the first cut. */
-  const dur = peaksDurationMs();
+  const dur = peaksDurationMs() || (p.durationMs ? p.durationMs() : 0) || 0;
   if (dur > 0 && !MG.resumed) {
     // ⚠ NOT over a resumed draft: its spans are the user's own cutting, and appending a "remainder"
     // to them would invent a span they had deliberately not made.
@@ -8681,8 +8938,16 @@ function mgClose() {
   // not touch it — the transport for a recording nobody has open stayed on screen above the text
   // list, offering to play audio that belonged to whatever was last matched.
   player?.onBoundaryDrag?.(null);   // the dock is shared; leave it as we found it
+  if (player?.el?.cut) player.el.cut.hidden = true;
   player?.hide?.();
+  // hide() destroys the waveform; say so, or the next open of this text skips its load (the
+  // editor's own close does the same where refreshPlayer hides).
+  if (player) { player.loadedFor = null; playerReadyFor = null; }
   lastPlayTarget = null;
+  // Nothing is open now. persist() has no "on the list" guard in this shell, so a `current` left
+  // pointing at the text just closed would be written back with a fresh `modified` by the next
+  // update flush — and re-queued for upload as "changed" when nothing changed.
+  current = null;
   show('segmenter');
 }
 
@@ -8772,17 +9037,39 @@ async function mgOpen(id) {
 
 function setupSegmenterMode() {
   renderSegmenterView();
+  /* The two home tabs (Seth, 2026-09-04: "an unpaired settings tab, analogous to the editor app").
+   * The editor wires its own after the fork; this app has the same two ids and the same rules —
+   * the Settings tab is built on entry, hidden by the in-person switch or by a claimed invite, and
+   * brought back with Ctrl+Alt+R (there is no Help button here to tap seven times). */
+  $$('#topbar-home .top-tab').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.view === 'research') { renderDeviceSetup(); show('research'); }
+    else { sgRenderList(); show('segmenter'); }
+  }));
+  const hideBtn = $('#btn-hide-research');
+  if (hideBtn) hideBtn.addEventListener('click', async () => {
+    if (!await confirmDialog(t('research.hideHereConfirm'))) return;
+    localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
+    applyResearchVisibility();
+    toast(t('research.disabled'));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) { e.preventDefault(); toggleResearchHidden(); }
+  });
+  applyResearchVisibility();
   /* ⚠ DOCUMENT-LEVEL, and gated on the matcher being open. There is no text box to hold focus on
    * this screen — the same reason the Cut tab's keys are document-level — so a handler bound to a
    * row would only work after the user had happened to click one. Guarded by `MG` so it cannot
    * shadow the browser's own undo anywhere else in the app. */
   document.addEventListener('keydown', (e) => {
     if (!MG) return;
-    const k = (e.key || '').toLowerCase();
-    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
     const el = e.target;
     // Never steal it from a field the user is typing in (the speaker box, a future text input).
     if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName || ''))) return;
+    const k = (e.key || '').toLowerCase();
+    // Enter cuts at the playhead, as on the Cut tab — but not when a button has focus, where Enter
+    // is that button's own click (wirePlaybackKeys already swallows it on the play controls).
+    if (e.key === 'Enter' && !(el && /^button$/i.test(el.tagName || ''))) { e.preventDefault(); mgSplitAtPlayhead(); return; }
+    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
     if (e.shiftKey) mgRedoOnce(); else mgUndoOnce();
   });
@@ -10085,7 +10372,9 @@ function setup() {
   // Connectivity sync engine — inert unless an invite is/was claimed (plan P1).
   Sync.start({
     workerBase: () => workerBase(),
-    appType: () => RECORD_MODE ? 'recorder' : 'editor',
+    // Compared only against a LEGACY typed instance (sync.js); every device the panel creates now
+    // is untyped, and the panel's badge shows whatever this reports.
+    appType: () => RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor',
     dispatch: syncDispatch,
     gatherInventory: syncGatherInventory,
     /* ⚠ BEING UNLINKED IS NEWS, and the device used to swallow it. Sync clears the session on a
@@ -10421,7 +10710,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() }); },
+  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

@@ -194,6 +194,15 @@ export async function ensurePeaks(docId, blob, playerBuf, onProgress) {
   const myRun = ++peaksRun;          // see peaksRun — the loop below yields, so calls can interleave
   if (!blob && !fromPlayer) return peaksCache;
   const say = typeof onProgress === 'function' ? onProgress : () => {};
+  /* ⚠ ONE RETRY. decodeAudioData on a long recording fails now and then for reasons that do not
+   * recur a second later (memory pressure, a context the browser was still tearing down), and a
+   * single failure used to leave every strip blank until the text was closed and opened again —
+   * which is what re-ran this. The retry is that reopen, done for the user. */
+  const decodeOnce = async () => {
+    const c = new (window.AudioContext || window.webkitAudioContext)();
+    try { return [await c.decodeAudioData(await blob.arrayBuffer()), c]; }
+    catch (e) { try { c.close(); } catch { /* noop */ } throw e; }
+  };
   try {
     let buf = fromPlayer, ctx = null;
     if (!buf) {
@@ -201,8 +210,14 @@ export async function ensurePeaks(docId, blob, playerBuf, onProgress) {
        * way through, so any fraction here would be invented. An honest "working" beats a made-up
        * number that stalls at 40% and teaches the user to distrust the bar. */
       say('decode', null);
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+      try { [buf, ctx] = await decodeOnce(); }
+      catch (first) {
+        if (peaksRun !== myRun) return peaksCache;
+        await new Promise((r) => setTimeout(r, 1500));
+        if (peaksRun !== myRun) return peaksCache;
+        try { [buf, ctx] = await decodeOnce(); }
+        catch (second) { second.firstAttempt = first; throw second; }
+      }
       if (peaksRun !== myRun) { try { ctx.close(); } catch { /* noop */ } return peaksCache; }
     }
     const ch = buf.getChannelData(0);
@@ -243,6 +258,10 @@ export async function ensurePeaks(docId, blob, playerBuf, onProgress) {
     // a silent catch here cost a whole debugging round (every wave flat, no clue why) — the
     // console line is the difference between "decode failed: EncodingError" and guessing.
     try { console.warn('[segment-strips] peaks unavailable for', docId, e); } catch { /* noop */ }
+    // Forget the failed attempt, so the NEXT call recomputes instead of returning a cache that says
+    // "this text, no peaks" for ever.
+    if (peaksRun === myRun) peaksCache = { docId: null, peaks: null, durationMs: 0 };
+    say('failed', null);
   }
   return peaksCache;
 }

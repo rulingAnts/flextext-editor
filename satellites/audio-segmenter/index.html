@@ -39,6 +39,14 @@
       <option value="en">English</option>
       <option value="id">Indonesia</option>
     </select>
+    <!-- Two home tabs (Seth, 2026-09-04: "an unpaired settings tab, analogous to the editor app").
+         The Settings tab is the editor's device-setup form with this app's fields only (see
+         setupGroupsFor in app.js), and disappears the moment a researcher's invite is claimed, as
+         the editor's does — a managed device is managed from the panel. -->
+    <nav class="top-tabs" role="tablist">
+      <button class="top-tab" data-view="segmenter" data-i18n="tabs.texts" aria-selected="true">Texts</button>
+      <button class="top-tab" data-view="research" data-i18n="tabs.research" aria-selected="false">Settings</button>
+    </nav>
   </div>
   <!-- Two tabs only. This app segments and matches; it does not gloss, translate or edit baseline
        text, and there is no Gloss tab because there is nothing to gloss with. Keeping the row this
@@ -89,6 +97,9 @@
       <button class="player-play icon-btn2" data-i18n-title="player.play">▶</button>
       <button class="player-home icon-btn2" data-i18n-title="player.home">⏮</button>
       <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
+      <!-- ✂ at the playhead (Seth, 2026-09-04): cuts whichever piece the big player is inside.
+           Hidden until the matcher owns the dock; the engine's Player only looks it up. -->
+      <button class="player-cut icon-btn2" data-i18n-title="player.cut" hidden>✂</button>
       <select id="player-speed" name="player-speed" class="player-speed" data-i18n-title="player.speed" aria-label="Playback speed">
         <!-- Word labels, not decimals (Seth, 2026-08-17): a transcriber without decimal
              notation should not need math to slow the audio down. Values stay numeric — they ARE
@@ -116,6 +127,18 @@
 <!-- The matcher: audio spans on the left, interlinear lines on the right, mapped between.
      Rendered by the shared js/app.js (mgOpen/mgDraw). -->
 <section id="view-matcher" class="view" hidden></section>
+
+<!-- The Settings tab, lifted from the editor: the same ids, because renderDeviceSetup, fillDeviceSetup
+     and applyResearchVisibility look them up by id. What the form CONTAINS is decided in app.js. -->
+<section id="view-research" class="view" hidden>
+  <h2 data-i18n="setup.h1">Set up this device</h2>
+  <p class="note" data-i18n-html="setup.intro"></p>
+
+  <div id="device-setup" class="device-setup"></div>
+
+  <button type="button" id="btn-hide-research" class="secondary-btn" data-i18n="research.hideHere">Hide the Settings tab on THIS device now</button>
+  <p class="note" data-i18n="research.hideHereNote">Use this when you set up a coworker's own phone in person. To bring the Settings tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).</p>
+</section>
 
 <!-- SHARED MEDIA DOCK, view-cut and view-baseline are lifted VERBATIM from the editor page: the
      Cut tab's machinery (peaks pipeline, strips, auto-scroll, player/segment sync) finds its

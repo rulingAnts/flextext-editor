@@ -631,6 +631,9 @@ export class Player {
       time: root.querySelector('.player-time'),
       status: root.querySelector('.player-status'),
       remove: root.querySelector('.player-remove'),
+      // Optional: only the segmenter's shell carries it. The host shows it and wires it; the
+      // Player itself never cuts anything.
+      cut: root.querySelector('.player-cut'),
       progress: root.querySelector('.player-progress'),
       fill: root.querySelector('.player-progress-fill'),
     };
@@ -790,6 +793,9 @@ export class Player {
         ? (this.labels.errorTruncated || this.labels.error)
         : this.labels.error;
       this.el.status.hidden = false;
+      // A failed load is not a load: forget it, so the next open of this text tries again rather
+      // than finding "already loaded" and showing this dead dock for ever.
+      this.loadedFor = null;
     });
     this.ws.on('play', () => { this.el.play.textContent = '⏸'; this._rewound = false; });
     this.ws.on('pause', () => { this.el.play.textContent = '▶'; });

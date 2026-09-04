@@ -45,6 +45,7 @@ console.log('\n1. localhost keeps a developer on the dev rig');
   const e = estateOf('http://localhost:8012');
   ok(e.editor === 'http://localhost:8012/flextext-editor/', `editor -> ${e.editor}`);
   ok(e.recorder === 'http://localhost:8012/text-recorder/', 'recorder too');
+  ok(e.segmenter === 'http://localhost:8012/audio-segmenter/', 'and the segmenter — the third invite kind is its own sub-path on the rig');
   ok(e.local === true, 'and is flagged local');
 }
 
@@ -72,6 +73,8 @@ for (const host of ['https://staging-flextext-editor.68mh29kgsd.workers.dev',
    * Naming the real address is honest; inventing a staging URL that 404s would not be. */
   ok(e.recorder === 'https://record.flextext.app/', `  ...recorder is the real one: ${e.recorder}`);
   ok(e.crowd === 'https://crowd.flextext.app/', '  ...as is crowd');
+  // The segmenter DOES have a staging Worker, so a staging invite must land on it, not on production.
+  ok(e.segmenter === 'https://staging-audio-segmenter.68mh29kgsd.workers.dev/', `  ...segmenter is the STAGING one: ${e.segmenter}`);
 }
 
 console.log('\n3. the LEGACY estate is recognised BY NAME, never by falling through');
@@ -79,6 +82,7 @@ console.log('\n3. the LEGACY estate is recognised BY NAME, never by falling thro
   const e = estateOf('https://rulingants.github.io');
   ok(e.editor === 'https://rulingants.github.io/flextext-editor/', `editor -> ${e.editor}`);
   ok(e.recorder === 'https://rulingants.github.io/text-recorder/', 'recorder -> the legacy path');
+  ok(e.segmenter === 'https://audio-segmenter.flextext.app/', 'segmenter -> the cloud app: it has no Pages twin, and naming the real one is honest');
   ok(!e.staging && !e.local, 'and is neither staging nor local');
 }
 
@@ -87,6 +91,7 @@ for (const host of ['https://some-new-host.example.com', 'https://research.flext
                     'https://app.flextext.app']) {
   const e = estateOf(host);
   ok(e.editor === 'https://app.flextext.app/', `${new URL(host).hostname} -> ${e.editor}`);
+  ok(e.segmenter === 'https://audio-segmenter.flextext.app/', '  ...and the segmenter link is the production app');
 }
 // The regression itself, stated as the property that failed.
 {

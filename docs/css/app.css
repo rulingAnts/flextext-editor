@@ -3061,3 +3061,11 @@ a.rp-app-link { display: block; text-align: center; text-decoration: none; box-s
  * dashed, uncoloured, and still numbered so the count they are missing from is legible. */
 .mg-item.mg-extra{border-left:6px dashed var(--line,#d7dbe0);background:transparent}
 .mg-item.mg-extra .mg-pick{background:#f1f3f5;color:var(--muted,#667)}
+
+/* Matcher: edit in place (allowTextEdit). An editable word, gloss or free translation looks like
+ * text until it is touched; a focused one shows a hairline and a tint, and an empty one shows its
+ * prompt so a blank line has somewhere visible to type. */
+.mg-edit{outline:none;border-bottom:1px dashed transparent;min-width:1.2em;display:inline-block;padding:0 .1em;border-radius:3px}
+.mg-edit:focus{border-bottom-color:var(--teal,#10514d);background:hsl(174 30% 96%)}
+.mg-edit:empty::before{content:attr(data-ph);color:#a9b0b8;font-weight:400;font-style:italic}
+.mg-ft.mg-edit{display:block}

@@ -34,6 +34,8 @@ for (const o of [
   'https://x-paragraph-analysis-tool.68mh29kgsd.workers.dev',
 ]) ok(originAllows(STAGING, o), o);
 ok(originAllows(STAGING, 'https://staging-flextext-editor.68mh29kgsd.workers.dev'), 'and the staging apps themselves');
+ok(originAllows(STAGING, 'https://staging-audio-segmenter.68mh29kgsd.workers.dev'), 'including the staging segmenter — a paired segmenter device talks to the worker');
+ok(originAllows(STAGING, 'https://some-branch-audio-segmenter.68mh29kgsd.workers.dev'), 'and a segmenter preview alias');
 ok(originAllows(STAGING, 'https://localhost'), 'and the local dev rig');
 
 console.log('\n…but PRODUCTION origins are still refused by the staging worker (the loud-failure property)');
@@ -59,6 +61,8 @@ for (const o of [
 console.log('\nPRODUCTION\'s own list carries NO star entries and behaves exactly as an exact match');
 ok(!PROD.some((e) => e.includes('*')), 'no wildcard entries in the production list');
 ok(originAllows(PROD, 'https://rulingants.github.io'), 'an exact production origin matches');
+ok(originAllows(PROD, 'https://audio-segmenter.flextext.app'), 'and so does the production segmenter (d04a234)');
+ok(!originAllows(STAGING, 'https://audio-segmenter.flextext.app'), 'which the staging worker refuses, like every production origin');
 ok(!originAllows(PROD, 'https://assign-by-upload-flextext-editor.68mh29kgsd.workers.dev'),
    'a preview alias does NOT reach the production worker');
 ok(originAllows(['*'], 'https://anything.example'), 'the bare * still means everything');

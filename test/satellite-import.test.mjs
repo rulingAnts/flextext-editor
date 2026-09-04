@@ -171,5 +171,37 @@ console.log('\nan unpaired device can get a text OUT — the first real text had
   }
 }
 
+console.log('\nan arriving recording says how far, how long, and whether it is stuck (Seth, 2026-09-04)');
+{
+  /* "Downloading assignments say 'Loading the recording… the lines appear once it is ready.' but
+   * not status/progress bar. I have no way of knowing how long until it's done. Or if it's
+   * hung/stuck." The editor's list had a bar; the segmenter's row had a sentence. Now both share
+   * one painter, and it answers all three. */
+  const list = asyncFn(app, 'sgRenderList');
+  ok(/if \(st === 'coming'\) \{[\s\S]*?li\.dataset\.arriving = d\.id;[\s\S]*?doc-dl-fill/.test(list),
+     'a "coming" row is marked data-arriving and carries the editor\'s own bar');
+  ok(/\$\$\('li\[data-arriving\]'\)/.test(fn(app, 'syncArrivalTicker')), 'the ticker scans every list, not only #doc-list');
+  // The estimator is arithmetic; run it.
+  const src = app.match(/\nfunction arrivalEstimate\([\s\S]*?\n\}/)[0];
+  const est = new Function('ARRIVAL_WINDOW_MS', 'STALL_AFTER_MS', src + '; return arrivalEstimate;')(12000, 20000);
+  const moving = [{ t: 0, received: 0 }, { t: 5000, received: 5e6 }, { t: 10000, received: 10e6 }];
+  const m = est(moving, 10000, 10e6, 40e6, 'downloading');
+  ok(Math.round(m.rate) === 1e6 && m.etaSec === 30 && m.stalledSec === 0, `10 MB in 10 s at 40 MB → 1 MB/s, 30 s left, not stalled (got ${JSON.stringify(m)})`);
+  const stuck = [{ t: 0, received: 3e6 }, { t: 10000, received: 3e6 }, { t: 25000, received: 3e6 }];
+  const s = est(stuck, 25000, 3e6, 40e6, 'downloading');
+  ok(s.stalledSec >= 25 && s.etaSec === null, `no byte for 25 s while "downloading" → stalled, no ETA (got ${JSON.stringify(s)})`);
+  const paused = est(stuck, 25000, 3e6, 40e6, 'paused');
+  ok(paused.stalledSec === 0, 'a PAUSED download is not "stalled" — the user stopped it');
+  const painter = fn(app, 'paintArrivalRow');
+  for (const k of ['dl.paused', 'dl.failed', 'dl.waiting', 'dl.stalled', 'dl.progress', 'dl.progressBytes']) ok(painter.includes(`t('${k}'`), `the row says ${k}`);
+  const ctl = fn(app, 'arrivalControls');
+  ok(/if \(want === 'pause' && d\) d\.pause\(\);/.test(ctl) && /else if \(want === 'retry' && d\) \{ d\.pause\(\); d\.resume\(\); \}/.test(ctl),
+     'Pause pauses; Retry on a stall is pause-then-resume, so the bytes already saved are kept (Range-resume)');
+  ok(/tryDownloadAudio\(rec\)/.test(ctl), 'and with no download object at all, Retry starts one');
+  for (const k of ['dl.progress', 'dl.etaS', 'dl.etaM', 'dl.etaH', 'dl.stalled', 'dl.paused', 'dl.waiting', 'dl.failed', 'dl.pause', 'dl.resume', 'dl.retry']) {
+    ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

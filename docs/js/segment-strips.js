@@ -275,23 +275,83 @@ export async function ensurePeaks(docId, blob, playerBuf, onProgress) {
  * wave whose on-screen size no longer matches its buffer; detached canvases are swept on each
  * observe call so re-renders never accumulate dead nodes. Redraw only fires when the sizes
  * genuinely disagree, and setting canvas.width does not change its CSS box — no feedback loop. */
+/* ⚠ A STRIP HOLDS PIXELS ONLY WHILE IT IS NEAR THE SCREEN (Seth, 2026-09-04: "Cutting a large file
+ * (10-15 minutes) stops loading waveform previews after a certain limit"). Nothing in the code
+ * capped the strips — the browser did. Every row owned a live, device-resolution bitmap (≈0.2–0.9 MB
+ * each), all allocated at once and re-allocated wholesale on every cut, so a 15-minute take cut into
+ * 250 lines asked for hundreds of megabytes of canvas memory; past the browser's canvas budget a new
+ * canvas simply gets no bitmap and every draw on it is a silent no-op, which is exactly the "first N
+ * strips have waveforms, the rest are blank" the report describes. One shared IntersectionObserver
+ * now parks any strip more than about a screen and a half from the viewport (width 0 = no backing
+ * store; the CSS box keeps its height so nothing moves) and redraws it from the cached peaks the
+ * moment it scrolls near. Every surface goes through observeWave, so the Baseline, Cut and Gloss
+ * tabs and the segmenter's matcher all inherit it. Without IntersectionObserver the flag stays
+ * undefined and every strip draws eagerly, as before. */
 let waveRO = null;
+const waveIOs = new Map();          // scroll root (Element, or null for the viewport) → IntersectionObserver
+const scrollRootCache = new WeakMap();
 const observedWaves = new Set();
+function forgetWave(el) {
+  if (waveRO) waveRO.unobserve(el);
+  if (el.__waveIO) el.__waveIO.unobserve(el);
+  observedWaves.delete(el);
+}
+/* The strips scroll inside <main> (the tabs) or .mg-rows (the matcher), not the viewport, and an
+ * observer's rootMargin only reaches past the box of ITS root — so one viewport observer would wake
+ * a strip only once it was already inside the container's visible box, a frame late on every
+ * scroll. One observer per scroll container, found once per ancestor and cached. */
+function scrollRootOf(el) {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (scrollRootCache.has(p)) return scrollRootCache.get(p);
+    const o = getComputedStyle(p).overflowY;
+    if (o === 'auto' || o === 'scroll') { scrollRootCache.set(p, p); return p; }
+  }
+  return null;
+}
+function waveIOFor(root) {
+  if (typeof IntersectionObserver === 'undefined') return null;
+  let io = waveIOs.get(root);
+  if (!io) {
+    io = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        const el = en.target;
+        if (!el.isConnected) { forgetWave(el); continue; }
+        if (en.isIntersecting) {
+          if (el.__onScreen !== true) { el.__onScreen = true; if (el.__redrawWave) el.__redrawWave(); }
+        } else {
+          el.__onScreen = false;
+          el.width = 0;   // releases the bitmap; the CSS box (height + width:100%) is untouched
+        }
+      }
+    }, { root, rootMargin: '150% 0px' });
+    waveIOs.set(root, io);
+  }
+  return io;
+}
 function observeWave(canvas, redraw) {
-  canvas.__redrawWave = redraw;
-  if (typeof ResizeObserver === 'undefined') return;
-  if (!waveRO) {
+  // The stored redraw is GATED: a parked strip ignores every redraw request (ResizeObserver, the
+  // tickers, a peaks upgrade) until the IntersectionObserver wakes it, and the wake redraws it.
+  canvas.__redrawWave = () => { if (canvas.__onScreen === false) return; redraw(); };
+  if (observedWaves.has(canvas)) return;
+  if (typeof ResizeObserver !== 'undefined' && !waveRO) {
     waveRO = new ResizeObserver((entries) => {
       for (const en of entries) {
         const el = en.target;
-        if (!el.isConnected) { waveRO.unobserve(el); observedWaves.delete(el); continue; }
+        if (!el.isConnected) { forgetWave(el); continue; }
         const want = Math.round(el.clientWidth * (window.devicePixelRatio || 1));
         if (want > 0 && el.width !== want && el.__redrawWave) el.__redrawWave();
       }
     });
   }
-  for (const el of observedWaves) if (!el.isConnected) { waveRO.unobserve(el); observedWaves.delete(el); }
-  if (!observedWaves.has(canvas)) { waveRO.observe(canvas); observedWaves.add(canvas); }
+  const waveIO = waveIOFor(scrollRootOf(canvas));
+  for (const el of observedWaves) if (!el.isConnected) forgetWave(el);
+  // Born parked when an IntersectionObserver exists: its first delivery (one task after layout)
+  // wakes the strips within reach, so a render of 300 rows allocates a few screens' worth, not all.
+  canvas.__onScreen = waveIO ? false : undefined;
+  canvas.__waveIO = waveIO;
+  if (waveRO) waveRO.observe(canvas);
+  if (waveIO) waveIO.observe(canvas);
+  observedWaves.add(canvas);
 }
 
 /* Belt-and-braces beside the observer: both tabs already run a ticker (baseline rAF cursor loop,
@@ -299,6 +359,7 @@ function observeWave(canvas, redraw) {
  * even where ResizeObserver misbehaves. Reads nothing the loops don't already touch. */
 function fixStaleWave(canvas) {
   if (!canvas || !canvas.__redrawWave) return;
+  if (canvas.__onScreen === false) return;   // parked: no bitmap to heal, and no clientWidth read per frame
   const want = Math.round(canvas.clientWidth * (window.devicePixelRatio || 1));
   // Stale by WIDTH (raced layout) or by PEAKS (drawn before the audio finished decoding).
   if (want > 0 && (canvas.width !== want || canvas.__peaksGen !== peaksGen)) canvas.__redrawWave();
@@ -510,7 +571,7 @@ export function renderStrips() {
       joinRow.appendChild(join);
       host.appendChild(joinRow);
     }
-    drawStrip(wave, seg, dur);
+    observeWave(wave, () => drawStrip(wave, seg, dur));   // drawn when it is near the screen, not now
   });
   // The offset first, then focusStrip (called by our callers) may still bring an edited line into
   // view — restore-then-focus is what keeps both the chop gesture and the typing gesture anchored.
@@ -540,9 +601,13 @@ function drawStrip(canvas, seg, durationMs, opts) {
   // blurred every wave slightly on retina — and at the gloss tab's half height that blur eats the
   // little amplitude detail there is. CSS fixes the on-screen size; the buffer carries the detail.
   const cssH = canvas.clientHeight || canvas.height || 44;
-  canvas.width = w * dpr;
-  canvas.height = cssH * dpr;
+  // Rounded, to agree with the two Math.round checks (observeWave's ResizeObserver, fixStaleWave):
+  // the width setter truncates, so on a fractional devicePixelRatio (Android 2.625, a zoomed
+  // desktop) an unrounded value never matched and every strip re-allocated and redrew every frame.
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(cssH * dpr);
   const g = canvas.getContext('2d');
+  if (!g) return;   // a browser past its canvas budget refuses the context; one refusal must not abort the rest of the render
   const H = canvas.height, W = canvas.width;
   g.clearRect(0, 0, W, H);
   const peaks = peaksCache.peaks;
@@ -804,8 +869,7 @@ export function drawSpanWave(canvas, seg) {
  *
  * Pairs with healSpanWave() below, which the caller's own ticker calls. */
 export function attachSpanWave(canvas, seg) {
-  observeWave(canvas, () => drawSpanWave(canvas, seg));
-  drawSpanWave(canvas, seg);
+  observeWave(canvas, () => drawSpanWave(canvas, seg));   // lazy: drawn once it is near the screen
 }
 
 /* Redraw a strip whose buffer no longer matches its box or its peaks. Exported for surfaces outside
@@ -1103,8 +1167,7 @@ export function renderCut(anchorIdx) {
      * right. Seth, 2026-08-13, on the cut tab only. */
     wireSegPlay(play, seg, cutDeps.getPlayer, (s) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(s); });
     const paint = { color: text ? LOCKED_WAVE : null };
-    observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs, paint));
-    drawStrip(wave, seg, peaksCache.durationMs, paint);
+    observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs, paint));   // lazy: see observeWave
 
     // The join control sits BETWEEN the rows it joins, exactly as on the Baseline tab.
     if (i < segs.length - 1) {

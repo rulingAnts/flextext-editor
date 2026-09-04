@@ -1438,12 +1438,14 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
     media: dropAudio ? null : media, segMedia: dropAudio ? null : segMedia,
   });
 
-  /* The ORIGINAL recording rides only where an annotation file references it BY NAME. The derived
-   * WAV is pushed by the assembler itself; this covers the already-WAV case, which it does not —
-   * the same patch the menu carries at researcher-panel.js:1823, and gated the same way so a
-   * preview-only or fxpa-only build does not drag the whole file along for nothing. */
-  if (segMedia && !segMedia.derived && (kind === 'elan' || kind === 'saymore')) {
-    entries.push({ name: mediaNameFor(base, segMedia), data: audio.blob });
+  /* The ORIGINAL recording rides in every ELAN / SayMore zip (Seth, 2026-09-04: "the original does
+   * need to be saved and included"). The derived WAV is pushed by the assembler itself; when the
+   * original IS that WAV it already sits in the zip under this name and is not doubled, and when a
+   * lossy original was converted it rides beside the converted copy under its own name. Gated on
+   * the two zip kinds so a preview-only or fxpa-only build does not drag the whole file along. */
+  if (segMedia && audio && audio.blob && (kind === 'elan' || kind === 'saymore')) {
+    const origName = mediaNameFor(base, segMedia.derived ? media : segMedia);
+    if (!entries.some((x) => x.name === origName)) entries.push({ name: origName, data: audio.blob });
   }
 
   if (kind === 'elan' || kind === 'saymore') {

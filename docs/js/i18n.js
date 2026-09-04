@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v578';
+export const ENGINE_VERSION = 'v579';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1414,6 +1414,10 @@ internet after the first time.</p>
   'panel.proj.newText': 'New text…',
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
     ,'panel.rel.new.segmenterApp': 'New app — Audio Segmenter: cut a recording into pieces and match them to the lines of a text you already have. It guesses the cuts from the pauses, you adjust them by dragging, and unfinished work is saved as you go.'
+    ,'panel.rel.new.touchScroll': 'Touch screens: a finger can scroll the page over the waveform strips again. A tap parks the playhead, a sideways drag scrubs, an up-down drag scrolls.'
+    ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
+    ,'panel.rel.new.touchKeyboard': 'Android: the on-screen keyboard and the bottom bar no longer bury the player; the page shrinks to fit above them.'
+    ,'panel.rel.new.uiScale': 'New device setting \u201cText size (whole app)\u201d, on the Settings tab and pushable from the panel.'
     ,'panel.rel.new.consentApp': 'New app — Consent Collector: add speaker permission to texts you already have. Group a speaker\u2019s texts, ask once, and every text gets its own full record.'
     ,'panel.rel.new.phraseLines': 'A .flextext whose phrases all sit inside one paragraph now opens as one line per phrase \u2014 everywhere in the suite, and from the moment it is imported rather than whenever it happens to be opened.'
     ,'panel.rel.new.matcherDraft': 'The Audio Segmenter saves unfinished matching as you work, so a reload, an app update or a mis-tapped Back no longer loses it.'
@@ -1917,6 +1921,17 @@ internet after the first time.</p>
   'panel.f.segTimeNotesNote': 'Off = attributes only. The times still round-trip either way; FLEx just shows no note line for them.',
   'panel.f.allowBlankLines': 'Audio Segmenter: let the coworker add blank text lines (for audio with no words yet)',
   'panel.f.allowTextEdit': 'Audio Segmenter: let the coworker edit and add words, glosses and free translations in place',
+  'panel.f.uiScale': 'Text size (whole app)',
+  'panel.opt.scale.0.85': 'Smaller',
+  'panel.opt.scale.1': 'Normal',
+  'panel.opt.scale.1.15': 'Larger',
+  'panel.opt.scale.1.3': 'Large',
+  'panel.opt.scale.1.5': 'Largest',
+  'panel.f.spacePlays': 'The Space bar plays / pauses the audio',
+  'panel.f.spacePlaysNote': 'Automatic = off on a touch screen, where Space is for typing. Shift+Space always plays or pauses, even inside a text box; so does the \u25b6 button.',
+  'panel.opt.space.auto': 'Automatic (off on touch screens)',
+  'panel.opt.space.on': 'Always',
+  'panel.opt.space.off': 'Never \u2014 use \u25b6 or Shift+Space',
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
   'panel.f.sortAlpha': 'Keep the texts list in alphabetical order (otherwise: most recent first)',
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
@@ -3548,6 +3563,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.newText': 'Teks baru…',
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
     ,'panel.rel.new.segmenterApp': 'Aplikasi baru \u2014 Pemotong Audio: potong rekaman menjadi bagian-bagian dan cocokkan dengan baris teks yang sudah ada. Ia menebak potongannya dari jeda, Anda menyesuaikannya dengan menyeret, dan pekerjaan yang belum selesai tersimpan otomatis.'
+    ,'panel.rel.new.touchScroll': 'Layar sentuh: jari bisa menggulir halaman di atas strip gelombang lagi. Ketuk untuk menempatkan playhead, seret ke samping untuk menggeser, seret ke atas-bawah untuk menggulir.'
+    ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'
+    ,'panel.rel.new.touchKeyboard': 'Android: papan ketik di layar dan bilah bawah tidak lagi menutupi pemutar; halaman menyusut agar muat di atasnya.'
+    ,'panel.rel.new.uiScale': 'Pengaturan perangkat baru \u201cUkuran teks (seluruh aplikasi)\u201d, di tab Pengaturan dan bisa dikirim dari panel.'
     ,'panel.rel.new.consentApp': 'Aplikasi baru \u2014 Pengumpul Izin: tambahkan izin penutur untuk teks yang sudah ada. Kelompokkan teks satu penutur, minta izin sekali, dan setiap teks mendapat catatannya sendiri.'
     ,'panel.rel.new.phraseLines': 'Berkas .flextext yang semua frasanya dalam satu paragraf kini terbuka satu baris per frasa \u2014 di seluruh aplikasi, dan sejak diimpor, bukan menunggu sampai dibuka.'
     ,'panel.rel.new.matcherDraft': 'Pemotong Audio menyimpan pencocokan yang belum selesai sambil Anda bekerja, jadi memuat ulang, pembaruan aplikasi, atau salah tekan Kembali tidak menghilangkannya.'
@@ -3979,6 +3998,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.segTimeNotesNote': 'Mati = atribut saja. Waktunya tetap ikut bolak-balik; FLEx hanya tidak menampilkan baris catatannya.',
   'panel.f.allowBlankLines': 'Pemotong Audio: izinkan rekan kerja menambah baris teks kosong (untuk audio yang belum ada katanya)',
   'panel.f.allowTextEdit': 'Pemotong Audio: izinkan rekan kerja menyunting dan menambah kata, glos, dan terjemahan bebas di tempat',
+  'panel.f.uiScale': 'Ukuran teks (seluruh aplikasi)',
+  'panel.opt.scale.0.85': 'Lebih kecil',
+  'panel.opt.scale.1': 'Normal',
+  'panel.opt.scale.1.15': 'Lebih besar',
+  'panel.opt.scale.1.3': 'Besar',
+  'panel.opt.scale.1.5': 'Paling besar',
+  'panel.f.spacePlays': 'Tombol Spasi memutar / menjeda audio',
+  'panel.f.spacePlaysNote': 'Otomatis = mati di layar sentuh, tempat Spasi dipakai untuk mengetik. Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks; begitu pula tombol \u25b6.',
+  'panel.opt.space.auto': 'Otomatis (mati di layar sentuh)',
+  'panel.opt.space.on': 'Selalu',
+  'panel.opt.space.off': 'Tidak pernah \u2014 pakai \u25b6 atau Shift+Spasi',
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
   'panel.f.sortAlpha': 'Urutkan daftar teks menurut abjad (jika tidak: yang terbaru dahulu)',
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',

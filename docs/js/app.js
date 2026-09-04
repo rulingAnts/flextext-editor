@@ -1238,6 +1238,13 @@ function decorateGlossSegments() {
           } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
             e.preventDefault();
             glossSplitAt(i, wordCount());          // empty silence line AFTER this one
+          } else if (e.key === 'Enter' && !e.shiftKey) {
+            // Not a split: Enter walks to the next line's translation (Seth, 2026-09-04: "ENTER/RETURN
+            // focus next text line (rather than split)"), the FLEx-style walk the word glosses already have.
+            e.preventDefault();
+            const all = [...document.querySelectorAll('.free-input')];
+            const next = all[all.indexOf(fi) + 1];
+            if (next) { next.focus(); try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* fine */ } }
           }
         });
       }
@@ -3993,6 +4000,7 @@ function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   const segBefore = settings.segmentation === true;
   settings = loadSettings();
+  applyUiScale();   // a pushed text size lands live, in every app
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
   // The two newest satellites have no Settings tab, no #doc-list and no #view-research: the editor
   // branch below dereferences all three and threw on the first pushed setting. Their lists read
@@ -5773,6 +5781,10 @@ const SETUP_GROUPS = [
     // switch off on a device they manage.
     { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
     { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
+    // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and whether the plain
+    // Space bar plays (automatic = off on a touch screen, where Space is for typing).
+    { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
+    { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
     // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
@@ -5951,6 +5963,8 @@ function deviceSetupValues() {
      * (Seth, 2026-08-12). One default, three surfaces. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
     else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;
+    else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
+    else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
@@ -6240,7 +6254,7 @@ function updateSetupConditionals(box) {
  * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
  * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
 const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
-  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit']);
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit', 'uiScale']);
 function setupGroupsFor() {
   const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
   return SETUP_GROUPS
@@ -10327,24 +10341,50 @@ function wirePlaybackKeys() {
      * on click, so without that blur the click looks like it selected the audio while the keystroke
      * still went to the gloss box the user had been typing in. */
     if (e.key !== ' ' || e.repeat) return;
+    /* ⚠ SHIFT+SPACE ALWAYS PLAYS OR PAUSES, TEXT BOX OR NOT (Seth, 2026-09-04: "some kind of key to
+     * play/pause that's easy to remember, but separate from selecting text box"). On a tablet the
+     * plain Space bar is for typing — see spaceToggles — so a transcriber with a hardware keyboard
+     * needs one chord that means "audio" wherever the caret is. */
+    if (e.shiftKey) { e.preventDefault(); togglePlayFromKey(); return; }
     // The Cut tab has its own Space (continuous play/pause) — see the cut-tab key handler. Two
     // handlers would toggle twice and cancel each other out.
     if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
+    if (!spaceToggles()) return;   // touch default: Space types; ▶ or Shift+Space plays
     /* ⚠ NOT "any button": that blanket exemption is what jammed Space on the Baseline and Gloss
      * tabs, because focus sits on the TAB BUTTON you clicked to get there and the key was spent
      * re-activating it. transportKeysApply draws the line properly — see it for the full rule. */
     if (!transportKeysApply(e.target, e.key)) return;
-    if (!player) return;
     e.preventDefault();
-    if (player.playing?.()) { player.pause(); return; }
-    if (lastPlayTarget && typeof lastPlayTarget.start === 'number') {
-      const at = player.playheadMs?.();
-      const inside = typeof at === 'number' && at > lastPlayTarget.start && at < lastPlayTarget.end - 150;
-      // resume-in-span, like the buttons — but rewinding to the SEGMENT's start when it finishes
-      // (v332), so replaying after a mid-segment click starts from the top of the segment.
-      player.playSpan(inside ? at : lastPlayTarget.start, lastPlayTarget.end, lastPlayTarget.start);
-    } else { player.clearSpan(); player.ws?.playPause?.(); }
+    togglePlayFromKey();
   }, true);
+}
+/* The plain Space bar's play/pause: on by default with a mouse, OFF by default on a touch screen
+ * (Seth, 2026-09-04: "typing automatically selects the textbox … space included, space doesn't
+ * play/pause, only the play button does that … auto = tablet/mobile typing-auto-selects, desktop
+ * space to play"). The researcher can pin it either way per device (spacePlays). */
+function spaceToggles() {
+  const m = settings.spacePlays || 'auto';
+  if (m === 'on') return true;
+  if (m === 'off') return false;
+  return !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
+}
+function togglePlayFromKey() {
+  if (!player) return;
+  if (player.playing?.()) { player.pause(); return; }
+  if (lastPlayTarget && typeof lastPlayTarget.start === 'number') {
+    const at = player.playheadMs?.();
+    const inside = typeof at === 'number' && at > lastPlayTarget.start && at < lastPlayTarget.end - 150;
+    // resume-in-span, like the buttons — but rewinding to the SEGMENT's start when it finishes
+    // (v332), so replaying after a mid-segment click starts from the top of the segment.
+    player.playSpan(inside ? at : lastPlayTarget.start, lastPlayTarget.end, lastPlayTarget.start);
+  } else { player.clearSpan(); player.ws?.playPause?.(); }
+}
+/* Text size for the whole app (Seth, 2026-09-04: "Font size/screen adjustable?"): one device
+ * setting, applied as a root zoom so every fixed pixel in the stylesheet scales together — text,
+ * buttons, strips (their ResizeObserver redraws them at the new width). The researcher can push it. */
+function applyUiScale() {
+  const z = Number(settings.uiScale) || 1;
+  try { document.documentElement.style.zoom = (z === 1) ? '' : String(z); } catch { /* no zoom support: normal size */ }
 
   /* CLICKING A WAVEFORM RELEASES THE TEXT FIELD (Seth, 2026-08-13).
    *
@@ -10442,6 +10482,7 @@ function setup() {
   migrateSettings();
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
+  applyUiScale();
   applyI18n();
 
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render

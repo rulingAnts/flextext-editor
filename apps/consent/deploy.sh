@@ -12,8 +12,9 @@
 # Before deploying anything it verifies release integrity and fails loudly.
 set -euo pipefail
 cd "$(dirname "$0")"
-# ⚠ HELD BACK FROM PRODUCTION while HOLD-BACK exists (Seth, 2026-09-05: "hold consent-collector back
-# from that release"). The guard lives HERE, not in the Actions workflow, because production has two
+# ⚠ HELD BACK FROM PRODUCTION while HOLD-BACK exists. Used once (Seth, 2026-09-05: "hold
+# consent-collector back from that release"), released the same day in v584; without the marker
+# this guard is inert. Re-create the file to hold the app back again. The guard lives HERE, not in the Actions workflow, because production has two
 # deploy paths — the workflow's matrix and Cloudflare's git-connected build — and both run this
 # script. Exit 0, not 1: a held app is not a failed one, and the other apps' jobs must not be
 # coloured by it. Delete HOLD-BACK to release.

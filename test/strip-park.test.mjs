@@ -14,7 +14,16 @@ test('observeWave parks far-away strips through one IntersectionObserver and gat
   const body = fn('function observeWave(canvas, redraw)');
   assert.match(body, /canvas\.__redrawWave = \(\) => \{ if \(canvas\.__onScreen === false\) return; redraw\(\); \};/, 'gated redraw');
   assert.match(body, /if \(observedWaves\.has\(canvas\)\) return;/, 'flags are initialised once, on first observation');
-  assert.match(body, /const waveIO = waveIOFor\(scrollRootOf\(canvas\)\);/, 'one observer per scroll container, so rootMargin reaches ahead inside <main> and .mg-rows');
+  // The matcher builds its span rows DETACHED and registers the wave before inserting the row
+  // (v580 on staging drew no segment waveforms at all): registration must wait for insertion, and
+  // the dead-node sweep must never drop a canvas that has not been in the document yet.
+  assert.match(body, /if \(canvas\.isConnected\) startObserving\(canvas\);\s*\n\s*else queueMicrotask\(\(\) => \{ if \(observedWaves\.has\(canvas\)\) startObserving\(canvas\); \}\);/, 'a detached canvas is observed one microtask later, once its row is in');
+  const start = fn('function startObserving(canvas)');
+  assert.match(start, /for \(const el of observedWaves\) if \(el\.__wasConnected && !el\.isConnected\) forgetWave\(el\);/, 'the sweep drops only canvases that were in the document and left');
+  assert.match(start, /canvas\.__wasConnected = canvas\.isConnected;/);
+  assert.doesNotMatch(body, /for \(const el of observedWaves\) if \(!el\.isConnected\)/, 'no unconditional sweep in observeWave');
+  assert.match(fn('function forgetWave(el)'), /el\.__observing = false;/, 'a re-inserted row can be observed again');
+  assert.match(start, /const waveIO = waveIOFor\(scrollRootOf\(canvas\)\);/, 'one observer per scroll container, so rootMargin reaches ahead inside <main> and .mg-rows');
   const io = fn('function waveIOFor(root)');
   assert.match(io, /new IntersectionObserver\(/);
   assert.match(io, /\{ root, rootMargin: '150% 0px' \}/, 'the container is the root; a screen and a half of margin');
@@ -23,8 +32,8 @@ test('observeWave parks far-away strips through one IntersectionObserver and gat
   const root = fn('function scrollRootOf(el)');
   assert.match(root, /getComputedStyle\(p\)\.overflowY/);
   assert.match(root, /o === 'auto' \|\| o === 'scroll'/);
-  assert.match(body, /canvas\.__onScreen = waveIO \? false : undefined;/, 'born parked; eager without IntersectionObserver');
-  assert.match(body, /if \(!el\.isConnected\) \{ forgetWave\(el\); continue; \}/, 'detached canvases are dropped from both observers');
+  assert.match(start, /canvas\.__onScreen = waveIO \? false : undefined;/, 'born parked; eager without IntersectionObserver');
+  assert.match(start, /if \(!el\.isConnected\) \{ forgetWave\(el\); continue; \}/, 'detached canvases are dropped from both observers');
   assert.match(fn('function forgetWave(el)'), /el\.__waveIO\.unobserve\(el\)/, 'and from the right IntersectionObserver');
 });
 

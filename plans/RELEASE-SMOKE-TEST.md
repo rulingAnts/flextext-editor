@@ -169,3 +169,11 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Assigned text with locked audio: Share / Save on the device and ⤓ on the segmenter both yield a zip containing the recording.
 - [ ] Panel Files ▾ ELAN zip on a text whose original is m4a: the zip holds the converted WAV and the original m4a.
 - [ ] A 10–15 minute recording on the Cut tab: strips draw all the way down as you scroll; none stay blank.
+
+## Matcher waveforms (v581, regression from v580)
+
+- [ ] Audio Segmenter: open a text with a recording. Every audio row on the left shows a waveform, not an empty box.
+- [ ] Scroll the matcher list to the bottom: the lower rows draw as they arrive.
+- [ ] Split an audio piece (scissors): the rebuilt list still shows waveforms.
+- [ ] Editor Baseline, Cut and Gloss tabs: strips still draw, as in v580.
+

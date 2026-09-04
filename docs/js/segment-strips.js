@@ -294,6 +294,7 @@ const observedWaves = new Set();
 function forgetWave(el) {
   if (waveRO) waveRO.unobserve(el);
   if (el.__waveIO) el.__waveIO.unobserve(el);
+  el.__observing = false;   // a row that comes back (re-inserted after a rebuild) can be observed afresh
   observedWaves.delete(el);
 }
 /* The strips scroll inside <main> (the tabs) or .mg-rows (the matcher), not the viewport, and an
@@ -316,6 +317,7 @@ function waveIOFor(root) {
       for (const en of entries) {
         const el = en.target;
         if (!el.isConnected) { forgetWave(el); continue; }
+        el.__wasConnected = true;
         if (en.isIntersecting) {
           if (el.__onScreen !== true) { el.__onScreen = true; if (el.__redrawWave) el.__redrawWave(); }
         } else {
@@ -333,25 +335,41 @@ function observeWave(canvas, redraw) {
   // tickers, a peaks upgrade) until the IntersectionObserver wakes it, and the wake redraws it.
   canvas.__redrawWave = () => { if (canvas.__onScreen === false) return; redraw(); };
   if (observedWaves.has(canvas)) return;
+  observedWaves.add(canvas);
+  /* ⚠ A STRIP BUILT BEFORE IT IS IN THE DOCUMENT (Seth, 2026-09-04, v580 on staging: "the audio
+   * segmenter app on staging isn't showing segment waveforms at all"). The matcher builds every
+   * span row detached and registers its wave before the row is inserted; the sweep below then
+   * threw each still-detached canvas away as the NEXT one registered, so none was ever observed,
+   * and a strip nobody observes never draws. Registration therefore waits one microtask — by then
+   * the same synchronous build has inserted the row — and the sweep only ever drops a canvas that
+   * has BEEN in the document and left it. A row still detached after the microtask is observed
+   * against the viewport and draws the moment it is inserted, as the observer promises. */
+  if (canvas.isConnected) startObserving(canvas);
+  else queueMicrotask(() => { if (observedWaves.has(canvas)) startObserving(canvas); });
+}
+function startObserving(canvas) {
+  if (canvas.__observing) return;
+  canvas.__observing = true;
   if (typeof ResizeObserver !== 'undefined' && !waveRO) {
     waveRO = new ResizeObserver((entries) => {
       for (const en of entries) {
         const el = en.target;
         if (!el.isConnected) { forgetWave(el); continue; }
+        el.__wasConnected = true;
         const want = Math.round(el.clientWidth * (window.devicePixelRatio || 1));
         if (want > 0 && el.width !== want && el.__redrawWave) el.__redrawWave();
       }
     });
   }
   const waveIO = waveIOFor(scrollRootOf(canvas));
-  for (const el of observedWaves) if (!el.isConnected) forgetWave(el);
+  for (const el of observedWaves) if (el.__wasConnected && !el.isConnected) forgetWave(el);
   // Born parked when an IntersectionObserver exists: its first delivery (one task after layout)
   // wakes the strips within reach, so a render of 300 rows allocates a few screens' worth, not all.
+  canvas.__wasConnected = canvas.isConnected;
   canvas.__onScreen = waveIO ? false : undefined;
   canvas.__waveIO = waveIO;
   if (waveRO) waveRO.observe(canvas);
   if (waveIO) waveIO.observe(canvas);
-  observedWaves.add(canvas);
 }
 
 /* Belt-and-braces beside the observer: both tabs already run a ticker (baseline rAF cursor loop,

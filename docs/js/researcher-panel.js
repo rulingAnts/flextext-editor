@@ -430,11 +430,18 @@ const HOME = estateOf();
  * list them FROM THIS ONE MAP, so neither can point at an estate the other does not — a staging
  * editor sends you to the staging apps, the dev rig to its own. They open in a new tab (Seth,
  * 2026-09-03): each is its own origin with its own texts, and the page you came from stays put. */
+/* ⚠ HELD BACK (Seth, 2026-09-05: "hold consent-collector back from that release"). The consent
+ * collector is not released: consent.flextext.app still serves the v566 port, and
+ * apps/consent/HOLD-BACK keeps it there. Production and the legacy estate therefore do not
+ * advertise it; staging and the dev rig keep the link so it can still be tested. Remove the key
+ * here when it ships — the same commit that deletes HOLD-BACK. */
+const HELD_BACK = new Set(['consent']);
 export function companionApps(estate = HOME) {
+  const testing = estate === ESTATES.staging || !!estate.local;
   return [
     { key: 'segmenter', url: estate.segmenter, label: 'panel.util.segmenter' },
     { key: 'consent',   url: estate.consent,   label: 'panel.util.consent' },
-  ];
+  ].filter((a) => testing || !HELD_BACK.has(a.key));
 }
 
 /* DEPRECATION NOTICE — the legacy GitHub Pages panel only (Seth, 2026-08-05).
@@ -1149,6 +1156,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v582', date: '2026-09-05', items: [
+    { k: 'panel.rel.new.consentHeld' },
+  ] },
   { v: 'v581', date: '2026-09-05', items: [
     { k: 'panel.rel.new.matcherStrips' },
   ] },

@@ -9,6 +9,15 @@ cd "$(dirname "$0")"
 # misconfigured back to raw `npx wrangler deploy`, this fails the build rather than letting a
 # feature branch overwrite https://consent.flextext.app/ .
 BRANCH="${WORKERS_CI_BRANCH:-}"
+# ⚠ HELD BACK FROM PRODUCTION while HOLD-BACK exists (Seth, 2026-09-05). deploy.sh already exits 0
+# before reaching this script; this second guard is for the case the structural guard below also
+# covers — a dashboard command reset to raw `npx wrangler deploy`, which would run this build hook
+# directly and then publish. A build that FAILS publishes nothing, so here the exit is non-zero.
+if [ "$BRANCH" = "productionWeb" ] && [ -f HOLD-BACK ]; then
+  echo "REFUSING TO BUILD: the consent collector is HELD BACK from production (apps/consent/HOLD-BACK)." >&2
+  echo "Delete that file to release it. The live site is unchanged." >&2
+  exit 1
+fi
 if [ -n "$BRANCH" ] && [ "$BRANCH" != "productionWeb" ] && [ -z "${FX_CI_ROUTED:-}" ]; then
   echo "REFUSING TO BUILD: branch '$BRANCH' is not productionWeb and was not routed through" >&2
   echo "deploy.sh. Set the dashboard Deploy AND non-production (Version) commands to:" >&2

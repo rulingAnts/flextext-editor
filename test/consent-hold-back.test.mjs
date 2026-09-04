@@ -19,10 +19,18 @@ test('apps/consent/deploy.sh exits 0 without deploying on productionWeb while HO
   assert.match(block, /exit 0/, 'held is not failed: the other apps\' jobs stay green');
   assert.match(block, /HELD BACK/, 'the log line says why');
   assert.ok(existsSync(new URL('apps/consent/HOLD-BACK', root)), 'HOLD-BACK is present — delete it to release');
+  // Second line of defence: a dashboard command reset to raw `wrangler deploy` skips deploy.sh and runs
+  // the [build] hook directly, so build.sh must FAIL (non-zero) on productionWeb while held.
+  const BUILD = readFileSync(new URL('apps/consent/build.sh', root), 'utf8');
+  const b = BUILD.indexOf('[ "$BRANCH" = "productionWeb" ] && [ -f HOLD-BACK ]');
+  assert.ok(b > 0, 'build.sh has the guard');
+  assert.ok(b < BUILD.indexOf('rm -rf public'), 'before anything is assembled');
+  assert.match(BUILD.slice(b, b + 400), /exit 1/, 'a failed build publishes nothing');
   // The other apps carry no such guard: only consent is held.
   for (const a of ['segmenter', 'editor', 'researcher', 'recorder', 'crowd']) {
     const d = readFileSync(new URL(`apps/${a}/deploy.sh`, root), 'utf8');
     assert.doesNotMatch(d, /HOLD-BACK/, `${a} deploys normally`);
+    assert.doesNotMatch(readFileSync(new URL(`apps/${a}/build.sh`, root), 'utf8'), /HOLD-BACK/, `${a} builds normally`);
     assert.ok(!existsSync(new URL(`apps/${a}/HOLD-BACK`, root)), `${a} has no marker`);
   }
 });

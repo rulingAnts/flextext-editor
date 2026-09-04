@@ -435,3 +435,11 @@ a thousand points, rebuild only on a peaks upgrade, never one element per bucket
 lines across drawStrip, drawSpanWave, the matcher waves and their tests. Tracked as the GitHub issue
 filed the same day.
 
+## Consent collector — HELD BACK from production (Seth, 2026-09-05)
+
+consent.flextext.app stays on the v566 port. Two things hold it: `apps/consent/HOLD-BACK` (deploy.sh
+exits 0 and build.sh refuses on productionWeb while the file exists) and the `HELD_BACK` set in
+`docs/js/researcher-panel.js` companionApps(), which hides its Utilities link on the cloud and legacy
+estates (staging and the dev rig keep it). To release: delete the marker, remove the key, add a
+release note, and push productionWeb as usual. `test/consent-hold-back.test.mjs` pins both halves.
+

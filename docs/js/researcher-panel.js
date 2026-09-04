@@ -615,6 +615,9 @@ const GROUPS = [
     // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
     // an UNSET value follows the mode. toFormValues prefils these with the EFFECTIVE value so the
     // checkboxes never lie about what the device actually exports.
+    // Whether the times ALSO ride the .flextext as a note item FLEx shows on its own line — the
+    // begin/end attributes are always written. Default on. (Seth, 2026-09-04.)
+    { k: 'segTimeNotes', type: 'checkbox' },
     { k: 'exportEaf', type: 'checkbox' },
     { k: 'exportSaymore', type: 'checkbox' },
     { k: 'exportPreview', type: 'checkbox' },
@@ -654,6 +657,10 @@ const GROUPS = [
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.
     { k: 'allowDelete', type: 'checkbox' },
+    // Audio Segmenter only (the engine gates read them; other apps ignore them). Both default ON
+    // for an unpaired device — somebody working alone — and are the researcher's to switch off.
+    { k: 'allowBlankLines', type: 'checkbox' },
+    { k: 'allowTextEdit', type: 'checkbox' },
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
@@ -1142,6 +1149,9 @@ const RELEASES = [
     { k: 'panel.rel.new.segmenterApp' },
     { k: 'panel.rel.new.pairByRow' },
     { k: 'panel.rel.new.segmenterInvite' },
+    { k: 'panel.rel.new.editInPlace' },
+    { k: 'panel.rel.new.segmenterSettings' },
+    { k: 'panel.rel.new.dockLoads' },
     { k: 'panel.rel.new.consentApp' },
     { k: 'panel.rel.new.consentAudio' },
     { k: 'panel.rel.new.satExport' },
@@ -8472,6 +8482,7 @@ function toFormValues(s) {
      * the basic editor until the researcher toggled the box (Seth, 2026-08-12). Only an explicit
      * false stays false. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
+    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;   // default on, so an unset one shows ticked
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;

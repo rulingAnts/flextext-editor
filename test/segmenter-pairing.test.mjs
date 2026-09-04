@@ -66,8 +66,8 @@ console.log('\nDone on a paired device SENDS, like the recorder\'s Send');
 }
 
 console.log('\nthe satellite-safe branches — three places the editor\'s DOM was assumed');
-ok(/else if \(CONSENT_MODE \|\| SEGMENTER_MODE\) \{ refreshList\(\); \}/.test(fn(app, 'applyLiveSettings')),
-   'a pushed setting repaints the satellite list instead of throwing on #view-research / #doc-list');
+ok(/else if \(CONSENT_MODE \|\| SEGMENTER_MODE\) \{ applyResearchVisibility\(\); fillDeviceSetup\(\); refreshList\(\); \}/.test(fn(app, 'applyLiveSettings')),
+   'a pushed setting repaints the satellite list (and its Settings tab) instead of throwing on #doc-list');
 ok(/if \(!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE\) show\('texts'\);/.test(fn(app, 'deleteUploadedDoc')),
    'a researcher-side delete of the open text does not show a view the shell lacks');
 ok(/refreshList\(\);   \/\/ whichever list this app has/.test(app), 'setDocDone repaints whichever list this app has');

@@ -1743,13 +1743,20 @@ async function refreshPlayer() {
   p.el.remove.hidden = isAudioLocked(current);
   if (media) {
     updateDlControls('done');
-    // Re-load only when switching docs (avoid resetting playback position).
-    if (p.loadedFor !== current.id) {
+    // Re-load only when switching docs (avoid resetting playback position) — or when the waveform
+    // is gone (`!p.ws`: hide() destroyed it while loadedFor still named this text).
+    if (p.loadedFor !== current.id || !p.ws) {
       const loadId = current.id;
-      p.loadedFor = loadId;
+      /* ⚠ "LOADED" IS RECORDED AFTER THE LOAD, not before it — the same race the matcher had (Seth,
+       * 2026-09-04: "times when the big player and/or the segments don't load … refreshing and
+       * exiting and opening the text again fixes that"). Set before the await, a load that threw or
+       * was superseded left it naming this text, and the next visit skipped the load and unhid an
+       * empty player until a refresh cleared the module state. */
+      p.loadedFor = null;
       playerReadyFor = null;
-      await p.load(media);
-      if (p.loadedFor === loadId) playerReadyFor = loadId;   // a newer load supersedes silently
+      try { await p.load(media); }
+      catch (err) { p.showPending(t('player.error')); return; }
+      if (current && current.id === loadId && playerDocId === loadId) { p.loadedFor = loadId; playerReadyFor = loadId; }
     } else {
       p.root.hidden = false;
     }
@@ -3913,7 +3920,7 @@ function applyLiveSettings() {
   // The two newest satellites have no Settings tab, no #doc-list and no #view-research: the editor
   // branch below dereferences all three and threw on the first pushed setting. Their lists read
   // the settings they gate on (blank lines, delete, audio swap) at render time.
-  else if (CONSENT_MODE || SEGMENTER_MODE) { refreshList(); }
+  else if (CONSENT_MODE || SEGMENTER_MODE) { applyResearchVisibility(); fillDeviceSetup(); refreshList(); }
   else {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
@@ -4693,7 +4700,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() });
+  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -4840,7 +4847,7 @@ function serializeDocBlob(rec, mediaName) {
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
-  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), producedBy: producedBy() })], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() })], { type: 'application/xml' });
 }
 
 function docFilename(rec) {
@@ -5626,6 +5633,9 @@ const SETUP_GROUPS = [
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
+    // The times ride the .flextext as begin/end attributes always; this is whether they ALSO ride
+    // as a note item FLEx shows on its own line. Default on (the behaviour every export had).
+    { k: 'segTimeNotes', type: 'checkbox', note: 'panel.f.segTimeNotesNote' },
     // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
     // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
     // about what leaves this machine.
@@ -5681,6 +5691,11 @@ const SETUP_GROUPS = [
     // standalone app these are already ON and cannot be turned off — the switch would be a lie.
     { k: 'deleteAllEnabled', type: 'checkbox', off: 'setup.off.deleteAllEnabled' },
     { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
+    // The Audio Segmenter's own two (only: they appear in ITS Settings tab, not the editor's), with
+    // the same standalone rule as allowDelete: always on when working alone, the researcher's to
+    // switch off on a device they manage.
+    { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
+    { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
     // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
@@ -5858,6 +5873,7 @@ function deviceSetupValues() {
      * then SAVE a false, which is exactly how a paired device lost the mode on its first push
      * (Seth, 2026-08-12). One default, three surfaces. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
+    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
@@ -5924,7 +5940,9 @@ function readDeviceSetup(box) {
    * every time would pin them the moment anybody opened this page — so turning the mode on and
    * saving in one go would silently write the exports OFF, and the .eaf files the mode promises
    * would never appear with nothing anywhere to explain it. */
-  const segOn = !!raw.segmentation;
+  // Audio segmentation is the Audio Segmenter's whole purpose, so it is ALWAYS on there and has no
+  // switch in its form; the export toggles then "follow the mode" against true.
+  const segOn = SEGMENTER_MODE ? true : !!raw.segmentation;
   for (const k of SETUP_EXPORT_KEYS) if (has(k)) patch[k] = (!!raw[k] === segOn) ? undefined : !!raw[k];
   patch.autoDelUploaded = !!raw.autoDel;                                  // the key the field client reads
   patch.maxRecordSeconds = parseInt(raw.maxRecordSeconds, 10) || 0;       // 0 = no limit
@@ -6137,6 +6155,22 @@ function updateSetupConditionals(box) {
  *
  * ⚠ RULE 2 IS ENFORCED HERE, not only by the tab's visibility: a paired device gets NO editable
  * surface, because its settings come from its researcher and a second one would disagree. */
+/* WHICH SETTINGS THIS APP SHOWS (Seth, 2026-09-04: "our standard language/writing system settings,
+ * and the yes/no setting for exporting audio segment timing as notes … export formats checked and
+ * unchecked, etc. … Audio segmenting should ALWAYS be enabled, because that's the whole purpose of
+ * this app"). The Audio Segmenter's Settings tab is the editor's form with the fields that mean
+ * something here: the writing-system codes, the timing note, the export formats, and its own three
+ * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
+ * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
+const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit']);
+function setupGroupsFor() {
+  const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
+  return SETUP_GROUPS
+    .map((g) => ({ ...g, fields: g.fields.filter((f) => (!f.only || f.only === mode) && (!SEGMENTER_MODE || SEGMENTER_SETUP_KEYS.has(f.k))) }))
+    .filter((g) => g.fields.length);
+}
+
 function renderDeviceSetup() {
   const box = $('#device-setup');
   if (!box) return;                                   // satellite shells have no Settings tab
@@ -6146,11 +6180,12 @@ function renderDeviceSetup() {
    * by replacing #device-setup's children. Attaching them to #device-setup itself would stack a new
    * set on every entry to the Settings tab — that element survives a re-render, so one Save click
    * would eventually save N times. Discarding the wrapper discards its listeners with it. */
+  const setupGroups = setupGroupsFor();
   const form = document.createElement('div');
   form.innerHTML = `
-    <div class="rp-tabs" role="tablist">${SETUP_GROUPS.map((g, i) =>
+    <div class="rp-tabs" role="tablist">${setupGroups.map((g, i) =>
       `<button type="button" class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="ds-tab-${g.id}" aria-controls="ds-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
-    <div class="rp-groups">${SETUP_GROUPS.map(setupGroupHtml).join('')}</div>
+    <div class="rp-groups">${setupGroups.map(setupGroupHtml).join('')}</div>
     <p class="note rp-enc">${esc(t('setup.localNote'))}</p>
     <p class="note ds-saved" id="ds-saved" role="status" aria-live="polite"></p>`;
   box.replaceChildren(form);
@@ -6169,7 +6204,7 @@ function renderDeviceSetup() {
     });
   };
   form.querySelectorAll('.rp-tab').forEach((b) => b.addEventListener('click', () => showGroup(b.dataset.tab)));
-  showGroup(SETUP_GROUPS[0].id);
+  showGroup(setupGroups[0].id);
 
   form.addEventListener('change', (e) => {
     // Only when the MODE switch itself moves: re-deriving on every change would undo an export the
@@ -6744,9 +6779,10 @@ function applyResearchVisibility() {
   // (passphrase-gated). A non-managed device uses the normal hide toggle.
   const hidden = isResearchHidden() || Sync.hasSession();
   $$('#topbar-home .top-tab[data-view="research"]').forEach(b => { b.hidden = hidden; });
-  if (hidden && !$('#view-research').hidden) {
-    renderDocList();
-    show('texts');
+  const rv = $('#view-research');
+  if (hidden && rv && !rv.hidden) {
+    refreshList();
+    show(SEGMENTER_MODE ? 'segmenter' : CONSENT_MODE ? 'consent' : 'texts');   // the satellites' home
   }
   markSetupTabProblems();
   applyHelpResearchVisibility();
@@ -7900,6 +7936,11 @@ function mgCapture() {
   mgUndoStack.push(mgSnap());
   if (mgUndoStack.length > MG_UNDO_MAX) mgUndoStack.shift();
   mgRedoStack = [];                    // a new edit forks the future, as everywhere else
+  // An in-place edit captures WITHOUT redrawing (so Tab keeps walking the line), so the buttons
+  // are refreshed here rather than only in mgDraw — or Undo looked dead after the first edit.
+  const u = $('#mg-undo'), r = $('#mg-redo');
+  if (u) u.disabled = false;
+  if (r) r.disabled = true;
 }
 function mgApply(st) {
   MG.spans = st.spans; MG.lines = st.lines;
@@ -8104,6 +8145,157 @@ function mgInsertLine(after) {
   if (above && above.paraOf != null) line.paraOf = above.paraOf;
   MG.lines.splice(after + 1, 0, line);
   mgDraw();
+}
+
+/* ─── EDIT IN PLACE (researcher setting allowTextEdit; on when working alone) ────────────────
+ *
+ * Seth, 2026-09-04: "the optional (enable/disable) ability for the user to edit (and add)
+ * interlinear word/gloss pairs (maybe by pressing space before or after to add another word/gloss
+ * pair before or after) and free translation … without adding UI complexity."
+ *
+ * No buttons and no mode. A word, a gloss or the free translation is tapped and typed into; the
+ * edit lands on blur or Enter, and Escape puts the old text back. Space with the caret at the START
+ * of a word adds an empty pair before it, at the END adds one after, and focus moves there.
+ * Backspace in an empty word whose gloss is also empty removes the pair. A plain edit changes the
+ * model in place (no redraw, so Tab keeps walking the line); adding or removing a pair redraws.
+ * Every change is one undo step and rides the autosaved draft like everything else here. */
+function allowTextEditOn() { return !Sync.hasSession() || settings.allowTextEdit === true; }
+
+function mgWordStack(ln, w, wi, editable) {
+  const stack = document.createElement('span');
+  stack.className = 'mg-wstack';
+  stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
+  const we = stack.querySelector('.mg-w'), ge = stack.querySelector('.mg-g');
+  we.textContent = w.txt;
+  ge.textContent = w.gls;
+  if (editable) { mgWireEditable(we, ln, wi, 'txt'); mgWireEditable(ge, ln, wi, 'gls'); }
+  return stack;
+}
+
+function mgWireEditable(el, ln, wi, field) {
+  // plaintext-only where the browser has it (Chromium); Firefox gets the plain flavour and the
+  // commit strips whatever formatting a paste might carry.
+  try { el.contentEditable = 'plaintext-only'; } catch { /* below */ }
+  if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
+  el.spellcheck = false;
+  el.classList.add('mg-edit');
+  el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
+  let was = el.textContent;
+  el.addEventListener('focus', () => { was = el.textContent; });
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());   // not a row pick
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); el.textContent = was; el.blur(); return; }
+    if (field !== 'txt') return;
+    const len = el.textContent.length;
+    const at = mgCaretOffset(el);
+    if (e.key === ' ' && at >= 0 && len > 0 && (at === 0 || at === len)) {
+      e.preventDefault();
+      mgCommitEdit(el, ln, wi, field);                  // keep what was typed so far
+      mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after');
+      return;
+    }
+    if (e.key === 'Backspace' && len === 0) { e.preventDefault(); mgDeleteWord(ln.id, wi); }
+  });
+  el.addEventListener('blur', () => mgCommitEdit(el, ln, wi, field));
+}
+// Caret position within the editable, or -1 when the selection is not a collapsed caret inside it.
+function mgCaretOffset(el) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || !sel.isCollapsed || !el.contains(sel.anchorNode)) return -1;
+  const r = sel.getRangeAt(0).cloneRange();
+  r.selectNodeContents(el);
+  r.setEnd(sel.anchorNode, sel.anchorOffset);
+  return r.toString().length;
+}
+function mgCommitEdit(el, ln, wi, field) {
+  const value = el.textContent.replace(/\s+/g, ' ').trim();
+  if (field === 'free') mgEditFree(ln.id, value); else mgEditWord(ln.id, wi, field, value);
+}
+// One phrase per line is the shape everything here assumes; a legacy draft's two-phrase line is
+// merged the first time it is edited, exactly as Done would merge it.
+function mgLinePhrase(line) {
+  if (line.phrases.length > 1) line.phrases = [mergePhrases(line.phrases)];
+  if (!line.phrases.length) line.phrases = [makeSegment('', [])];
+  return line.phrases[0];
+}
+// The pane numbers VISIBLE words (punctuation hidden); the model keeps punctuation tokens in line.
+function mgRealIndex(words, wi) {
+  let seen = 0;
+  for (let k = 0; k < words.length; k++) {
+    if (words[k].punct) continue;
+    if (seen === wi) return k;
+    seen++;
+  }
+  return -1;
+}
+function mgEditWord(id, wi, field, value) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  let k = mgRealIndex(ph.words, wi);
+  if (k < 0) {
+    if (!value) return;                         // the blank line's empty pair, left empty
+    mgCapture();
+    ph.words.push(makeWord('', {}));
+    k = ph.words.length - 1;
+  } else {
+    if ((ph.words[k][field] || '') === value) return;
+    mgCapture();
+  }
+  ph.words[k][field] = value;
+  if (field === 'txt') ph.baseline = baselineFromWords(ph.words);
+  mgSaveDraft();
+}
+function mgEditFree(id, value) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  if ((ph.free || '') === value) return;
+  mgCapture();
+  ph.free = value;
+  mgSaveDraft();
+}
+function mgInsertWord(id, wi, where) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  const k = mgRealIndex(ph.words, wi);
+  mgCapture();
+  const at = k < 0 ? ph.words.length : (where === 'before' ? k : k + 1);
+  ph.words.splice(at, 0, makeWord('', {}));
+  ph.baseline = baselineFromWords(ph.words);
+  mgDraw();
+  mgFocusWord(id, where === 'before' ? wi : wi + 1);
+}
+function mgDeleteWord(id, wi) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  const k = mgRealIndex(ph.words, wi);
+  if (k < 0) return;
+  const w = ph.words[k];
+  if ((w.txt || '') || (w.gls || '')) return;     // only an EMPTY pair goes on Backspace
+  mgCapture();
+  ph.words.splice(k, 1);
+  ph.baseline = baselineFromWords(ph.words);
+  mgDraw();
+  mgFocusWord(id, Math.max(0, wi - 1));
+}
+// After a redraw: put the caret at the end of the wi-th word of the line. A macrotask, not rAF —
+// rAF never fires in a background tab (segment-strips' own lesson).
+function mgFocusWord(id, wi) {
+  setTimeout(() => {
+    const rows = $('#mg-rows');
+    const row = rows && rows.querySelector(`.mg-line[data-ln="${CSS.escape(id)}"]`);
+    const el = row && row.querySelectorAll('.mg-wstack .mg-w')[wi];
+    if (!el) return;
+    el.focus();
+    try {
+      const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    } catch { /* caret placement is comfort */ }
+  }, 0);
 }
 
 function mgJoinLine(id) {
@@ -8380,6 +8572,8 @@ function mgDraw() {
      * exactly why it went unnoticed: the control existed, looked identical, and worked on one side. */
     li.querySelector('.mg-join').onclick = () => mgJoinLine(ln.id);
     const wbox = li.querySelector('.mg-words');
+    const editable = allowTextEditOn();
+    if (editable) wbox.title = t('mg.editTip');
     txt.words.forEach((w, wi) => {
       // The scissors BETWEEN word and gloss is the first of the two split points. It sits in the
       // gap it would cut, so there is nothing to explain.
@@ -8392,13 +8586,10 @@ function mgDraw() {
         if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id && MG.pendingWordCut.at === wi) cut.classList.add('mg-armed');
         wbox.appendChild(cut);
       }
-      const stack = document.createElement('span');
-      stack.className = 'mg-wstack';
-      stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
-      stack.querySelector('.mg-w').textContent = w.txt;
-      stack.querySelector('.mg-g').textContent = w.gls;
-      wbox.appendChild(stack);
+      wbox.appendChild(mgWordStack(ln, w, wi, editable));
     });
+    // A blank line (from +) has nowhere to type until it has a word: give it one empty pair.
+    if (editable && !txt.words.length) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
     const ftbox = li.querySelector('.mg-ft');
     if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id) {
       // Second point: a space in the free translation. Every space is a target.
@@ -8421,6 +8612,7 @@ function mgDraw() {
       });
     } else {
       ftbox.textContent = txt.free;
+      if (editable) mgWireEditable(ftbox, ln, -1, 'free');
     }
     const cell = document.createElement('div');
     cell.className = 'mg-cell';
@@ -8845,6 +9037,25 @@ async function mgOpen(id) {
 
 function setupSegmenterMode() {
   renderSegmenterView();
+  /* The two home tabs (Seth, 2026-09-04: "an unpaired settings tab, analogous to the editor app").
+   * The editor wires its own after the fork; this app has the same two ids and the same rules —
+   * the Settings tab is built on entry, hidden by the in-person switch or by a claimed invite, and
+   * brought back with Ctrl+Alt+R (there is no Help button here to tap seven times). */
+  $$('#topbar-home .top-tab').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.view === 'research') { renderDeviceSetup(); show('research'); }
+    else { sgRenderList(); show('segmenter'); }
+  }));
+  const hideBtn = $('#btn-hide-research');
+  if (hideBtn) hideBtn.addEventListener('click', async () => {
+    if (!await confirmDialog(t('research.hideHereConfirm'))) return;
+    localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
+    applyResearchVisibility();
+    toast(t('research.disabled'));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) { e.preventDefault(); toggleResearchHidden(); }
+  });
+  applyResearchVisibility();
   /* ⚠ DOCUMENT-LEVEL, and gated on the matcher being open. There is no text box to hold focus on
    * this screen — the same reason the Cut tab's keys are document-level — so a handler bound to a
    * row would only work after the user had happened to click one. Guarded by `MG` so it cannot
@@ -10499,7 +10710,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), producedBy: producedBy() }); },
+  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

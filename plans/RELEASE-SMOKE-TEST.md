@@ -117,6 +117,22 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Unpaired device: the list carries **Link to a researcher…** (paste box) beside Open, and ⤓
       still works as the way out.
 
+## 2d. Settings and editing in the segmenter (Seth, 2026-09-04)
+
+- [ ] **Unpaired: a Settings tab** beside Texts, with only Languages (codes), Segmentation (the
+      timing-note switch + the four export formats — no segmentation switch: always on here) and
+      Other (delete / blank lines / edit in place, greyed with the standalone note). Hide it with
+      the button; Ctrl+Alt+R brings it back. Pair the device: the tab disappears.
+- [ ] **Timing as notes**: untick it, export a `.flextext` — the begin/end attributes are there,
+      the `audio 0:01.000–…` note items are not. Re-tick, both are back. Same switch in the panel's
+      Segmentation section for a managed device.
+- [ ] **Edit in place** (on by default unpaired; the researcher's `allowTextEdit` when paired):
+      tap a word → type → Enter or tap away; Escape restores. Space at the END of a word adds an
+      empty pair after it with the caret in it; at the START, before it. Backspace in an empty
+      word removes the pair. Tap the free translation to edit it. Every step undoes.
+- [ ] **The dock loads every time**: Back during the decode, then reopen; a text whose decode
+      failed once; reopening the same text — no more refresh-to-fix.
+
 ## 2b. The two apps are linked
 
 - [ ] Editor → Utilities → the two links at the bottom open the Audio Segmenter and the

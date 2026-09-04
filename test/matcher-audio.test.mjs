@@ -552,5 +552,52 @@ console.log('\nthe audio loads on EVERY open, not only the first one that was no
   }
 }
 
+console.log('\nedit in place — tap a word, a gloss or the translation; Space at a word\'s edge adds a pair (Seth, 2026-09-04)');
+{
+  ok(/function allowTextEditOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowTextEdit === true; \}/.test(app),
+     'researcher-settable, on when working alone — the same shape as allowBlankLinesOn');
+  const draw = fn(app, 'mgDraw');
+  ok(/const editable = allowTextEditOn\(\);/.test(draw) && /mgWordStack\(ln, w, wi, editable\)/.test(draw), 'every pair is built by one helper that knows whether it is editable');
+  ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
+     'a blank line gets one empty pair, so there is somewhere to type');
+  ok(/if \(editable\) mgWireEditable\(ftbox, ln, -1, 'free'\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
+  const wire = fn(app, 'mgWireEditable');
+  ok(/el\.contentEditable = 'plaintext-only'/.test(wire) && /el\.contentEditable = 'true'/.test(wire), 'plaintext where the browser has it, plain elsewhere');
+  ok(/if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); el\.blur\(\); return; \}/.test(wire), 'Enter commits');
+  ok(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); el\.textContent = was; el\.blur\(\); return; \}/.test(wire), 'Escape restores');
+  ok(/e\.key === ' ' && at >= 0 && len > 0 && \(at === 0 \|\| at === len\)/.test(wire), 'Space adds a pair only at the START or END of a non-empty word');
+  ok(/mgInsertWord\(ln\.id, wi, at === 0 \? 'before' : 'after'\)/.test(wire), 'before or after, by where the caret was');
+  ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); mgDeleteWord\(ln\.id, wi\); \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
+  ok(/el\.addEventListener\('blur', \(\) => mgCommitEdit\(el, ln, wi, field\)\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
+  const edit = fn(app, 'mgEditWord');
+  ok(/if \(\(ph\.words\[k\]\[field\] \|\| ''\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write)');
+  ok(/mgCapture\(\);/.test(edit) && !/mgDraw\(\)/.test(edit) && /mgSaveDraft\(\);/.test(edit),
+     'a changed one captures for undo and autosaves WITHOUT redrawing — Tab keeps walking the line');
+  ok(/if \(field === 'txt'\) ph\.baseline = baselineFromWords\(ph\.words\);/.test(edit), 'the phrase baseline follows the words');
+  ok(/mgDraw\(\);\s*\n\s*mgFocusWord\(id, where === 'before' \? wi : wi \+ 1\);/.test(fn(app, 'mgInsertWord')), 'adding a pair redraws and puts the caret in the new word');
+  ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace');
+  ok(/if \(line\.phrases\.length > 1\) line\.phrases = \[mergePhrases\(line\.phrases\)\];/.test(fn(app, 'mgLinePhrase')), 'a legacy two-phrase line is merged before it is edited');
+  ok(/\{ k: 'allowBlankLines', type: 'checkbox' \},\s*\n\s*\{ k: 'allowTextEdit', type: 'checkbox' \}/.test(read('docs/js/researcher-panel.js')),
+     'the panel has BOTH switches (blank lines had a gate but no checkbox)');
+  for (const k of ['mg.editTip', 'mg.tapWord', 'mg.tapGloss', 'mg.tapFree', 'panel.f.allowTextEdit', 'panel.f.allowBlankLines']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+  ok(/\.mg-edit:empty::before\{content:attr\(data-ph\)/.test(css), 'an empty editable shows its prompt');
+}
+
+console.log('\nthe dock loads every time — "loaded" is recorded after the load, never before');
+{
+  const prep = asyncFn(app, 'mgPrepareAudio');
+  ok(/if \(p\.loadedFor !== docId \|\| !p\.ws\) \{\s*\n\s*p\.loadedFor = null;/.test(prep), 'a missing waveform (hide() destroyed it) forces a reload');
+  ok(/try \{ await p\.load\(media\); \}\s*\n\s*catch \(err\) \{[\s\S]*?mg\.audioFailed/.test(prep), 'a failed load says so instead of leaving a dead dock');
+  ok(/if \(!live\(\)\) return;[^\n]*\n\s*p\.loadedFor = docId;\s*\n\s*playerReadyFor = docId;/.test(prep), 'and loadedFor is set only after a load that finished for THIS text');
+  ok(/if \(!peaksDurationMs\(\)\) \{ if \(note\) segProgress\(note, t\('mg\.wavesFailed'\), 0\); \}/.test(prep), 'no peaks → said, not blank');
+  ok(/if \(p\.loadedFor !== current\.id \|\| !p\.ws\) \{/.test(app) && /catch \(err\) \{ p\.showPending\(t\('player\.error'\)\); return; \}/.test(app),
+     'the editor\'s own load path takes the same rule');
+  for (const k of ['mg.audioFailed', 'mg.wavesFailed']) {
+    ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
+  }
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

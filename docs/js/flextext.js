@@ -587,7 +587,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       }
       // The human-visible timestamps (never in the baseline): a note item FLEx displays on its
       // own Note line. '~' marks an estimated boundary the transcriber has not confirmed by ear.
-      if (timed) {
+      // opts.timeNotes === false keeps the ATTRIBUTES and drops the note (the device setting
+      // segTimeNotes, Seth 2026-09-04) — the times still round-trip; FLEx just shows no Note line.
+      if (timed && opts.timeNotes !== false) {
         lines.push(`            <item type="note" lang="${esc(anal)}">audio ${span.timeEstimated ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
       }
       for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));

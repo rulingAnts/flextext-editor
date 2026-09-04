@@ -203,5 +203,23 @@ console.log('\nan arriving recording says how far, how long, and whether it is s
   }
 }
 
+console.log('\na withdrawn link is said, not retried (the 410 that looked like "keeps failing to load")');
+{
+  /* The worker answered 410 {"error":"gone"} for an assignment's text-file token; the downloader
+   * treated it like a dropped connection and retried with backoff — 26 identical failures — and
+   * the row said "Could not download — Retry", which could never work. */
+  const audio = read('docs/js/audio.js');
+  ok(/if \(\[401, 403, 404, 410\]\.includes\(resp\.status\)\) \{\s*\n\s*e\.fatal = true;/.test(audio), 'a refusal is fatal at once — no retries');
+  ok(/if \(b && b\.error\) e\.message = String\(b\.error\);/.test(audio), 'carrying the worker\'s own word ("gone")');
+  ok(/if \(e === 'gone'\) return t\('player\.gone'\);/.test(fn(app, 'audioErrorText')), 'which the app turns into a sentence naming who can fix it');
+  ok(/audioError: audioError \|\| ''/.test(read('docs/js/db.js')), 'the list projection carries the remembered verdict');
+  ok(/if \(d\.audioError\) li\.dataset\.audioError = d\.audioError;/.test(asyncFn(app, 'sgRenderList')), 'so after a reload the row still knows');
+  const painter = fn(app, 'paintArrivalRow');
+  ok(/const status = dl \? dl\.status : \(remembered \? 'error' : 'waiting'\);/.test(painter), 'and shows it instead of "waiting for a connection"');
+  ok(/errorMessage === 'gone' \? t\('player\.gone'\) : t\('dl\.failed'\)/.test(painter), 'gone reads as gone');
+  ok(/\(status === 'error' && errorMessage === 'gone'\) \? 'none'/.test(fn(app, 'arrivalControls')), 'with no Retry — only the researcher can mint a new link');
+  ok((i18n.match(/'player\.gone': /g) || []).length === 2, 'player.gone in both languages');
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall ok\n');
 process.exit(fail ? 1 : 0);

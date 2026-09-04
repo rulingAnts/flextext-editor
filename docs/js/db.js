@@ -68,7 +68,7 @@ export async function listDocs() {
         // answer whose clip never arrived is incomplete, and only the receipt says so.
         const { id, title, modified, created, segCount, glossed, done, pendingFlextext, pendingAudio,
           consentSpeaker, consentReceipt, consentClip, doc, matchDraft,
-          assigned, audioLocked, uploadedFileId, uploadedModified } = cur.value;
+          assigned, audioLocked, uploadedFileId, uploadedModified, audioError } = cur.value;
         /* ⚠ spanCount IS NOT segCount. segCount is docStats' count of PHRASES — how much text the
          * doc holds. The Audio Segmenter needs the count of AUDIO SPANS, which is a different
          * number living in a different place (doc.segments, the field the Cut tab writes), and
@@ -84,7 +84,7 @@ export async function listDocs() {
           consentClip: consentClip || '', spanCount,
           // Where the text came from and whether the researcher has it — read by the satellites'
           // lists, which have no other way to say "sent". Already deserialized; costs nothing.
-          assigned: !!assigned, audioLocked: !!audioLocked,
+          assigned: !!assigned, audioLocked: !!audioLocked, audioError: audioError || '',
           uploadedFileId: uploadedFileId || null, uploadedModified: uploadedModified || 0,
           // ⚠ A FLAG, never the draft itself: it holds every line's words, and the list would then
           // carry the whole corpus in memory to render one caption.

@@ -295,7 +295,18 @@ export class AudioDownload {
       const resp = await fetch(
         `${this.url}${sep}start=${part.received}&len=${len}`,
         { signal: this.abortCtl.signal });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      if (!resp.ok) {
+        /* ⚠ A REFUSAL IS NOT A HICCUP. 401/403/404/410 are the worker's verdicts — bad token, not
+         * yours, no such file, withdrawn — and retrying them with backoff only burns the retries the
+         * flaky-network case exists for (Seth, 2026-09-04: 26 identical failures for one 410). They
+         * fail at once, carrying the worker's own word (`{"error":"gone"}`) so the row can say it. */
+        const e = new Error('HTTP ' + resp.status);
+        if ([401, 403, 404, 410].includes(resp.status)) {
+          e.fatal = true;
+          try { const b = await resp.json(); if (b && b.error) e.message = String(b.error); } catch { /* keep the status */ }
+        }
+        throw e;
+      }
       const body = await resp.json();
       if (body.error) { const e = new Error(body.error); e.fatal = true; throw e; }
       if (!body.data) { const e = new Error('Unexpected relay response'); e.fatal = true; throw e; }

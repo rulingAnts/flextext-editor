@@ -10319,9 +10319,11 @@ function setupResearcherMode() {
  * this swaps in the panel's estate map so a staging editor links the staging apps and the dev rig
  * its own. Satellite shells have no #companion-apps and get a no-op. */
 function wireCompanionLinks() {
-  for (const a of companionApps()) {
-    const el = document.querySelector(`#companion-apps [data-app="${a.key}"]`);
-    if (el && a.url) el.href = a.url;
+  const apps = companionApps();
+  for (const el of document.querySelectorAll('#companion-apps [data-app]')) {
+    const a = apps.find((x) => x.key === el.dataset.app);
+    el.hidden = !a;   // an app held back from this estate (HELD_BACK in researcher-panel.js) is not advertised
+    if (a && a.url) el.href = a.url;
   }
 }
 

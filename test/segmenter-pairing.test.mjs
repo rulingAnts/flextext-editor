@@ -73,7 +73,7 @@ ok(/if \(!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE\) show\('texts'\);/.te
 ok(/refreshList\(\);   \/\/ whichever list this app has/.test(app), 'setDocDone repaints whichever list this app has');
 
 console.log('\nthe list says where a text stands with the researcher');
-ok(/assigned, audioLocked, uploadedFileId, uploadedModified \} = cur\.value;/.test(dbjs), 'the projection carries the four fields it needs');
+ok(/assigned, audioLocked, uploadedFileId, uploadedModified, audioError \} = cur\.value;/.test(dbjs), 'the projection carries the five fields it needs (audioError joined for the arrival row)');
 ok(/const sent = d\.uploadedFileId && d\.uploadedModified === d\.modified;/.test(asyncFn(app, 'sgRenderList')),
    '"sent" by the inventory\'s own rule: nothing changed since the upload that landed');
 ok(both('sg.sent') && both('sg.fromResearcher'), 'in both languages');

@@ -424,3 +424,14 @@ That means the app needs:
 
 Splitting a text line still takes TWO clicks (the scissors in the word/gloss run, and a space in the
 free translation), because the FT is prose and does not align word by word.
+
+## Idea: waveform strips as SVG paths (Seth, 2026-09-04)
+
+Explore only if the v580 strip parking (issue #31) still leaves blank strips or scroll stutter on a
+10–15 minute recording. A canvas keeps a device-resolution bitmap for life (~700 KB per strip on
+retina); an SVG path is DOM text the browser rasterises per visible tile, with no per-element
+bitmap, no device-pixel-ratio or resize redraws, and CSS-styleable colour. Cap each path at about
+a thousand points, rebuild only on a peaks upgrade, never one element per bucket. About two hundred
+lines across drawStrip, drawSpanWave, the matcher waves and their tests. Tracked as the GitHub issue
+filed the same day.
+

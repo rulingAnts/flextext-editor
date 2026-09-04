@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 # misconfigured back to raw `npx wrangler deploy`, this fails the build rather than letting a
 # feature branch overwrite https://consent.flextext.app/ .
 BRANCH="${WORKERS_CI_BRANCH:-}"
-# ⚠ HELD BACK FROM PRODUCTION while HOLD-BACK exists (Seth, 2026-09-05). deploy.sh already exits 0
+# ⚠ HELD BACK FROM PRODUCTION while HOLD-BACK exists (used once, 2026-09-05; inert without the file). deploy.sh already exits 0
 # before reaching this script; this second guard is for the case the structural guard below also
 # covers — a dashboard command reset to raw `npx wrangler deploy`, which would run this build hook
 # directly and then publish. A build that FAILS publishes nothing, so here the exit is non-zero.

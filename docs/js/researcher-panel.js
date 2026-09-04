@@ -430,12 +430,12 @@ const HOME = estateOf();
  * list them FROM THIS ONE MAP, so neither can point at an estate the other does not — a staging
  * editor sends you to the staging apps, the dev rig to its own. They open in a new tab (Seth,
  * 2026-09-03): each is its own origin with its own texts, and the page you came from stays put. */
-/* ⚠ HELD BACK (Seth, 2026-09-05: "hold consent-collector back from that release"). The consent
- * collector is not released: consent.flextext.app still serves the v566 port, and
- * apps/consent/HOLD-BACK keeps it there. Production and the legacy estate therefore do not
- * advertise it; staging and the dev rig keep the link so it can still be tested. Remove the key
- * here when it ships — the same commit that deletes HOLD-BACK. */
-const HELD_BACK = new Set(['consent']);
+/* Apps held back from a release are not advertised on the cloud or legacy estate (staging and the
+ * dev rig keep every link so a held app can still be tested). Empty since v584: the consent
+ * collector was held for one release (2026-09-05) and shipped the same day, a one-off call for
+ * an app nobody was using yet. To hold an app back again, add its key here AND create
+ * apps/<app>/HOLD-BACK, which makes that app's deploy.sh a no-op on productionWeb. */
+const HELD_BACK = new Set([]);
 export function companionApps(estate = HOME) {
   const testing = estate === ESTATES.staging || !!estate.local;
   return [
@@ -1156,6 +1156,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v584', date: '2026-09-05', items: [
+    { k: 'panel.rel.new.consentShips' },
+  ] },
   { v: 'v583', date: '2026-09-05', items: [
     { k: 'panel.rel.new.consentHeld' },
   ] },

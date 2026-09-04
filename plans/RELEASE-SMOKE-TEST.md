@@ -154,3 +154,11 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       Deploying changed code under an unchanged number means every device that has already
       opened the app keeps the old files — demonstrated accidentally on 2026-09-03, when a
       staging deploy kept serving stale code until the SW was unregistered by hand.
+
+## Tablet / Android (v579, issues #42–#45)
+
+- [ ] Editor on an Android tablet: with the keyboard open on the Gloss tab, the player stays visible above it (the page shrinks; nothing is hidden behind the bottom bar).
+- [ ] Cut tab, forty strips: an up-down finger drag over the strips scrolls the page; a sideways drag on one strip scrubs it; a tap parks the playhead and pauses.
+- [ ] Gloss tab, tablet: typing a space in a word box types a space (audio does not start). Shift+Space plays and pauses from inside the box. Enter in a translation box moves to the next line's translation.
+- [ ] Settings ▸ Other: "Text size" Larger makes everything bigger at once; Normal restores it. Pushing the same setting from the panel lands on the device without a reload.
+- [ ] Desktop regression: plain Space still plays / pauses outside a text box; the Cut tab's Space is unchanged.

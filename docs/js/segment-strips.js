@@ -849,6 +849,44 @@ export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
     getPlayer()?.seekMs?.(seg.start + f * (seg.end - seg.start));
   };
   wave.addEventListener('pointerdown', (ev) => {
+    /* ⚠ A FINGER IS NOT A MOUSE (Seth, 2026-09-04: "Touch screen scrolling not easy with lots of
+     * scrubable preview players"). With touch-action:none and a seek on every pointerdown, the
+     * first finger on a strip scrubbed it and the page could not scroll — a list of forty strips
+     * was forty places a scroll gesture died. So on TOUCH the strip waits to see what the finger
+     * means: a tap parks the playhead; a mostly-horizontal drag scrubs; a mostly-vertical one is
+     * handed to the browser (touch-action:pan-y in the CSS), which scrolls. Mouse and pen keep the
+     * immediate park-and-drag: a pointer that cannot scroll needs no arbitration. */
+    if (ev.pointerType === 'touch') {
+      const x0 = ev.clientX, y0 = ev.clientY;
+      let mode = 'undecided';
+      const decide = (e2) => {
+        const dx = e2.clientX - x0, dy = e2.clientY - y0;
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return 'undecided';
+        return Math.abs(dx) > Math.abs(dy) ? 'scrub' : 'scroll';
+      };
+      const move = (e2) => {
+        if (mode === 'undecided') mode = decide(e2);
+        if (mode === 'scrub') {
+          if (!wave.hasPointerCapture?.(e2.pointerId)) {
+            try { wave.setPointerCapture(e2.pointerId); } catch { /* comfort only */ }
+            onTarget?.(seg); getPlayer()?.pause?.();
+          }
+          seekAt(e2);
+        } else if (mode === 'scroll') done();
+      };
+      const up = (e2) => {
+        if (mode === 'undecided') { onTarget?.(seg); getPlayer()?.pause?.(); seekAt(e2); }   // a tap parks it
+        done();
+      };
+      const done = () => {
+        wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up);
+        wave.removeEventListener('pointercancel', done);
+      };
+      wave.addEventListener('pointermove', move);
+      wave.addEventListener('pointerup', up);
+      wave.addEventListener('pointercancel', done);
+      return;
+    }
     ev.preventDefault();
     try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
     onTarget?.(seg);   // v326: touching a WAVEFORM selects it for Space/rewind

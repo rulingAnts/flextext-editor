@@ -261,7 +261,7 @@ main {
             border-radius: 7px; min-width: 38px; height: 38px; font-size: 15px; cursor: pointer;
             grid-row: 1 / span 2; align-self: center; }
 .seg-play:hover { background: #e8ecf2; }
-.seg-wave { grid-column: 2; width: 100%; height: 44px; display: block; cursor: crosshair; touch-action: none; }
+.seg-wave { grid-column: 2; width: 100%; height: 44px; display: block; cursor: crosshair; touch-action: pan-y; }   /* pan-y: a finger can scroll past a strip; wireWaveSeek arbitrates */
 .seg-text { grid-column: 2; border: none; border-top: 1px solid var(--border); padding: 6px 2px;
             font-size: 18px; line-height: 1.5; color: var(--vern); min-width: 0; width: 100%; }
 /* An EMPTY strip is a real segment whose text just happens to be empty — how silence is marked
@@ -275,7 +275,7 @@ main {
              border-radius: 6px; min-width: 30px; height: 26px; font-size: 12px; cursor: pointer; flex: none; }
 .gseg-play:hover { background: #e8ecf2; }
 .gseg-wavewrap { position: relative; flex: 1; }
-.gseg-wave { width: 100%; height: 22px; display: block; cursor: crosshair; touch-action: none; }
+.gseg-wave { width: 100%; height: 22px; display: block; cursor: crosshair; touch-action: pan-y; }
 .gseg-cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #c9772a; pointer-events: none; }
 /* The join control between line-groups: big enough to tap, positional meaning (it sits between
    the two lines it joins), icon-only per the low-literacy design rule. */
@@ -2052,7 +2052,7 @@ body.rp-standalone main { padding-top: 0; }
 /* ⚠ The wave FLEXES and is shorter than it was. It is an overview for seeking, not something to read
    detail off — the per-line waveforms do that job. 48px bought nothing the header could afford. */
 .pa-ovwrap { position: relative; height: 34px; flex: 1 1 auto; min-width: 0; }
-.pa-ovwrap canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: pointer; }
+.pa-ovwrap canvas { width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: pointer; }
 .pa-cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; }
 .pa-transport { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
@@ -2086,7 +2086,7 @@ body.rp-standalone main { padding-top: 0; }
    so anything after it sits just past the words. It still SHRINKS (min-width: 0) so long lines wrap
    inside the cell rather than overflowing the row. */
 .pa-cell { flex: 0 1 auto; min-width: 0; }
-.pa-wave { width: 100%; height: 44px; display: block; touch-action: none; cursor: pointer; }
+.pa-wave { width: 100%; height: 44px; display: block; touch-action: pan-y; cursor: pointer; }
 .pa-wave-sm { height: 14px; }
 .pa-baseline { font-size: 17px; color: var(--vern); }
 .pa-words { display: flex; flex-wrap: wrap; gap: 2px 12px; }

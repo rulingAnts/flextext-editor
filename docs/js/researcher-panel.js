@@ -1152,6 +1152,7 @@ const RELEASES = [
     { k: 'panel.rel.new.editInPlace' },
     { k: 'panel.rel.new.segmenterSettings' },
     { k: 'panel.rel.new.dockLoads' },
+    { k: 'panel.rel.new.arrivalRow' },
     { k: 'panel.rel.new.consentApp' },
     { k: 'panel.rel.new.consentAudio' },
     { k: 'panel.rel.new.satExport' },

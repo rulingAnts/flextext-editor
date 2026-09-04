@@ -109,7 +109,10 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Open it on a fresh profile: consent modal + pair code → panel **Approve** → device toasts
       "linked"; the panel's device badge reads **segmenter**.
 - [ ] Assign a `.flextext` **and** its recording → the segmenter list shows the row
-      "· from your researcher", audio arrives, Open enables.
+      "· from your researcher" with a **progress bar, "{pct}% — got of size MB · about N left"**,
+      and a Pause on the row; pause → Resume; go offline mid-download → after ~20 s the bar
+      turns amber and says "No data for N s" with Retry; back online it continues from where it
+      was. Then audio arrives, Open enables.
 - [ ] Match, **Done** → the upload bar drains → the row reads "· sent to your researcher" → the
       panel tile shows uploaded, and Files ▾ offers the ELAN zip and the `.eaf` (built on demand
       from the uploaded `.flextext` + the audio the researcher already has).

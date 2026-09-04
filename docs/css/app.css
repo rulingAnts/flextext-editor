@@ -3069,3 +3069,10 @@ a.rp-app-link { display: block; text-align: center; text-decoration: none; box-s
 .mg-edit:focus{border-bottom-color:var(--teal,#10514d);background:hsl(174 30% 96%)}
 .mg-edit:empty::before{content:attr(data-ph);color:#a9b0b8;font-weight:400;font-style:italic}
 .mg-ft.mg-edit{display:block}
+
+/* Arrival rows (assigned audio still downloading): the bar, one line of words beside it, and the
+ * row's own Pause / Resume / Retry. Amber when no byte has moved for a while — stuck looks stuck. */
+.doc-dl-pct { white-space: normal; }
+.doc-dl-stalled .doc-dl-fill { background: #e0a030; }
+.doc-dl-ctl { margin-left: 6px; }
+.doc-dl-btn { font-size: .85rem; padding: 2px 6px; }

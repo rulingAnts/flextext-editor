@@ -478,25 +478,92 @@ async function renderDocList() {
  * download is actually moving — an idle list costs nothing. The rows repaint in place (no
  * re-render: renderDocList rebuilds listeners and would churn once a second). */
 let arrivalTicker = null;
+/* HOW LONG, AND IS IT STUCK (Seth, 2026-09-04: "I have no way of knowing how long until it's done …
+ * Or if it's hung/stuck"). The downloader knows bytes; the row keeps a short history of them and
+ * turns it into a rate, an ETA, and a stall verdict. Pure, so it can be tested as arithmetic:
+ *   samples — [{t, received}] this ticker appended, newest last, trimmed to the window
+ *   returns  { rate (bytes/s over the window), etaSec (or null), stalledSec (0 unless no byte has
+ *              arrived for STALL_AFTER_MS while the status still says downloading) } */
+const ARRIVAL_WINDOW_MS = 12000, STALL_AFTER_MS = 20000;
+function arrivalEstimate(samples, now, received, total, status) {
+  const recent = samples.filter((s) => now - s.t <= ARRIVAL_WINDOW_MS);
+  const first = recent[0], last = recent[recent.length - 1];
+  const rate = (first && last && last.t > first.t && last.received > first.received)
+    ? (last.received - first.received) / ((last.t - first.t) / 1000) : 0;
+  const etaSec = (rate > 0 && total > received) ? Math.round((total - received) / rate) : null;
+  // How long the count has sat at its current value: the oldest sample that already showed it.
+  const firstAtCurrent = samples.find((s) => s.received === received);
+  const sinceChange = firstAtCurrent ? now - firstAtCurrent.t : 0;
+  const stalledSec = (status === 'downloading' && sinceChange >= STALL_AFTER_MS) ? Math.round(sinceChange / 1000) : 0;
+  return { rate, etaSec, stalledSec };
+}
+function fmtEta(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return t('dl.etaS', { s: Math.max(1, sec) });
+  if (sec < 3600) return t('dl.etaM', { m: Math.round(sec / 60) });
+  return t('dl.etaH', { h: Math.floor(sec / 3600), m: Math.round((sec % 3600) / 60) });
+}
+const arrivalSamples = new Map();   // docId → [{t, received}]
 function paintArrivalRow(li, docId) {
   const dl = getDownload(docId);
   const fill = li.querySelector('.doc-dl-fill');
   const pct = li.querySelector('.doc-dl-pct');
   if (!fill) return false;
-  const total = (dl && dl.total) || 0;
-  if (total) {
-    const p = Math.min(100, Math.round(((dl.received || 0) / total) * 100));
-    fill.style.width = p + '%';
-    if (pct) pct.textContent = p + '%';
-  } else {
-    fill.style.width = '0%';
-    if (pct) pct.textContent = '';
-  }
-  return !!dl && dl.status === 'downloading';
+  const now = Date.now();
+  const received = (dl && dl.received) || 0, total = (dl && dl.total) || 0;
+  const status = dl ? dl.status : 'waiting';
+  const samples = arrivalSamples.get(docId) || [];
+  samples.push({ t: now, received });
+  while (samples.length > 40) samples.shift();
+  arrivalSamples.set(docId, samples);
+  const est = arrivalEstimate(samples, now, received, total, status);
+  const p = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
+  fill.style.width = p + '%';
+  li.classList.toggle('doc-dl-stalled', est.stalledSec > 0);
+  // One line that answers all three questions: how far, how long, and whether it is moving.
+  let text;
+  if (status === 'paused') text = dl.storageIssue ? t('player.storagePaused') : t('dl.paused', { got: mbFmt(received), size: total ? mbFmt(total) : '?' });
+  else if (status === 'error') text = t('dl.failed');
+  else if (status === 'waiting') text = t('dl.waiting');
+  else if (est.stalledSec) text = t('dl.stalled', { s: est.stalledSec });
+  else if (total) text = t('dl.progress', { pct: p, got: mbFmt(received), size: mbFmt(total) }) + (est.etaSec != null ? ' · ' + fmtEta(est.etaSec) : '');
+  else text = t('dl.progressBytes', { got: mbFmt(received) });
+  if (pct) pct.textContent = text;
+  arrivalControls(li, docId, dl, status, est);
+  return !!dl && (dl.status === 'downloading');
+}
+/* Pause / Resume / Retry on the row itself — the dock's own three, reachable from a list that has
+ * no dock open. Retry on a stall is pause-then-resume: the downloader aborts the dead request and
+ * continues from the bytes it already has (Range-resume), so nothing already saved is lost. */
+function arrivalControls(li, docId, dl, status, est) {
+  let ctl = li.querySelector('.doc-dl-ctl');
+  if (!ctl) { ctl = document.createElement('span'); ctl.className = 'doc-dl-ctl'; (li.querySelector('.doc-meta') || li).appendChild(ctl); }
+  const want = status === 'downloading' ? (est.stalledSec ? 'retry' : 'pause') : 'resume';
+  if (ctl.dataset.want === want) return;
+  ctl.dataset.want = want;
+  ctl.replaceChildren();
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'link-btn doc-dl-btn';
+  b.textContent = t(want === 'pause' ? 'dl.pause' : want === 'retry' ? 'dl.retry' : (status === 'paused' ? 'dl.resume' : 'dl.retry'));
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const d = getDownload(docId);
+    if (want === 'pause' && d) d.pause();
+    else if (want === 'retry' && d) { d.pause(); d.resume(); }
+    else if (d) d.resume();
+    else { const rec = await db.getDoc(docId).catch(() => null); if (rec) tryDownloadAudio(rec); }
+    arrivalSamples.delete(docId);
+    ctl.dataset.want = '';
+    syncArrivalTicker();
+  });
+  ctl.appendChild(b);
 }
 function syncArrivalTicker() {
-  const rows = $$('#doc-list li[data-arriving]');
+  // Every list that marks a row — the editor's, the segmenter's, whichever comes next.
+  const rows = $$('li[data-arriving]');
   const active = rows.filter((li) => paintArrivalRow(li, li.dataset.arriving)).length > 0;
+  if (!rows.length) arrivalSamples.clear();
   if (active && !arrivalTicker) arrivalTicker = setInterval(syncArrivalTicker, 1000);
   if (!active && arrivalTicker) { clearInterval(arrivalTicker); arrivalTicker = null; }
 }
@@ -7705,7 +7772,16 @@ async function sgRenderList() {
     // uploadState — "sent" only while nothing has changed since the upload that landed.
     const sent = d.uploadedFileId && d.uploadedModified === d.modified;
     const trail = sent ? t('sg.sent') : d.assigned ? t('sg.fromResearcher') : '';
-    li.querySelector('.doc-meta').textContent = trail ? `${meta} · ${trail}` : meta;
+    const metaEl = li.querySelector('.doc-meta');
+    metaEl.textContent = trail ? `${meta} · ${trail}` : meta;
+    if (st === 'coming') {
+      // The editor's own arrival bar, painted by the shared ticker: how far, how long, stuck or not,
+      // and Pause / Resume / Retry on the row (Seth, 2026-09-04).
+      li.classList.add('doc-arriving');
+      li.dataset.arriving = d.id;
+      metaEl.innerHTML = `<span></span> <span class="doc-dl-bar"><span class="doc-dl-fill"></span></span><span class="doc-dl-pct"></span>`;
+      metaEl.querySelector('span').textContent = trail ? `${meta} · ${trail}` : meta;
+    }
     satRowControls(li.querySelector('.rec-item-actions'), d);
     const open = li.querySelector('.sg-open');
     open.textContent = t('sg.open');
@@ -7716,6 +7792,7 @@ async function sgRenderList() {
     else open.addEventListener('click', () => mgOpen(d.id));
     ul.appendChild(li);
   }
+  syncArrivalTicker();   // paints the arriving rows now, and keeps them moving while any is
 }
 
 async function sgOpen(id) {

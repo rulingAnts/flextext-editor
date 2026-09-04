@@ -710,6 +710,18 @@ en: {
   'player.storagePaused': 'Download paused — this device is out of storage space. Delete some photos, videos, or unused apps, then press Resume. What was already downloaded is saved.',
   'player.downloaded': 'Audio downloaded — ready to transcribe.',
   'player.downloadFailed': 'Audio could not be downloaded now — the app will keep trying when online.',
+  'dl.progress': '{pct}% \u2014 {got} of {size} MB',
+  'dl.progressBytes': '{got} MB so far (size unknown)',
+  'dl.etaS': 'about {s} s left',
+  'dl.etaM': 'about {m} min left',
+  'dl.etaH': 'about {h} h {m} min left',
+  'dl.stalled': 'No data for {s} s \u2014 the connection may have dropped. It continues by itself when it is back; Retry restarts it now, keeping what is already saved.',
+  'dl.paused': 'Paused \u2014 {got} of {size} MB saved',
+  'dl.waiting': 'Waiting for a connection\u2026',
+  'dl.failed': 'Could not download \u2014 Retry, or wait for a connection.',
+  'dl.pause': 'Pause',
+  'dl.resume': 'Resume',
+  'dl.retry': 'Retry',
   'player.tooLarge': 'This audio is too large to download here. Please ask the researcher for a smaller version.',
   'player.confirmRemove': 'Remove the audio recording from this text?',
 
@@ -1413,6 +1425,7 @@ internet after the first time.</p>
     ,'panel.rel.new.editInPlace': 'In the Audio Segmenter, words, glosses and free translations can be edited in place — tap to type; Space at the edge of a word adds a pair; Backspace in an empty word removes it. On by default when working alone; the researcher switches it (and blank lines) on or off for a managed device.'
     ,'panel.rel.new.segmenterSettings': 'The Audio Segmenter has a Settings tab of its own when unpaired: writing-system codes, whether audio times also ride the .flextext as note items, and which export formats to write. Audio segmentation itself is always on there.'
     ,'panel.rel.new.dockLoads': 'The big player and the strips no longer come up blank after a Back during decoding or a failed decode — reopening a text loads it every time, and a failure says so.'
+    ,'panel.rel.new.arrivalRow': 'A recording still downloading shows how far it is, about how long is left, and whether it has stalled — with Pause, Resume and Retry on the row — in the Audio Segmenter\u2019s list and the editor\u2019s.'
     ,'panel.rel.new.consentAudio': 'The Consent Collector opens a recording on its own, a .flextext on its own, or the two together \u2014 permission attaches to a story that has only been recorded as readily as to one that has been typed.'
     ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
@@ -2948,6 +2961,18 @@ id: {
   'player.storagePaused': 'Unduhan dijeda — ruang penyimpanan perangkat ini penuh. Hapus beberapa foto, video, atau aplikasi yang tidak dipakai, lalu tekan Lanjutkan. Bagian yang sudah terunduh tetap tersimpan.',
   'player.downloaded': 'Audio sudah terunduh — siap diketik.',
   'player.downloadFailed': 'Audio belum bisa diunduh sekarang — aplikasi akan terus mencoba saat online.',
+  'dl.progress': '{pct}% \u2014 {got} dari {size} MB',
+  'dl.progressBytes': 'sudah {got} MB (ukuran belum diketahui)',
+  'dl.etaS': 'sekitar {s} dtk lagi',
+  'dl.etaM': 'sekitar {m} mnt lagi',
+  'dl.etaH': 'sekitar {h} j {m} mnt lagi',
+  'dl.stalled': 'Tidak ada data selama {s} dtk \u2014 koneksi mungkin putus. Akan lanjut sendiri saat koneksi kembali; Coba lagi memulainya sekarang, tanpa membuang yang sudah tersimpan.',
+  'dl.paused': 'Dijeda \u2014 {got} dari {size} MB tersimpan',
+  'dl.waiting': 'Menunggu koneksi\u2026',
+  'dl.failed': 'Tidak bisa mengunduh \u2014 Coba lagi, atau tunggu koneksi.',
+  'dl.pause': 'Jeda',
+  'dl.resume': 'Lanjutkan',
+  'dl.retry': 'Coba lagi',
   'player.tooLarge': 'Audio ini terlalu besar untuk diunduh di sini. Mohon minta versi yang lebih kecil dari peneliti.',
   'player.confirmRemove': 'Hapus rekaman audio dari teks ini?',
 
@@ -3532,6 +3557,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.editInPlace': 'Di Pemotong Audio, kata, glos, dan terjemahan bebas bisa disunting di tempat — ketuk untuk mengetik; Spasi di tepi kata menambah pasangan; Backspace di kata kosong menghapusnya. Aktif secara bawaan saat bekerja sendiri; peneliti yang menyalakan atau mematikannya (juga baris kosong) di perangkat yang dikelola.'
     ,'panel.rel.new.segmenterSettings': 'Pemotong Audio punya tab Pengaturan sendiri saat tidak dipasangkan: kode sistem penulisan, apakah waktu audio juga ditulis ke .flextext sebagai item catatan, dan format ekspor mana yang ditulis. Pemotongan audio sendiri selalu aktif di sana.'
     ,'panel.rel.new.dockLoads': 'Pemutar besar dan potongan gelombang tidak lagi muncul kosong setelah Kembali saat decoding atau decoding gagal — membuka ulang teks selalu memuatnya, dan kegagalan disebutkan.'
+    ,'panel.rel.new.arrivalRow': 'Rekaman yang masih diunduh menunjukkan sudah sejauh mana, kira-kira berapa lama lagi, dan apakah macet \u2014 dengan Jeda, Lanjutkan, dan Coba lagi di barisnya \u2014 di daftar Pemotong Audio dan daftar editor.'
     ,'panel.rel.new.consentAudio': 'Pengumpul Izin bisa membuka rekaman saja, .flextext saja, atau keduanya \u2014 izin melekat pada cerita yang baru direkam sama mudahnya dengan yang sudah diketik.'
     ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'

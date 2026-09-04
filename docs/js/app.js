@@ -511,7 +511,11 @@ function paintArrivalRow(li, docId) {
   if (!fill) return false;
   const now = Date.now();
   const received = (dl && dl.received) || 0, total = (dl && dl.total) || 0;
-  const status = dl ? dl.status : 'waiting';
+  // No download object but a remembered verdict on the record (the page was reloaded after a
+  // failure): show the verdict, not "waiting" — a withdrawn link is not going to arrive.
+  const remembered = !dl && li.dataset.audioError ? li.dataset.audioError : '';
+  const status = dl ? dl.status : (remembered ? 'error' : 'waiting');
+  const errorMessage = dl ? dl.errorMessage : remembered;
   const samples = arrivalSamples.get(docId) || [];
   samples.push({ t: now, received });
   while (samples.length > 40) samples.shift();
@@ -523,22 +527,25 @@ function paintArrivalRow(li, docId) {
   // One line that answers all three questions: how far, how long, and whether it is moving.
   let text;
   if (status === 'paused') text = dl.storageIssue ? t('player.storagePaused') : t('dl.paused', { got: mbFmt(received), size: total ? mbFmt(total) : '?' });
-  else if (status === 'error') text = t('dl.failed');
+  else if (status === 'error') text = errorMessage === 'gone' ? t('player.gone') : t('dl.failed');
   else if (status === 'waiting') text = t('dl.waiting');
   else if (est.stalledSec) text = t('dl.stalled', { s: est.stalledSec });
   else if (total) text = t('dl.progress', { pct: p, got: mbFmt(received), size: mbFmt(total) }) + (est.etaSec != null ? ' · ' + fmtEta(est.etaSec) : '');
   else text = t('dl.progressBytes', { got: mbFmt(received) });
   if (pct) pct.textContent = text;
-  arrivalControls(li, docId, dl, status, est);
+  arrivalControls(li, docId, dl, status, est, errorMessage);
   return !!dl && (dl.status === 'downloading');
 }
 /* Pause / Resume / Retry on the row itself — the dock's own three, reachable from a list that has
  * no dock open. Retry on a stall is pause-then-resume: the downloader aborts the dead request and
  * continues from the bytes it already has (Range-resume), so nothing already saved is lost. */
-function arrivalControls(li, docId, dl, status, est) {
+function arrivalControls(li, docId, dl, status, est, errorMessage) {
   let ctl = li.querySelector('.doc-dl-ctl');
   if (!ctl) { ctl = document.createElement('span'); ctl.className = 'doc-dl-ctl'; (li.querySelector('.doc-meta') || li).appendChild(ctl); }
-  const want = status === 'downloading' ? (est.stalledSec ? 'retry' : 'pause') : 'resume';
+  // A withdrawn link cannot be retried into existence: no button, the sentence says who can fix it.
+  const want = (status === 'error' && errorMessage === 'gone') ? 'none'
+    : status === 'downloading' ? (est.stalledSec ? 'retry' : 'pause') : 'resume';
+  if (want === 'none') { ctl.dataset.want = 'none'; ctl.replaceChildren(); return; }
   if (ctl.dataset.want === want) return;
   ctl.dataset.want = want;
   ctl.replaceChildren();
@@ -3160,6 +3167,9 @@ const sizeFmt = (b) => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' :
 function audioErrorText(error) {
   const e = String(error || '');
   if (e === 'too_large') return t('player.tooLarge');
+  // The worker's 410: the link was withdrawn — the device was re-linked or wiped, or the
+  // researcher's Drive connection changed. Only the researcher can mint a new one.
+  if (e === 'gone') return t('player.gone');
   if (!e || e === 'download_failed' || /^HTTP \d/.test(e)
       || /Failed to fetch|NetworkError|aborted/i.test(e)
       || ['unauthorized', 'origin_not_allowed', 'bad_src', 'not_found', 'drive_unavailable', 'drive interstitial'].includes(e)) {
@@ -7779,6 +7789,7 @@ async function sgRenderList() {
       // and Pause / Resume / Retry on the row (Seth, 2026-09-04).
       li.classList.add('doc-arriving');
       li.dataset.arriving = d.id;
+      if (d.audioError) li.dataset.audioError = d.audioError;   // the last attempt's verdict, for the painter
       metaEl.innerHTML = `<span></span> <span class="doc-dl-bar"><span class="doc-dl-fill"></span></span><span class="doc-dl-pct"></span>`;
       metaEl.querySelector('span').textContent = trail ? `${meta} · ${trail}` : meta;
     }

@@ -113,6 +113,9 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       and a Pause on the row; pause → Resume; go offline mid-download → after ~20 s the bar
       turns amber and says "No data for N s" with Retry; back online it continues from where it
       was. Then audio arrives, Open enables.
+- [ ] **A withdrawn link** (revoke the device's install in the panel, or re-link it, then open an
+      assignment minted before that): the row says the link was withdrawn and offers no Retry;
+      assigning the text again from the panel makes it download. No 26 retries in the console.
 - [ ] Match, **Done** → the upload bar drains → the row reads "· sent to your researcher" → the
       panel tile shows uploaded, and Files ▾ offers the ELAN zip and the `.eaf` (built on demand
       from the uploaded `.flextext` + the audio the researcher already has).

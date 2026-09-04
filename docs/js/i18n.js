@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v577';
+export const ENGINE_VERSION = 'v578';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -710,6 +710,7 @@ en: {
   'player.storagePaused': 'Download paused — this device is out of storage space. Delete some photos, videos, or unused apps, then press Resume. What was already downloaded is saved.',
   'player.downloaded': 'Audio downloaded — ready to transcribe.',
   'player.downloadFailed': 'Audio could not be downloaded now — the app will keep trying when online.',
+  'player.gone': 'This recording\u2019s link has been withdrawn \u2014 the device was re-linked or wiped, or the researcher\u2019s Drive connection changed. Ask your researcher to assign the text again.',
   'dl.progress': '{pct}% \u2014 {got} of {size} MB',
   'dl.progressBytes': '{got} MB so far (size unknown)',
   'dl.etaS': 'about {s} s left',
@@ -1426,6 +1427,7 @@ internet after the first time.</p>
     ,'panel.rel.new.segmenterSettings': 'The Audio Segmenter has a Settings tab of its own when unpaired: writing-system codes, whether audio times also ride the .flextext as note items, and which export formats to write. Audio segmentation itself is always on there.'
     ,'panel.rel.new.dockLoads': 'The big player and the strips no longer come up blank after a Back during decoding or a failed decode — reopening a text loads it every time, and a failure says so.'
     ,'panel.rel.new.arrivalRow': 'A recording still downloading shows how far it is, about how long is left, and whether it has stalled — with Pause, Resume and Retry on the row — in the Audio Segmenter\u2019s list and the editor\u2019s.'
+    ,'panel.rel.new.goneLink': 'A recording whose link the Worker has withdrawn (the device was re-linked or wiped, or your Drive connection changed) now says so on the row and stops retrying \u2014 assign the text again to mint a fresh link. Before, it retried a dead link with backoff and read \u201cCould not download\u201d.'
     ,'panel.rel.new.consentAudio': 'The Consent Collector opens a recording on its own, a .flextext on its own, or the two together \u2014 permission attaches to a story that has only been recorded as readily as to one that has been typed.'
     ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
@@ -2961,6 +2963,7 @@ id: {
   'player.storagePaused': 'Unduhan dijeda — ruang penyimpanan perangkat ini penuh. Hapus beberapa foto, video, atau aplikasi yang tidak dipakai, lalu tekan Lanjutkan. Bagian yang sudah terunduh tetap tersimpan.',
   'player.downloaded': 'Audio sudah terunduh — siap diketik.',
   'player.downloadFailed': 'Audio belum bisa diunduh sekarang — aplikasi akan terus mencoba saat online.',
+  'player.gone': 'Tautan rekaman ini sudah dicabut \u2014 perangkat ditautkan ulang atau dihapus, atau koneksi Drive peneliti berubah. Minta peneliti Anda menugaskan teksnya lagi.',
   'dl.progress': '{pct}% \u2014 {got} dari {size} MB',
   'dl.progressBytes': 'sudah {got} MB (ukuran belum diketahui)',
   'dl.etaS': 'sekitar {s} dtk lagi',
@@ -3558,6 +3561,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.segmenterSettings': 'Pemotong Audio punya tab Pengaturan sendiri saat tidak dipasangkan: kode sistem penulisan, apakah waktu audio juga ditulis ke .flextext sebagai item catatan, dan format ekspor mana yang ditulis. Pemotongan audio sendiri selalu aktif di sana.'
     ,'panel.rel.new.dockLoads': 'Pemutar besar dan potongan gelombang tidak lagi muncul kosong setelah Kembali saat decoding atau decoding gagal — membuka ulang teks selalu memuatnya, dan kegagalan disebutkan.'
     ,'panel.rel.new.arrivalRow': 'Rekaman yang masih diunduh menunjukkan sudah sejauh mana, kira-kira berapa lama lagi, dan apakah macet \u2014 dengan Jeda, Lanjutkan, dan Coba lagi di barisnya \u2014 di daftar Pemotong Audio dan daftar editor.'
+    ,'panel.rel.new.goneLink': 'Rekaman yang tautannya sudah dicabut Worker (perangkat ditautkan ulang atau dihapus, atau koneksi Drive Anda berubah) kini menyebutkannya di baris dan berhenti mencoba ulang \u2014 tugaskan teksnya lagi untuk membuat tautan baru. Sebelumnya ia mencoba ulang tautan mati dengan jeda dan hanya bertuliskan \u201cTidak bisa mengunduh\u201d.'
     ,'panel.rel.new.consentAudio': 'Pengumpul Izin bisa membuka rekaman saja, .flextext saja, atau keduanya \u2014 izin melekat pada cerita yang baru direkam sama mudahnya dengan yang sudah diketik.'
     ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'

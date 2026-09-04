@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v579';
+export const ENGINE_VERSION = 'v580';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1415,6 +1415,9 @@ internet after the first time.</p>
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
     ,'panel.rel.new.segmenterApp': 'New app — Audio Segmenter: cut a recording into pieces and match them to the lines of a text you already have. It guesses the cuts from the pauses, you adjust them by dragging, and unfinished work is saved as you go.'
     ,'panel.rel.new.touchScroll': 'Touch screens: a finger can scroll the page over the waveform strips again. A tap parks the playhead, a sideways drag scrubs, an up-down drag scrolls.'
+    ,'panel.rel.new.doneSendMarks': '\u201cDone \u2014 send\u201d now marks the text done even when auto-backup had already sent that exact content. Before, it only said \u201calready saved\u201d and the panel kept showing the text as not done.'
+    ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
+    ,'panel.rel.new.lazyStrips': 'Long recordings: the waveform strips on the Baseline, Cut and Gloss tabs draw only while they are near the screen, so a 15-minute take cut into hundreds of lines no longer runs out of canvas memory and goes blank part-way down.'
     ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
     ,'panel.rel.new.touchKeyboard': 'Android: the on-screen keyboard and the bottom bar no longer bury the player; the page shrinks to fit above them.'
     ,'panel.rel.new.uiScale': 'New device setting \u201cText size (whole app)\u201d, on the Settings tab and pushable from the panel.'
@@ -1462,11 +1465,11 @@ internet after the first time.</p>
   'panel.assign.wsBody': 'This file uses {fileVern} (vernacular) and {fileAnal} (analysis), but the device is set up for {setupVern} (vernacular) and {setupAnal} (analysis). Sent anyway, its lines may not match the device\'s writing systems.',
   'panel.assign.sendAnyway': 'Send anyway',
   'panel.dl.elanZip': 'ELAN package (.zip)',
-  'panel.dl.elanZipSub': 'EAF + tier order + WAV — built here, on click',
+  'panel.dl.elanZipSub': 'EAF + tier order + WAV + the original recording — built here, on click',
   'panel.dl.eafOnly': 'ELAN annotation only (.eaf)',
   'panel.dl.eafOnlySub': 'The .eaf by itself, no recording — for when you already have the audio',
   'panel.dl.saymoreZip': 'SayMore package (.zip)',
-  'panel.dl.saymoreZipSub': 'annotations.eaf + WAV — built here, on click',
+  'panel.dl.saymoreZipSub': 'annotations.eaf + WAV + the original recording — built here, on click',
   'panel.dl.preview': 'Listening page (.html)',
   'panel.dl.previewSub': 'plays line by line, audio embedded — works offline',
   'panel.dl.fxpa': 'Paragraph analysis (.fxpa)',
@@ -3564,6 +3567,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
     ,'panel.rel.new.segmenterApp': 'Aplikasi baru \u2014 Pemotong Audio: potong rekaman menjadi bagian-bagian dan cocokkan dengan baris teks yang sudah ada. Ia menebak potongannya dari jeda, Anda menyesuaikannya dengan menyeret, dan pekerjaan yang belum selesai tersimpan otomatis.'
     ,'panel.rel.new.touchScroll': 'Layar sentuh: jari bisa menggulir halaman di atas strip gelombang lagi. Ketuk untuk menempatkan playhead, seret ke samping untuk menggeser, seret ke atas-bawah untuk menggulir.'
+    ,'panel.rel.new.doneSendMarks': '\u201cSelesai \u2014 kirim\u201d kini menandai teks selesai walaupun cadangan otomatis sudah mengirim isi yang persis sama. Sebelumnya hanya berkata \u201csudah tersimpan\u201d dan panel terus menampilkan teks sebagai belum selesai.'
+    ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
+    ,'panel.rel.new.lazyStrips': 'Rekaman panjang: strip gelombang di tab Dasar, Potong, dan Glos hanya digambar saat dekat layar, sehingga rekaman 15 menit yang dipotong menjadi ratusan baris tidak lagi kehabisan memori kanvas dan kosong di tengah jalan.'
     ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'
     ,'panel.rel.new.touchKeyboard': 'Android: papan ketik di layar dan bilah bawah tidak lagi menutupi pemutar; halaman menyusut agar muat di atasnya.'
     ,'panel.rel.new.uiScale': 'Pengaturan perangkat baru \u201cUkuran teks (seluruh aplikasi)\u201d, di tab Pengaturan dan bisa dikirim dari panel.'
@@ -3611,11 +3617,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.wsBody': 'Berkas ini memakai {fileVern} (vernakular) dan {fileAnal} (analisis), tetapi perangkat disetel untuk {setupVern} (vernakular) dan {setupAnal} (analisis). Jika tetap dikirim, barisnya mungkin tidak cocok dengan sistem penulisan perangkat.',
   'panel.assign.sendAnyway': 'Tetap kirim',
   'panel.dl.elanZip': 'Paket ELAN (.zip)',
-  'panel.dl.elanZipSub': 'EAF + urutan tier + WAV — dibuat di sini saat diklik',
+  'panel.dl.elanZipSub': 'EAF + urutan tier + WAV + rekaman asli — dibuat di sini saat diklik',
   'panel.dl.eafOnly': 'Anotasi ELAN saja (.eaf)',
   'panel.dl.eafOnlySub': 'Berkas .eaf saja, tanpa rekaman — untuk yang sudah punya audionya',
   'panel.dl.saymoreZip': 'Paket SayMore (.zip)',
-  'panel.dl.saymoreZipSub': 'annotations.eaf + WAV — dibuat di sini saat diklik',
+  'panel.dl.saymoreZipSub': 'annotations.eaf + WAV + rekaman asli — dibuat di sini saat diklik',
   'panel.dl.preview': 'Halaman dengar (.html)',
   'panel.dl.previewSub': 'memutar baris demi baris, audio tertanam — bekerja luring',
   'panel.dl.fxpa': 'Analisis paragraf (.fxpa)',

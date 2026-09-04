@@ -162,3 +162,10 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Gloss tab, tablet: typing a space in a word box types a space (audio does not start). Shift+Space plays and pauses from inside the box. Enter in a translation box moves to the next line's translation.
 - [ ] Settings ▸ Other: "Text size" Larger makes everything bigger at once; Normal restores it. Pushing the same setting from the panel lands on the device without a reload.
 - [ ] Desktop regression: plain Space still plays / pauses outside a text box; the Cut tab's Space is unchanged.
+
+## Backlog fixes (v580, issues #31 #33 #36)
+
+- [ ] Paired device, auto-backup on: edit a text, wait for the quiet-time backup, then tap Done — send ▸ Upload. Expect "already saved", the text marked done on the device AND in the panel, and a return to the list.
+- [ ] Assigned text with locked audio: Share / Save on the device and ⤓ on the segmenter both yield a zip containing the recording.
+- [ ] Panel Files ▾ ELAN zip on a text whose original is m4a: the zip holds the converted WAV and the original m4a.
+- [ ] A 10–15 minute recording on the Cut tab: strips draw all the way down as you scroll; none stay blank.

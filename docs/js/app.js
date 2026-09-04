@@ -1139,7 +1139,7 @@ function decorateGlossSegments() {
     bar.append(btn, waveWrap);
     g.prepend(bar);
     wireSegPlay(btn, seg, () => player, (t2) => { lastPlayTarget = t2; });
-    drawSpanWave(wave, seg);
+    attachSpanWave(wave, seg);   // lazy: the gloss tab's per-line strips draw when they are near the screen
     /* Interactive, same as the baseline strips: click to PARK the playhead (which pauses), drag to
      * scrub. ⚠ THE SHARED wireWaveSeek, not a third copy of it — this tab had its own, which is why
      * "clicking a waveform pauses" had to be written in two places to reach both tabs. It also
@@ -4793,9 +4793,11 @@ function exportFilename() {
   return (sanitizeBase(($('#doc-title')?.value.trim()) || current.title) || 'text') + '.flextext';
 }
 
-// Build what gets saved/uploaded: when the text's audio came from the USER
-// (recorded, "new text from audio", or attached) it travels along in a zip;
-// task audio from the researcher does not (they already have it).
+// Build what gets saved/uploaded. Every LOCAL bundle (Share / Save / Download, the satellite ⤓)
+// carries the ORIGINAL recording whenever the device holds one — recorded, attached, or delivered
+// by a researcher. The researcher-lock governs UPLOADS only (queueMediaUpload): assigned audio is
+// never sent back up, but a file the user saves to their own device must be complete (Seth,
+// 2026-09-04: "the original does need to be saved and included").
 // Bundle for the OPEN doc: sync the editor DOM into `current` first, then delegate.
 async function buildBundle(withTimestamp) {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
@@ -4811,7 +4813,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const name = docFilename(rec);                  // Title.flextext
   const base = name.replace(/\.flextext$/, '');
   const media = await db.getMedia(rec.id).catch(() => null);
-  const userAudio = !!(media && !isAudioLocked(rec));
+  const userAudio = !!(media && media.blob);   // the lock is an UPLOAD rule, not a local-save rule
   // Segmentation exports — RESEARCHER-SELECTED (Seth, 2026-08-03): exportEaf / exportSaymore /
   // exportPreview device settings choose which annotation files ride the bundles. An UNSET value
   // follows the mode: basic editor → flextext only (plus the audio, as always); Audio
@@ -5589,22 +5591,34 @@ async function doUpload(researcher = false) {
   try {
     // Sync the open editor into the record (applyBaseline reconciles synchronously) before bundling.
     if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
-    // Idiot-proofing: if this doc is already on Drive and its CONTENT hasn't changed since that upload,
-    // don't make another copy — tell the user it's saved. Stops an obsessive Save-tapper from filling the
-    // folder with dozens of identical files. (Researcher-triggered uploads bypass this — a fresh send is
-    // exactly what was asked for.)
-    if (!researcher && current.uploadedFileId && current.uploadedSig
-        && current.uploadedSig === uploadContentSig(current)) {
-      await persist();                       // still save the just-synced edit locally
-      toast(t('upload.alreadyDone'), 6000);
-      return;
-    }
     // A USER-initiated upload = the user consenting to share THIS doc with their researcher
     // (it then reports + becomes remote-uploadable). Set it on `current` so later edits keep it.
     if (!researcher) { const enr = Sync.enrollment(); if (enr && enr.installId) current.sharedInstall = enr.installId; }
-    // The Finished-Send button IS the coworker saying "done" — mark it so the
-    // panel shows it and (with auto-delete on) the text may clear after upload.
+    /* ⚠ DONE IS DECIDED BEFORE "IS IT ALREADY ON DRIVE?", NOT AFTER (Seth, 2026-09-04: "marking a
+     * text done DOES upload it … it seems like it's pretty consistently registering changes made
+     * since marked done"). The already-saved short-cut below used to sit above this line, so on a
+     * text auto-backup had ALREADY sent — the normal case, since the quiet-time sweep runs long
+     * before anyone taps Done — "Done — send" saved nothing, marked nothing, and left the user on
+     * the page: the panel kept showing the text as not done while the coworker believed they had
+     * finished it. Done is the coworker's statement, not a by-product of bytes moving. */
     if (!researcher && !current.done) { current.done = true; current.doneAt = Date.now(); applyDoneButton(); }
+    // Idiot-proofing: if this doc is already on Drive and its CONTENT hasn't changed since that upload,
+    // don't make another copy — tell the user it's saved. Stops an obsessive Save-tapper from filling the
+    // folder with dozens of identical files. (Researcher-triggered uploads bypass this — a fresh send is
+    // exactly what was asked for.) Nothing will land, so no completion hook runs: the done flag is
+    // persisted and reported here, the return-to-list intent is honoured here, and auto-delete
+    // follows the same rule the row toggle applies (setDocDone).
+    if (!researcher && current.uploadedFileId && current.uploadedSig
+        && current.uploadedSig === uploadContentSig(current)) {
+      const wantedReturn = returnAfterUploadOf === current.id;
+      returnAfterUploadOf = null;
+      await persist();                       // saves the just-synced edit AND the done flag
+      if (Sync.reportNow) Sync.reportNow();  // the panel sees Done on its next poll
+      toast(t('upload.alreadyDone'), 6000);
+      if (deleteAfterUpload() && await deleteConfirmedDoc(current.id)) { toast(t('sync.removedAfterUpload'), 6000); return; }
+      if (wantedReturn) await returnToLibraryAfterSend();
+      return;
+    }
     await persist();
     await uploadDocById(current.id);
     toast(t('upload.queuedToast'));
@@ -7599,7 +7613,7 @@ function satRowControls(host, d) {
    * (2026-09-03): 149 cuts and nine joins in, "I'm ready to export, but it's not giving me the
    * option." Work left this origin only through the shared upload pump, which needs a researcher
    * pairing — an unpaired device had no download at all. This is the editor's own bundle
-   * (buildBundleFor — the same entries a paired device uploads): the .flextext with its times,
+   * (buildBundleFor — the same seg entries the panel builds): the .flextext with its times,
    * the .eaf, and the recording, zipped. It exports what Done has COMMITTED; a draft in progress
    * is not in the doc, and the toast says so rather than letting a file that lacks it look done. */
   if (SEGMENTER_MODE || CONSENT_MODE) {
@@ -8116,7 +8130,7 @@ function mgLiveBoundary(i) {
     const time = row.querySelector('.mg-time');
     if (time) time.textContent = `${mgFmt(sp.start)} – ${mgFmt(sp.end)}`;
     const wave = row.querySelector('.mg-wave');
-    if (wave) drawSpanWave(wave, sp);
+    if (wave && wave.__onScreen !== false) drawSpanWave(wave, sp);   // a parked strip redraws itself when it scrolls near
   }
   player?.setBoundaries?.(mgBoundaryTimes());
 }

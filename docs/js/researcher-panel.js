@@ -1149,6 +1149,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v580', date: '2026-09-04', items: [
+    { k: 'panel.rel.new.doneSendMarks' },
+    { k: 'panel.rel.new.originalRides' },
+    { k: 'panel.rel.new.lazyStrips' },
+  ] },
   { v: 'v579', date: '2026-09-04', items: [
     { k: 'panel.rel.new.touchScroll' },
     { k: 'panel.rel.new.touchSpace' },
@@ -3276,6 +3281,14 @@ async function runMenuConversion(wrap, kind, itemEl) {
     // device applies); the ELAN/SayMore zips match what an upload bundle carries.
     const entries = await buildSegEntriesFor(useSrc, { title, base, wants, full: kind === 'preview' || kind === 'fxpa' });
     if (kind === 'elan' || kind === 'saymore') {
+      /* The ORIGINAL recording rides beside the timeline WAV (Seth, 2026-09-04: "even if it's not
+       * the recording used by ELAN/SayMore, the original does need to be saved and included").
+       * Here, not in buildSegEntriesFor: Download All already carries the folder's original and
+       * would otherwise emit a " (2)" duplicate of a possibly 200 MB file. When the original IS the
+       * timeline WAV the assembler has pushed it under this name already, so nothing doubles. */
+      if (src.media && src.media.blob && !entries.some((x) => x.name === src.media.name)) {
+        entries.push({ name: src.media.name, data: src.media.blob });
+      }
       saveBlobAs(await makeZip(entries), `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`);
       // The file is already saved — these say what the researcher is holding, not that it failed.
       if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);

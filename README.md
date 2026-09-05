@@ -9,7 +9,7 @@ share their source under the same license.
 Separately, I am willing to grant other terms — for example MIT-style permission
 to use, modify and incorporate this code in your own software — to partner
 organisations and individuals for their own work, on a case-by-case basis, on
-request. Write to <admin@flextext.app> saying what you would like to use and how.
+request. Ask through <https://flextext.app/contact>, saying what you would like to use and how.
 
 Developed collaboratively with [Claude Code](https://claude.com/claude-code)
 (Anthropic's AI coding agent), which implemented the application from the

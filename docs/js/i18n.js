@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v584';
+export const ENGINE_VERSION = 'v585';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1419,6 +1419,8 @@ internet after the first time.</p>
     ,'panel.rel.new.matcherStrips': 'Audio Segmenter: the segment waveforms are back. In v580 the matcher drew none at all, because it builds each row before adding it to the page and the new lazy-drawing code discarded rows it could not yet see.'
     ,'panel.rel.new.consentHeld': 'The Consent Collector is not released yet. Its link is hidden from the Utilities menus on production until it ships; staging keeps it for testing.'
     ,'panel.rel.new.consentShips': 'The Consent Collector now ships with the suite at the same engine version, and its link is back in the Utilities menus.'
+    ,'panel.rel.new.multiWsExports': 'ELAN export: a text glossed in more than one analysis language now gets one word-gloss tier and one free-translation tier per language (for example A_word-gls-id and A_word-gls-en). Before, only the language the device edits was exported. SayMore keeps its two documented tiers; the full set is in the ELAN file beside it.'
+    ,'panel.rel.new.multiWsListening': 'Listening page: when a text carries glosses or free translations in more than one language, two pickers at the top choose which language to show. One language, no pickers, the page as before.'
     ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
     ,'panel.rel.new.lazyStrips': 'Long recordings: the waveform strips on the Baseline, Cut and Gloss tabs draw only while they are near the screen, so a 15-minute take cut into hundreds of lines no longer runs out of canvas memory and goes blank part-way down.'
     ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
@@ -3574,6 +3576,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.matcherStrips': 'Pemotong Audio: gelombang segmen muncul kembali. Di v580 pencocok tidak menggambar satu pun, karena setiap baris dibuat sebelum ditambahkan ke halaman dan kode gambar-saat-terlihat yang baru membuang baris yang belum terlihat.'
     ,'panel.rel.new.consentHeld': 'Pengumpul Persetujuan belum dirilis. Tautannya disembunyikan dari menu Utilitas di produksi sampai dirilis; staging tetap menampilkannya untuk pengujian.'
     ,'panel.rel.new.consentShips': 'Pengumpul Persetujuan kini dirilis bersama rangkaian aplikasi pada versi mesin yang sama, dan tautannya kembali di menu Utilitas.'
+    ,'panel.rel.new.multiWsExports': 'Ekspor ELAN: teks yang diglos dalam lebih dari satu bahasa analisis kini mendapat satu tier glos kata dan satu tier terjemahan bebas per bahasa (misalnya A_word-gls-id dan A_word-gls-en). Sebelumnya hanya bahasa yang diedit perangkat yang diekspor. SayMore tetap dengan dua tier resminya; set lengkap ada di berkas ELAN di sampingnya.'
+    ,'panel.rel.new.multiWsListening': 'Halaman dengar: bila teks memuat glos atau terjemahan bebas dalam lebih dari satu bahasa, dua pemilih di bagian atas menentukan bahasa yang ditampilkan. Satu bahasa, tanpa pemilih, halaman seperti sebelumnya.'
     ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
     ,'panel.rel.new.lazyStrips': 'Rekaman panjang: strip gelombang di tab Dasar, Potong, dan Glos hanya digambar saat dekat layar, sehingga rekaman 15 menit yang dipotong menjadi ratusan baris tidak lagi kehabisan memori kanvas dan kosong di tengah jalan.'
     ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'

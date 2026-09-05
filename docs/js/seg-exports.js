@@ -11,7 +11,7 @@
  * carries only real content — baseline text, words, word glosses, free translations, times.
  */
 
-import { esc } from './flextext.js';
+import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn } from './flextext.js';
 
 /* ---------------- shared helpers ---------------- */
 
@@ -142,7 +142,7 @@ export function serializeEaf(doc, opts = {}) {
   const anns = [];                       // { id, ts1, ts2, text, words:[{id, text, gloss}], free }
   let aid = 0;
   for (const r of rows) {
-    const a = { id: 'a' + (++aid), text: r.phrase.baseline || '', free: r.phrase.free || '', words: [] };
+    const a = { id: 'a' + (++aid), text: r.phrase.baseline || '', free: r.phrase.free || '', frees: phraseFrees(r.phrase), words: [] };
     if (isAligned(r.span)) {
       a.ts1 = (prev && isAligned(prev.span) && prev.span.end === r.span.start) ? prev.endSlot : slot(r.span.start);
       a.ts2 = slot(r.span.end);
@@ -151,12 +151,23 @@ export function serializeEaf(doc, opts = {}) {
       a.ts2 = slot(undefined);
     }
     for (const w of r.phrase.words || []) {
-      a.words.push({ id: 'a' + (++aid), text: w.txt || '', gloss: (!w.punct && w.gls) ? w.gls : '' });
+      a.words.push({ id: 'a' + (++aid), text: w.txt || '', gloss: (!w.punct && w.gls) ? w.gls : '', glosses: w.punct ? [] : wordGlosses(w) });
     }
     prev = { span: r.span, endSlot: a.ts2 };
     anns.push(a);
   }
 
+  /* ⚠ EVERY ANALYSIS LANGUAGE GETS ITS OWN TIER (Seth, 2026-09-05: "ELAN and SayMore exports should
+   * export all that are present"). A FLEx text glossed in Indonesian AND English used to leave here
+   * with one A_word-gls-id tier and one A_phrase-gls-id tier — the English lines, preserved
+   * verbatim in the doc, were silently dropped. The primary language (the one this device edits)
+   * keeps the tier names it always had and comes first, so a reader that takes the first
+   * phrase-gls / word-gls tier (eaf-read.js) still lands on it; each further language is one more
+   * tier of the same type under the same parent, e.g. A_word-gls-en. The SayMore profile keeps its
+   * two documented tiers — SIL says extra tiers are ignored and advises against adding any — so
+   * the full set lives in the ELAN .eaf beside it. */
+  const langOf = (g) => g.lang || anal;
+  const { gloss: glossLangs, free: freeLangs } = analysisLangs(doc, anal);
   const L = [];
   L.push('<?xml version="1.0" encoding="UTF-8"?>');
   /* ⚠ AUTHOR IS A PERSON, AND WE MUST NOT SIT IN IT. It held "FlexText Editor" — a tool name in a
@@ -235,24 +246,37 @@ export function serializeEaf(doc, opts = {}) {
     L.push('  </TIER>');
 
     // Word glosses: Symbolic_Association on the WORD (1:1) — chaining to words, not the phrase,
-    // is what binds each gloss to its specific word.
-    L.push(`  <TIER LINGUISTIC_TYPE_REF="wordGloss" PARENT_REF="${esc(names.word)}" TIER_ID="${esc(names.gloss)}">`);
-    for (const a of anns) {
-      for (const w of a.words) {
-        if (!w.gloss) continue;
-        L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="a${++aid}" ANNOTATION_REF="${w.id}"><ANNOTATION_VALUE>${esc(w.gloss)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
+    // is what binds each gloss to its specific word. One tier per analysis language, primary first.
+    for (const lang of glossLangs) {
+      const tierId = lang === anal ? names.gloss : `A_word-gls-${lang}`;
+      L.push(`  <TIER LINGUISTIC_TYPE_REF="wordGloss" PARENT_REF="${esc(names.word)}" TIER_ID="${esc(tierId)}">`);
+      for (const a of anns) {
+        for (const w of a.words) {
+          const g = w.glosses.find((x) => langOf(x) === lang);
+          const text = g ? g.text : '';
+          if (!text) continue;
+          L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="a${++aid}" ANNOTATION_REF="${w.id}"><ANNOTATION_VALUE>${esc(text)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
+        }
       }
+      L.push('  </TIER>');
+    }
+  }
+
+  // Free translation: Symbolic_Association on the phrase. Empty → no annotation at all. FLEx
+  // profile: one tier per analysis language, primary first; SayMore: its one documented tier.
+  const freeTiers = flex
+    ? freeLangs.map((lang) => ({ lang, id: lang === anal ? names.free : `A_phrase-gls-${lang}` }))
+    : [{ lang: anal, id: names.free }];
+  for (const ft of freeTiers) {
+    L.push(`  <TIER LINGUISTIC_TYPE_REF="phraseGloss" PARENT_REF="${esc(names.phrase)}" TIER_ID="${esc(ft.id)}">`);
+    for (const a of anns) {
+      const f = a.frees.find((x) => langOf(x) === ft.lang);
+      const text = f ? f.text : (ft.lang === anal ? a.free : '');
+      if (!text) continue;
+      L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="a${++aid}" ANNOTATION_REF="${a.id}"><ANNOTATION_VALUE>${esc(text)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
     }
     L.push('  </TIER>');
   }
-
-  // Free translation: Symbolic_Association on the phrase. Empty → no annotation at all.
-  L.push(`  <TIER LINGUISTIC_TYPE_REF="phraseGloss" PARENT_REF="${esc(names.phrase)}" TIER_ID="${esc(names.free)}">`);
-  for (const a of anns) {
-    if (!a.free) continue;
-    L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="a${++aid}" ANNOTATION_REF="${a.id}"><ANNOTATION_VALUE>${esc(a.free)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
-  }
-  L.push('  </TIER>');
 
   // The stereotype names are ELAN conventions recognised BY NAME, not schema-enforced — the
   // standard CONSTRAINT declarations below are required for ELAN to interpret the tiers.
@@ -336,12 +360,17 @@ export function peakPlan(sampleCount, sampleRate, durationSec, opts = {}) {
  * NOT written for the 'saymore' profile: that file has exactly two tiers, already in reading
  * order, and SIL advise against adding files to a SayMore session folder. */
 export function serializeEafPrefs(opts = {}) {
-  const { profile = 'flex', vern = 'und', anal = 'en' } = opts;
+  const { profile = 'flex', vern = 'und', anal = 'en', doc = null } = opts;
   const n = eafTierNames(profile !== 'saymore', vern, anal);
-  // Reading order: what you transcribed, then its words, then what they mean, then the whole
-  // sentence's meaning — structural containers last, out of the way of the text.
+  // Reading order: what you transcribed, then its words, then what they mean (every gloss
+  // language, primary first), then the whole sentence's meaning (likewise) — structural
+  // containers last, out of the way of the text. Pass `doc` so the extra-language tiers
+  // serializeEaf wrote are ordered too; without it the order names only the primary pair.
+  const langs = doc ? analysisLangs(doc, anal) : { gloss: [anal], free: [anal] };
+  const glossTiers = langs.gloss.map((l) => (l === anal ? n.gloss : `A_word-gls-${l}`));
+  const freeTiers = langs.free.map((l) => (l === anal ? n.free : `A_phrase-gls-${l}`));
   const order = profile !== 'saymore'
-    ? [n.phrase, n.word, n.gloss, n.free, n.para, n.itext]
+    ? [n.phrase, n.word, ...glossTiers, ...freeTiers, n.para, n.itext]
     : [n.phrase, n.free];
   const L = [];
   L.push('<?xml version="1.0" encoding="UTF-8"?>');
@@ -380,6 +409,18 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   const { title = 'Text', audioB64 = '', audioMime = 'audio/wav', mediaName = '' } = opts;
   const withAudio = !!audioB64;
   const rows = phraseRows(doc);
+  /* ⚠ A TEXT GLOSSED IN MORE THAN ONE LANGUAGE SHOWS ONE AT A TIME, THE READER'S CHOICE (Seth,
+   * 2026-09-05: "we need to be able to select analysis writing system for gloss and for free
+   * translation if there are multiple choices"). Every language's line is in the page, marked
+   * data-l; the primary (the language this device edits) shows first, and a picker per tier
+   * appears only when there is something to pick. One language → no picker, the page as before. */
+  const anal = opts.anal || doc.analLang || 'en';
+  const { gloss: glossLangs, free: freeLangs } = analysisLangs(doc, anal);
+  const multi = glossLangs.length > 1 || freeLangs.length > 1;
+  const wsPick = (id, label, langs) => langs.length > 1
+    ? `<label>${label} <select id="${id}">${langs.map((l) => `<option value="${esc(l)}"${l === langs[0] ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
+    : '';
+  const wsBar = multi ? `<div class="ws">${wsPick('glossws', 'Gloss language', glossLangs)}${wsPick('freews', 'Translation language', freeLangs)}</div>` : '';
   const body = rows.map((r) => {
     const t = r.phrase;
     const timed = isAligned(r.span);
@@ -388,8 +429,12 @@ export function buildSegPreviewHtml(doc, opts = {}) {
     const time = timed ? `${est}${fmtClock(r.span.start)}–${fmtClock(r.span.end)}` : '';
     const words = (t.words || []).map((w) => w.punct
       ? `<span class="w punct"><span class="wt">${esc(w.txt)}</span></span>`
-      : `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('');
-    const free = t.free ? `<div class="free">${esc(t.free)}</div>` : '';
+      : `<span class="w"><span class="wt">${esc(w.txt)}</span>${glossLangs.map((l) =>
+        `<span class="wg" data-l="${esc(l)}"${l === glossLangs[0] ? '' : ' hidden'}>${esc(glossIn(w, l, anal) || ' ')}</span>`).join('')}</span>`).join('');
+    const free = freeLangs.map((l) => {
+      const txt = freeIn(t, l, anal);
+      return txt ? `<div class="free" data-l="${esc(l)}"${l === freeLangs[0] ? '' : ' hidden'}>${esc(txt)}</div>` : '';
+    }).join('');
     const blank = !(t.baseline || '').trim() && !(t.words || []).length;
     const wave = withAudio && timed ? '<div class="wwrap"><canvas class="rw"></canvas><div class="cur" hidden></div></div>' : '';
     const btn = withAudio ? `<button class="play"${timed ? '' : ' disabled'}>${timed ? '&#9654;' : '&#8943;'}</button>
@@ -407,6 +452,8 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; padding: 16px clamp(10px, 4vw, 40px) 60px; }
   h1 { font-size: 19px; margin: 4px 0 2px; }
   .src { opacity: .6; font-size: 12px; margin-bottom: 10px; }
+  .ws { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin: 0 0 8px; }
+  .ws select { font-size: 13px; padding: 2px 4px; border-radius: 6px; border: 1px solid rgba(127,127,127,.4); background: transparent; }
   .player { position: sticky; top: 0; background: Canvas; padding: 6px 0 4px; z-index: 5;
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
@@ -434,6 +481,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
 </style></head><body>
 <h1>${esc(title)}</h1>
 ${mediaName ? `<div class="src">${esc(mediaName)}</div>` : ''}
+${wsBar}
 ${withAudio ? `<div class="player">
   <div class="wwrap"><canvas id="ov"></canvas><div class="cur" id="ovcur"></div></div>
   <div class="bar"><button id="mplay">&#9654;</button><select id="mspeed" title="Playback speed"><option value="0.5">Very slow</option><option value="0.75">Slow</option><option value="1" selected>Normal</option></select><span id="mtime"></span></div>
@@ -678,6 +726,21 @@ ${withAudio ? `<script>
     if (onRow && !audio.paused) follow(onRow);
     requestAnimationFrame(tick);
   })();
+})();
+</script>` : ''}
+${multi ? `<script>
+(function () {
+  // The language pickers: show one language per tier, remember the choice for this page.
+  function apply(sel, cls) {
+    if (!sel) return;
+    var lang = sel.value;
+    var els = document.querySelectorAll('.' + cls + '[data-l]');
+    for (var i = 0; i < els.length; i++) els[i].hidden = els[i].getAttribute('data-l') !== lang;
+  }
+  var g = document.getElementById('glossws'), f = document.getElementById('freews');
+  if (g) g.addEventListener('change', function () { apply(g, 'wg'); });
+  if (f) f.addEventListener('change', function () { apply(f, 'free'); });
+  apply(g, 'wg'); apply(f, 'free');
 })();
 </script>` : ''}
 </body></html>`;
@@ -1002,7 +1065,7 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
       // ELAN reads display settings from a sidecar of the SAME BASENAME — this is what makes the
       // tiers open vernacular-first instead of alphabetically inverted. Carries no annotation
       // data, so it is safe to delete and safe for ELAN to overwrite (see serializeEafPrefs).
-      entries.push({ name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+      entries.push({ name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...eafOpts, profile: 'flex', doc })], { type: 'application/xml' }) });
     }
     // SayMore's OWN storage convention is <mediafile>.annotations.eaf beside the media — emitting
     // that exact name makes the drop-in path work: copy audio + this file into a session folder
@@ -1413,7 +1476,7 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
     if (kind === 'eaf') return pack([eafFile], '');
     return pack([
       eafFile,
-      { name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...o, profile: 'flex' })], { type: 'application/xml' }) },
+      { name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...o, profile: 'flex', doc })], { type: 'application/xml' }) },
     ], `${base} ELAN.zip`);
   }
 

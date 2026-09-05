@@ -177,3 +177,9 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Split an audio piece (scissors): the rebuilt list still shows waveforms.
 - [ ] Editor Baseline, Cut and Gloss tabs: strips still draw, as in v580.
 
+## Several analysis languages (v585)
+
+- [ ] Utilities ▸ convert a FLExText that carries Indonesian and English glosses: the listening page shows "Gloss language" and "Translation language" pickers; switching shows the other language's lines; a one-language text shows no pickers.
+- [ ] The same text's ELAN zip opened in ELAN: A_word-gls-id, A_word-gls-en, A_phrase-gls-id, A_phrase-gls-en, in that order under their word and phrase tiers.
+- [ ] SayMore zip: Transcription and Free Translation only, the free translation in the device's language.
+

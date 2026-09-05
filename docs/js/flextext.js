@@ -1036,3 +1036,73 @@ export function remapWritingSystems(dom, mappings) {
   }
   return new XMLSerializer().serializeToString(dom);
 }
+
+/* ── EVERY ANALYSIS LANGUAGE A TEXT CARRIES (Seth, 2026-09-05: "we need to be able to select
+ * analysis writing system for gloss and for free translation if there are multiple choices …
+ * ELAN and SayMore exports should export all that are present").
+ *
+ * The editor edits ONE gloss per word (w.gls / w.glsLang) and ONE free translation per phrase
+ * (seg.free / seg.freeLang), chosen by pickByLang; every other analysis language rides
+ * w.preservedXML / seg.preItemsXML / seg.postItemsXML verbatim so it round-trips. The exports
+ * that must show every language read them back from those strings here — top-level <item
+ * type="gls"> elements only: a word's <morphemes> block also holds gls items, and those are
+ * morpheme glosses, not a second word gloss. Pure string work: this module runs under node. */
+const XML_ENT = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+function unescXml(s) {
+  return String(s ?? '').replace(/&(lt|gt|amp|quot|apos|#(\d+)|#x([0-9a-fA-F]+));/g,
+    (m, n, d, h) => XML_ENT[n] ?? (d ? String.fromCodePoint(+d) : String.fromCodePoint(parseInt(h, 16))));
+}
+function glsOfItemXml(xml) {
+  const s = String(xml || '');
+  if (!/^\s*<item\b/.test(s)) return null;                       // <morphemes>, notes, anything else
+  const m = s.match(/^\s*<item\b([^>]*?)(\/>|>([\s\S]*?)<\/item>)/);
+  if (!m) return null;
+  const attrs = {};
+  m[1].replace(/([\w:-]+)="([^"]*)"/g, (_, k, v) => { attrs[k] = unescXml(v); return ''; });
+  if (attrs.type !== 'gls') return null;
+  return { lang: attrs.lang || '', text: unescXml(m[3] || '') };
+}
+/* [{ lang, text }] — the editable gloss first (lang '' when the word was typed in this app, which
+ * means the document's analysis language), then each preserved language once. */
+export function wordGlosses(w) {
+  const out = [];
+  if (w && (w.gls || w.glsLang)) out.push({ lang: w.glsLang || '', text: w.gls || '' });
+  for (const xml of (w && w.preservedXML) || []) {
+    const g = glsOfItemXml(xml);
+    if (g && !out.some((x) => x.lang === g.lang)) out.push(g);
+  }
+  return out;
+}
+export function phraseFrees(seg) {
+  const out = [];
+  if (seg && (seg.free || seg.freeLang)) out.push({ lang: seg.freeLang || '', text: seg.free || '' });
+  for (const xml of [...((seg && seg.preItemsXML) || []), ...((seg && seg.postItemsXML) || [])]) {
+    const g = glsOfItemXml(xml);
+    if (g && !out.some((x) => x.lang === g.lang)) out.push(g);
+  }
+  return out;
+}
+/* { gloss: [...], free: [...] } — the primary analysis language first, then every other language
+ * that has at least one non-empty line, in order of first appearance. A line with no language of
+ * its own counts as the primary. */
+export function analysisLangs(doc, primary = '') {
+  const prim = primary || (doc && doc.analLang) || 'en';
+  const gloss = [prim], free = [prim];
+  const add = (list, g) => { const l = g.lang || prim; if (g.text && !list.includes(l)) list.push(l); };
+  for (const para of (doc && doc.paragraphs) || []) {
+    for (const seg of para.segments || []) {
+      for (const f of phraseFrees(seg)) add(free, f);
+      for (const w of seg.words || []) { if (w.punct) continue; for (const g of wordGlosses(w)) add(gloss, g); }
+    }
+  }
+  return { gloss, free };
+}
+/* The text of one word's gloss / one phrase's free translation in a given language, '' if none. */
+export function glossIn(w, lang, primary = '') {
+  const g = wordGlosses(w).find((x) => (x.lang || primary) === lang);
+  return g ? g.text : '';
+}
+export function freeIn(seg, lang, primary = '') {
+  const f = phraseFrees(seg).find((x) => (x.lang || primary) === lang);
+  return f ? f.text : '';
+}

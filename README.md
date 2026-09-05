@@ -5,6 +5,12 @@ Copyright © 2026 Seth Johnston. Licensed under the
 (e.g. for your own language project), provided derivative deployments also
 share their source under the same license.
 
+**Other licensing options.** The AGPL is the licence for everyone, and it stays.
+Separately, I am willing to grant other terms — for example MIT-style permission
+to use, modify and incorporate this code in your own software — to partner
+organisations and individuals for their own work, on a case-by-case basis, on
+request. Write to <admin@flextext.app> saying what you would like to use and how.
+
 Developed collaboratively with [Claude Code](https://claude.com/claude-code)
 (Anthropic's AI coding agent), which implemented the application from the
 FLEx flextext schema and real interlinear exports under Seth's direction.

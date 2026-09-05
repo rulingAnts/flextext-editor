@@ -25,7 +25,7 @@ set -uo pipefail
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 DIR="$HOME/.flextext-dev"; mkdir -p "$DIR"
 EDITOR_REPO="$HOME/GIT/flextext editor"
-WORKER_REPO="$HOME/GIT/flextext-r2-worker"
+WORKER_REPO="$(cd "$(dirname "$0")" && pwd)/worker"   # the Worker lives in THIS repo since the merge; the old flextext-r2-worker repo was archived 2026-09-05
 PORT_EDITOR=8012
 PORT_TUNNEL=8787
 VM_KEY="$HOME/.ssh/kde_neon_ed25519"

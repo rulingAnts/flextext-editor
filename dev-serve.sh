@@ -11,7 +11,7 @@
 # Plain HTTP on purpose: localhost is a secure context (SW + getUserMedia still work) AND
 # an HTTP page can reach the http://localhost:8787 connectivity dev worker (an HTTPS page
 # can't — mixed content). For the researcher panel, also run the dev worker:
-#   flextext-r2-worker/dev-worker.sh
+#   worker/dev-worker.sh   (in this repo; the separate flextext-r2-worker repo was archived 2026-09-05)
 set -euo pipefail
 
 # ⚠ THE POINT OF INTERCEPTION. Starting a dev server is the moment before coding, which is the only

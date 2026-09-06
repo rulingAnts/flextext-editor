@@ -84,7 +84,12 @@ test('#42 Space is a setting: auto (off on coarse pointers), on, off; Shift+Spac
   assert.match(body, /settings\.spacePlays \|\| 'auto'/);
   assert.match(body, /if \(m === 'on'\) return true;/);
   assert.match(body, /if \(m === 'off'\) return false;/);
-  assert.match(body, /matchMedia\('\(pointer: coarse\)'\)\.matches/, 'auto follows the pointer type');
+  assert.match(body, /return !isMobileDevice\(\);/, 'auto = off on a mobile device, on everywhere else');
+  const mob = APP.slice(APP.indexOf('function isMobileDevice()'), APP.indexOf('function spaceToggles()'));
+  assert.match(mob, /\/Android\/i\.test\(navigator\.userAgent/, 'Android phones and tablets by user agent');
+  assert.match(mob, /userAgentData\.mobile === true/, 'and the client hint');
+  assert.match(mob, /\(pointer: coarse\) and \(hover: none\)/, 'and a coarse, non-hovering primary pointer');
+  assert.doesNotMatch(mob, /matchMedia\('\(pointer: coarse\)'\)/, 'a bare coarse pointer (touchscreen laptop) is NOT mobile');
   const keys = APP.slice(APP.indexOf('function wirePlaybackKeys('), APP.indexOf('function spaceToggles()'));
   const space = keys.slice(keys.indexOf("if (e.key !== ' ' || e.repeat) return;"));
   assert.match(space, /if \(e\.shiftKey\) \{[\s\S]{0,900}?e\.preventDefault\(\);[\s\S]{0,300}?togglePlayFromKey\(\);\s*\n\s*return;\s*\n\s*\}/, 'Shift+Space first');

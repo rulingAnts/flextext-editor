@@ -10471,11 +10471,26 @@ function segmentForField(el) {
   if (g) return segs[[...$('#gloss-body').querySelectorAll('.segment')].indexOf(g)] || null;
   return null;
 }
+// "Mobile device" for the Space-bar rule (Seth, 2026-09-06: "off on mobile devices … for touchscreen
+// laptops, auto works the same as non-touchscreen laptops"; "based on whether it's a mobile (android)
+// device or not"). Three signals, any one is enough: Android in the user agent (phones AND tablets —
+// Chrome's userAgentData.mobile is false on tablets), userAgentData.mobile, or a primary pointer that
+// is coarse AND cannot hover (a phone or tablet with no mouse attached). A touchscreen laptop keeps a
+// fine, hovering primary pointer, so it is not mobile here. Not used by the header-label rule, which
+// is width-only by decision.
+function isMobileDevice() {
+  try {
+    if (/Android/i.test(navigator.userAgent || '')) return true;
+    if (navigator.userAgentData && navigator.userAgentData.mobile === true) return true;
+    if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse) and (hover: none)').matches) return true;
+  } catch { }
+  return false;
+}
 function spaceToggles() {
   const m = settings.spacePlays || 'auto';
   if (m === 'on') return true;
   if (m === 'off') return false;
-  return !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
+  return !isMobileDevice();
 }
 function togglePlayFromKey() {
   if (!player) return;

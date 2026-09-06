@@ -212,7 +212,7 @@ device and lands live, without a reload:
 | Recording | format, maximum length, AGC / noise suppression / echo cancellation, normalisation, archival defaults |
 | Consent | ask, message, consent audio, confirmation |
 | Sending | send options, delete after upload, automatic backup and its interval, recorder welcome |
-| Other | which buttons show; Done button; delete and delete-all; alphabetical sort; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only when the window is narrower than 1000 px); **the Space bar plays / pauses** (automatic = off on a touch screen); segmenter: blank lines, in-place text editing |
+| Other | which buttons show; Done button; delete and delete-all; alphabetical sort; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only when the window is narrower than 1000 px); **the Space bar plays / pauses** (automatic = off on a mobile device, an Android phone or tablet; a laptop with a touch screen counts as a laptop); segmenter: blank lines, in-place text editing |
 
 The top-row setting is on the segmenter's Settings tab as well as the editor's, and in the
 researcher panel's device settings; the Space-bar setting is editor-only.
@@ -222,8 +222,8 @@ researcher panel's device settings; the Space-bar setting is editor-only.
 - **On a touch screen, a waveform strip behaves like a WhatsApp voice note:** a tap places the
   playhead; touching the playhead line and dragging scrubs; dragging anywhere else scrolls the page,
   at any slant, because the strip listens to no finger movement at all. Same on the listening page.
-- **Space** plays or pauses outside a text box on a desktop; on a touch screen it types a space
-  (setting above). **Shift+Space** always plays or pauses, inside a box too, and inside a box it
+- **Space** plays or pauses outside a text box on a laptop or desktop, touch screen or not; on a
+  mobile device it types a space (setting above). **Shift+Space** always plays or pauses, inside a box too, and inside a box it
   plays that box's own line without moving the cursor.
 - When Space does not play, typing with no box selected goes to the line you last played: the
   nearest box is focused at its end and the keystroke lands there.

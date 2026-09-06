@@ -55,7 +55,7 @@ test('the marks show on every tab, follow a grip drag, and the player zooms in o
 test('the exported listening page has the same overview grammar', () => {
   assert.match(EXPORTS, /\.player \.wwrap \{ overflow-x: auto; overflow-y: hidden;/, 'the overview scrolls once zoomed');
   assert.match(EXPORTS, /if \(el === ov\) return;\s*\/\/ the overview has its own touch grammar/, 'wireScrub steps aside for fingers on the overview');
-  const ov = EXPORTS.slice(EXPORTS.indexOf("var ovWrap = ov.parentNode, ovZoom = 1;"), EXPORTS.indexOf('/* ── SPACE = PLAY/PAUSE'));
+  const ov = EXPORTS.slice(EXPORTS.indexOf("var ovWrap = ov.parentNode, ovZoom = 1, focusPrev = null;"), EXPORTS.indexOf('/* ── SPACE = PLAY/PAUSE'));
   assert.match(ov, /function setOvZoom\(z, anchorMs, clientX\)/);
   assert.match(ov, /z = Math\.min\(40, Math\.max\(1, z\)\);/, 'never narrower than the whole file');
   assert.match(ov, /ov\.style\.width = \(z \* 100\) \+ '%';\s*\n\s*draw\(ov, 0, totalMs\(\)\);/, 'redrawn at the new width');

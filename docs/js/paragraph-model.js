@@ -253,6 +253,134 @@ export function splitLine(data, id, at) {
   return { ...data, lines, tree, _added: newId };
 }
 
+/* ---------------- one splitting rule, the tool's share (plans/split-tiers.md) ----------------
+ * Seth, 2026-09-06: "Let's make the audio segmenter app and paragraph analysis tool splits work
+ * this way as well so that it's consistent." A split takes ONE POSITION PER TIER THE LINE CARRIES:
+ * the word gap for an imported line, the caret for an authored one, the caret in the free
+ * translation, the playhead in the audio. Nothing is guessed: a tier the caller did not place is a
+ * tier the line does not have (the UI completes only when every tier is placed).
+ *
+ * ⚠ NOT gated on `authored`. That gate protects the WORDING of imported language data; moving a
+ * line boundary changes which words a line holds, never a word. The words, their glosses, the
+ * speaker and the times all ride along. Propositions written under the line stay with the first
+ * piece (they reference the line's id); the new line has none. The new line joins its sibling's
+ * group, as splitLine's does. */
+const baselineOfWords = (words) => (words || []).map((w) => w.txt || '').join(' ').replace(/\s+/g, ' ').trim();
+const withFree = (line, s) => { const l = { ...line }; if (String(s || '').trim()) l.free = String(s).trim(); else delete l.free; return l; };
+export function splitLineTiers(data, id, pos = {}) {
+  const i = data.lines.findIndex((l) => l.id === id);
+  if (i < 0) throw new Error(`Unknown line ${id}.`);
+  const l = data.lines[i];
+  const words = l.words || [];
+  const newId = nextLineId(data);
+  let left, right;
+  if (words.length) {
+    const at = Math.max(0, Math.min(words.length, Number(pos.words) || 0));
+    left = { ...l, words: words.slice(0, at), baseline: baselineOfWords(words.slice(0, at)) };
+    right = { id: newId, words: words.slice(at), baseline: baselineOfWords(words.slice(at)) };
+  } else {
+    if (data.authored === undefined && !String(l.baseline || '').trim() && typeof pos.text !== 'number') throw new Error('Nothing to split.');
+    const text = String(l.baseline || '');
+    const cut = Math.max(0, Math.min(text.length, typeof pos.text === 'number' ? pos.text : text.length));
+    left = { ...l, baseline: text.slice(0, cut).replace(/\s+$/, '') };
+    right = { id: newId, baseline: text.slice(cut).replace(/^\s+/, ''), words: [] };
+  }
+  const free = String(l.free || '');
+  if (free.trim()) {
+    if (typeof pos.free === 'number') {
+      const at = Math.max(0, Math.min(free.length, pos.free));
+      left = withFree(left, free.slice(0, at)); right = withFree(right, free.slice(at));
+    }   // else: the translation stays whole on the first piece — the caller had no tier to place
+  }
+  const timed = typeof l.start === 'number' && typeof l.end === 'number';
+  if (timed) {
+    if (typeof pos.audio === 'number' && pos.audio > l.start && pos.audio < l.end) {
+      left.end = Math.round(pos.audio); right.start = Math.round(pos.audio); right.end = l.end;
+    } else {
+      // A timed line split without a time placed: neither piece may claim the whole extent.
+      delete left.start; delete left.end;
+    }
+  }
+  if (l.speaker) right.speaker = l.speaker;
+  delete right.implicit; delete right.props;
+  /* An EDGE split at the start leaves the first piece empty (silence trimmed off the front): the
+   * line's identity — its id, and any propositions written under it — belongs with its words, so
+   * the CONTENT piece keeps the id and the new id goes to the empty piece, placed before it. */
+  const emptyFirst = !(left.words || []).length && !String(left.baseline || '').trim() && !String(left.free || '').trim();
+  if (emptyFirst) {
+    right.id = id; left.id = newId;
+    if (l.props) right.props = l.props;
+    if (l.implicit) right.implicit = l.implicit;
+    delete left.props; delete left.implicit;
+  }
+  const lines = data.lines.slice();
+  lines[i] = left;
+  lines.splice(i + 1, 0, right);
+  const tree = data.tree.map((g) => {
+    const k = g.children.indexOf(id);
+    if (k < 0) return g;
+    const children = g.children.slice();
+    children.splice(emptyFirst ? k : k + 1, 0, newId);
+    return { ...g, children };
+  });
+  return { ...data, lines, tree, _added: newId };
+}
+
+/* JOIN a line with the next line that has content — and every blank (audio-only) line between
+ * them comes along (Seth, 2026-09-06: "if there is empty space (with empty audio) between two text
+ * lines, a join of those two text lines … should automatically join the empty audio in the middle
+ * so that it matches the full recording area that encompasses"). The tool hides blank lines by
+ * default, so two rows that look adjacent may have silence between them; skipping it would leave
+ * an orphan span the researcher cannot see. Words concatenate in order, the translations join with
+ * a space, the time is the union of every timed line in the run, the speaker is the first line's.
+ * Refused when a later line in the run has propositions written under it — they reference that
+ * line's id, and moving them is a decision the analyst should make, not a side effect. The tree is
+ * pruned as deleteLine prunes it. */
+export function joinLines(data, id) {
+  const i = data.lines.findIndex((l) => l.id === id);
+  if (i < 0) throw new Error(`Unknown line ${id}.`);
+  if (i >= data.lines.length - 1) throw new Error('This is the last line; there is nothing after it to join.');
+  let j = i + 1;
+  while (j < data.lines.length - 1 && isBlankLine(data.lines[j])) j++;
+  const run = data.lines.slice(i, j + 1);
+  if (run.slice(1).some((l) => (l.props || []).length)) throw new Error('A line being joined has propositions written under it. Move or delete them first.');
+  const first = run[0];
+  const words = run.flatMap((l) => l.words || []);
+  const merged = { ...first, words };
+  merged.baseline = words.length ? baselineOfWords(words)
+    : run.map((l) => String(l.baseline || '').trim()).filter(Boolean).join(' ');
+  const free = run.map((l) => String(l.free || '').trim()).filter(Boolean).join(' ');
+  if (free) merged.free = free; else delete merged.free;
+  const timed = run.filter((l) => typeof l.start === 'number' && typeof l.end === 'number');
+  if (timed.length) { merged.start = Math.min(...timed.map((l) => l.start)); merged.end = Math.max(...timed.map((l) => l.end)); }
+  else { delete merged.start; delete merged.end; }
+  const removed = new Set(run.slice(1).map((l) => l.id));
+  const lines = data.lines.filter((l) => !removed.has(l.id));
+  lines[i] = merged;
+  let tree = data.tree.map((g) => ({ ...g, children: g.children.filter((c) => !removed.has(c)) }));
+  tree = pruneThinGroups(tree);
+  tree = tree.map((g) => ({ ...g, heads: (g.heads || []).filter((h) => g.children.includes(h)) }));
+  const collapsed = (data.view.collapsed || []).filter((c) => tree.some((g) => g.id === c));
+  return { ...data, lines, tree, view: { ...data.view, collapsed } };
+}
+/* Dissolve any group left with fewer than two children, cascading upward and promoting the
+ * survivor to the parent — shared by deleteLine and joinLines. */
+function pruneThinGroups(tree) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const g of [...tree]) {
+      if (g.children.length >= 2) continue;
+      const survivor = g.children[0] || null;
+      tree = tree.filter((x) => x.id !== g.id)
+        .map((x) => ({ ...x, children: x.children.flatMap((c) => (c === g.id ? (survivor ? [survivor] : []) : [c])) }));
+      changed = true;
+      break;
+    }
+  }
+  return tree;
+}
+
 export function deleteLine(data, id) {
   requireAuthored(data);
   if (data.lines.length <= 1) throw new Error('A text needs at least one line.');

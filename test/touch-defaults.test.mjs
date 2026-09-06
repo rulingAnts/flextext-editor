@@ -59,7 +59,7 @@ test('#45 on touch a strip is a WhatsApp voice note: tap parks, the dot scrubs, 
   assert.match(knob, /closest\('\.seg-cursor, \.gseg-cursor'\)/, 'the playhead cursor is the knob, on every surface that draws one');
   assert.match(knob, /if \(ev\.pointerType !== 'touch'/, 'mouse and pen are untouched');
   assert.match(knob, /cur\.setPointerCapture\(ev\.pointerId\)/);
-  assert.match(knob, /const move = \(e2\) => wave\.__seekAt\(e2\);/, 'dragging the dot scrubs through the canvas mapping');
+  assert.match(knob, /const move = \(e2\) => \{ const ms = wave\.__seekAt\(e2\); wave\.__focus\?\.\(dragged \? 'move' : 'start', ms\); dragged = true; \};/, 'dragging the dot scrubs through the canvas mapping, and opens the dock\'s close-up (v598)');
   const mouse = body.slice(body.indexOf('ev.preventDefault();'));
   assert.match(mouse, /setPointerCapture\(ev\.pointerId\)/, 'mouse and pen keep park-and-drag');
   // CSS: the dot exists only for coarse pointers and is the only touch-action:none surface on a strip
@@ -78,7 +78,7 @@ test('#45 the listening page follows the same rule', () => {
   assert.doesNotMatch(SEGX, /\.cur::after/, 'no dot on the listening page either');
   const scrub = SEGX.slice(SEGX.indexOf('function wireScrub(el, s, e)'), SEGX.indexOf('wireScrub(ov, 0, totalMs);'));
   assert.match(scrub, /if \(ev\.pointerType === 'touch'\) \{/, 'touch takes the tap-only path');
-  assert.match(scrub, /if \(down && ev\.pointerType !== 'touch'\) seek\(ev\);/, 'no touch scrubbing on the canvas');
+  assert.match(scrub, /if \(down && ev\.pointerType !== 'touch'\) drag\(ev\);/, 'no touch scrubbing on the canvas');
   assert.match(scrub, /knob\.addEventListener\('pointerdown'/, 'the dot scrubs');
 });
 

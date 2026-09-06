@@ -72,7 +72,7 @@ ok(/export function wireWaveSeek/.test(strips), 'the click-to-position/drag-to-s
 const render = strips.match(/export function renderCut\(anchorIdx\) \{[\s\S]*?\n\}/)[0];
 ok(/wireWaveSeek\(wave, seg, cutDeps\.getPlayer/.test(render), 'the Cut tab strips use it');
 ok(/wireWaveSeek\(wave, seg, deps\.getPlayer/.test(strips), 'and so do the Baseline strips — one behaviour, not two');
-ok(/seekMs\?\.\(seg\.start \+ f \* \(seg\.end - seg\.start\)\)/.test(strips),
+ok(/const ms = seg\.start \+ f \* \(seg\.end - seg\.start\);\s*\n\s*getPlayer\(\)\?\.seekMs\?\.\(ms\);/.test(strips),
    'a click maps to a time INSIDE that segment\'s own span');
 ok(/wireWaveSeek\(wave, \(\) => player|wireWaveSeek\(wave, seg, \(\) => player/.test(app),
    '…and so does the GLOSS tab, which had its own copy until the pause behaviour needed writing twice');

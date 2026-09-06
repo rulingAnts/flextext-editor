@@ -14,13 +14,13 @@ Status words used below:
 | **designed** | a written plan exists; not started |
 | **idea** | recorded so it is not lost; no design yet |
 
-Last updated 2026-09-06 at v593. The production estate is at v592.
+Last updated 2026-09-06 at v597. The production estate is at v597.
 
 ---
 
-## 1. On staging, waiting for release (v593)
+## 1. Recently released (v585 to v597)
 
-All seven sites are at v593 on the staging estate; v585 to v592 are in production. Human checks are listed per release in
+All seven sites and the GitHub Pages editor are at v597 in production; staging matches. Human checks are listed per release in
 `plans/RELEASE-SMOKE-TEST.md`.
 
 - **Several analysis languages (v585).** The listening page gets a picker for the gloss language
@@ -46,10 +46,19 @@ All seven sites are at v593 on the staging estate; v585 to v592 are in productio
   the player zooms in on the seam; tap to place, drag to scroll when zoomed, playhead line to scrub,
   pinch (or trackpad pinch) to zoom, on the editor and on the exported listening page. The editor
   never makes the top player's marks draggable; the segmenter's matcher keeps its own.
-- **One splitting rule (v593).** A more basic tab cannot split or join a line with more advanced
-  data; a split needs one position per part the line has, placed in any order, and writes nothing
-  until all are placed, with the missing part marked and every natural gesture cancelling. Words
-  on the Gloss tab are editable in place. The Paragraph Analysis Tool goes through the same planner.
+- **One splitting rule (v593 to v597).** A more basic tab cannot split or join a line with more
+  advanced data; a split needs one position per part the line has, placed in any order, and writes
+  nothing until all are placed. A scissors hangs under the blinking text cursor wherever Enter would
+  split and follows it; a round ✕ cancels; the join button between lines is the chain link. Words
+  on the Gloss tab are editable in place. Each piece of a split is its own phrase in the FLExText.
+  The Paragraph Analysis Tool goes through the same planner.
+- **The tool splits and joins; edge trims; scrub close-up (v598, on staging).** The Paragraph
+  Analysis Tool has the full rule: a ✂ between two words, under the text cursor in a line or its
+  translation, and under the row's playhead; a 🔗 joins with the next line and absorbs any blank
+  audio between the two so the joined line spans the whole recording area. On the Gloss tab and in
+  the tool a timed line also carries a ✂ before its first word and after its last, to trim the
+  silence at that end into a line of its own. Scrubbing a line's waveform opens the same momentary
+  close-up on the top player that dragging a boundary does, on the editor and the listening page.
 
 ## 2. In progress
 

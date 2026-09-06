@@ -1221,9 +1221,33 @@ function decorateGlossSegments() {
       sc.textContent = '\u2702';
       sc.setAttribute('aria-label', t('gloss.splitTip'));
       sc.title = t('gloss.splitTip');
+      sc.dataset.gap = String(before);
       sc.addEventListener('click', () => glossPlace(i, 'words', before));   // the WORDS tier of the pending split
       wrapEl.appendChild(sc);
     });
+    /* EDGE ✂ (Seth, 2026-09-07: "scissors before the first word/gloss pair and after the last one,
+     * so that we can split/trim empty audio off the edge if we want to"): a timed line can give up
+     * the silence at either end as an empty line of its own. The words tier lands at 0 or at the
+     * count and the translation stays whole with the words (its tier lands at the same edge), so
+     * only the sound is left to place. A line without a time has no edge to trim: no edge ✂. */
+    const wordRow = g.querySelector('.word-row');
+    const edgeSeg = docSegments(current.doc)[i];
+    const firstCell = wordRow && wordRow.querySelector('.word-cell');
+    if (firstCell && isAligned(edgeSeg) && !wordRow.querySelector('.edge-scissors')) {
+      const cells = wordRow.querySelectorAll('.word-cell');
+      const mkEdge = (gap, tip) => {
+        const b = document.createElement('button');
+        b.className = 'scissor-btn edge-scissors';
+        b.tabIndex = -1;
+        b.textContent = '\u2702';
+        b.dataset.gap = String(gap);
+        b.setAttribute('aria-label', t(tip)); b.title = t(tip);
+        b.addEventListener('click', () => glossPlaceEdge(i, gap));
+        return b;
+      };
+      firstCell.insertAdjacentElement('beforebegin', mkEdge(0, 'gloss.edgeStartTip'));
+      cells[cells.length - 1].insertAdjacentElement('afterend', mkEdge(cells.length, 'gloss.edgeEndTip'));
+    }
     // ⚠ ENTER-SPLIT ON WORD-GLOSS FIELDS: caret at the START of a word's gloss box splits BEFORE
     // that word; at the END, AFTER it. Mid-text Enter does nothing (a stray key cannot split).
     // Word index = cell position: renderSegment appends one .word-cell per seg.words entry,
@@ -1270,10 +1294,10 @@ function decorateGlossSegments() {
             glossJoinLines(i - 1);
           } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
             e.preventDefault();
-            glossPlace(i, 'words', 0); glossPlace(i, 'free', 0);                    // an empty line BEFORE this one (audio still to place)
+            glossPlaceEdge(i, 0);                    // an empty line BEFORE this one (audio still to place)
           } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
             e.preventDefault();
-            glossPlace(i, 'words', wordCount()); glossPlace(i, 'free', fi.value.length);   // an empty line AFTER this one
+            glossPlaceEdge(i, wordCount());          // an empty line AFTER this one
           } else if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             /* Mid-text Enter in a translation PLACES the translation's side of a split (Seth, 2026-09-06:
@@ -1386,6 +1410,19 @@ function glossPlace(i, tier, value) {
   return splitPlace({ tab: 'gloss', i }, tier, value, glossSpec(i));
 }
 /* Enter outside the boxes, or the ✂ under the playhead: the AUDIO tier, on the line the playhead is in. */
+/* An EDGE split: the words tier at 0 or at the count, and the translation's tier at the same edge
+ * so the whole translation stays with the words — the sound is then the only tier left to place.
+ * The second placement happens only while the first left the split pending: a line with no time
+ * and no translation completes on the words alone, and a second call would start a split on the
+ * empty line the first one just made. */
+function glossPlaceEdge(i, gap) {
+  const phrase = current && current.doc.paragraphs[i] && current.doc.paragraphs[i].segments[0];
+  if (!phrase) return 'ignored';
+  const n = (phrase.words || []).length;
+  const r = glossPlace(i, 'words', gap);
+  if (r === 'pending') glossPlace(i, 'free', gap >= n ? String(phrase.free || '').length : 0);
+  return r;
+}
 function glossPlaceAudio() {
   if (!current) return false;
   const ms = player?.playheadMs?.();
@@ -1405,7 +1442,7 @@ function renderGlossPending(p) {
   g.classList.add('split-pending');
   const missing = splitPlan(p.tiers, p.pos).missing;
   const has = (k) => Object.prototype.hasOwnProperty.call(p.pos, k);
-  g.querySelectorAll('.scissor-btn').forEach((b) => b.classList.toggle('needs-split', missing.includes('words')));
+  g.querySelectorAll('.scissor-btn').forEach((b) => { b.classList.toggle('needs-split', missing.includes('words')); b.classList.toggle('split-placed', has('words') && +b.dataset.gap === p.pos.words); });
   const fi = g.querySelector('.free-input');
   if (fi) { fi.classList.toggle('needs-split', missing.includes('free')); fi.classList.toggle('split-placed', has('free')); }
   const wrap = g.querySelector('.gseg-wavewrap'), wave = g.querySelector('.gseg-wave');

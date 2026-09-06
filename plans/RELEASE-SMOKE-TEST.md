@@ -286,3 +286,24 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Gloss tab, a split started with the scissors between two words: the same ✂ under the cursor
       in the translation box, following it; there is no sentence under the line, only the ✕.
 - [ ] The join button between two lines on the Cut, Baseline and Gloss tabs shows 🔗 and still joins; the Cut hint names it.
+
+## Paragraph Analysis Tool: split and join (v598)
+
+- [ ] An imported text with audio: a ✂ sits between every two words; tapping one outlines the row
+      in orange with a ✕; the row's playhead carries a ✂ (and Enter with no box focused does the
+      same); the translation's ✎ opens its box and a ✂ hangs under the cursor; once every part is
+      placed the line becomes two, with words, glosses, translation halves, times and speaker
+      right; Ctrl+Z undoes it.
+- [ ] Hide blank lines ON, two text lines with silence between: the 🔗 on the first joins both and
+      the silence; the joined line's span runs from the first's start to the second's end.
+- [ ] A line with propositions under the next line refuses to join, with the message.
+- [ ] An authored chart: Enter mid-text in a line's box still splits at the cursor; Enter at the end
+      still adds a line; a ✂ hangs under the cursor while the box is open.
+- [ ] Edge ✂ (Gloss tab and the tool): a timed line shows a dashed ✂ before its first word and
+      after its last; tapping the first outlines the row with only the playhead ✂ left to place;
+      placing the sound makes an empty timed line before it, the translation whole on the text
+      line. A line without a time shows no edge ✂.
+- [ ] Scrub close-up: dragging the playhead across a strip on any tab (mouse, or the playhead
+      line on touch) zooms the top player in on the playhead for the length of the drag and puts
+      it back on release; a plain click never flashes it. [real device] The listening page: the
+      same on a row's waveform; scrubbing the overview itself does not zoom.

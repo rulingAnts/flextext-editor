@@ -108,9 +108,18 @@ translation stays one text box per language.
 
 - **Audio Segmenter**: unchanged. Its matcher shows audio and text in separate columns and its
   splits already work one tier at a time (Seth: "moot point").
-- **Paragraph Analysis Tool**: to be checked. If it can split a line at all, it does so with the
-  same pending model (audio, if the text carries timing; text at the caret); if it cannot, nothing
-  changes there.
+- **Paragraph Analysis Tool** (v598): the same pending model, on its single interlinear view (its
+  tab kind is `interlinear`: words when the line has them, else its text; the translation; the
+  audio). A ✂ between two words, a ✂ under the caret in a line's box or its translation, a ✂
+  under the row's playhead; a 🔗 joins with the next line, and every blank audio line between the
+  two comes along so the joined line spans the whole recording area (Seth, 2026-09-06). Joins are
+  refused when a later line carries propositions. Neither is gated on `authored`: a boundary move is
+  not a wording edit.
+- **Edge ✂** (Seth, 2026-09-07, Gloss tab and the tool): a timed line also carries a ✂ before its
+  first word and after its last, to trim the silence at that end into a line of its own. The words
+  tier lands at 0 or the count, the translation's tier at the same edge (the whole translation
+  stays with the words), and only the sound is left to place. A line without a time has no edge to
+  trim and shows none.
 
 ## 5. Where the code goes
 

@@ -586,14 +586,21 @@ ${withAudio ? `<script>
   // Scrub = position only (the editor's interaction language): click or drag parks the playhead;
   // the play buttons start sound. Overview scrubs the whole file; a row wave scrubs its span.
   function wireScrub(el, s, e) {
-    var down = false;
+    var down = false, dragged = false;
     function seek(ev) {
       var start = (typeof s === 'function' ? s() : s);
       var span = (typeof e === 'function' ? e() : e) - start;
       var r = el.getBoundingClientRect();
       var f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-      if (span > 0) audio.currentTime = (start + f * span) / 1000;
+      var ms = start + f * Math.max(0, span);
+      if (span > 0) audio.currentTime = ms / 1000;
+      return ms;
     }
+    // The overview's momentary close-up while a ROW is scrubbed (the editor's dock does the same,
+    // v598): opens on the first move of a drag, never on a click or a tap, follows the playhead,
+    // closes on release. Scrubbing the overview itself is left alone.
+    function drag(ev) { var ms = seek(ev); if (el !== ov) ovFocus(dragged ? 'move' : 'start', ms); dragged = true; }
+    function release() { if (dragged && el !== ov) ovFocus('end'); dragged = false; }
     // Touch (same rule as the editor's strips): a tap parks the playhead, dragging the dot scrubs,
     // dragging anywhere else scrolls (touch-action:pan-y above; no pointermove on the canvas).
     el.addEventListener('pointerdown', function (ev) {
@@ -605,17 +612,17 @@ ${withAudio ? `<script>
         el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
         return;
       }
-      ev.preventDefault(); down = true; seek(ev);
+      ev.preventDefault(); down = true; dragged = false; seek(ev);
     });
-    el.addEventListener('pointermove', function (ev) { if (down && ev.pointerType !== 'touch') seek(ev); });
-    window.addEventListener('pointerup', function () { down = false; });
+    el.addEventListener('pointermove', function (ev) { if (down && ev.pointerType !== 'touch') drag(ev); });
+    window.addEventListener('pointerup', function () { if (down) release(); down = false; });
     var knob = el.parentNode && el.parentNode.querySelector('.cur');
     if (knob) knob.addEventListener('pointerdown', function (ev) {
       if (ev.pointerType !== 'touch') return;
       ev.preventDefault(); try { knob.setPointerCapture(ev.pointerId); } catch (e) {}
-      audio.pause();
-      var move = function (e2) { seek(e2); };
-      var end = function () { knob.removeEventListener('pointermove', move); knob.removeEventListener('pointerup', end); knob.removeEventListener('pointercancel', end); };
+      audio.pause(); dragged = false;
+      var move = function (e2) { drag(e2); };
+      var end = function () { knob.removeEventListener('pointermove', move); knob.removeEventListener('pointerup', end); knob.removeEventListener('pointercancel', end); release(); };
       knob.addEventListener('pointermove', move); knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
     });
   }
@@ -630,7 +637,15 @@ ${withAudio ? `<script>
    * waveform once it is zoomed, pinching zooms in and out, and the playhead line itself scrubs
    * (the knob above). A trackpad pinch (a wheel with ctrlKey) zooms too; a horizontal two-finger
    * swipe scrolls natively (overflow-x on the wrapper). Vertical drags still scroll the page. */
-  var ovWrap = ov.parentNode, ovZoom = 1;
+  var ovWrap = ov.parentNode, ovZoom = 1, focusPrev = null;
+  /* The close-up: about four seconds across the overview around the playhead (the editor's
+   * FOCUS_WINDOW_S), the playhead kept centred, then the zoom and scroll put back. */
+  function ovFocus(phase, ms) {
+    var T = totalMs(); if (!(T > 0)) return;
+    if (phase === 'start') { focusPrev = { z: ovZoom, scroll: ovWrap.scrollLeft }; setOvZoom(Math.max(ovZoom, T / 4000), ms, ovWrap.getBoundingClientRect().left + ovWrap.clientWidth / 2); }
+    if (phase === 'start' || phase === 'move') ovWrap.scrollLeft = (ms / T) * ov.clientWidth - ovWrap.clientWidth / 2;
+    if (phase === 'end' && focusPrev) { var p = focusPrev; focusPrev = null; setOvZoom(p.z, 0, ovWrap.getBoundingClientRect().left); ovWrap.scrollLeft = p.scroll; }
+  }
   function ovMs(clientX) { var r = ov.getBoundingClientRect(), T = totalMs(); return r.width > 0 ? Math.min(T, Math.max(0, (clientX - r.left) / r.width * T)) : 0; }
   function setOvZoom(z, anchorMs, clientX) {
     z = Math.min(40, Math.max(1, z));

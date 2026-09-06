@@ -1419,8 +1419,10 @@ export function makeBoundaryDrag(o) {
       try { p?.clearSpan?.(); p?.pause?.(); } catch { /* the player may be mid-load */ }
       if (o.capture) o.capture();
       seam = bi;
-      // The big player zooms in on the seam for the length of the drag — see Player.boundaryFocus.
+      // The big player zooms in on the seam for the length of the drag — see Player.boundaryFocus —
+      // and the seam's own mark goes thick, dashed and blue (Seth, 2026-09-07) — Player.boundaryLive.
       try { const s = o.getSegs()[bi]; if (s && isAligned(s)) p?.boundaryFocus?.('start', s.end); } catch { /* cosmetic */ }
+      try { p?.boundaryLive?.(bi); } catch { /* cosmetic */ }
       return;
     }
     if (phase === 'move') {
@@ -1438,6 +1440,7 @@ export function makeBoundaryDrag(o) {
     if (seam == null) return;
     seam = null;
     try { p?.boundaryFocus?.('end'); } catch { /* cosmetic */ }
+    try { p?.boundaryLive?.(null); } catch { /* cosmetic */ }
     if (o.persist) o.persist();
     if (o.onEnd) o.onEnd(bi);
   };

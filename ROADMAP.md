@@ -59,6 +59,8 @@ All seven sites and the GitHub Pages editor are at v597 in production; staging m
   the tool a timed line also carries a ✂ before its first word and after its last, to trim the
   silence at that end into a line of its own. Scrubbing a line's waveform opens the same momentary
   close-up on the top player that dragging a boundary does, on the editor and the listening page.
+- **The dragged boundary's mark (v599, on staging).** While a grip is dragged, the top player's mark
+  for that seam is a thick dashed blue line with a glow, distinct from the red playhead.
 
 ## 2. In progress
 

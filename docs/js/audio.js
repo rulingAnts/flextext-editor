@@ -617,6 +617,26 @@ export async function fetchFileViaUrl(url) {
 const ZOOM_MIN = 1;     // px per second (fit-ish)
 const ZOOM_MAX = 300;
 const FOCUS_WINDOW_S = 4;   // seconds across the dock while a strip's boundary is being dragged (boundaryFocus)
+/* A boundary mark on the dock: at rest "subtle, light, skinny" (Seth, 2026-09-06), and WHILE IT IS
+ * BEING DRAGGED "less subtle, thicker, brighter … distinct from the play head" (Seth, 2026-09-07):
+ * a thick dashed blue line with a white halo and a blue glow, centred on the seam, above the other
+ * marks. The playhead stays the thin solid red line, so the two can never be confused. Inline on
+ * purpose: the marks live inside wavesurfer's shadow root, out of app.css's reach. */
+function styleMark(el, live) {
+  if (live) {
+    el.style.borderLeft = '4px dashed #2f7cf6';
+    el.style.marginLeft = '-2px';
+    el.style.borderRadius = '2px';
+    el.style.boxShadow = '0 0 0 1px rgba(255,255,255,.85), 0 0 8px 2px rgba(47,124,246,.6)';
+    el.style.zIndex = '1';
+  } else {
+    el.style.borderLeft = '1px dotted rgba(108,118,133,.7)';   // subtle, light, skinny (Seth, 2026-09-06)
+    el.style.marginLeft = '0';
+    el.style.borderRadius = '0';
+    el.style.boxShadow = 'none';
+    el.style.zIndex = '';
+  }
+}
 
 /* The overview waveform's height, as the stylesheet says for THIS screen: .player-wave's
  * min-height is 72px on a desktop, 56 on a tablet, 44 on a phone (app.css, the v548 tiers). */
@@ -1186,6 +1206,7 @@ export class Player {
         const el = layer.children[i];
         el.style.left = (((ms / 1000) / dur) * 100) + '%';
         el.dataset.bi = String(j);
+        styleMark(el, this._liveSeam === j);
       });
       return;
     }
@@ -1200,8 +1221,8 @@ export class Player {
     want.forEach(({ ms, j }) => {
       const f = (ms / 1000) / dur;
       const b = document.createElement('span');
-      b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
-        + 'border-left:1px dotted rgba(108,118,133,.7);';   // subtle, light, skinny (Seth, 2026-09-06)
+      b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;';
+      styleMark(b, this._liveSeam === j);
       b.style.left = (f * 100) + '%';
       b.dataset.bi = String(j);
       if (drag) {
@@ -1251,6 +1272,16 @@ export class Player {
       }
       layer.appendChild(b);
     });
+  }
+
+  /* The seam being dragged, for the length of the drag: its mark on the dock goes thick, dashed
+   * and blue (styleMark), and null puts it back. Called by makeBoundaryDrag at pick-up and release,
+   * whichever surface the grip was on — a strip's grip on any tab, or the segmenter's own marks. */
+  boundaryLive(j) {
+    this._liveSeam = (j == null) ? null : j;
+    const l = this._boundLayer;
+    if (!l || !l.isConnected) return;
+    for (const el of l.children) styleMark(el, el.dataset.bi === String(this._liveSeam) && this._liveSeam != null);
   }
 
   /* Let a caller move the marks. `fn(index, ms, phase)` where phase is 'start' | 'move' | 'end';

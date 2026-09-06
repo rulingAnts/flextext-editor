@@ -1423,8 +1423,10 @@ function renderGlossPending(p) {
   const say = document.createElement('span');
   say.textContent = splitPromptText(t, missing);
   prompt.appendChild(say);
+  // An icon button, not a text link (Seth, 2026-09-06): the round ✕ beside the round ✂.
   const cancel = document.createElement('button');
-  cancel.type = 'button'; cancel.className = 'link-btn split-cancel'; cancel.textContent = t('split.cancel');
+  cancel.type = 'button'; cancel.className = 'split-cancel'; cancel.textContent = '\u2715';
+  cancel.title = t('split.cancel'); cancel.setAttribute('aria-label', t('split.cancel'));
   cancel.addEventListener('click', () => splitCancel());
   prompt.appendChild(cancel);
   g.appendChild(prompt);

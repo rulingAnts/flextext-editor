@@ -2737,7 +2737,9 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
    caret (attachCaretScissors keeps `left` on the caret and `top` at the box's bottom edge). */
 .caret-scissors { border-color: #e65100; background: #fff3e0; color: #e65100; box-shadow: 0 0 6px rgba(230,81,0,.5); z-index: 4; }
 .split-prompt.has-caret-scissors { margin-top: 30px; }   /* room for the ✂ hanging off the box above */
-.split-prompt .split-cancel { margin-left: auto; }
+.split-prompt .split-cancel { margin-left: auto; appearance: none; border: 1px solid #b23c00; background: var(--card, #fff); color: #b23c00;
+                              border-radius: 999px; width: 30px; height: 30px; line-height: 1; font-size: 15px; cursor: pointer; padding: 0; flex: none; }
+.split-prompt .split-cancel:hover { background: #fdece6; }
 .seg-cutmark { position: absolute; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
 .gseg-cutmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
 .gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 2px; }

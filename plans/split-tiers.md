@@ -130,7 +130,7 @@ translation stays one text box per language.
 1. **Atomic.** "Nothing is split until every active tier has its position. That was my main idea."
 2. **Cancel.** Escape; the same scissors again ("like toggling it off"); clicking another segment
    or elsewhere; the Undo button ("it already does in the audio segmenter app"); a tab switch and
-   closing the text. All built, plus a visible *Cancel the split* link in the prompt.
+   closing the text. All built, plus a round ✕ button in the prompt (an icon, not a text link, per Seth).
 3. **An empty tier is skipped** (not answered explicitly; built as proposed).
 4. **Joins under the rule.** Agreed.
 5. **Paragraph Analysis Tool.** It splits authored lines at the caret (text only, no audio, no

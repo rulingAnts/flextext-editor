@@ -71,8 +71,8 @@ test('Baseline tab: the box places the text tier, the playhead the audio tier; r
   const render = STRIPS.slice(STRIPS.indexOf('function renderStripsPending(p)'), STRIPS.indexOf('function onKey(e, i, input)'));
   assert.match(render, /input\.classList\.toggle\('needs-split', missing\.includes\('text'\)\);/, 'the box still to be placed is marked');
   assert.match(STRIPS, /registerCaretScissors\(input, row, \(\) => stripsCaretWant\(input, i\), \(at\) => stripsPlace\(i, 'text', at\), deps\.t\('split\.here'\)\);/, 'every Baseline box registers its ✂');
-  assert.match(render, /if \(missing\.includes\('text'\) && input\) prompt\.classList\.add\('has-caret-scissors'\);/, 'and the prompt keeps clear of it');
-  assert.match(render, /say\.textContent = splitPromptText\(deps\.t, missing\);/, 'and every missing tier named');
+  assert.match(render, /if \(missing\.includes\('text'\) && input\) prompt\.classList\.add\('has-caret-scissors'\);/, 'and the ✕ row keeps clear of it');
+  assert.doesNotMatch(render, /split\.now\./, 'no sentence in the row (Seth, 2026-09-06: "We don\'t need that tip anymore")');
 });
 
 test('Gloss tab: the ✂ between words, the translation\'s caret and the playhead each place a tier; words editable in place', () => {
@@ -104,20 +104,20 @@ test('the ✂ for a text tier hangs under the blinking caret and follows it (Set
   assert.match(helper, /for \(const ev of \['input', 'keyup', 'click', 'scroll', 'focus'\]\) input\.addEventListener\(ev, place\);/, 'and typing, scrolling, focus');
   assert.match(helper, /btn\.addEventListener\('pointerdown', \(ev\) => \{ ev\.preventDefault\(\); ev\.stopPropagation\(\); onCut\(input\.selectionStart \?\? input\.value\.length\); \}\);/, 'placed on pointerdown so the caret is still where the user sees it');
   assert.match(helper, /btn\.className = 'cut-scissors split-here caret-scissors';/, 'the playhead\'s ✂, on the caret');
+  assert.equal((I18N.match(/'split\.now\./g) || []).length, 0, 'the tip sentences are gone');
   assert.match(APP, /registerCaretScissors\(input, freeRow, \(\) => glossCaretWant\(input, seg\), /, 'every translation box registers its ✂');
   const want = STRIPS.slice(STRIPS.indexOf('function stripsCaretWant(input, i)'), STRIPS.indexOf('function stripsCaretWant(input, i)') + 500);
   assert.match(want, /if \(document\.activeElement === input\) return true;/, 'shown whenever the focused box can be split by Enter');
   assert.match(want, /if \(!joinSplitOk\(\) \|\| stripsLocked\(i\)\) return false;/, 'never on a locked line');
   assert.match(STRIPS, /caretRegs\.set\(input, \{ host, want, onCut, label, dispose: null \}\);[\s\S]{0,400}queueMicrotask\(syncCaretScissors\);/, 'the first sweep waits for the row to be in the document');
   assert.match(STRIPS, /document\.addEventListener\('focusin', \(\) => syncCaretScissors\(\)\);\s*\n\s*document\.addEventListener\('focusout', \(\) => setTimeout\(syncCaretScissors, 0\)\);/, 'follows focus');
-  assert.match(APP, /say\.textContent = splitPromptText\(t, missing\);/, 'the Gloss prompt names every missing tier');
   assert.match(STRIPS, /if \(!p\) \{ syncCaretScissors\(\); return; \}/, 're-decided the moment the split completes or cancels');
 });
 
 test('the Paragraph Analysis Tool goes through the same planner; words exist in both languages; the styles exist', () => {
   assert.match(PAT, /import \{ splitTiers, splitPlan \} from '\.\/segments\.js';/);
   assert.match(PAT, /if \(!splitPlan\(splitTiers\(\{ tab: 'baseline', text: txt, aligned: false \}\), \{ text: caret \}\)\.complete\) return;/);
-  for (const k of ['split.now.audio', 'split.now.text', 'split.now.words', 'split.now.free', 'split.here', 'split.cancel', 'split.no.glossed', 'gloss.editWordTip']) {
+  for (const k of ['split.here', 'split.cancel', 'split.no.glossed', 'gloss.editWordTip']) {
     assert.equal((I18N.match(new RegExp(`\n  '${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
   }
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.splitTiers': '/g) || []).length, 2, 'release note in EN and ID');

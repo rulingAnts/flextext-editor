@@ -82,8 +82,9 @@ While a split is pending, every tier that still needs a position is marked: a te
 thick red-orange border, a slightly glowing caret and a scissors button directly under it; the
 audio tier shows a pinned dashed marker line at the current playhead on the strip with the
 scissors under it; the interlinear shows its word-gap scissors highlighted. A tier already placed
-shows its marker in plain colour. A small strip of text under the row says what is still needed
-("Now show where the words divide" / "Now show where the sound divides"), in both languages.
+shows its marker in plain colour. There is no sentence under the row (Seth, 2026-09-06: "We don't
+need that tip anymore"): the orange outline, the ✂ under the caret or the playhead, and the round ✕
+carry the meaning.
 
 Starting on a second tier before the first is placed is impossible by construction (each tier's
 gesture is its own). Placing a tier again replaces its position. Escape, or the scissors of a

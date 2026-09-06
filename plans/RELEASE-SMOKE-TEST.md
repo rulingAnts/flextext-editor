@@ -308,9 +308,9 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       it back on release; a plain click never flashes it. [real device] The listening page: the
       same on a row's waveform; scrubbing the overview itself does not zoom.
 
-## The dragged boundary's mark (v599)
+## The dragged boundary's mark (v600)
 
 - [ ] Drag a grip on any tab: for the length of the drag the top player's mark for that seam is a
-      thick dashed blue line with a glow, moving with the grip, clearly different from the thin
+      2px dashed blue line (no glow), moving with the grip, clearly different from the thin
       dotted marks and from the red playhead; on release it is a thin dotted mark again. The
       segmenter's own draggable marks do the same. [real device] The same with a finger.

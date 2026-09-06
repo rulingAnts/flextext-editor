@@ -13,8 +13,8 @@
 import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
-import { splitTiers, splitPlan } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
-import { splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors } from './segment-strips.js';   // its pending state and the ✂ under a caret
+import { splitTiers, splitPlan, isAligned } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
+import { splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag } from './segment-strips.js';   // its pending state, the ✂ under a caret, and the editor's grips
 import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
@@ -1266,6 +1266,109 @@ function setupAudio() {
   }).catch((e) => { try { console.warn('[paragraph] peaks unavailable', e); } catch { /* noop */ } });
 }
 
+/* ── THE OVERVIEW'S CLOSE-UP, ITS MARKS, AND THE GRIPS (Seth, 2026-09-07: "incorporate segment
+ * adjustment handles, scrubbing, and closeup for each in PAT as well (and when adjusting or
+ * scrubbing, the big preview player gets taller as well)").
+ *
+ * The overview is one canvas in a wrapper. The close-up zooms the canvas so about OV_FOCUS_S
+ * seconds fill the wrapper (the editor's FOCUS_WINDOW_S), makes the wrapper OV_FOCUS_H tall,
+ * keeps the playhead or the seam centred, and puts everything back on release. The marks are the
+ * seams between consecutive timed lines, thin and dotted; the one being dragged is a 2px dashed
+ * blue line (the editor's styleMark). The grips are the editor's own (attachEdgeHandles) and the
+ * drag goes through its consumer (makeBoundaryDrag), which moves the LIVE line objects — so the
+ * drag works on a working copy of the document and the copy is committed once, on release. */
+const OV_FOCUS_S = 4;
+const OV_FOCUS_H = 96;
+let ovFocusPrev = null;
+let ovLiveSeam = null;
+let ovMarksKey = '';   // width:duration the marks were last placed for — the ticker re-places them when it changes
+function ovEls() { const ov = $('#pa-ov'); return ov ? { ov, wrap: ov.parentElement } : null; }
+function ovTotal() { return durMs || (audio && isFinite(audio.duration) ? audio.duration * 1000 : 0); }
+function ovCenter(ms) {
+  const e = ovEls(), T = ovTotal();
+  if (!e || !(T > 0)) return;
+  e.wrap.scrollLeft = (ms / T) * e.ov.clientWidth - e.wrap.clientWidth / 2;
+}
+function ovFocus(phase, ms) {
+  const e = ovEls(), T = ovTotal();
+  if (!e || !(T > 0)) return;
+  if (phase === 'start') {
+    if (!ovFocusPrev) ovFocusPrev = { width: e.ov.style.width, height: e.wrap.style.height, scroll: e.wrap.scrollLeft };
+    e.wrap.classList.add('pa-ovfocus');
+    e.wrap.style.height = OV_FOCUS_H + 'px';
+    e.ov.style.width = (Math.max(1, T / (OV_FOCUS_S * 1000)) * 100) + '%';
+    drawWave(e.ov, 0, T); renderOvMarks();
+    ovCenter(ms);
+  } else if (phase === 'move') {
+    if (ovFocusPrev) ovCenter(ms);
+  } else if (phase === 'end' && ovFocusPrev) {
+    const p = ovFocusPrev; ovFocusPrev = null;
+    e.wrap.classList.remove('pa-ovfocus');
+    e.wrap.style.height = p.height; e.ov.style.width = p.width;
+    drawWave(e.ov, 0, T); renderOvMarks();
+    e.wrap.scrollLeft = p.scroll;
+  }
+}
+function ovSeams() {
+  const out = [], L = state ? state.lines : [];
+  for (let j = 0; j < L.length - 1; j++) if (isAligned(L[j]) && isAligned(L[j + 1])) out.push({ j, ms: L[j].end });
+  return out;
+}
+function renderOvMarks() {
+  const e = ovEls();
+  if (!e) return;
+  const T = ovTotal();
+  let layer = e.wrap.querySelector('.pa-ovmarks');
+  if (!layer) { layer = document.createElement('div'); layer.className = 'pa-ovmarks'; e.wrap.appendChild(layer); }
+  const seams = T > 0 ? ovSeams().filter((s) => s.ms > 0 && s.ms < T) : [];
+  // Reuse the nodes when the count is unchanged (a drag calls this on every move).
+  if (layer.children.length !== seams.length) layer.replaceChildren(...seams.map(() => { const m = document.createElement('span'); m.className = 'pa-ovmark'; return m; }));
+  seams.forEach((s, i) => {
+    const m = layer.children[i];
+    m.dataset.j = String(s.j);
+    m.style.left = ((s.ms / T) * e.ov.clientWidth) + 'px';
+    m.classList.toggle('live', ovLiveSeam === s.j);
+  });
+  ovMarksKey = e.ov.clientWidth + ':' + T;
+}
+// The slice of the editor's Player that makeBoundaryDrag talks to, on the tool's own overview.
+const ovPlayer = {
+  clearSpan() { stopAt = 0; activeSpan = null; },
+  pause() { if (audio) audio.pause(); },
+  boundaryFocus(phase, ms) { ovFocus(phase, ms); },
+  boundaryLive(j) { ovLiveSeam = (j == null) ? null : j; renderOvMarks(); },
+};
+let dragBase = null, dragMoved = false, paDragFn = null;
+function paDrag() {
+  if (!paDragFn) paDragFn = makeBoundaryDrag({
+    getSegs: () => state.lines,
+    getPlayer: () => ovPlayer,
+    // The drag mutates the line objects in place (the consumer's contract), so it works on a
+    // working copy; the document as it was is the history entry when the copy is committed.
+    capture: () => { dragBase = state; dragMoved = false; state = { ...state, lines: state.lines.map((l) => ({ ...l })) }; },
+    redraw: (k) => { dragMoved = true; paRedrawRow(k); },
+    syncMarks: () => renderOvMarks(),
+    persist: () => {
+      const next = state, base = dragBase;
+      dragBase = null;
+      if (!base) return;
+      state = base;
+      if (dragMoved) commit(next); else renderWork();   // nothing moved: no history entry, the rows put back
+    },
+  });
+  return paDragFn;
+}
+function paRedrawRow(k) {
+  const l = state.lines[k];
+  const row = l && root && root.querySelector(`.pa-row[data-unit="${CSS.escape(l.id)}"]`);
+  if (!row) return;
+  row.dataset.s = l.start; row.dataset.e = l.end;
+  const c = row.querySelector('canvas.pa-wave');
+  if (c) { c.dataset.s = l.start; c.dataset.e = l.end; drawWave(c, l.start, l.end); }
+  const play = row.querySelector('.pa-rowplay');
+  if (play) { play.dataset.s = l.start; play.dataset.e = l.end; }
+}
+
 function drawWave(canvas, sMs, eMs) {
   const dpr = window.devicePixelRatio || 1;
   const W = Math.max(1, Math.round((canvas.clientWidth || 300) * dpr));
@@ -1301,24 +1404,35 @@ function drawAllWaves() {
   if (!root) return;
   root.querySelectorAll('canvas[data-s]').forEach((c) => drawWave(c, +c.dataset.s, +c.dataset.e));
   const ov = $('#pa-ov');
-  if (ov) drawWave(ov, 0, durMs || 1);
+  if (ov) { drawWave(ov, 0, durMs || 1); renderOvMarks(); }
 }
 
 function wireScrub(el, s, e) {
-  let down = false;
+  let down = false, dragged = false;
   const seek = (ev) => {
-    if (!audio) return;
+    if (!audio) return null;
     const r = el.getBoundingClientRect();
     const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-    audio.currentTime = (s + f * (e - s)) / 1000;
+    const ms = s + f * (e - s);
+    audio.currentTime = ms / 1000;
+    return ms;
   };
-  el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); down = true; seek(ev); });
-  el.addEventListener('pointermove', (ev) => { if (down) seek(ev); });
+  el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); down = true; dragged = false; seek(ev); });
+  // The overview's close-up rides the drag (the editor's strips do the same, v598): opened on the
+  // first move, never on a click, the playhead kept centred, closed on release.
+  el.addEventListener('pointermove', (ev) => {
+    if (!down) return;
+    const ms = seek(ev);
+    if (ms == null) return;
+    ovFocus(dragged ? 'move' : 'start', ms);
+    dragged = true;
+  });
   window.addEventListener('pointerup', () => {
+    if (down && dragged) ovFocus('end');
     // Select on RELEASE, not during the drag: re-selecting on every pointermove would rebuild the
     // selection dozens of times a second while the user is still deciding where to land.
     if (down && audio) focusLineAtTime(audio.currentTime * 1000);
-    down = false;
+    down = false; dragged = false;
   });
 }
 
@@ -1341,6 +1455,9 @@ function startTicker() {
       const T = durMs || (isFinite(audio.duration) ? audio.duration * 1000 : 0);
       const cur = $('#pa-ovcur'), ov = $('#pa-ov');
       if (cur && ov && T > 0) cur.style.left = (Math.min(1, tNow / T) * ov.clientWidth) + 'px';
+      // The marks were placed at whatever width the overview had when drawn — 0 before its first
+      // layout — so re-place them whenever the width or the duration they were placed for changes.
+      if (ov && T > 0 && ovMarksKey !== ov.clientWidth + ':' + T) renderOvMarks();
       const time = $('#pa-time');
       if (time) time.textContent = clock(tNow) + ' / ' + clock(T);
       const mp = $('#pa-play');
@@ -2353,6 +2470,15 @@ function renderLineRow(id, nodeLabel = '', header = false) {
   if (play) play.addEventListener('click', (e) => { e.stopPropagation(); playSpan(l.start, l.end); });
   const wave = row.querySelector('canvas');
   if (wave) wireScrub(wave, l.start, l.end);
+  /* The editor's grips, with the Join/split switch on: a seam shared with a timed neighbour gets a
+   * pill at that end of the wave, and dragging it moves the boundary between the two lines. */
+  if (wave && joinSplitOn) {
+    const k = state.lines.findIndex((x) => x.id === id);
+    attachEdgeHandles(row.querySelector('.pa-wavewrap'), wave, k, {
+      allowed: () => joinSplitOn, count: () => state.lines.length, segAt: (j) => state.lines[j], t,
+      onDrag: (bi, ms, phase) => paDrag()(bi, ms, phase),
+    });
+  }
   /* ⚠ SELECT FIRST, EDIT SECOND (Seth, 2026-08-05): "make sure it doesn't automatically open the
    * editor unless the line has been selected first. Click once to select the line/segment, THEN
    * you can edit a word/gloss pair or free translation."
@@ -2465,6 +2591,7 @@ function renderLineRow(id, nodeLabel = '', header = false) {
     });
   });
   row.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('.seg-edge')) return;   // a grip drag is not a selection
     if (!header) return toggleSelect(id, e);
     /* SHORTCUT (Seth, 2026-08-05): a line with propositions is not a unit, so clicking its header
      * selects ALL of its propositions as a run. Pressing Group then makes exactly one node over

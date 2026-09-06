@@ -2109,7 +2109,13 @@ body.rp-standalone main { padding-top: 0; }
 .pa-rowcur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; display: none; }
 /* ⚠ The wave FLEXES and is shorter than it was. It is an overview for seeking, not something to read
    detail off — the per-line waveforms do that job. 48px bought nothing the header could afford. */
-.pa-ovwrap { position: relative; height: 34px; flex: 1 1 auto; min-width: 0; }
+.pa-ovwrap { position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow: hidden; transition: height .15s ease; }
+/* The seams between lines on the overview, thin and dotted; the one being dragged 2px dashed blue
+   (the editor's marks). The close-up (ovFocus) zooms the canvas past the wrapper and scrolls it. */
+.pa-ovmarks { position: absolute; top: 0; left: 0; bottom: 0; width: 100%; pointer-events: none; z-index: 2; }
+.pa-ovmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dotted rgba(108,118,133,.7); }
+.pa-ovmark.live { border-left: 2px dashed #2f7cf6; margin-left: -1px; z-index: 1; }
+.pa-ovwrap .pa-cur { z-index: 3; }
 .pa-ovwrap canvas { width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: pointer; }
 .pa-cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; }
 .pa-transport { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }

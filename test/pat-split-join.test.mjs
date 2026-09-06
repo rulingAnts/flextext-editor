@@ -84,7 +84,7 @@ test('a join refuses when a later line has propositions, and the last line canno
 });
 
 test('the tool wires the engine: ✂ between words, under the caret, under the playhead; 🔗 to join; cancel and undo', () => {
-  assert.match(UI, /import \{ splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors \} from '\.\/segment-strips\.js';/);
+  assert.match(UI, /import \{ splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag \} from '\.\/segment-strips\.js';/);
   assert.match(UI, /installSplitCancel\(\);\s*\/\/ Escape and a tap away cancel a pending split/);
   assert.match(UI, /function doUndo\(\) \{\s*\n\s*if \(splitCancel\(\)\) return;/, 'Undo cancels first');
   assert.match(UI, /\$\('#pa-undo'\)\.addEventListener\('click', \(\) => \{ if \(splitCancel\(\)\) return;/, 'the Undo button too, even with nothing else to undo');

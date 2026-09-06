@@ -461,9 +461,8 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
   @media (pointer: coarse) {
-    .cur { width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none; z-index: 3; }
-    .cur::before { content: ''; position: absolute; left: 14px; top: 0; bottom: 0; width: 2px; background: #d33; }
-    .cur::after { content: ''; position: absolute; left: 15px; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: #d33; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); box-sizing: border-box; }
+    .cur { width: 32px; margin-left: -15px; background: transparent; pointer-events: auto; touch-action: none; z-index: 3; }
+    .cur::before { content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 3px; background: #d33; border-radius: 2px; }
   }
   .bar { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
   #mplay { width: 44px; height: 36px; font-size: 15px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; cursor: pointer; }

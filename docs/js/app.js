@@ -10387,6 +10387,7 @@ function wirePlaybackKeys() {
        * enable/disable setting"). The box is not touched: preventDefault stops the space from being
        * typed, focus and caret stay where they are, and the transport target becomes this line. */
       e.preventDefault();
+      if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;   // the cut-tab handler owns the chord there (one toggle) — see it
       const own = inTextField(e.target) ? segmentForField(e.target) : null;
       if (own) lastPlayTarget = own;
       togglePlayFromKey();
@@ -10814,6 +10815,20 @@ function setup() {
    * to naming the button, so the screen never promises a key that does nothing. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
+    /* ⚠ SHIFT+SPACE IS THE ONE CHORD THAT MEANS "AUDIO" WHEREVER THE CARET IS — the promise every
+     * other tab keeps in wirePlaybackKeys (Seth, 2026-09-06: "Make sure Shift+Space works on the cut
+     * tab as well … we also want it to always respond to Shift+Space no matter what for consistency's
+     * sake"). Delivered HERE, not there: this tab's transport is continuous (no span target) and
+     * plain Space is already this handler's, so wirePlaybackKeys stands down for the chord on this
+     * tab and it toggles exactly once. Before the fix both handlers fired — the capture one through
+     * the span transport, this one through the continuous one — and the two toggles cancelled, which
+     * is why the chord looked dead here. It bypasses transportKeysApply on purpose: that gate stands
+     * down inside a text field (the title box) and on controls outside the editor surface, and the
+     * chord must not. A modal still owns its keys, as everywhere. */
+    if (e.key === ' ' && e.shiftKey) {
+      if (e.repeat || document.querySelector('.modal:not([hidden])')) return;
+      e.preventDefault(); cutTogglePlay(); return;
+    }
     if (!transportKeysApply(e.target, e.key)) return;
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
     else if (e.key === 'Backspace') { if (!joinKeysEnabled()) return; e.preventDefault(); cutJoinPrev(); }

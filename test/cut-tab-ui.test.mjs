@@ -50,8 +50,8 @@ ok(!!rb, 'Player.renderBoundaries exists');
 ok(/getWrapper/.test(rb), 'the marks go inside wavesurfer\'s own wrapper (which scrolls and zooms with the wave)');
 ok(/left = \(f \* 100\) \+ '%'/.test(rb), 'positioned in PER CENT, not pixels');
 ok(/pointer-events:none/.test(rb), 'and they never intercept a click — the whole wave stays a seek surface');
-ok(/border-left:1px dotted/.test(rb) && /rgba\(108,118,133/.test(rb),
-   'light grey, dotted, 1px — "subtle, light, skinny" (Seth, 2026-09-06), visible without crowding the waveform');
+ok(/styleMark\(b, this\._liveSeam === j\);/.test(rb) && /el\.style\.borderLeft = '1px dotted rgba\(108,118,133,\.7\)';/.test(audio),
+   'light grey, dotted, 1px — "subtle, light, skinny" (Seth, 2026-09-06), visible without crowding the waveform (styleMark, v599)');
 ok(/this\.renderBoundaries\(\);/.test(audio.match(/this\.ws\.on\('ready'[\s\S]*?\}\);/)[0]),
    're-drawn on ready, so marks set before the audio loaded are not lost to the race');
 ok(/syncCutBoundaries\(\)/.test(strips) && /p\.setBoundaries\(cutBoundaryTimes\(\)\)/.test(strips),

@@ -46,3 +46,21 @@ test('the listening page keeps parity: a row scrub opens the overview\'s close-u
   assert.match(focus, /ovWrap\.scrollLeft = \(ms \/ T\) \* ov\.clientWidth - ovWrap\.clientWidth \/ 2;/, 'the playhead centred');
   assert.match(focus, /setOvZoom\(p\.z, 0, ovWrap\.getBoundingClientRect\(\)\.left\); ovWrap\.scrollLeft = p\.scroll;/, 'zoom and scroll put back');
 });
+
+test('the seam being dragged is a thick dashed blue mark on the dock, distinct from the red playhead; at rest the thin dotted one (Seth, 2026-09-07)', () => {
+  const AUDIO = rd('../docs/js/audio.js');
+  const style = AUDIO.slice(AUDIO.indexOf('function styleMark(el, live)'), AUDIO.indexOf('function styleMark(el, live)') + 900);
+  assert.match(style, /el\.style\.borderLeft = '4px dashed #2f7cf6';/, 'thick, dashed, blue');
+  assert.match(style, /el\.style\.marginLeft = '-2px';/, 'centred on the seam');
+  assert.match(style, /el\.style\.boxShadow = '0 0 0 1px rgba\(255,255,255,\.85\), 0 0 8px 2px rgba\(47,124,246,\.6\)';/, 'a halo and a glow');
+  assert.match(style, /el\.style\.borderLeft = '1px dotted rgba\(108,118,133,\.7\)';/, 'the resting mark is unchanged');
+  assert.match(AUDIO, /cursorColor: '#c0392b',\s*\n\s*cursorWidth: 2,/, 'the playhead stays thin, solid and red');
+  assert.match(AUDIO, /boundaryLive\(j\) \{\s*\n\s*this\._liveSeam = \(j == null\) \? null : j;/);
+  assert.match(AUDIO, /styleMark\(el, this\._liveSeam === j\);\s*\n\s*\}\);\s*\n\s*return;/, 'the reuse path (every move) keeps the live style');
+  assert.match(AUDIO, /styleMark\(b, this\._liveSeam === j\);/, 'and a rebuild restores it');
+  const drag = STRIPS.slice(STRIPS.indexOf('export function makeBoundaryDrag(o)'), STRIPS.indexOf('export function overviewMarks(segs)'));
+  assert.match(drag, /p\?\.boundaryLive\?\.\(bi\);/, 'lit at pick-up');
+  assert.match(drag, /p\?\.boundaryFocus\?\.\('end'\); \} catch \{[^}]*\}\s*\n\s*try \{ p\?\.boundaryLive\?\.\(null\);/, 'put back on release');
+  assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.liveMark': '/g) || []).length, 2);
+  assert.match(PANEL, /\{ v: 'v599', date: '2026-09-07', items: \[\s*\n\s*\{ k: 'panel\.rel\.new\.liveMark' \},/);
+});

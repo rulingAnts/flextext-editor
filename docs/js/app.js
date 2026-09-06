@@ -22,7 +22,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, splitPromptText,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -1420,10 +1420,7 @@ function renderGlossPending(p) {
   prompt.className = 'split-prompt';
   // The ✂ for the translation hangs under the caret (registerCaretScissors, in the free row); the prompt keeps clear of it.
   if (missing.includes('free') && fi) prompt.classList.add('has-caret-scissors');
-  const say = document.createElement('span');
-  say.textContent = splitPromptText(t, missing);
-  prompt.appendChild(say);
-  // An icon button, not a text link (Seth, 2026-09-06): the round ✕ beside the round ✂.
+  // No sentence here (Seth, 2026-09-06: "We don't need that tip anymore"): the markers and the ✕ suffice.
   const cancel = document.createElement('button');
   cancel.type = 'button'; cancel.className = 'split-cancel'; cancel.textContent = '\u2715';
   cancel.title = t('split.cancel'); cancel.setAttribute('aria-label', t('split.cancel'));

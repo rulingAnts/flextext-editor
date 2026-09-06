@@ -164,8 +164,6 @@ export function attachCaretScissors(input, host, onCut, label) {
   place();
   return dispose;
 }
-/* The prompt names EVERY tier still to be placed, one sentence each. */
-export function splitPromptText(t, missing) { return missing.map((m) => t('split.now.' + m)).join(' '); }
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t, hasGloss, say }
 let peaksCache = { docId: null, peaks: null, durationMs: 0 };
@@ -945,10 +943,8 @@ function renderStripsPending(p) {
   prompt.className = 'split-prompt';
   // The ✂ for the words hangs under the caret (registerCaretScissors, in renderStrips); the prompt keeps clear of it.
   if (missing.includes('text') && input) prompt.classList.add('has-caret-scissors');
-  const say = document.createElement('span');
-  say.textContent = splitPromptText(deps.t, missing);
-  prompt.appendChild(say);
-  // An icon button, not a text link (Seth, 2026-09-06): the round ✕ beside the round ✂.
+  // No sentence here (Seth, 2026-09-06: "We don't need that tip anymore"): the orange box, the ✂
+  // under the caret or the playhead, and the round ✕ say it all.
   const cancel = document.createElement('button');
   cancel.type = 'button'; cancel.className = 'split-cancel'; cancel.textContent = '\u2715';
   cancel.title = deps.t('split.cancel'); cancel.setAttribute('aria-label', deps.t('split.cancel'));

@@ -257,7 +257,7 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 ## One splitting rule (v593)
 
 - [ ] Baseline tab, a line with words and audio: Enter in the box places the words' side (the box
-      turns orange-outlined with a ✂ under it until the sound is placed; the prompt says so); Enter
+      turns orange-outlined with a ✂ under it until the sound is placed; no sentence, just a ✕); Enter
       with no box focused, or the ✂ under the playhead, places the sound; nothing changes until both
       are placed, then one line becomes two and one Ctrl+Z undoes it. Starting with the playhead
       first works the same way in the other order.
@@ -276,7 +276,7 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Cut tab is unchanged: Enter or ✂ cuts at the playhead; a texted line refuses.
 - [ ] Paragraph Analysis Tool: Enter inside an authored line still splits it at the cursor.
 
-## The ✂ under the text cursor (v595)
+## The ✂ under the text cursor (v596)
 
 - [ ] Baseline tab: click into any line's box: a ✂ hangs directly under the blinking cursor; the
       arrow keys, a click elsewhere in the text, or typing moves it; tapping it does what Enter does.
@@ -284,5 +284,4 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Baseline tab, a split started with the playhead: the box turns orange and the ✂ stays under
       the cursor even after clicking away; tapping it places the words' side exactly at the cursor.
 - [ ] Gloss tab, a split started with the scissors between two words: the same ✂ under the cursor
-      in the translation box, following it; the prompt names both the sound and the translation
-      while both are still to be placed, then only the one left.
+      in the translation box, following it; there is no sentence under the line, only the ✕.

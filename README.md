@@ -239,7 +239,7 @@ researcher panel's device settings; the Space-bar setting is editor-only.
   translated lines alone). A split asks for one position per part the line has, in any order: the
   playhead for the sound, the cursor for the words or the translation, the scissors between two
   words; nothing changes until every part is placed, the part still needed is marked in orange with
-  a scissors under it, and Escape, Undo, the same scissors again, a tap elsewhere or the round ✕ cancels.
+  a scissors under it (no words), and Escape, Undo, the same scissors again, a tap elsewhere or the round ✕ cancels.
 - **Enter** in a free-translation box places that translation's side of a split when the cursor is
   inside the text; in an empty box it moves to the next line. On the Gloss tab a word can be
   corrected in place without losing its gloss.

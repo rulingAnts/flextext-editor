@@ -457,9 +457,14 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   .player { position: sticky; top: 0; background: Canvas; padding: 6px 0 4px; z-index: 5;
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
-  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: none; }
-  .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: none; }
+  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; }
+  .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
+  @media (pointer: coarse) {
+    .cur { width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none; z-index: 3; }
+    .cur::before { content: ''; position: absolute; left: 14px; top: 0; bottom: 0; width: 2px; background: #d33; }
+    .cur::after { content: ''; position: absolute; left: 15px; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: #d33; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); box-sizing: border-box; }
+  }
   .bar { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
   #mplay { width: 44px; height: 36px; font-size: 15px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; cursor: pointer; }
   #mspeed { height: 36px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; font-size: 13px; }
@@ -589,9 +594,29 @@ ${withAudio ? `<script>
       var f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
       if (span > 0) audio.currentTime = (start + f * span) / 1000;
     }
-    el.addEventListener('pointerdown', function (ev) { ev.preventDefault(); down = true; seek(ev); });
-    el.addEventListener('pointermove', function (ev) { if (down) seek(ev); });
+    // Touch (same rule as the editor's strips): a tap parks the playhead, dragging the dot scrubs,
+    // dragging anywhere else scrolls (touch-action:pan-y above; no pointermove on the canvas).
+    el.addEventListener('pointerdown', function (ev) {
+      if (ev.pointerType === 'touch') {
+        var x0 = ev.clientX, y0 = ev.clientY;
+        var up = function (e2) { el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+          if (e2.type === 'pointerup' && Math.abs(e2.clientX - x0) < 10 && Math.abs(e2.clientY - y0) < 10) { audio.pause(); seek(e2); } };
+        el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+        return;
+      }
+      ev.preventDefault(); down = true; seek(ev);
+    });
+    el.addEventListener('pointermove', function (ev) { if (down && ev.pointerType !== 'touch') seek(ev); });
     window.addEventListener('pointerup', function () { down = false; });
+    var knob = el.parentNode && el.parentNode.querySelector('.cur');
+    if (knob) knob.addEventListener('pointerdown', function (ev) {
+      if (ev.pointerType !== 'touch') return;
+      ev.preventDefault(); try { knob.setPointerCapture(ev.pointerId); } catch (e) {}
+      audio.pause();
+      var move = function (e2) { seek(e2); };
+      var end = function () { knob.removeEventListener('pointermove', move); knob.removeEventListener('pointerup', end); knob.removeEventListener('pointercancel', end); };
+      knob.addEventListener('pointermove', move); knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
+    });
   }
   wireScrub(ov, 0, totalMs);
   rows.forEach(function (row) {

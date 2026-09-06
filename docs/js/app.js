@@ -10502,7 +10502,9 @@ function applyUiScale() {
    * directions. The dock is static in every shell that has one, so it exists at boot. */
   try {
     document.documentElement.style.setProperty('--ui-scale', String(z));
-    for (const el of document.querySelectorAll('.player')) el.style.zoom = (z === 1) ? '' : String(1 / z);
+    // The top row (tabs, Save, Done, back, help) and the panel's header are exempt too (Seth,
+    // 2026-09-06: "exempt the top-row/header buttons and tabs from larger font size adjustments").
+    for (const el of document.querySelectorAll('.player, #topbar, .rp-head')) el.style.zoom = (z === 1) ? '' : String(1 / z);
     for (const el of document.querySelectorAll('.player .player-wave')) el.style.zoom = (z > 1) ? String(1 / z) : '';
   } catch { /* noop */ }
 

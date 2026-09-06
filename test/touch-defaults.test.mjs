@@ -40,19 +40,40 @@ test('#45 strip canvases let a finger scroll the page (pan-y), grips still captu
   if (grip) assert.match(grip, /touch-action: none/, 'the drag grips keep the whole gesture');
 });
 
-test('#45 wireWaveSeek arbitrates a touch: tap parks, horizontal drag scrubs, vertical drag scrolls', () => {
+test('#45 on touch a strip is a WhatsApp voice note: tap parks, the dot scrubs, anything else scrolls', () => {
   const fn = STRIPS.slice(STRIPS.indexOf('function wireWaveSeek('));
   const body = fn.slice(0, fn.indexOf('\n}\n') + 3);
-  assert.match(body, /ev\.pointerType === 'touch'/, 'touch takes its own branch');
+  assert.match(body, /wave\.__seekAt = seekAt;/, 'the canvas keeps its own seek mapping for the knob');
+  assert.match(body, /wave\.__park = \(\) => \{ onTarget\?\.\(seg\); getPlayer\(\)\?\.pause\?\.\(\); \};/);
+  assert.match(body, /installKnobDrag\(\);/);
   const touch = body.slice(body.indexOf("ev.pointerType === 'touch'"), body.indexOf('ev.preventDefault();'));
-  assert.match(touch, /Math\.abs\(dx\) > Math\.abs\(dy\) \? 'scrub' : 'scroll'/, 'direction decides');
-  assert.match(touch, /Math\.abs\(dx\) < 8 && Math\.abs\(dy\) < 8/, 'an 8px dead zone before deciding');
-  assert.match(touch, /if \(mode === 'undecided'\) \{ onTarget\?\.\(seg\); getPlayer\(\)\?\.pause\?\.\(\); seekAt\(e2\); \}/, 'a tap parks the playhead');
-  assert.match(touch, /else if \(mode === 'scroll'\) done\(\)/, 'a vertical drag is released to the browser');
-  assert.match(touch, /pointercancel/, 'the browser taking the gesture over cleans up');
-  assert.doesNotMatch(touch, /ev\.preventDefault\(\)/, 'no preventDefault on touch pointerdown: pan-y stays possible');
+  assert.doesNotMatch(touch, /pointermove/, 'no move listener on the canvas: a drag can never become a scrub');
+  assert.doesNotMatch(touch, /setPointerCapture/, 'the canvas never captures a touch');
+  assert.match(touch, /Math\.abs\(e2\.clientX - x0\) < 10 && Math\.abs\(e2\.clientY - y0\) < 10\) \{ wave\.__park\(\); seekAt\(e2\); \}/, 'a tap parks the playhead');
+  assert.match(touch, /pointercancel/, 'the browser taking the gesture for a scroll cleans up');
+  const knob = STRIPS.slice(STRIPS.indexOf('function installKnobDrag()'), STRIPS.indexOf('export function wireWaveSeek('));
+  assert.match(knob, /closest\('\.seg-cursor, \.gseg-cursor'\)/, 'the playhead cursor is the knob, on every surface that draws one');
+  assert.match(knob, /if \(ev\.pointerType !== 'touch'/, 'mouse and pen are untouched');
+  assert.match(knob, /cur\.setPointerCapture\(ev\.pointerId\)/);
+  assert.match(knob, /const move = \(e2\) => wave\.__seekAt\(e2\);/, 'dragging the dot scrubs through the canvas mapping');
   const mouse = body.slice(body.indexOf('ev.preventDefault();'));
   assert.match(mouse, /setPointerCapture\(ev\.pointerId\)/, 'mouse and pen keep park-and-drag');
+  // CSS: the dot exists only for coarse pointers and is the only touch-action:none surface on a strip
+  const coarse = CSS.slice(CSS.indexOf('@media (pointer: coarse) {'), CSS.indexOf('@media (pointer: coarse) {') + 1400);
+  assert.match(coarse, /\.seg-cursor, \.gseg-cursor \{ width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none;/);
+  assert.match(coarse, /\.seg-cursor::after, \.gseg-cursor::after \{ content: ''; position: absolute;[^}]*border-radius: 50%;/, 'a visible dot');
+  assert.match(coarse, /\.player-wave \{ touch-action: pan-y; \}/, 'the sticky overview never blocks a scroll');
+});
+
+test('#45 the listening page follows the same rule', () => {
+  const SEGX = readFileSync(new URL('../docs/js/seg-exports.js', import.meta.url), 'utf8');
+  assert.match(SEGX, /#ov \{[^}]*touch-action: pan-y; \}/);
+  assert.match(SEGX, /\.rw \{[^}]*touch-action: pan-y; \}/);
+  assert.match(SEGX, /\.cur \{ width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none;/);
+  const scrub = SEGX.slice(SEGX.indexOf('function wireScrub(el, s, e)'), SEGX.indexOf('wireScrub(ov, 0, totalMs);'));
+  assert.match(scrub, /if \(ev\.pointerType === 'touch'\) \{/, 'touch takes the tap-only path');
+  assert.match(scrub, /if \(down && ev\.pointerType !== 'touch'\) seek\(ev\);/, 'no touch scrubbing on the canvas');
+  assert.match(scrub, /knob\.addEventListener\('pointerdown'/, 'the dot scrubs');
 });
 
 test('#42 Space is a setting: auto (off on coarse pointers), on, off; Shift+Space always toggles', () => {
@@ -92,7 +113,7 @@ test('#44 uiScale applies as a root zoom at boot and on every live-settings push
   // Seth, 2026-09-06: the top player must not grow with the text size and crowd the screen.
   assert.match(body, /el\.style\.zoom = \(z === 1\) \? '' : String\(1 \/ z\)/, 'the player dock counter-zooms so its on-screen size is constant');
   assert.match(body, /querySelectorAll\('\.player \.player-wave'\)\) el\.style\.zoom = \(z > 1\) \? String\(1 \/ z\) : ''/, 'the overview waveform shrinks in proportion when the text grows, and never enlarges');
-  assert.match(body, /document\.querySelectorAll\('\.player'\)/, 'applied to every player dock in the shell');
+  assert.match(body, /document\.querySelectorAll\('\.player, #topbar, \.rp-head'\)/, 'applied to every player dock, and the header row, in the shell');
   assert.match(body, /setProperty\('--ui-scale', String\(z\)\)/, 'the scale is published as a CSS variable');
   const boot = APP.indexOf('  settings = loadSettings();\n  applyUiScale();\n  applyI18n();');
   assert.ok(boot > 0, 'boot applies it before the first paint');

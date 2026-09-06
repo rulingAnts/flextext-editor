@@ -303,16 +303,15 @@ main {
 .gseg-join:hover { background: #ece3f7; color: #5b3d8a; }
 /* The playhead cursor, drawn on whichever strip contains the current time. */
 .seg-cursor { position: absolute; width: 2px; background: #c9772a; pointer-events: none; }
-/* ⚠ ON A TOUCH SCREEN THE CURSOR IS A KNOB (Seth, 2026-09-06). The 2px line becomes a 30px hit
-   zone with the line drawn inside it and a dot in the middle; it is the ONLY thing on a strip with
-   touch-action:none, so dragging the dot scrubs and dragging anywhere else scrolls (the canvases
-   are pan-y). The ticker still sets `left` to the line's x; the negative margin centres the zone
-   on it, so nothing about positioning changed. Same for the Gloss tab's .gseg-cursor. */
+/* ⚠ ON A TOUCH SCREEN THE PLAYHEAD LINE IS THE HANDLE (Seth, 2026-09-06: "a vertical playhead line
+   instead of a dot, and clicking anywhere on that line does the same thing as the dot in WhatsApp").
+   The 2px line becomes a 32px-wide invisible hit zone with the line drawn down its middle, the full
+   height of the strip; it is the ONLY thing on a strip with touch-action:none, so dragging the
+   line scrubs and dragging anywhere else scrolls (the canvases are pan-y). The ticker still sets
+   `left` to the line's x; the negative margin centres the zone on it. Same for .gseg-cursor. */
 @media (pointer: coarse) {
-  .seg-cursor, .gseg-cursor { width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none; z-index: 3; }
-  .seg-cursor::before, .gseg-cursor::before { content: ''; position: absolute; left: 14px; top: 0; bottom: 0; width: 2px; background: #c9772a; }
-  .seg-cursor::after, .gseg-cursor::after { content: ''; position: absolute; left: 15px; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
-    border-radius: 50%; background: #c9772a; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); box-sizing: border-box; }
+  .seg-cursor, .gseg-cursor { width: 32px; margin-left: -15px; background: transparent; pointer-events: auto; touch-action: none; z-index: 3; }
+  .seg-cursor::before, .gseg-cursor::before { content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 3px; background: #c9772a; border-radius: 2px; }
   .player-wave { touch-action: pan-y; }   /* the sticky overview never blocks a vertical scroll either */
 }
 

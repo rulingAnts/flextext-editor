@@ -60,8 +60,9 @@ test('#45 on touch a strip is a WhatsApp voice note: tap parks, the dot scrubs, 
   assert.match(mouse, /setPointerCapture\(ev\.pointerId\)/, 'mouse and pen keep park-and-drag');
   // CSS: the dot exists only for coarse pointers and is the only touch-action:none surface on a strip
   const coarse = CSS.slice(CSS.indexOf('@media (pointer: coarse) {'), CSS.indexOf('@media (pointer: coarse) {') + 1400);
-  assert.match(coarse, /\.seg-cursor, \.gseg-cursor \{ width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none;/);
-  assert.match(coarse, /\.seg-cursor::after, \.gseg-cursor::after \{ content: ''; position: absolute;[^}]*border-radius: 50%;/, 'a visible dot');
+  assert.match(coarse, /\.seg-cursor, \.gseg-cursor \{ width: 32px; margin-left: -15px; background: transparent; pointer-events: auto; touch-action: none;/);
+  assert.match(coarse, /\.seg-cursor::before, \.gseg-cursor::before \{ content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 3px;/, 'the line itself, full height, is the handle');
+  assert.doesNotMatch(coarse, /\.seg-cursor::after/, 'no dot: Seth, 2026-09-06, the line is enough');
   assert.match(coarse, /\.player-wave \{ touch-action: pan-y; \}/, 'the sticky overview never blocks a scroll');
 });
 
@@ -69,7 +70,8 @@ test('#45 the listening page follows the same rule', () => {
   const SEGX = readFileSync(new URL('../docs/js/seg-exports.js', import.meta.url), 'utf8');
   assert.match(SEGX, /#ov \{[^}]*touch-action: pan-y; \}/);
   assert.match(SEGX, /\.rw \{[^}]*touch-action: pan-y; \}/);
-  assert.match(SEGX, /\.cur \{ width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none;/);
+  assert.match(SEGX, /\.cur \{ width: 32px; margin-left: -15px; background: transparent; pointer-events: auto; touch-action: none;/);
+  assert.doesNotMatch(SEGX, /\.cur::after/, 'no dot on the listening page either');
   const scrub = SEGX.slice(SEGX.indexOf('function wireScrub(el, s, e)'), SEGX.indexOf('wireScrub(ov, 0, totalMs);'));
   assert.match(scrub, /if \(ev\.pointerType === 'touch'\) \{/, 'touch takes the tap-only path');
   assert.match(scrub, /if \(down && ev\.pointerType !== 'touch'\) seek\(ev\);/, 'no touch scrubbing on the canvas');

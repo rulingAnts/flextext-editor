@@ -64,7 +64,7 @@ test('#42 Space is a setting: auto (off on coarse pointers), on, off; Shift+Spac
   assert.match(body, /matchMedia\('\(pointer: coarse\)'\)\.matches/, 'auto follows the pointer type');
   const keys = APP.slice(APP.indexOf('function wirePlaybackKeys('), APP.indexOf('function spaceToggles()'));
   const space = keys.slice(keys.indexOf("if (e.key !== ' ' || e.repeat) return;"));
-  assert.match(space, /if \(e\.shiftKey\) \{ e\.preventDefault\(\); togglePlayFromKey\(\); return; \}/, 'Shift+Space first');
+  assert.match(space, /if \(e\.shiftKey\) \{[\s\S]{0,900}?e\.preventDefault\(\);[\s\S]{0,300}?togglePlayFromKey\(\);\s*\n\s*return;\s*\n\s*\}/, 'Shift+Space first');
   const shiftAt = space.indexOf('e.shiftKey'), gateAt = space.indexOf('transportKeysApply(e.target');
   assert.ok(shiftAt < gateAt, 'Shift+Space is decided before the text-box gate, so it works inside a field');
   assert.match(space, /if \(!spaceToggles\(\)\) return;/, 'plain Space honours the setting');
@@ -89,6 +89,11 @@ test('#44 uiScale applies as a root zoom at boot and on every live-settings push
   const body = fn.slice(0, fn.indexOf('\n}\n') + 3);
   assert.match(body, /Number\(settings\.uiScale\) \|\| 1/);
   assert.match(body, /document\.documentElement\.style\.zoom = \(z === 1\) \? '' : String\(z\)/, 'normal size clears the zoom');
+  // Seth, 2026-09-06: the top player must not grow with the text size and crowd the screen.
+  assert.match(body, /el\.style\.zoom = \(z === 1\) \? '' : String\(1 \/ z\)/, 'the player dock counter-zooms so its on-screen size is constant');
+  assert.match(body, /querySelectorAll\('\.player \.player-wave'\)\) el\.style\.zoom = \(z > 1\) \? String\(1 \/ z\) : ''/, 'the overview waveform shrinks in proportion when the text grows, and never enlarges');
+  assert.match(body, /document\.querySelectorAll\('\.player'\)/, 'applied to every player dock in the shell');
+  assert.match(body, /setProperty\('--ui-scale', String\(z\)\)/, 'the scale is published as a CSS variable');
   const boot = APP.indexOf('  settings = loadSettings();\n  applyUiScale();\n  applyI18n();');
   assert.ok(boot > 0, 'boot applies it before the first paint');
   const live = APP.indexOf('  settings = loadSettings();\n  applyUiScale();   // a pushed text size lands live');
@@ -114,4 +119,24 @@ test('#42/#44 strings exist in both languages', () => {
     const n = (I18N.match(new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'mg')) || []).length;
     assert.equal(n, 2, `${k} in EN and ID`);
   }
+});
+
+test('2026-09-06: with Space off, a plain keystroke goes to the last played line; Shift+Space in a box plays that box\'s line', () => {
+  const keys = APP.slice(APP.indexOf('function wirePlaybackKeys('), APP.indexOf('function inTextField('));
+  const gate = keys.indexOf("e.key.length === 1");
+  assert.ok(gate > 0 && gate < keys.indexOf("if (e.key !== ' ' || e.repeat) return;"), 'the typing rule runs before the Space-only early return');
+  const rule = keys.slice(gate - 200, gate + 500);
+  assert.match(rule, /!\(e\.key === ' ' && e\.shiftKey\) && !spaceToggles\(\) && !inTextField\(e\.target\)/, 'only when Space does not play, only outside a box, never for Shift+Space');
+  assert.match(rule, /const box = typingTargetForLastPlayed\(\);\s*\n\s*if \(box\) \{ focusAtEnd\(box\); return; \}/, 'focus the box and let the keystroke land there (no preventDefault)');
+  const shift = keys.slice(keys.indexOf('if (e.shiftKey) {'), keys.indexOf('togglePlayFromKey();\n      return;'));
+  assert.match(shift, /const own = inTextField\(e\.target\) \? segmentForField\(e\.target\) : null;\s*\n\s*if \(own\) lastPlayTarget = own;/, 'inside a box, Shift+Space targets that box\'s own line');
+  assert.doesNotMatch(shift, /spaceToggles\(\)/, 'Shift+Space in a box does not depend on the Space setting');
+  const focus = APP.slice(APP.indexOf('function focusAtEnd(el)'), APP.indexOf('function typingTargetForLastPlayed()'));
+  assert.match(focus, /el\.setSelectionRange\(n, n\)/, 'inputs: caret at value.length, the logical end');
+  assert.match(focus, /r\.collapse\(false\)/, 'contenteditable: range collapsed to the logical end');
+  assert.doesNotMatch(focus, /getBoundingClientRect|clientWidth|left|right/, 'no visual-edge arithmetic, so right-to-left needs nothing here');
+  const target = APP.slice(APP.indexOf('function typingTargetForLastPlayed()'), APP.indexOf('function spaceToggles()'));
+  assert.match(target, /if \(activeTab === 'baseline'\) return \$\('#segment-strips'\)\?\.querySelectorAll\('\.seg-text'\)\[i\]/, 'Baseline: that line\'s text box');
+  assert.match(target, /glosses\.find\(\(el\) => !el\.value\.trim\(\)\) \|\| g\.querySelector\('\.free-input'\)/, 'Gloss: first empty gloss, else the free translation');
+  assert.match(target, /if \(!allowTextEditOn\(\)\) return null;/, 'matcher: only when the researcher allowed text editing');
 });

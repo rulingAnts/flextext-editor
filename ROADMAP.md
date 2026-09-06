@@ -14,13 +14,13 @@ Status words used below:
 | **designed** | a written plan exists; not started |
 | **idea** | recorded so it is not lost; no design yet |
 
-Last updated 2026-09-06 at v597. The production estate is at v597.
+Last updated 2026-09-07 at v602. The production estate is at v602.
 
 ---
 
-## 1. Recently released (v585 to v597)
+## 1. Recently released (v585 to v602)
 
-All seven sites and the GitHub Pages editor are at v597 in production; staging matches. Human checks are listed per release in
+All seven sites and the GitHub Pages editor are at v602 in production; staging matches. Human checks are listed per release in
 `plans/RELEASE-SMOKE-TEST.md`.
 
 - **Several analysis languages (v585).** The listening page gets a picker for the gloss language
@@ -52,19 +52,19 @@ All seven sites and the GitHub Pages editor are at v597 in production; staging m
   split and follows it; a round ✕ cancels; the join button between lines is the chain link. Words
   on the Gloss tab are editable in place. Each piece of a split is its own phrase in the FLExText.
   The Paragraph Analysis Tool goes through the same planner.
-- **The tool splits and joins; edge trims; scrub close-up (v598, on staging).** The Paragraph
+- **The tool splits and joins; edge trims; scrub close-up (v598).** The Paragraph
   Analysis Tool has the full rule: a ✂ between two words, under the text cursor in a line or its
   translation, and under the row's playhead; a 🔗 joins with the next line and absorbs any blank
   audio between the two so the joined line spans the whole recording area. On the Gloss tab and in
   the tool a timed line also carries a ✂ before its first word and after its last, to trim the
   silence at that end into a line of its own. Scrubbing a line's waveform opens the same momentary
   close-up on the top player that dragging a boundary does, on the editor and the listening page.
-- **The dragged boundary's mark (v600, on staging).** While a grip is dragged, the top player's mark
+- **The dragged boundary's mark (v600).** While a grip is dragged, the top player's mark
   for that seam is a 2px dashed blue line, distinct from the red playhead.
-- **The tool's Join/split switch (v601, on staging).** The scissors and chain links in the Paragraph
+- **The tool's Join/split switch (v601).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
-- **The tool's grips and close-up (v602, on staging).** The editor's segment grips on the tool's rows
+- **The tool's grips and close-up (v602).** The editor's segment grips on the tool's rows
   (with the switch on), the overview showing the seams, and a close-up that zooms in, grows taller
   and marks the dragged seam blue while a grip is dragged or a line's waveform is scrubbed.
 

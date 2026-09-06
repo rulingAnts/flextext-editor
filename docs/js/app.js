@@ -10356,12 +10356,39 @@ function wirePlaybackKeys() {
      * text field (a transcriber typing a space must get a space), and a canvas does not take focus
      * on click, so without that blur the click looks like it selected the audio while the keystroke
      * still went to the gloss box the user had been typing in. */
+    /* ⚠ WHEN SPACE DOES NOT PLAY, TYPING GOES TO THE LINE YOU JUST HEARD (Seth, 2026-09-06:
+     * "Whenever the 'space to play' is disabled, either manually or automatically, typing anything
+     * on the keyboard should automatically focus the end of nearest textbox to the most recently
+     * played segment and start adding text at the end of that line"). On a tablet the coworker
+     * plays a line, then types; without this the first keystroke went nowhere (or to a button).
+     * Only a plain printable key, only with no text box focused, only when Space is not the
+     * transport; Shift+Space is decided below, and shortcuts with a modifier are left alone. The
+     * keydown is NOT cancelled: focusing during keydown makes the browser deliver the character
+     * to the box we just focused, so the first letter is never lost. */
+    if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === 'string' && e.key.length === 1
+        && !(e.key === ' ' && e.shiftKey) && !spaceToggles() && !inTextField(e.target)
+        && !document.querySelector('.modal:not([hidden])')) {
+      const box = typingTargetForLastPlayed();
+      if (box) { focusAtEnd(box); return; }
+    }
     if (e.key !== ' ' || e.repeat) return;
     /* ⚠ SHIFT+SPACE ALWAYS PLAYS OR PAUSES, TEXT BOX OR NOT (Seth, 2026-09-04: "some kind of key to
      * play/pause that's easy to remember, but separate from selecting text box"). On a tablet the
      * plain Space bar is for typing — see spaceToggles — so a transcriber with a hardware keyboard
      * needs one chord that means "audio" wherever the caret is. */
-    if (e.shiftKey) { e.preventDefault(); togglePlayFromKey(); return; }
+    if (e.shiftKey) {
+      /* ⚠ INSIDE A TEXT BOX, SHIFT+SPACE PLAYS THAT BOX'S OWN LINE (Seth, 2026-09-06: "SHIFT+SPACE
+       * should play the segment connected with the currently focused text box … without losing
+       * focus or moving to the end. So that the user can edit (without losing cursor position) and
+       * quick-play the audio segment they're transcribing … regardless of the spacebar to play
+       * enable/disable setting"). The box is not touched: preventDefault stops the space from being
+       * typed, focus and caret stay where they are, and the transport target becomes this line. */
+      e.preventDefault();
+      const own = inTextField(e.target) ? segmentForField(e.target) : null;
+      if (own) lastPlayTarget = own;
+      togglePlayFromKey();
+      return;
+    }
     // The Cut tab has its own Space (continuous play/pause) — see the cut-tab key handler. Two
     // handlers would toggle twice and cancel each other out.
     if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
@@ -10378,6 +10405,69 @@ function wirePlaybackKeys() {
  * (Seth, 2026-09-04: "typing automatically selects the textbox … space included, space doesn't
  * play/pause, only the play button does that … auto = tablet/mobile typing-auto-selects, desktop
  * space to play"). The researcher can pin it either way per device (spacePlays). */
+function inTextField(el) {
+  return !!(el && el.closest && el.closest('input, textarea, select, [contenteditable]'));
+}
+/* Put the caret at the END of a box, in logical order. setSelectionRange at value.length and a
+ * Range collapsed to false are both LOGICAL ends, so this is the last character typed whether the
+ * writing system runs left-to-right or right-to-left — no visual-edge arithmetic here, so
+ * right-to-left support (#48) needs nothing from this function. */
+function focusAtEnd(el) {
+  if (!el) return;
+  try { el.focus({ preventScroll: false }); } catch { el.focus(); }
+  try {
+    if ('setSelectionRange' in el && typeof el.value === 'string') { const n = el.value.length; el.setSelectionRange(n, n); return; }
+    if (el.isContentEditable) {
+      const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    }
+  } catch { /* a box that cannot place a caret still gets focus */ }
+}
+/* The text box nearest the segment last played (or clicked): on the Baseline tab that line's text
+ * box; on the Gloss tab its first empty word gloss, else its free translation; in the matcher, when
+ * editing is allowed, the paired line's first empty editable, else its last. Null when there is no
+ * such box (Cut tab, nothing played yet, text editing off), and the key then does what it always did. */
+function typingTargetForLastPlayed() {
+  if (!current) return null;
+  const pickEmptyOrLast = (els) => els.length ? (els.find((el) => !(('value' in el) ? el.value : el.textContent).trim()) || els[els.length - 1]) : null;
+  if (SEGMENTER_MODE && MG && lastPlayTarget) {
+    if (!allowTextEditOn()) return null;
+    const k = MG.spans.indexOf(lastPlayTarget);
+    if (k < 0) return null;
+    const row = $('#mg-rows')?.querySelectorAll('.mg-row')[k];
+    return row ? pickEmptyOrLast([...row.querySelectorAll('.mg-edit')]) : null;
+  }
+  if (!lastPlayTarget) return null;
+  const i = docSegments(current.doc).indexOf(lastPlayTarget);
+  if (i < 0) return null;
+  if (activeTab === 'baseline') return $('#segment-strips')?.querySelectorAll('.seg-text')[i] || null;
+  if (activeTab === 'gloss') {
+    const g = $('#gloss-body')?.querySelectorAll('.segment')[i];
+    if (!g) return null;
+    const glosses = [...g.querySelectorAll('.gloss-input')];
+    return glosses.find((el) => !el.value.trim()) || g.querySelector('.free-input') || glosses[glosses.length - 1] || null;
+  }
+  return null;
+}
+/* The segment a text box belongs to: a Baseline strip's text box, a Gloss-tab line's word gloss or
+ * free translation, or a matcher row's editable. Null for a box that is not a line (title, search). */
+function segmentForField(el) {
+  if (!current || !el || !el.closest) return null;
+  if (SEGMENTER_MODE && MG) {
+    const row = el.closest('.mg-row');
+    if (!row || !row.parentElement) return null;
+    const k = [...row.parentElement.querySelectorAll('.mg-row')].indexOf(row);
+    return MG.spans[k] || null;
+  }
+  const segs = docSegments(current.doc);
+  // Index by the text boxes themselves, the way the Baseline ticker finds a line (segment-strips.js
+  // uses querySelectorAll('.seg-text')[i]): the row markup owes us nothing about nesting.
+  const box = el.closest('.seg-text');
+  if (box) return segs[[...$('#segment-strips').querySelectorAll('.seg-text')].indexOf(box)] || null;
+  const g = el.closest('#gloss-body .segment');
+  if (g) return segs[[...$('#gloss-body').querySelectorAll('.segment')].indexOf(g)] || null;
+  return null;
+}
 function spaceToggles() {
   const m = settings.spacePlays || 'auto';
   if (m === 'on') return true;
@@ -10401,6 +10491,20 @@ function togglePlayFromKey() {
 function applyUiScale() {
   const z = Number(settings.uiScale) || 1;
   try { document.documentElement.style.zoom = (z === 1) ? '' : String(z); } catch { /* no zoom support: normal size */ }
+  /* ⚠ THE TOP PLAYER SHRINKS AS THE TEXT GROWS (Seth, 2026-09-06: "'LARGER' font size should also
+   * trigger smaller top-player … larger font sizes should ship with proportionate big-player size
+   * reduction, for the sake of UI space"). The root zoom would scale the sticky player dock with
+   * everything else and eat the screen the bigger text was meant to use. Nested zooms multiply, so:
+   * the dock counter-zooms by 1/z, which holds its controls at their normal on-screen size (touch
+   * targets stay touchable at Largest), and the waveform inside counter-zooms once more, so on
+   * screen it is 1/z of normal — text 1.3× bigger, overview 0.77× shorter. Smaller text sizes leave
+   * the player at its normal size rather than enlarging it: the space is guarded in both
+   * directions. The dock is static in every shell that has one, so it exists at boot. */
+  try {
+    document.documentElement.style.setProperty('--ui-scale', String(z));
+    for (const el of document.querySelectorAll('.player')) el.style.zoom = (z === 1) ? '' : String(1 / z);
+    for (const el of document.querySelectorAll('.player .player-wave')) el.style.zoom = (z > 1) ? String(1 / z) : '';
+  } catch { /* noop */ }
 
   /* CLICKING A WAVEFORM RELEASES THE TEXT FIELD (Seth, 2026-08-13).
    *

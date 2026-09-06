@@ -183,3 +183,9 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] The same text's ELAN zip opened in ELAN: A_word-gls-id, A_word-gls-en, A_phrase-gls-id, A_phrase-gls-en, in that order under their word and phrase tiers.
 - [ ] SayMore zip: Transcription and Free Translation only, the free translation in the device's language.
 
+## Text size and typing (v586)
+
+- [ ] Settings ▸ Other ▸ Text size Large: the top player's buttons stay the same size, its waveform gets shorter, the strips and text get bigger. Normal restores everything.
+- [ ] Space setting off (or a tablet): play a line with its ▶, then type with no box selected: the text lands at the end of that line's box. On the Gloss tab it lands in the first empty gloss of that line.
+- [ ] Cursor in the middle of a line's box: Shift+Space plays that line and the cursor does not move; Shift+Space again pauses. Same with the Space setting on.
+

@@ -1156,6 +1156,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v586', date: '2026-09-06', items: [
+    { k: 'panel.rel.new.playerScale' },
+    { k: 'panel.rel.new.typeToLine' },
+    { k: 'panel.rel.new.shiftSpaceOwnLine' },
+  ] },
   { v: 'v585', date: '2026-09-05', items: [
     { k: 'panel.rel.new.multiWsExports' },
     { k: 'panel.rel.new.multiWsListening' },

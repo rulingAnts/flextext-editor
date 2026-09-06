@@ -458,7 +458,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
   .player .wwrap { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }   /* the overview scrolls once zoomed */
-  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; }
+  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; transition: height .15s ease; }
   .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
   @media (pointer: coarse) {
@@ -638,13 +638,28 @@ ${withAudio ? `<script>
    * (the knob above). A trackpad pinch (a wheel with ctrlKey) zooms too; a horizontal two-finger
    * swipe scrolls natively (overflow-x on the wrapper). Vertical drags still scroll the page. */
   var ovWrap = ov.parentNode, ovZoom = 1, focusPrev = null;
+  var OV_FOCUS_H = 112;   // the overview's height while a line is scrubbed (the tool's OV_FOCUS_H)
   /* The close-up: about four seconds across the overview around the playhead (the editor's
-   * FOCUS_WINDOW_S), the playhead kept centred, then the zoom and scroll put back. */
+   * FOCUS_WINDOW_S), the overview grown taller so the shape can be read while the playhead is
+   * placed (Seth, 2026-09-07, of the tool: "the big preview player gets taller as well"), the
+   * playhead kept centred, then the height, zoom and scroll put back. Nothing here is editable:
+   * this page shows a recording, it does not adjust one. */
   function ovFocus(phase, ms) {
     var T = totalMs(); if (!(T > 0)) return;
-    if (phase === 'start') { focusPrev = { z: ovZoom, scroll: ovWrap.scrollLeft }; setOvZoom(Math.max(ovZoom, T / 4000), ms, ovWrap.getBoundingClientRect().left + ovWrap.clientWidth / 2); }
+    if (phase === 'start') {
+      focusPrev = { z: ovZoom, scroll: ovWrap.scrollLeft, h: ov.style.height };
+      ov.style.height = OV_FOCUS_H + 'px';
+      setOvZoom(Math.max(ovZoom, T / 4000), ms, ovWrap.getBoundingClientRect().left + ovWrap.clientWidth / 2);
+      draw(ov, 0, T);   // setOvZoom returns early when the zoom is already there; the height changed regardless
+    }
     if (phase === 'start' || phase === 'move') ovWrap.scrollLeft = (ms / T) * ov.clientWidth - ovWrap.clientWidth / 2;
-    if (phase === 'end' && focusPrev) { var p = focusPrev; focusPrev = null; setOvZoom(p.z, 0, ovWrap.getBoundingClientRect().left); ovWrap.scrollLeft = p.scroll; }
+    if (phase === 'end' && focusPrev) {
+      var p = focusPrev; focusPrev = null;
+      ov.style.height = p.h;
+      setOvZoom(p.z, 0, ovWrap.getBoundingClientRect().left);
+      draw(ov, 0, T);
+      ovWrap.scrollLeft = p.scroll;
+    }
   }
   function ovMs(clientX) { var r = ov.getBoundingClientRect(), T = totalMs(); return r.width > 0 ? Math.min(T, Math.max(0, (clientX - r.left) / r.width * T)) : 0; }
   function setOvZoom(z, anchorMs, clientX) {

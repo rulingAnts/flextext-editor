@@ -338,3 +338,11 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Dragging the playhead across a line's waveform (switch on or off) zooms and heightens the
       top player around the playhead for the length of the drag; a plain click does not.
       [real device] The same with a finger.
+
+## The listening page's close-up (v603)
+
+- [ ] Export a listening page and open it: dragging the playhead across a line's waveform zooms
+      the top player in around the playhead AND grows it taller for the length of the drag, then
+      puts it back on release; a plain click does neither. Scrubbing the top player itself does
+      not zoom. [real device] The same with a finger on the playhead line.
+- [ ] Nothing on the page moves a boundary: no grips, no draggable marks.

@@ -73,9 +73,12 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
 ### 2.1 The listening page keeps up with the editor
 
 The exported listening page (`.preview.html`) has the strips' tap, playhead-line and pan-to-scroll
-model and, since v592, the overview's tap, drag-to-scroll, pinch and trackpad-pinch grammar. Each
-new touch or mobile behaviour added to the editor is added to the exported page in the same
-release, because the page is what a speaker without the app gets.
+model, since v592 the overview's tap, drag-to-scroll, pinch and trackpad-pinch grammar, and since
+v598/v603 the scrub close-up: dragging the playhead across a line's waveform zooms the overview in
+around it and grows it taller until the drag ends. Each new touch or mobile behaviour added to the
+editor is added to the exported page in the same release, because the page is what a speaker
+without the app gets. The page stays read-only — it gains the zooming and scrolling, never the
+boundary adjustment (Seth, 2026-09-07).
 
 ### 2.2 Contact page (#50)
 

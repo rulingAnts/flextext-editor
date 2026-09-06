@@ -619,15 +619,16 @@ const ZOOM_MAX = 300;
 const FOCUS_WINDOW_S = 4;   // seconds across the dock while a strip's boundary is being dragged (boundaryFocus)
 /* A boundary mark on the dock: at rest "subtle, light, skinny" (Seth, 2026-09-06), and WHILE IT IS
  * BEING DRAGGED "less subtle, thicker, brighter … distinct from the play head" (Seth, 2026-09-07):
- * a thick dashed blue line with a white halo and a blue glow, centred on the seam, above the other
- * marks. The playhead stays the thin solid red line, so the two can never be confused. Inline on
- * purpose: the marks live inside wavesurfer's shadow root, out of app.css's reach. */
+ * a 2px dashed blue line centred on the seam, above the other marks — no halo, no glow ("you
+ * overdid it just a little bit", the same day). The playhead stays the thin solid red line, so the
+ * two can never be confused. Inline on purpose: the marks live inside wavesurfer's shadow root,
+ * out of app.css's reach. */
 function styleMark(el, live) {
   if (live) {
-    el.style.borderLeft = '4px dashed #2f7cf6';
-    el.style.marginLeft = '-2px';
-    el.style.borderRadius = '2px';
-    el.style.boxShadow = '0 0 0 1px rgba(255,255,255,.85), 0 0 8px 2px rgba(47,124,246,.6)';
+    el.style.borderLeft = '2px dashed #2f7cf6';
+    el.style.marginLeft = '-1px';
+    el.style.borderRadius = '0';
+    el.style.boxShadow = 'none';
     el.style.zIndex = '1';
   } else {
     el.style.borderLeft = '1px dotted rgba(108,118,133,.7)';   // subtle, light, skinny (Seth, 2026-09-06)

@@ -411,7 +411,9 @@ contribution to full stewardship, open an issue and say so.
 | `rulingAnts/text-recorder`, `flextext-researcher`, `crowd-recorder` | machine-published mirrors of the satellite shells for the GitHub Pages estate |
 | `rulingAnts/flextext.app_cloudflare_pages` | the landing page at flextext.app |
 
-Design documents are in `plans/` (see `plans/README.md` for what belongs there);
+`ROADMAP.md` is the public statement of what is in progress and what is planned, with the design of
+each item (the Corpus Keeper ecosystem, the corpus checklist, the FLEx-backed segmenter, the native
+shells' open questions). Design documents are in `plans/` (see `plans/README.md` for what belongs there);
 `plans/RELEASE-SMOKE-TEST.md` is the human checklist run on staging before every production
 release, and each release adds its lines to it. Open work is tracked as GitHub issues on this
 repository (the suite) and on `corpus-keeper` (the integration).

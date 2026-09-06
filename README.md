@@ -40,9 +40,10 @@ researcher sets up the language settings and a native-speaker coworker, who may 
 transcribes, glosses, segments and free-translates texts on whatever device they have — a cheap
 Android phone or tablet first, then Windows, Mac and Linux.
 
-**Where this is going:** the [Corpus Keeper](https://github.com/rulingAnts/corpus-keeper) plan ties
-the suite to FLEx, lameta and a corpus checklist so one researcher can keep texts, recordings, consent
-and archive metadata in step; the plan and its issues live in that repository.
+**Where this is going:** `ROADMAP.md` lists what is in progress and what is planned, with the
+design of each. The largest item is the [Corpus Keeper](https://github.com/rulingAnts/corpus-keeper)
+plan, which ties the suite to FLEx, lameta and a corpus checklist so one researcher can keep texts,
+recordings, consent and archive metadata in step; the plan and its issues live in that repository.
 
 ## How it works
 

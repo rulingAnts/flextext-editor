@@ -253,3 +253,25 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       pauses as with a click); a horizontal drag on the zoomed waveform scrolls it, not the playhead;
       a drag that starts on the playhead line scrubs; a vertical drag scrolls the page.
 - [ ] [real device] Pinch on the top player zooms; on the listening page too.
+
+## One splitting rule (v593)
+
+- [ ] Baseline tab, a line with words and audio: Enter in the box places the words' side (the box
+      turns orange-outlined with a ✂ under it until the sound is placed; the prompt says so); Enter
+      with no box focused, or the ✂ under the playhead, places the sound; nothing changes until both
+      are placed, then one line becomes two and one Ctrl+Z undoes it. Starting with the playhead
+      first works the same way in the other order.
+- [ ] Cancel: Escape; the same ✂ again; clicking another line; Undo; switching tab. After each, the
+      text is unchanged and Undo has nothing new to undo.
+- [ ] Baseline tab, a line that has a gloss or a translation: drawn grey, no join button beside it,
+      Enter and the playhead ✂ refuse with the message; joining onto it refuses too.
+- [ ] Gloss tab: the ✂ between two words, mid-text Enter in the translation, and Enter outside the
+      boxes (or the ✂ under the strip's playhead) each place one part; the translation box turns
+      orange with a ✂ under it until placed; an empty translation needs no position. Enter at the
+      start or end of the translation still makes an empty line before or after, once the sound is
+      placed.
+- [ ] Gloss tab: tap a vernacular word, correct a letter, press Enter: the word changes, its gloss
+      stays, Ctrl+Z restores it. Typing a space inside a word makes two words; the gloss stays on the
+      first.
+- [ ] Cut tab is unchanged: Enter or ✂ cuts at the playhead; a texted line refuses.
+- [ ] Paragraph Analysis Tool: Enter inside an authored line still splits it at the cursor.

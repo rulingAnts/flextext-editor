@@ -234,7 +234,15 @@ researcher panel's device settings; the Space-bar setting is editor-only.
   plays that box's own line without moving the cursor.
 - When Space does not play, typing with no box selected goes to the line you last played: the
   nearest box is focused at its end and the keystroke lands there.
-- **Enter** in a free-translation box moves to the next line when no split applies.
+- **Splitting a line is one rule on every tab.** A more basic tab cannot split or join a line with
+  more advanced data (the Cut tab leaves texted lines alone; the Baseline tab leaves glossed or
+  translated lines alone). A split asks for one position per part the line has, in any order: the
+  playhead for the sound, the cursor for the words or the translation, the scissors between two
+  words; nothing changes until every part is placed, the part still needed is marked in orange with
+  a scissors under it, and Escape, Undo, the same scissors again or a tap elsewhere cancels.
+- **Enter** in a free-translation box places that translation's side of a split when the cursor is
+  inside the text; in an empty box it moves to the next line. On the Gloss tab a word can be
+  corrected in place without losing its gloss.
 
 ## Localization & help
 

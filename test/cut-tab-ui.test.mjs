@@ -252,16 +252,16 @@ ok(/this\._peaksOnly = false;/.test(fn(audio, 'destroyWs') || method(audio, 'des
 console.log('\nBaseline Enter: one split, two ways of dividing the words');
 const splitAt = fn(strips, 'splitLineAt');
 const atPlayhead = fn(strips, 'stripSplitAtPlayhead');
-ok(!!splitAt && /splitLineAt\(i, input\.selectionStart/.test(fn(strips, 'onKey')) && /splitLineAt\(i, null, false\)/.test(atPlayhead),
+ok(!!splitAt && /stripsPlace\(i, 'text', input\.selectionStart/.test(fn(strips, 'onKey')) && /stripsPlace\(i, 'audio', ms\)/.test(atPlayhead),
    'both Enters go through ONE function, so the time can never break differently for the two');
 ok(/caret == null \? text\.length/.test(splitAt),
    '…and "no caret" means the END of the line — the words all stay put, the new line starts empty');
 ok(/const input = deps\.container\.querySelectorAll\('\.seg-text'\)\[i\]/.test(splitAt),
    'the words come from the BOX, not the model, so keystrokes not yet committed are not dropped');
-ok(/segmentIndexAt\(docSegments\(doc\), deps\.getPlayer\(\)\?\.playheadMs/.test(atPlayhead) && /if \(i < 0\) return false/.test(atPlayhead),
+ok(/const ms = deps\.getPlayer\(\)\?\.playheadMs\?\.\(\);\s*\n\s*const i = segmentIndexAt\(docSegments\(doc\), ms\);/.test(atPlayhead) && /if \(i < 0\) return false/.test(atPlayhead),
    'it acts on the line the PLAYHEAD is in, and refuses when the playhead is in none of them');
-ok(/if \(deps\.capture\) deps\.capture\(\);/.test(atPlayhead),
-   '…and is its own undo step — a chopping run types nothing, so nothing else would create one');
+ok(/if \(deps\.capture\) deps\.capture\(\); splitLineAt\(/.test(fn(strips, 'stripsSpec')),
+   '…and the completed split is its own undo step, taken at the commit (plans/split-tiers.md) — a chopping run types nothing, so nothing else would create one');
 ok(/if \(focusNext\) focusStrip\(i \+ 1, 0\)/.test(splitAt),
    'the text-box Enter moves the cursor on; the playhead one leaves focus alone');
 ok(/activeTab !== 'baseline'/.test(app) && /stripSplitAtPlayhead\(\)/.test(app)

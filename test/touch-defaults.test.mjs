@@ -108,7 +108,7 @@ test('#42 Space is a setting: auto (off on coarse pointers), on, off; Shift+Spac
 test('#42 Enter in a free-translation box walks to the next line when no split applies', () => {
   const i = APP.indexOf("else if (e.key === 'Enter' && !e.shiftKey) {");
   assert.ok(i > 0, 'the walk branch exists');
-  const branch = APP.slice(i, i + 700);
+  const branch = APP.slice(i, i + 1300);   // the split-placing branch sits between the literal and the walk now
   assert.match(branch, /document\.querySelectorAll\('\.free-input'\)/);
   assert.match(branch, /all\[all\.indexOf\(fi\) \+ 1\]/, 'the next translation box in document order');
   assert.match(branch, /next\.focus\(\)/);

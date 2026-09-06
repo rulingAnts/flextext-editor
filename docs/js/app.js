@@ -22,14 +22,15 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan } from './segments.js';
+import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
@@ -1181,7 +1182,7 @@ function decorateGlossSegments() {
     // v326: touching a waveform SELECTS it for Space/⏮ — including an unaligned one, which
     // wireWaveSeek deliberately leaves unwired (there is no time in it to seek to).
     if (!isAligned(seg)) wave.addEventListener('pointerdown', () => { lastPlayTarget = seg; });
-    entries.push({ btn, seg, wave, wrap: waveWrap });
+    entries.push({ btn, seg, wave, wrap: waveWrap, i });
     // The grips (adjustBoundaries): the wrap is the positioned ancestor, as for the cursor.
     attachEdgeHandles(waveWrap, wave, i, { allowed: adjustBoundariesAllowed, count: () => segs.length, segAt: (k) => segs[k], onDrag: glossDrag(), t });
     /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
@@ -1220,7 +1221,7 @@ function decorateGlossSegments() {
       sc.textContent = '\u2702';
       sc.setAttribute('aria-label', t('gloss.splitTip'));
       sc.title = t('gloss.splitTip');
-      sc.addEventListener('click', () => glossSplitAt(i, before));
+      sc.addEventListener('click', () => glossPlace(i, 'words', before));   // the WORDS tier of the pending split
       wrapEl.appendChild(sc);
     });
     // ⚠ ENTER-SPLIT ON WORD-GLOSS FIELDS: caret at the START of a word's gloss box splits BEFORE
@@ -1256,7 +1257,7 @@ function decorateGlossSegments() {
           if (!atStart && !atEnd) return;
           if (!joinSplitAllowed('gloss')) return;
           e.preventDefault();
-          glossSplitAt(i, atStart ? w : w + 1);
+          glossPlace(i, 'words', atStart ? w : w + 1);   // the WORDS tier of the pending split
         });
       });
       const fi = g.querySelector('.free-input');
@@ -1269,14 +1270,17 @@ function decorateGlossSegments() {
             glossJoinLines(i - 1);
           } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
             e.preventDefault();
-            glossSplitAt(i, 0);                    // empty silence line BEFORE this one
+            glossPlace(i, 'words', 0); glossPlace(i, 'free', 0);                    // an empty line BEFORE this one (audio still to place)
           } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
             e.preventDefault();
-            glossSplitAt(i, wordCount());          // empty silence line AFTER this one
+            glossPlace(i, 'words', wordCount()); glossPlace(i, 'free', fi.value.length);   // an empty line AFTER this one
           } else if (e.key === 'Enter' && !e.shiftKey) {
-            // Not a split: Enter walks to the next line's translation (Seth, 2026-09-04: "ENTER/RETURN
-            // focus next text line (rather than split)"), the FLEx-style walk the word glosses already have.
             e.preventDefault();
+            /* Mid-text Enter in a translation PLACES the translation's side of a split (Seth, 2026-09-06:
+             * "For the free translation or baseline, enter/return positions the split on that text
+             * tier"); the walk to the next line (2026-09-04) remains for a box with nothing to split. */
+            if (fi.value.trim() && joinSplitAllowed('gloss')) { glossPlace(i, 'free', fi.selectionStart ?? fi.value.length); return; }
+            // Not a split: Enter walks to the next line's translation, the FLEx-style walk the word glosses already have.
             const all = [...document.querySelectorAll('.free-input')];
             const next = all[all.indexOf(fi) + 1];
             if (next) { next.focus(); try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* fine */ } }
@@ -1325,10 +1329,26 @@ function startGlossCursor(entries) {
        * into view. Same helper as the Baseline strips and the Cut rows now. */
       if (grp && inSeg) glossFollowRow = followLine(grp, rolling && inSeg, glossFollowRow, player);
       let cur = en.wrap.querySelector('.gseg-cursor');
+      let sc = en.wrap.querySelector('.gseg-scissors');
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'gseg-cursor'; en.wrap.appendChild(cur); }
-        cur.style.left = (((time - en.seg.start) / (en.seg.end - en.seg.start)) * en.wave.offsetWidth) + 'px';
-      } else if (cur) cur.remove();
+        const x = ((time - en.seg.start) / (en.seg.end - en.seg.start)) * en.wave.offsetWidth;
+        cur.style.left = x + 'px';
+        // ✂ under the playhead: the AUDIO tier of a split on this tab (plans/split-tiers.md).
+        if (joinSplitAllowed('gloss')) {
+          if (!sc) {
+            sc = document.createElement('button');
+            sc.className = 'cut-scissors gseg-scissors'; sc.type = 'button'; sc.tabIndex = -1; sc.textContent = '\u2702';
+            sc.title = t('cut.cut'); sc.setAttribute('aria-label', t('cut.cut'));
+            sc.addEventListener('click', (ev) => { ev.stopPropagation(); glossPlaceAudio(); });
+            en.wrap.appendChild(sc);
+          }
+          sc.style.left = x + 'px';
+          const p = splitPending();
+          const pend = !!(p && p.tab === 'gloss' && p.i === en.i && !Object.prototype.hasOwnProperty.call(p.pos, 'audio'));
+          if (sc.classList.contains('needs-split') !== pend) sc.classList.toggle('needs-split', pend);
+        }
+      } else { if (cur) cur.remove(); if (sc) sc.remove(); }
     }
     glossRafId = requestAnimationFrame(tick);
   };
@@ -1341,7 +1361,112 @@ function stopGlossCursor() { cancelAnimationFrame(glossRafId); }
  * by word position marked timeEstimated. The free translation follows the MAJORITY side (tie →
  * left) — it cannot be auto-split, so it stays whole where most of its words went. Glosses ride
  * their words through the reconcile carry-over pool. */
-function glossSplitAt(i, boundary) {
+/* ── the Gloss tab's side of the pending split (plans/split-tiers.md) ─────────────────────── */
+function lineHasAnalysis(doc, i) {
+  const ph = doc && doc.paragraphs && doc.paragraphs[i] && doc.paragraphs[i].segments && doc.paragraphs[i].segments[0];
+  if (!ph) return false;
+  if ((ph.words || []).some((w) => glossesOfWord(w).some((g) => String(g.text || '').trim()))) return true;
+  return freesOfPhrase(ph).some((f) => String(f.text || '').trim());
+}
+function glossInfo(i) {
+  const doc = current.doc;
+  const ph = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
+  return { tab: 'gloss', aligned: isAligned(docSegments(doc)[i]), words: ph && ph.words ? ph.words.length : 0,
+           free: ph ? (ph.free || '') : '', text: getBaselineParagraphs(doc)[i] || '', hasGloss: lineHasAnalysis(doc, i) };
+}
+function glossSpec(i) {
+  return {
+    tiers: splitTiers(glossInfo(i)),
+    commit: (pos) => glossSplitAt(i, 'words' in pos ? pos.words : 0, { audioMs: 'audio' in pos ? pos.audio : null, freeAt: 'free' in pos ? pos.free : null }),
+    render: renderGlossPending,
+  };
+}
+function glossPlace(i, tier, value) {
+  if (!current || !joinSplitAllowed('gloss')) return 'ignored';
+  return splitPlace({ tab: 'gloss', i }, tier, value, glossSpec(i));
+}
+/* Enter outside the boxes, or the ✂ under the playhead: the AUDIO tier, on the line the playhead is in. */
+function glossPlaceAudio() {
+  if (!current) return false;
+  const ms = player?.playheadMs?.();
+  const i = segIndexAt(docSegments(current.doc), ms);
+  if (i < 0) return false;
+  return glossPlace(i, 'audio', ms) !== 'ignored';
+}
+function renderGlossPending(p) {
+  const body = $('#gloss-body');
+  if (!body) return;
+  body.querySelectorAll('.split-pending').forEach((g) => g.classList.remove('split-pending'));
+  body.querySelectorAll('.needs-split, .split-placed').forEach((el) => el.classList.remove('needs-split', 'split-placed'));
+  body.querySelectorAll('.split-prompt, .gseg-cutmark').forEach((el) => el.remove());
+  if (!p) return;
+  const g = body.querySelectorAll('.segment')[p.i];
+  if (!g) return;
+  g.classList.add('split-pending');
+  const missing = splitPlan(p.tiers, p.pos).missing;
+  const has = (k) => Object.prototype.hasOwnProperty.call(p.pos, k);
+  g.querySelectorAll('.scissor-btn').forEach((b) => b.classList.toggle('needs-split', missing.includes('words')));
+  const fi = g.querySelector('.free-input');
+  if (fi) { fi.classList.toggle('needs-split', missing.includes('free')); fi.classList.toggle('split-placed', has('free')); }
+  const wrap = g.querySelector('.gseg-wavewrap'), wave = g.querySelector('.gseg-wave');
+  const seg = docSegments(current.doc)[p.i];
+  if (wrap && wave && has('audio') && isAligned(seg)) {
+    const mark = document.createElement('div');
+    mark.className = 'gseg-cutmark';
+    mark.style.left = (Math.min(1, Math.max(0, (p.pos.audio - seg.start) / Math.max(1, seg.end - seg.start))) * wave.offsetWidth) + 'px';
+    wrap.appendChild(mark);
+  }
+  const prompt = document.createElement('div');
+  prompt.className = 'split-prompt';
+  if (missing.includes('free') && fi) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'split-here'; b.textContent = '\u2702';
+    b.title = t('split.here'); b.setAttribute('aria-label', t('split.here'));
+    b.addEventListener('click', () => glossPlace(p.i, 'free', fi.selectionStart ?? fi.value.length));
+    prompt.appendChild(b);
+  }
+  const say = document.createElement('span');
+  say.textContent = t('split.now.' + missing[0]);
+  prompt.appendChild(say);
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'link-btn split-cancel'; cancel.textContent = t('split.cancel');
+  cancel.addEventListener('click', () => splitCancel());
+  prompt.appendChild(cancel);
+  g.appendChild(prompt);
+}
+/* Baseline editing on the Gloss tab, one word at a time (Seth, 2026-09-06: "so people can correct
+ * misspelled words without losing their glosses"). The line's text is rebuilt from its words, the
+ * reconcile re-tokenises it, and each gloss goes back to its word: same position and same text,
+ * or the edited position itself; a word split in two by a typed space gets its gloss on the first. */
+function glossEditWord(seg, wi, txt) {
+  if (!current || !seg || !seg.words || !seg.words[wi]) return;
+  const doc = current.doc;
+  const li = doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg);
+  if (li < 0) return;
+  const clean = String(txt || '').trim();
+  if (!clean || clean === seg.words[wi].txt) return;
+  captureUndo();
+  const orig = seg.words.map((w) => ({ txt: w.txt, gls: w.gls }));
+  const words = seg.words.map((w, k) => (k === wi ? { ...w, txt: clean } : w));
+  const paras = getBaselineParagraphs(doc).slice();
+  paras[li] = textFromWords(words);
+  reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
+  const ph = doc.paragraphs[li] && doc.paragraphs[li].segments[0];
+  if (ph && ph.words) {
+    ph.words.forEach((w, k) => {
+      if (w.gls) return;
+      const same = orig[k] && orig[k].txt === w.txt ? orig[k] : null;
+      const near = same || (k === wi ? orig[wi] : orig.find((o, j) => o.txt === w.txt && Math.abs(j - k) <= 2));
+      if (near && near.gls) w.gls = near.gls;
+    });
+  }
+  schedulePersist();
+  stopGlossCursor();
+  renderGloss();
+  decorateGlossSegments();
+}
+
+function glossSplitAt(i, boundary, opts = {}) {
   if (!current) return;
   captureUndo();
   const doc = current.doc;
@@ -1363,9 +1488,11 @@ function glossSplitAt(i, boundary) {
   const rightText = words.slice(boundary).map((w) => w.txt).join(' ');
   const paras = getBaselineParagraphs(doc).slice();
   paras.splice(i, 1, leftText, rightText);
+  // The audio position is the one the user PLACED (the pending split's audio tier), never read
+  // from the playhead here; a line without a time interpolates by word position (timeEstimated).
   doc.segments = splitSegment(docSegments(doc), i, {
-    playheadMs: player?.playheadMs?.() ?? null,
-    fraction: boundary / words.length,
+    playheadMs: opts.audioMs ?? null,
+    fraction: words.length ? boundary / words.length : 0,
   });
   reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
   const L = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
@@ -1380,9 +1507,16 @@ function glossSplitAt(i, boundary) {
   reglue(L, origWords.slice(0, boundary));
   reglue(R, origWords.slice(boundary));
   if (L && R && free) {
-    const leftWins = boundary >= words.length - boundary;   // tie → left
-    (leftWins ? L : R).free = free;
-    (leftWins ? R : L).free = '';
+    if (opts.freeAt != null) {
+      // The translation's own placed position (plans/split-tiers.md), not a guess from the words.
+      const at = Math.max(0, Math.min(free.length, opts.freeAt));
+      L.free = free.slice(0, at).trim();
+      R.free = free.slice(at).trim();
+    } else {
+      const leftWins = boundary >= words.length - boundary;   // tie → left
+      (leftWins ? L : R).free = free;
+      (leftWins ? R : L).free = '';
+    }
   }
   schedulePersist();
   stopGlossCursor();
@@ -1510,6 +1644,7 @@ async function prepareCutAudio() {
 }
 
 function switchTab(tab, landing) {
+  splitCancel();   // a split half-placed on another tab is dropped, with nothing written
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
     applyBaseline();
@@ -1595,6 +1730,9 @@ function switchTab(tab, landing) {
         joinKeys: () => joinKeysEnabled(),
         joinSplit: () => joinSplitAllowed('baseline'),
         allowAdjust: () => adjustBoundariesAllowed(),
+        // Rule A (plans/split-tiers.md): a line with glosses or a translation is the Gloss tab's.
+        hasGloss: (i) => lineHasAnalysis(current && current.doc, i),
+        say: (msg) => toast(msg, 5000),
         t,
       });
       /* ⚠ THE STRIPS DO NOT EXIST UNTIL THE AUDIO DOES (Seth, 2026-08-07): "can we actually have
@@ -1759,7 +1897,7 @@ function applyUndoState(st, onto) {
   switchTab(activeTab);
   updateUndoButtons();
 }
-function doUndo() { commitFieldUndo(); const st = undoStack.pop(); if (st) applyUndoState(st, redoStack); }
+function doUndo() { if (splitCancel()) return; commitFieldUndo(); const st = undoStack.pop(); if (st) applyUndoState(st, redoStack); }   // Undo first cancels a pending split (Seth, 2026-09-06)
 
 function doRedo() { const st = redoStack.pop(); if (st) applyUndoState(st, undoStack); }
 let playerDocId = null;
@@ -1975,6 +2113,7 @@ async function newDocFromAudio(file, titleOverride) {
   if (RECORD_MODE) {
     // No editor in record mode: the recording is saved; return to the list.
     current = null;
+    splitCancel();   // a text closed mid-split: dropped, nothing written
     show('record');
     renderRecordList();
     toast(t('record.saved'), 4000);
@@ -3733,6 +3872,19 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
   t2.className = 'word-txt';
   if (vernFont) t2.style.fontFamily = vernFont;
   t2.textContent = w.txt;
+  /* The word itself is editable here (Seth, 2026-09-06): a misspelling is fixed in place and the
+   * gloss stays with its word — see glossEditWord. Enter commits, Escape reverts, Tab is untouched. */
+  try { t2.contentEditable = 'plaintext-only'; } catch { /* below */ }
+  if (t2.contentEditable !== 'plaintext-only') t2.contentEditable = 'true';
+  t2.spellcheck = false;
+  t2.title = t('gloss.editWordTip');
+  let was = w.txt;
+  t2.addEventListener('focus', () => { was = t2.textContent; });
+  t2.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); t2.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); t2.textContent = was; t2.blur(); }
+  });
+  t2.addEventListener('blur', () => { const v = t2.textContent.trim(); if (v && v !== was) glossEditWord(seg, i, v); else t2.textContent = was; });
   cell.appendChild(t2);
 
   const g = document.createElement('input');
@@ -3906,6 +4058,7 @@ function deleteAfterUpload() {
 function deleteUploadedDoc(docId) {
   if (current && current.id === docId) {
     current = null;
+    splitCancel();   // a text closed mid-split: dropped, nothing written
     if (!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE) show('texts');   // the satellites have no texts view
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {
@@ -10726,6 +10879,7 @@ function setup() {
   applyHeaderLabels();
   applyI18n();
   applyGlossIcon();
+  installSplitCancel();   // Escape and a tap away cancel a pending split (plans/split-tiers.md)
 
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render
   // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.
@@ -10870,6 +11024,7 @@ function setup() {
     if (activeTab === 'baseline') applyBaseline();
     await persist();
     current = null;
+    splitCancel();   // a text closed mid-split: dropped, nothing written
     leaveEditor();   // stops audio AND the tab tickers — see the function for what leaking them cost
     renderDocList();
     show('texts');
@@ -10939,12 +11094,13 @@ function setup() {
    * ⚠ NOT ON THE GLOSS TAB. Its boxes are word glosses and free translations; breaking a LINE there
    * would re-shape the very rows being glossed, which is what the Cut and Baseline tabs are for. */
   document.addEventListener('keydown', (e) => {
-    if (activeTab !== 'baseline' || $('#view-baseline')?.hidden) return;
+    const onGloss = activeTab === 'gloss' && !$('#view-gloss')?.hidden;   // the AUDIO tier there too (plans/split-tiers.md)
+    if (!onGloss && (activeTab !== 'baseline' || $('#view-baseline')?.hidden)) return;
     if (!segmentationEnabled()) return;          // classic textarea mode owns its own Enter
     if (e.key !== 'Enter' || e.repeat) return;
     if (!transportKeysApply(e.target, e.key)) return;   // a focused text box keeps Enter — see onKey
     e.preventDefault();                          // …and a focused ▶ must not ALSO re-fire
-    stripSplitAtPlayhead();
+    if (onGloss) glossPlaceAudio(); else stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
   /* ℹ folds the Cut tab's instructions away on a phone. The button is display:none above 560px, so

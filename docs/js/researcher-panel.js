@@ -592,6 +592,71 @@ const SEND_OPTS = ['share', 'upload', 'save'];
 
 /* The 5 settings groups (canonical field ids; local↔device key mapping handled in
  * fillForm/readForm). This is the reusable settings-form component. */
+/* ⚠ THE GLOSS TAB'S PICTURE IS THE RESEARCHER'S CHOICE (Seth, 2026-09-06: "give the researcher the
+ * option for which icon they want to choose (which one makes the most sense to them and their
+ * users)" … "showing them the icon and not just a description of the icon in the UI control(s)").
+ * Seven candidates, each drawn as 2px round-cap strokes in a 24-unit box so any of them sits beside
+ * the Cut and Baseline icons unchanged; each value is the CHILDREN of the tab's <svg>, whose wrapper
+ * (class, viewBox, stroke attributes) never changes. They live here, not in app.js, because both the
+ * panel's settings form and the device's Settings tab draw the tiles and app.js already imports this
+ * module — a third file would need a precache entry in every service worker.
+ *
+ * ⚠ GLOSS_ICON_DEFAULT IS A TEMPLATE, NOT A LIVE FALLBACK (Seth: "each new device takes the existing
+ * default and then saves it as if it had been specifically chosen … new defaults for this setting
+ * are merely a template for new project templates and new devices"). A device writes it into its own
+ * settings at first boot (app.js seedSettingDefaults) and reads its own choice from then on, and a
+ * project template stores whatever the form showed, so changing the value here reaches only devices
+ * and templates that do not exist yet. The dashboard counts what devices actually use (Seth: "stats
+ * about which one is used the most and can make that the new default for all new devices"). */
+export const GLOSS_ICON_DEFAULT = 'stack';
+export const GLOSS_ICONS = {
+  stack: '<path d="M4 7h5M12 7h8M4 12h5M12 12h8M4 17h5M12 17h8" stroke-width="2.6"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 0 1 0 18"/><path d="M12 3a13.5 13.5 0 0 0 0 18"/>',
+  translate: '<path d="M3 10l3-7 3 7M4 8h4M14 21v-9m0 4c0-2 4-2 4 0v5M10 4h9l-2-2M14 14H5l2 2"/>',
+  equals: '<path d="M3 17l3-9 3 9M4 14h4M14 9h7M14 15h7"/>',
+  bubble: '<path d="M4 5h16v11h-9l-4 4v-4H4zM8 9h8M8 12h5"/>',
+  book: '<path d="M12 6c-2-2-5-2-9-2v14c4 0 7 0 9 2 2-2 5-2 9-2V4c-4 0-7 0-9 2zM12 6v14"/>',
+  pencil: '<path d="M4 20l4-1L19 8l-3-3L5 16zM14 7l3 3"/>',
+};
+export function glossIconSvg(id, cls = 'tab-ico') {
+  const body = GLOSS_ICONS[id] || GLOSS_ICONS[GLOSS_ICON_DEFAULT];
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${body}</svg>`;
+}
+/* A select whose options are pictures gets a tile per option beside a HIDDEN <select> that keeps
+ * carrying the value for fill/read/save/push; the tiles are what the researcher sees and taps. Shared
+ * by the panel form (data-f) and the device Settings tab (data-sf). */
+export function iconTilesHtml(f) {
+  const tiles = f.opts.map((o) => {
+    const label = esc(t(f.optPrefix + o));
+    return `<button type="button" class="rp-icontile" data-pick-for="${esc(f.k)}" data-v="${esc(o)}" aria-pressed="false" title="${label}">${glossIconSvg(o, 'rp-icontile-ico')}<span>${label}</span></button>`;
+  }).join('');
+  return `<div class="rp-iconpick" data-pick="${esc(f.k)}" role="group">${tiles}</div>`;
+}
+function iconPickSelect(pick, k) {
+  const host = pick && pick.parentElement;
+  return host ? host.querySelector(`select[data-f="${k}"], select[data-sf="${k}"]`) : null;
+}
+export function syncIconPicks(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.rp-iconpick').forEach((pick) => {
+    const sel = iconPickSelect(pick, pick.dataset.pick);
+    const v = sel ? sel.value : '';
+    pick.querySelectorAll('.rp-icontile').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  });
+}
+export function wireIconPicks(root) {
+  root.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('.rp-icontile') : null;
+    if (!b || !root.contains(b)) return;
+    const pick = b.closest('.rp-iconpick');
+    const sel = iconPickSelect(pick, b.dataset.pickFor);
+    if (!sel || sel.disabled) return;
+    sel.value = b.dataset.v;
+    pick.querySelectorAll('.rp-icontile').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    sel.dispatchEvent(new Event('change', { bubbles: true }));   // the form's own save path takes it from here
+  });
+}
+
 const GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', helpModal: 'wscodes', fields: [
     // Interface language pushed to THIS device (setting D).
@@ -673,6 +738,9 @@ const GROUPS = [
     { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
     { k: 'headerLabels', type: 'select', opts: ['auto', 'both', 'icons', 'text'], optPrefix: 'panel.opt.labels.', note: 'panel.f.headerLabelsNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
+    // The Gloss tab's picture (Seth, 2026-09-06): seven candidates, shown as icons, not names. The
+    // default is a template for new devices and new project templates only — see GLOSS_ICON_DEFAULT.
+    { k: 'glossIcon', type: 'select', opts: ['stack', 'globe', 'translate', 'equals', 'bubble', 'book', 'pencil'], optPrefix: 'panel.opt.glossIcon.', icons: true, note: 'panel.f.glossIconNote' },
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
@@ -1157,6 +1225,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v590', date: '2026-09-06', items: [
+    { k: 'panel.rel.new.glossIcon' },
+    { k: 'panel.rel.new.cutShiftSpace' },
+    { k: 'panel.rel.new.spaceMobile' },
+  ] },
   { v: 'v589', date: '2026-09-06', items: [
     { k: 'panel.rel.new.headerLabels' },
     { k: 'panel.rel.new.playerTier' },
@@ -1604,6 +1677,7 @@ function viewSig(data) {
           ins.install_id, ins.status, ins.accepted, ins.has_key, ins.wipe_state,   // wipe_state → re-render on wipe pending/confirmed
           ins.inventory && ins.inventory.ua, ins.inventory && JSON.stringify(ins.inventory.cachedApps),  // re-render when the device's browser/app version changes
           ins.inventory && ins.inventory.engineVersion,  // re-render when the true running engine version changes (brick/stale signal)
+          ins.inventory && ins.inventory.glossIcon,      // the dashboard's icon tally follows a changed choice
           ins.inventory && Array.isArray(ins.inventory.items)
             // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
             // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
@@ -1803,6 +1877,13 @@ export function staleConfirmed(installId, reportedAt, behind, runningVer, unknow
   return (e.last - e.first) >= STALE_CONFIRM_MS;
 }
 
+// The dashboard line "Gloss tab icon on devices: ▤ Interlinear rows ×4 · ◯ Globe ×1", most used first.
+function glossIconTally(use) {
+  const keys = Object.keys(use || {}).sort((a, b) => use[b] - use[a]);
+  if (!keys.length) return '';
+  const list = keys.map((k) => `<span class="rp-icon-use">${glossIconSvg(k, 'rp-icon-use-ico')} ${esc(GLOSS_ICONS[k] ? t('panel.opt.glossIcon.' + k) : k)} ×${use[k]}</span>`).join(' · ');
+  return `<div class="rp-live rp-icon-tally">${esc(t('panel.dash.glossIcons'))} ${list}</div>`;
+}
 function deviceInfo(ua, cachedApps, engineVersion, platform, installId, reportedAt) {
   const segs = [];
   const pk = PLATFORM_KEY[platform];
@@ -2030,9 +2111,19 @@ async function renderDashboard(prefetched) {
   // 12s tick is both safe and necessary.
   observeView(Researcher.currentAccountId(), insts);
   let pending = 0, texts = 0;
-  for (const it of insts) for (const ins of it.installs || []) {
-    if (ins.status === 'pending') pending++;
-    if (ins.inventory && Array.isArray(ins.inventory.items)) texts += ins.inventory.items.length;
+  /* Which Gloss tab icon each device uses (Seth, 2026-09-06: "stats about which one is used the
+   * most"): one vote per device, from its most recently seen install that reported one. Only the
+   * editor shell reports it (the others have no Gloss tab), and devices from before the setting
+   * report nothing, so the line is absent until at least one device has said. */
+  const iconUse = {};
+  for (const it of insts) {
+    let newest = null;
+    for (const ins of it.installs || []) {
+      if (ins.status === 'pending') pending++;
+      if (ins.inventory && Array.isArray(ins.inventory.items)) texts += ins.inventory.items.length;
+      if (ins.inventory && ins.inventory.glossIcon && (!newest || (ins.last_seen_at || 0) > (newest.last_seen_at || 0))) newest = ins;
+    }
+    if (newest) { const k = newest.inventory.glossIcon; iconUse[k] = (iconUse[k] || 0) + 1; }
   }
 
   // Crowd recorders ride FULL renders only (initial load / manual refresh / post-action), never the
@@ -2061,6 +2152,7 @@ async function renderDashboard(prefetched) {
   root.querySelector('.rp-body').innerHTML = `
     ${maintenanceBanner()}
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
+    ${glossIconTally(iconUse)}
     <div class="rp-metrics">
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.devices'))}</div><div class="rp-metric-n">${insts.length}</div></div>
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.pending'))}</div><div class="rp-metric-n${pending ? ' rp-warn' : ''}">${pending}</div></div>
@@ -8455,6 +8547,7 @@ function fieldHtml(f) {
   }
   if (f.type === 'select') {
     const opts = f.opts.map((o) => `<option value="${o}">${esc(f.optPrefix ? t(f.optPrefix + o) : o)}</option>`).join('');
+    if (f.icons) return `<div class="rp-field"><span>${label}</span><select data-f="${f.k}" hidden>${opts}</select>${iconTilesHtml(f)}</div>${f.note ? `<p class="note">${t(f.note)}</p>` : ''}`;
     // The recording format is the one setting whose consequences are invisible here: it decides how
     // long a cheap phone can record before the app has to stop it, and whether the result can be
     // called an archival master at all. Neither is guessable from a format name in a dropdown.
@@ -8548,6 +8641,7 @@ function toFormValues(s) {
     else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;   // default on, so an unset one shows ticked
     else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
     else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
+    else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
@@ -8571,6 +8665,7 @@ function fillForm(box, v) {
       else el.checked = !!v[k];
     } else { el.value = v[k] != null ? v[k] : ''; }
   });
+  syncIconPicks(box);
   paintPromptState(box);
 }
 
@@ -8825,6 +8920,7 @@ async function openSettingsModal(target, opts = {}) {
     if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(t(noteKey))}</p>`);
   }
   fillForm(box, toFormValues(source));
+  wireIconPicks(box);
   /* ⚠ THE CONSENT PROMPT IS PER-DEVICE, so in TEMPLATE mode its upload button had nothing to
    * target and sat there dead — the upload streams the audio into one device's own Drive folder
    * and mints a URL for that device, which is why its wiring below requires target.instance. A

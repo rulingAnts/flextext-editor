@@ -4,6 +4,16 @@ Seth asked for this one by name (2026-09-03): *"Remind me when I manually smoke 
 release that I need to make sure EAF and FLExText Exports still import into their
 respective apps accurately."*
 
+## How touch lines are marked (Seth, 2026-09-06, "for now")
+
+Seth's only Android test device is MDM-locked to the production Editor WebAPK, so staging
+can be smoke-tested on the desktop app and in the browser's responsive mode, and with the
+trackpad where a gesture has a trackpad twin (a two-finger trackpad pinch is the same wheel
+event as a touch pinch; a two-finger trackpad swipe is the same as a two-finger touch drag).
+Anything that needs a real finger and has no trackpad twin is marked **[real device]** below:
+it is checked on production after the release, not before, and the code behind it is kept
+additive and fail-safe (a throw or a missing capability leaves today's behaviour in place).
+
 ## ⚠ 1. Round-trip the two annotation exports into the real applications
 
 Nothing in `test/` can do this. The tests check what we WRITE; only FLEx and ELAN can say
@@ -200,3 +210,17 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Settings ▸ Other ▸ "Top-row buttons and tabs": Icons only hides the words on Cut / Baseline / Gloss / Save / Done; Words only hides the icons; Icons and words shows both; Automatic shows icons only when the window is narrower than 1000 px and both above. Same field in the researcher panel, pushed to a device.
 - [ ] Phone: the top player's waveform is visibly shorter than on a laptop (44 px vs 72 px); tablet 56 px. Rotate the phone: it follows.
 
+
+## Gloss tab icon, Cut-tab chord, mobile Space (v590)
+
+- [ ] Researcher panel, a device's settings → Other: "Gloss tab icon" shows seven picture tiles with
+      the current one highlighted; tapping another highlights it; Save pushes it and the device's
+      Gloss tab shows that picture without a reload. The Settings tab of an unpaired editor shows the
+      same tiles and changes the tab at once.
+- [ ] A device that has never had the setting reports "Interlinear rows" (the default, written into
+      its own settings at first boot); the dashboard shows "Gloss tab icon on devices: … ×N" once at
+      least one editor device has reported.
+- [ ] Cut tab: Shift+Space from the page and from inside the title box plays, then pauses, once per
+      press; plain Space in the title box types a space.
+- [ ] Space setting "Automatic": on a laptop, touch screen or not, Space plays; in the browser's
+      Android emulation (or on the phone, [real device]) Space types.

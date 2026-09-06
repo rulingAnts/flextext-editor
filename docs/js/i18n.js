@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v589';
+export const ENGINE_VERSION = 'v590';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1012,6 +1012,7 @@ internet after the first time.</p>
   'panel.dash.devices': 'Devices',
   'panel.dash.pending': 'Pending',
   'panel.dash.texts': 'Texts',
+  'panel.dash.glossIcons': 'Gloss tab icon on devices:',
   'panel.dash.newDevice': '+ New device',
   'panel.dash.refresh': 'Refresh',
   // Admin modal — OWNER-only (ALLOWED_RESEARCHERS). The Worker enforces this independently; the
@@ -1430,6 +1431,9 @@ internet after the first time.</p>
     ,'panel.rel.new.touchLine': 'Touch screens: the playhead line itself is the handle. Touch anywhere on the line and drag to scrub; a tap places it; dragging anywhere else scrolls. No dot.'
     ,'panel.rel.new.headerLabels': 'New device setting \u201cTop-row buttons and tabs\u201d: automatic (icons only when the screen is narrower than 1000 px, icons and words on anything wider), icons and words, icons only, or words only. On the Settings tab and pushable from the panel.'
     ,'panel.rel.new.playerTier': 'The top player\u2019s waveform now really shrinks on small screens (56 px on a tablet, 44 px on a phone). Since v548 only its padding had shrunk; the waveform itself stayed at the desktop height.'
+    ,'panel.rel.new.glossIcon': 'New device setting \u201cGloss tab icon\u201d: seven pictures to choose from, shown as icons on the panel and on the device\u2019s Settings tab; interlinear rows by default. Each device stores its choice, and the dashboard counts which icon devices use.'
+    ,'panel.rel.new.cutShiftSpace': 'Shift+Space plays and pauses on the Cut tab too, from anywhere on the page, once \u2014 the same chord on every tab.'
+    ,'panel.rel.new.spaceMobile': 'The Space bar setting\u2019s automatic mode is now \u201coff on mobile devices\u201d (Android phones and tablets), not \u201coff on touch screens\u201d: a laptop with a touch screen keeps Space to play.'
     ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
     ,'panel.rel.new.lazyStrips': 'Long recordings: the waveform strips on the Baseline, Cut and Gloss tabs draw only while they are near the screen, so a 15-minute take cut into hundreds of lines no longer runs out of canvas memory and goes blank part-way down.'
     ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
@@ -1951,10 +1955,19 @@ internet after the first time.</p>
   'panel.opt.scale.1.3': 'Large',
   'panel.opt.scale.1.5': 'Largest',
   'panel.f.spacePlays': 'The Space bar plays / pauses the audio',
-  'panel.f.spacePlaysNote': 'Automatic = off on a touch screen, where Space is for typing. Shift+Space always plays or pauses, even inside a text box; so does the \u25b6 button.',
-  'panel.opt.space.auto': 'Automatic (off on touch screens)',
+  'panel.f.spacePlaysNote': 'Automatic = off on a mobile device (an Android phone or tablet), where Space is for typing; on a laptop, touch screen or not, Space plays. Shift+Space always plays or pauses, even inside a text box; so does the \u25b6 button.',
+  'panel.opt.space.auto': 'Automatic (off on mobile devices)',
   'panel.opt.space.on': 'Always',
   'panel.opt.space.off': 'Never \u2014 use \u25b6 or Shift+Space',
+  'panel.f.glossIcon': 'Gloss tab icon',
+  'panel.f.glossIconNote': 'The picture on the Gloss tab. Choose the one your coworkers will recognise. Each device keeps its own choice, so changing the default later does not change devices already set up; the dashboard shows which icon devices use.',
+  'panel.opt.glossIcon.stack': 'Interlinear rows',
+  'panel.opt.glossIcon.globe': 'Globe',
+  'panel.opt.glossIcon.translate': 'A to B',
+  'panel.opt.glossIcon.equals': 'Equals',
+  'panel.opt.glossIcon.bubble': 'Speech bubble',
+  'panel.opt.glossIcon.book': 'Open book',
+  'panel.opt.glossIcon.pencil': 'Pencil',
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
   'panel.f.sortAlpha': 'Keep the texts list in alphabetical order (otherwise: most recent first)',
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
@@ -3266,6 +3279,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.devices': 'Perangkat',
   'panel.dash.pending': 'Menunggu',
   'panel.dash.texts': 'Teks',
+  'panel.dash.glossIcons': 'Ikon tab Terjemahan Balik di perangkat:',
   'panel.dash.newDevice': '+ Perangkat baru',
   'panel.dash.refresh': 'Segarkan',
   'panel.admin.btn': 'Admin',
@@ -3602,6 +3616,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.touchLine': 'Layar sentuh: garis playhead itu sendiri adalah pegangannya. Sentuh di mana saja pada garis dan seret untuk menggeser; ketuk untuk menempatkannya; seret di tempat lain untuk menggulir. Tanpa titik.'
     ,'panel.rel.new.headerLabels': 'Pengaturan perangkat baru \u201cTombol dan tab baris atas\u201d: otomatis (ikon saja bila lebar layar kurang dari 1000 px, ikon dan kata pada yang lebih lebar), ikon dan kata, ikon saja, atau kata saja. Di tab Pengaturan dan bisa dikirim dari panel.'
     ,'panel.rel.new.playerTier': 'Gelombang pemutar atas kini benar-benar mengecil di layar kecil (56 px di tablet, 44 px di ponsel). Sejak v548 hanya jaraknya yang mengecil; gelombangnya sendiri tetap setinggi desktop.'
+    ,'panel.rel.new.glossIcon': 'Pengaturan perangkat baru \u201cIkon tab Terjemahan Balik\u201d: tujuh gambar untuk dipilih, ditampilkan sebagai ikon di panel dan di tab Pengaturan perangkat; bawaannya baris interlinear. Setiap perangkat menyimpan pilihannya, dan dasbor menghitung ikon mana yang dipakai perangkat.'
+    ,'panel.rel.new.cutShiftSpace': 'Shift+Spasi memutar dan menjeda di tab Potong juga, dari mana pun di halaman, sekali saja \u2014 kombinasi tombol yang sama di setiap tab.'
+    ,'panel.rel.new.spaceMobile': 'Mode otomatis pengaturan tombol Spasi kini \u201cmati di perangkat seluler\u201d (ponsel dan tablet Android), bukan \u201cmati di layar sentuh\u201d: laptop berlayar sentuh tetap memakai Spasi untuk memutar.'
     ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
     ,'panel.rel.new.lazyStrips': 'Rekaman panjang: strip gelombang di tab Dasar, Potong, dan Glos hanya digambar saat dekat layar, sehingga rekaman 15 menit yang dipotong menjadi ratusan baris tidak lagi kehabisan memori kanvas dan kosong di tengah jalan.'
     ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'
@@ -4051,10 +4068,19 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.scale.1.3': 'Besar',
   'panel.opt.scale.1.5': 'Paling besar',
   'panel.f.spacePlays': 'Tombol Spasi memutar / menjeda audio',
-  'panel.f.spacePlaysNote': 'Otomatis = mati di layar sentuh, tempat Spasi dipakai untuk mengetik. Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks; begitu pula tombol \u25b6.',
-  'panel.opt.space.auto': 'Otomatis (mati di layar sentuh)',
+  'panel.f.spacePlaysNote': 'Otomatis = mati di perangkat seluler (ponsel atau tablet Android), tempat Spasi dipakai untuk mengetik; di laptop, dengan atau tanpa layar sentuh, Spasi memutar. Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks; begitu pula tombol \u25b6.',
+  'panel.opt.space.auto': 'Otomatis (mati di perangkat seluler)',
   'panel.opt.space.on': 'Selalu',
   'panel.opt.space.off': 'Tidak pernah \u2014 pakai \u25b6 atau Shift+Spasi',
+  'panel.f.glossIcon': 'Ikon tab Terjemahan Balik',
+  'panel.f.glossIconNote': 'Gambar pada tab Terjemahan Balik. Pilih yang paling dikenali rekan kerja Anda. Setiap perangkat menyimpan pilihannya sendiri, jadi mengubah bawaan nanti tidak mengubah perangkat yang sudah diatur; dasbor menunjukkan ikon mana yang dipakai perangkat.',
+  'panel.opt.glossIcon.stack': 'Baris interlinear',
+  'panel.opt.glossIcon.globe': 'Bola dunia',
+  'panel.opt.glossIcon.translate': 'A ke B',
+  'panel.opt.glossIcon.equals': 'Sama dengan',
+  'panel.opt.glossIcon.bubble': 'Balon ucapan',
+  'panel.opt.glossIcon.book': 'Buku terbuka',
+  'panel.opt.glossIcon.pencil': 'Pensil',
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
   'panel.f.sortAlpha': 'Urutkan daftar teks menurut abjad (jika tidak: yang terbaru dahulu)',
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',

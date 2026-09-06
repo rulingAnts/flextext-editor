@@ -84,7 +84,12 @@ test('#42 Space is a setting: auto (off on coarse pointers), on, off; Shift+Spac
   assert.match(body, /settings\.spacePlays \|\| 'auto'/);
   assert.match(body, /if \(m === 'on'\) return true;/);
   assert.match(body, /if \(m === 'off'\) return false;/);
-  assert.match(body, /matchMedia\('\(pointer: coarse\)'\)\.matches/, 'auto follows the pointer type');
+  assert.match(body, /return !isMobileDevice\(\);/, 'auto = off on a mobile device, on everywhere else');
+  const mob = APP.slice(APP.indexOf('function isMobileDevice()'), APP.indexOf('function spaceToggles()'));
+  assert.match(mob, /\/Android\/i\.test\(navigator\.userAgent/, 'Android phones and tablets by user agent');
+  assert.match(mob, /userAgentData\.mobile === true/, 'and the client hint');
+  assert.match(mob, /\(pointer: coarse\) and \(hover: none\)/, 'and a coarse, non-hovering primary pointer');
+  assert.doesNotMatch(mob, /matchMedia\('\(pointer: coarse\)'\)/, 'a bare coarse pointer (touchscreen laptop) is NOT mobile');
   const keys = APP.slice(APP.indexOf('function wirePlaybackKeys('), APP.indexOf('function spaceToggles()'));
   const space = keys.slice(keys.indexOf("if (e.key !== ' ' || e.repeat) return;"));
   assert.match(space, /if \(e\.shiftKey\) \{[\s\S]{0,900}?e\.preventDefault\(\);[\s\S]{0,300}?togglePlayFromKey\(\);\s*\n\s*return;\s*\n\s*\}/, 'Shift+Space first');
@@ -155,6 +160,12 @@ test('2026-09-06: with Space off, a plain keystroke goes to the last played line
   assert.match(shift, /const own = inTextField\(e\.target\) \? segmentForField\(e\.target\) : null;\s*\n\s*if \(own\) lastPlayTarget = own;/, 'inside a box, Shift+Space targets that box\'s own line');
   assert.doesNotMatch(shift, /spaceToggles\(\)/, 'Shift+Space in a box does not depend on the Space setting');
   const focus = APP.slice(APP.indexOf('function focusAtEnd(el)'), APP.indexOf('function typingTargetForLastPlayed()'));
+  /* Seth, 2026-09-06: "Make sure Shift+Space works on the cut tab as well … always respond to
+   * Shift+Space no matter what". Two document handlers both saw the chord and toggled twice. */
+  assert.match(shift, /e\.preventDefault\(\);\s*\n\s*if \(activeTab === 'cut' && !\$\('#view-cut'\)\?\.hidden\) return;/, 'the global handler stands down for the chord on the Cut tab');
+  const cut = APP.slice(APP.indexOf("if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;"), APP.indexOf("if (e.key === 'Enter') { e.preventDefault(); cutHere(); }"));
+  assert.match(cut, /if \(e\.key === ' ' && e\.shiftKey\) \{\s*\n\s*if \(e\.repeat \|\| document\.querySelector\('\.modal:not\(\[hidden\]\)'\)\) return;\s*\n\s*e\.preventDefault\(\); cutTogglePlay\(\); return;/, 'the cut-tab handler toggles its continuous transport on Shift+Space');
+  assert.ok(cut.indexOf('e.shiftKey') < cut.indexOf('transportKeysApply(e.target'), 'before the field/control gate, so it works from the title box and any button');
   assert.match(focus, /el\.setSelectionRange\(n, n\)/, 'inputs: caret at value.length, the logical end');
   assert.match(focus, /r\.collapse\(false\)/, 'contenteditable: range collapsed to the logical end');
   assert.doesNotMatch(focus, /getBoundingClientRect|clientWidth|left|right/, 'no visual-edge arithmetic, so right-to-left needs nothing here');

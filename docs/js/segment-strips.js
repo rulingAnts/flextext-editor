@@ -20,7 +20,7 @@
  * DISPLAY of samples, never a modification of them.
  */
 
-import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned,
+import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
@@ -571,6 +571,7 @@ export function renderStrips() {
 
     row.append(play, wave, input);
     host.appendChild(row);
+    attachEdgeHandles(row, wave, i, stripsEdgeCtx(segs));   // the grips (adjustBoundaries) — see attachEdgeHandles
     /* ⤙⤚ JOIN, between the two rows it joins (v322, Seth's bug list #7). The baseline tab never
      * had a join button — the ⇥ set-boundary control was being read as one ("join joins the lines
      * incorrectly" was ⇥ moving a boundary). Same control, same glyph, same semantics as the gloss
@@ -1076,6 +1077,128 @@ export function stopGlossTicker() { if (glossTick) { clearInterval(glossTick); g
  * half an edit cannot be applied.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/* ═══ BOUNDARY DRAG HANDLES — the Cut tab's top-player marks and a grip at each end of every strip ═
+ * Seth, 2026-09-06: "segment-drag handles (something visible in the UI that looks intuitively
+ * draggable would be good) and draggable boundaries on the overview player to the cut tab just like
+ * we have in the audio segmenter app … the segment drag handles (based on that setting), but not
+ * the preview player boundary lines to be part of the baseline and gloss tab audio segment players
+ * as well … Those drag handles ride on that single enable/disable feature."
+ *
+ * ⚠ A BOUNDARY MOVER ON THE STRIPS WAS REMOVED ONCE (v323): a one-tap ⇥ that silently re-timed two
+ * lines from an unlabeled icon. This is a different gesture: a visible grip that moves only while a
+ * finger or mouse is holding it, clamped so it can never pass a neighbour, one undo per drag, and a
+ * researcher switch (adjustBoundaries) that removes every grip at once. A line that already has
+ * words keeps its grip even when cutting and joining texted lines is off, because moving a seam
+ * changes when a line is heard, never which words it holds (segments.js moveBoundary).
+ *
+ * One rule (moveBoundary), one gesture (attachEdgeHandles), one consumer (makeBoundaryDrag): the
+ * Cut, Baseline and Gloss strips and the top player all go through them. */
+let edgeRO = null;
+function placeEdge(h) {
+  const w = h.__wave;
+  if (!w || !w.isConnected) return;
+  const half = (h.offsetWidth || 14) / 2;
+  const x = h.__side === 'l' ? w.offsetLeft : w.offsetLeft + w.offsetWidth;
+  h.style.left = (x - half) + 'px';
+  h.style.top = w.offsetTop + 'px';
+  h.style.height = w.offsetHeight + 'px';
+}
+function placeEdgeHandles(host) { host.querySelectorAll('.seg-edge').forEach(placeEdge); }
+function watchEdges(host) {
+  if (!host || typeof ResizeObserver === 'undefined') return;
+  if (!edgeRO) edgeRO = new ResizeObserver((entries) => { for (const e of entries) placeEdgeHandles(e.target); });
+  edgeRO.observe(host);   // observe() is idempotent per target: one entry per list, however many rows
+}
+/* Two grips per row, one on each seam the row shares with a neighbour: the left grip of row i and
+ * the right grip of row i-1 move the same seam, whichever is nearer the thumb. The recording's own
+ * start and end are not seams, and a seam next to a line without a time gets no grip.
+ * ctx: { allowed(), count(), segAt(k), onDrag(seam, ms, phase), t } */
+export function attachEdgeHandles(row, wave, i, ctx) {
+  if (!row || !wave || !ctx || !(ctx.allowed && ctx.allowed())) return;
+  const n = ctx.count();
+  for (const side of ['l', 'r']) {
+    const bi = side === 'l' ? i - 1 : i;
+    if (bi < 0 || bi >= n - 1) continue;
+    if (!isAligned(ctx.segAt(bi)) || !isAligned(ctx.segAt(bi + 1))) continue;
+    const h = document.createElement('span');
+    h.className = 'seg-edge seg-edge-' + side;
+    h.title = ctx.t('seg.dragEdge');
+    h.setAttribute('aria-label', ctx.t('seg.dragEdge'));
+    h.__wave = wave; h.__side = side;
+    h.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();       // not a seek, not a row select, not a scroll
+      try { h.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }
+      /* ⚠ THE SCALE IS FROZEN AT PICK-UP (the matcher's rule): the strip is drawn to this row's own
+       * range, which the drag changes, so re-deriving ms-per-pixel each move would make the seam
+       * accelerate away from the finger. */
+      const seg = ctx.segAt(i);
+      const perPx = Math.max(1, seg.end - seg.start) / (wave.clientWidth || 1);
+      const x0 = ev.clientX;
+      const t0 = side === 'r' ? seg.end : seg.start;
+      ctx.onDrag(bi, null, 'start');
+      const move = (e2) => ctx.onDrag(bi, t0 + (e2.clientX - x0) * perPx, 'move');
+      const up = () => {
+        h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+        ctx.onDrag(bi, null, 'end');
+      };
+      h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+    });
+    row.appendChild(h);
+    placeEdge(h);
+  }
+  watchEdges(row.closest('#cut-strips, #segment-strips, #gloss-body') || row.parentElement);
+}
+/* The consumer every surface shares: one undo at pick-up (and the player parked, so a span watcher
+ * cannot pause at a seam that is moving), the LIVE objects moved in place — the rows' closures and
+ * the tickers read them by reference — with only the two touched strips redrawn per move, then one
+ * persist on release. o: { getSegs, getPlayer, capture, persist, redraw(k), syncMarks, onEnd(seam) } */
+export function makeBoundaryDrag(o) {
+  let seam = null;
+  return (bi, ms, phase) => {
+    if (phase === 'start') {
+      const p = o.getPlayer && o.getPlayer();
+      try { p?.clearSpan?.(); p?.pause?.(); } catch { /* the player may be mid-load */ }
+      if (o.capture) o.capture();
+      seam = bi;
+      return;
+    }
+    if (phase === 'move') {
+      const segs = o.getSegs();
+      const r = moveBoundary(segs, bi, ms);
+      if (!r.ok) return;
+      segs[bi].end = r.t;
+      segs[bi + 1].start = r.t;
+      delete segs[bi + 1].timeEstimated;
+      if (o.redraw) { o.redraw(bi); o.redraw(bi + 1); }
+      if (o.syncMarks) o.syncMarks();
+      return;
+    }
+    if (seam == null) return;
+    seam = null;
+    if (o.persist) o.persist();
+    if (o.onEnd) o.onEnd(bi);
+  };
+}
+// The Baseline strips' drag: same consumer, this file's own deps, the cursor re-placed on release.
+let stripsDragFn = null;
+function stripsRedrawRow(k) {
+  const host = deps && deps.container;
+  const row = host && host.querySelector(`.seg-strip[data-i="${k}"]`);
+  const w = row && row.querySelector('.seg-wave');
+  const seg = docSegments(deps.getDoc())[k];
+  if (w && seg) drawStrip(w, seg, peaksCache.durationMs);
+}
+function stripsDrag() {
+  if (!stripsDragFn) stripsDragFn = makeBoundaryDrag({
+    getSegs: () => docSegments(deps.getDoc()), getPlayer: () => deps.getPlayer(), capture: () => deps.capture && deps.capture(),
+    persist: () => deps.persist(), redraw: stripsRedrawRow, onEnd: () => positionCursor(),
+  });
+  return stripsDragFn;
+}
+function stripsEdgeCtx(segs) {
+  return { allowed: () => !!(deps && deps.allowAdjust && deps.allowAdjust()), count: () => segs.length, segAt: (k) => segs[k], onDrag: stripsDrag(), t: deps.t };
+}
+
 let cutDeps = null;
 let cutRaf = 0;
 let cutFollowRow = null;
@@ -1085,8 +1208,39 @@ export function stopCut() {
   cutRaf = 0;
   cutFollowRow = null;
   // The boundary marks belong to THIS tab: leaving takes them off the shared dock player, so the
-  // Baseline and Gloss tabs are exactly what they were.
+  // Baseline and Gloss tabs are exactly what they were — and so does the drag handler that made
+  // them movable, which those tabs must never inherit.
+  try { cutDeps?.getPlayer?.()?.onBoundaryDrag?.(null); } catch { /* the player may already be gone */ }
   try { cutDeps?.getPlayer?.()?.setBoundaries?.([]); } catch { /* the player may already be gone */ }
+}
+// The Cut tab's drag: the same consumer, this tab's deps; a release rebuilds the rows (as a cut does)
+// so the ✨ state and the captions follow, and the top player's marks are re-armed by that render.
+let cutDragFn = null;
+function cutAdjustOk() { return !!(cutDeps && cutDeps.allowAdjust && cutDeps.allowAdjust()); }
+function cutRedrawRow(k) {
+  const host = document.getElementById('cut-strips');
+  const row = host && host.querySelector(`.cut-row[data-i="${k}"]`);
+  const w = row && row.querySelector('.seg-wave');
+  const seg = cutSegs()[k];
+  if (w && seg) drawStrip(w, seg, peaksCache.durationMs, { color: row.classList.contains('cut-locked') ? LOCKED_WAVE : null });
+}
+function cutDrag() {
+  if (!cutDragFn) cutDragFn = makeBoundaryDrag({
+    getSegs: () => cutSegs(), getPlayer: () => cutDeps.getPlayer(), capture: () => cutDeps.capture && cutDeps.capture(),
+    persist: () => cutDeps.persist(), redraw: cutRedrawRow, syncMarks: () => syncCutBoundaries(),
+    onEnd: (bi) => { cutSay(''); renderCut(bi); },
+  });
+  return cutDragFn;
+}
+function cutEdgeCtx(segs) {
+  return { allowed: cutAdjustOk, count: () => segs.length, segAt: (k) => segs[k], onDrag: cutDrag(), t: cutDeps.t };
+}
+/* The top player's marks move too, on THIS tab only, under the same switch: armed on every render
+ * (a researcher push can flip the switch mid-session) and released in stopCut. */
+function armCutMarks() {
+  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
+  if (!p || !p.onBoundaryDrag) return;
+  p.onBoundaryDrag(cutAdjustOk() ? cutDrag() : null);
 }
 
 function cutSay(msg) {
@@ -1116,7 +1270,7 @@ function cutBoundaryTimes() {
   const marks = [];
   for (let i = 0; i < segs.length - 1; i++) {
     const s = segs[i];
-    if (isAligned(s)) marks.push(s.end);
+    marks.push(isAligned(s) ? s.end : NaN);   // one entry per seam — NaN keeps the seam numbering (Player.renderBoundaries)
   }
   return marks;
 }
@@ -1189,6 +1343,7 @@ export function renderCut(anchorIdx) {
       row.appendChild(cap);
     }
     host.appendChild(row);
+    attachEdgeHandles(row, wave, i, cutEdgeCtx(segs));   // the grips (adjustBoundaries) — see the block above stopCut
 
     row.addEventListener('pointerdown', () => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(seg); });
     /* ⚠ THE SAME click-to-position/drag-to-scrub as the Baseline strips, and the reason the tab
@@ -1238,6 +1393,7 @@ export function renderCut(anchorIdx) {
   }
 
   syncCutBoundaries();
+  armCutMarks();
   /* Put the view back where it was — see cutScroller(). The offset first (correct whenever nothing
    * above the fold changed height), then the anchor row's own pixel, which is correct even when
    * something did. Both reads are after the rebuild, so layout is final. */
@@ -1270,7 +1426,7 @@ function startCutTicker() {
        * when they disagree keeps it to a handful of DOM writes per redraw. */
       if (p && p.boundaryCount && p.durationMs?.()) {   // …once the player knows the length to scale by
         const want = cutBoundaryTimes();
-        if (p.boundaryCount() !== want.length) p.setBoundaries(want);
+        if (p.boundaryCount() !== want.filter(Number.isFinite).length) p.setBoundaries(want);
       }
 
       host.querySelectorAll('.cut-row').forEach((row) => {

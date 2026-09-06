@@ -224,3 +224,21 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       press; plain Space in the title box types a space.
 - [ ] Space setting "Automatic": on a laptop, touch screen or not, Space plays; in the browser's
       Android emulation (or on the phone, [real device]) Space types.
+
+## Adjustable boundaries (v591)
+
+- [ ] Cut tab, mouse: a blue grip sits at each end of every line's waveform (none at the recording's
+      start and end). Dragging a grip moves the boundary and redraws both neighbours as you drag; it
+      stops at the neighbour and never passes it. Release: the rows rebuild, Ctrl+Z undoes the whole
+      drag in one step, the ✨ button disappears after a manual move.
+- [ ] Cut tab, top player: the cut marks carry a small pill; dragging one moves the same boundary
+      (the strips follow live). On the Baseline and Gloss tabs the top player's marks are gone and
+      nothing there is draggable.
+- [ ] Baseline and Gloss tabs: the same grips on the strips; dragging keeps the cursor in the text
+      box and the words unchanged; the moved line plays from its new start.
+- [ ] A line that already has text keeps its grips with "cut or join lines that already have text"
+      OFF. Switching "Allow moving line boundaries by dragging" off (panel push or Settings tab)
+      removes every grip and the top-player pills at once, without a reload; the Cut hint drops its
+      drag sentence.
+- [ ] [real device] On a phone: a grip is a 32 px zone; dragging it moves the boundary and does not
+      scroll; dragging the waveform beside it still scrolls the page.

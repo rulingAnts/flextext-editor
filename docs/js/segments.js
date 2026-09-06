@@ -87,6 +87,36 @@ export function normalizeSegments(segments, opts = {}) {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * moveBoundary — drag the seam between line i and line i+1 to `ms`.
+ *
+ * ⚠ ONE RULE FOR EVERY DRAG SURFACE (the Cut tab's top-player marks, the grips on the Cut, Baseline
+ * and Gloss strips). Seth, on the segmenter's version of this: "we have to make sure you can't drag
+ * them BEYOND other boundaries they run into. Like they have to stay in sequence." The clamp is
+ * against the NEIGHBOURING SEGMENTS, the constraint in the form that cannot be got wrong: the seam
+ * may not pass its own segment's start nor the next segment's end, and must leave a real segment
+ * (minMs) on each side. Both sides of the seam move together, so no gap and no overlap can appear
+ * and normalizeSegments has nothing to repair. A seam next to a segment without a time is refused
+ * rather than guessed. The text is untouched: moving a seam changes when a line is heard, never
+ * which words it holds. Returns { ok, segments (a NEW array), t } or { ok: false, reason }.
+ * ------------------------------------------------------------------------------------------- */
+export function moveBoundary(segments, i, ms, opts = {}) {
+  const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
+  const a = segments ? segments[i] : null, b = segments ? segments[i + 1] : null;
+  if (!isAligned(a) || !isAligned(b)) return { ok: false, reason: 'pending' };
+  if (!isNum(ms)) return { ok: false, reason: 'time' };
+  const lo = a.start + minMs;
+  const hi = b.end - minMs;
+  if (hi <= lo) return { ok: false, reason: 'room' };
+  const t = Math.round(Math.min(hi, Math.max(lo, ms)));
+  if (t === a.end && t === b.start) return { ok: false, reason: 'same' };
+  const out = segments.map((s) => ({ ...s }));
+  out[i].end = t;
+  out[i + 1].start = t;
+  delete out[i + 1].timeEstimated;   // a seam placed by hand is the user's chosen time, not a guess
+  return { ok: true, segments: out, t };
+}
+
+/* ---------------------------------------------------------------------------------------------
  * boundaryAtPlayhead — "the user pressed Enter at time t between line i and line i+1".
  *
  * Returns a NEW segments array. The break always happens in the text; the only question is whether

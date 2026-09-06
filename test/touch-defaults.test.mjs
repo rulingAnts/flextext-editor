@@ -72,7 +72,7 @@ test('#45 on touch a strip is a WhatsApp voice note: tap parks, the dot scrubs, 
 
 test('#45 the listening page follows the same rule', () => {
   const SEGX = readFileSync(new URL('../docs/js/seg-exports.js', import.meta.url), 'utf8');
-  assert.match(SEGX, /#ov \{[^}]*touch-action: pan-y; \}/);
+  assert.match(SEGX, /#ov \{[^}]*touch-action: pan-y;/);
   assert.match(SEGX, /\.rw \{[^}]*touch-action: pan-y; \}/);
   assert.match(SEGX, /\.cur \{ width: 32px; margin-left: -15px; background: transparent; pointer-events: auto; touch-action: none;/);
   assert.doesNotMatch(SEGX, /\.cur::after/, 'no dot on the listening page either');

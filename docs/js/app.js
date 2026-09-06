@@ -1195,7 +1195,7 @@ function decorateGlossSegments() {
       const join = document.createElement('button');
       join.className = 'gseg-join';
       join.tabIndex = -1;
-      join.textContent = '⤙⤚';
+      join.textContent = '🔗';   // the chain link, as between two words in this very tab
       join.setAttribute('aria-label', t('seg.joinTip'));
       join.title = t('seg.joinTip');
       join.addEventListener('click', () => glossJoinLines(i));

@@ -61,6 +61,9 @@ All seven sites and the GitHub Pages editor are at v597 in production; staging m
   close-up on the top player that dragging a boundary does, on the editor and the listening page.
 - **The dragged boundary's mark (v600, on staging).** While a grip is dragged, the top player's mark
   for that seam is a 2px dashed blue line, distinct from the red playhead.
+- **The tool's Join/split switch (v601, on staging).** The scissors and chain links in the Paragraph
+  Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
+  shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
 
 ## 2. In progress
 

@@ -88,11 +88,11 @@ test('the tool wires the engine: ✂ between words, under the caret, under the p
   assert.match(UI, /installSplitCancel\(\);\s*\/\/ Escape and a tap away cancel a pending split/);
   assert.match(UI, /function doUndo\(\) \{\s*\n\s*if \(splitCancel\(\)\) return;/, 'Undo cancels first');
   assert.match(UI, /\$\('#pa-undo'\)\.addEventListener\('click', \(\) => \{ if \(splitCancel\(\)\) return;/, 'the Undo button too, even with nothing else to undo');
-  assert.match(UI, /\(i \? cutBtn\(i, 'para\.cutTip', ''\) : ''\)/, 'a ✂ between two words');
+  assert.match(UI, /\(cuts && i \? cutBtn\(i, 'para\.cutTip', ''\) : ''\)/, 'a ✂ between two words');
   assert.match(UI, /paPlaceWords\(id, \+b\.dataset\.gap\);/);
-  assert.match(UI, /registerCaretScissors\(input, holder, \(\) => document\.activeElement === input && \(input\.selectionStart \?\? 0\) < input\.value\.trimEnd\(\)\.length,/, 'the caret ✂ on an authored line');
-  assert.match(UI, /registerCaretScissors\(input, holder, \(\) => document\.activeElement === input && !!input\.value\.trim\(\),/, 'the caret ✂ in the translation');
-  assert.match(UI, /if \(inside\(\)\) \{ if \(input\.value !== original\) state = setLineFree\(state, lineId, input\.value\); paPlace\(lineId, 'free', input\.selectionStart\); return; \}/, 'mid-text Enter places the translation tier');
+  assert.match(UI, /registerCaretScissors\(input, holder, \(\) => joinSplitOn && document\.activeElement === input && \(input\.selectionStart \?\? 0\) < input\.value\.trimEnd\(\)\.length,/, 'the caret ✂ on an authored line');
+  assert.match(UI, /registerCaretScissors\(input, holder, \(\) => joinSplitOn && document\.activeElement === input && !!input\.value\.trim\(\),/, 'the caret ✂ in the translation');
+  assert.match(UI, /if \(joinSplitOn && inside\(\)\) \{ if \(input\.value !== original\) state = setLineFree\(state, lineId, input\.value\); paPlace\(lineId, 'free', input\.selectionStart\); return; \}/, 'mid-text Enter places the translation tier');
   assert.match(UI, /sc\.className = 'cut-scissors pa-rowcut';/, 'a ✂ under the row\'s playhead');
   assert.match(UI, /paPlace\(l\.id, 'audio', tNow\);/, 'Enter outside the boxes places the audio tier');
   assert.match(UI, /class="pa-join" data-line="\$\{esc\(id\)\}"/, 'a 🔗 on every line but the last');
@@ -103,4 +103,24 @@ test('the tool wires the engine: ✂ between words, under the caret, under the p
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.patSplit': '/g) || []).length, 2);
   assert.match(CSS, /\.pa-words \.pa-cut \{ align-self: center;/);
   assert.match(CSS, /\.pa-authored, \.pa-free \{ position: relative; \}/, 'the caret ✂ positions against the row');
+});
+
+test('the Join/split switch (Seth, 2026-09-07): off by default, a device preference; off = a plain playhead and no ✂ or 🔗; undo/redo cover everything', () => {
+  assert.match(UI, /const JOIN_SPLIT_KEY = 'pa\.joinSplit';\s*\nlet joinSplitOn = false;/, 'off by default');
+  assert.match(UI, /joinSplitOn = localStorage\.getItem\(JOIN_SPLIT_KEY\) === '1';/, 'remembered per device');
+  assert.match(UI, /id="pa-joinsplit" aria-pressed="\$\{joinSplitOn \? 'true' : 'false'\}"/, 'a toolbar switch');
+  assert.match(UI, /function toggleJoinSplit\(\) \{\s*\n\s*joinSplitOn = !joinSplitOn;[\s\S]{0,200}splitCancel\(\);[\s\S]{0,80}renderWork\(\);/, 'switching cancels a pending split and re-renders');
+  assert.match(UI, /const cuts = joinSplitOn;/, 'no ✂ between or beside the words when off');
+  assert.match(UI, /if \(joinSplitOn && li >= 0 && li < state\.lines\.length - 1\) \{/, 'no 🔗 when off');
+  assert.match(UI, /if \(!sc && joinSplitOn\) \{/, 'no ✂ under the playhead when off');
+  assert.match(UI, /if \(sc && !joinSplitOn\) \{ sc\.remove\(\); sc = null; \}/, 'and one already drawn goes away');
+  assert.match(UI, /function paPlace\(id, tier, value\) \{\s*\n\s*if \(!joinSplitOn\) return 'ignored';/, 'nothing can be placed while off');
+  assert.match(UI, /!audio \|\| !joinSplitOn\) return;/, 'Enter outside a box does nothing while off');
+  assert.match(UI, /if \(!joinSplitOn\) \{\s*\/\/ the join\/split UI is off: the plain text-only break[\s\S]{0,200}splitLine\(commitText\(txt\), lineId, caret\);/, 'an authored line still breaks at the cursor, the old way');
+  assert.match(UI, /if \(k !== 'z' && k !== 'y'\) return;/, 'Ctrl+Y');
+  assert.match(UI, /if \(e\.shiftKey \|\| k === 'y'\) doRedo\(\); else doUndo\(\);/);
+  assert.match(UI, /\$\('#pa-undo'\)\.addEventListener\('click'/, 'the Undo button'); assert.match(UI, /\$\('#pa-redo'\)\.addEventListener\('click'/, 'and Redo');
+  for (const k of ['para.joinSplit', 'para.joinSplitTip']) assert.equal((I18N.match(new RegExp(`\n  '${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
+  assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.patJoinSplitToggle': '/g) || []).length, 2);
+  assert.match(CSS, /\.pa-actions \.secondary-btn\[aria-pressed="true"\] \{ background: #ece3f7; border-color: #5b3d8a; color: #5b3d8a; \}/);
 });

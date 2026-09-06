@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v600';
+export const ENGINE_VERSION = 'v601';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1441,6 +1441,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.patJoinSplitToggle': 'The Paragraph Analysis Tool has a Join/split button that shows or hides the scissors and chain links. It is off by default, so a line shows a plain playhead until you ask for them; grouping, editing and playback do not depend on it. Undo and Redo (the buttons, Ctrl+Z, Ctrl+Shift+Z and now Ctrl+Y) take back a split or a join like any other change.'
     ,'panel.rel.new.liveMark': 'While a boundary is being dragged, its mark on the top player is a dashed blue line, so the seam being moved stands out from the other marks and from the red playhead. It goes back to the thin dotted mark on release.'
     ,'panel.rel.new.edgeScissors': 'On the Gloss tab (and in the Paragraph Analysis Tool) a timed line also has a \u2702 before its first word and after its last, so the silence at either end can be trimmed into a line of its own; the translation stays whole with the words and only the sound is left to place.'
     ,'panel.rel.new.scrubFocus': 'Scrubbing a line\u2019s waveform now opens the same momentary close-up on the top player that dragging a boundary does, so the playhead can be placed precisely for a cut. The listening page does the same.'
@@ -2337,6 +2338,8 @@ internet after the first time.</p>
   'para.zoomMin': 'Already at the smallest size.',
   'para.zoomMax': 'Already at the largest size.',
   'para.undo': 'Undo',
+  'para.joinSplit': 'Join/split',
+  'para.joinSplitTip': 'Show the scissors and chain links that split and join lines. Off: a plain playhead.',
   'para.redo': 'Redo',
   'para.undoTip': 'Undo the last change ({n} available) — ⌘Z',
   'para.redoTip': 'Redo ({n} available) — ⌘⇧Z',
@@ -3649,6 +3652,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.patJoinSplitToggle': 'Alat Analisis Paragraf punya tombol Gabung/bagi yang menampilkan atau menyembunyikan gunting dan rantai. Mati secara bawaan, sehingga sebuah baris hanya menampilkan kepala putar biasa sampai Anda memintanya; pengelompokan, penyuntingan dan pemutaran tidak bergantung padanya. Batalkan dan Ulangi (tombol, Ctrl+Z, Ctrl+Shift+Z dan kini Ctrl+Y) membatalkan pembagian atau penggabungan seperti perubahan lain.'
     ,'panel.rel.new.liveMark': 'Saat sebuah batas diseret, tandanya pada pemutar atas menjadi garis putus-putus biru, sehingga batas yang sedang dipindahkan terlihat jelas dari tanda lain dan dari kepala putar merah. Tanda itu kembali menjadi garis titik tipis saat dilepas.'
     ,'panel.rel.new.edgeScissors': 'Pada tab Glos (dan di Alat Analisis Paragraf) baris yang berwaktu juga punya \u2702 sebelum kata pertama dan setelah kata terakhir, sehingga keheningan di kedua ujung dapat dipangkas menjadi baris tersendiri; terjemahan tetap utuh bersama kata-katanya dan hanya suara yang tersisa untuk ditempatkan.'
     ,'panel.rel.new.scrubFocus': 'Menggeser kepala putar pada gelombang sebuah baris kini membuka tampilan dekat sesaat yang sama pada pemutar atas seperti saat menyeret batas, sehingga kepala putar dapat ditempatkan dengan tepat untuk pemotongan. Halaman dengar melakukan hal yang sama.'
@@ -4459,6 +4463,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.zoomMin': 'Sudah pada ukuran terkecil.',
   'para.zoomMax': 'Sudah pada ukuran terbesar.',
   'para.undo': 'Batalkan',
+  'para.joinSplit': 'Gabung/bagi',
+  'para.joinSplitTip': 'Tampilkan gunting dan rantai untuk membagi dan menggabungkan baris. Mati: hanya kepala putar.',
   'para.redo': 'Ulangi',
   'para.undoTip': 'Batalkan perubahan terakhir ({n} tersedia) — ⌘Z',
   'para.redoTip': 'Ulangi ({n} tersedia) — ⌘⇧Z',

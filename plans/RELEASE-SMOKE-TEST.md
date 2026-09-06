@@ -314,3 +314,16 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       2px dashed blue line (no glow), moving with the grip, clearly different from the thin
       dotted marks and from the red playhead; on release it is a thin dotted mark again. The
       segmenter's own draggable marks do the same. [real device] The same with a finger.
+
+## Paragraph Analysis Tool: the Join/split switch (v601)
+
+- [ ] Open a timed text: no ✂ between or beside the words, no 🔗, the row's playhead is a plain
+      line. The Join/split button in the toolbar is not pressed.
+- [ ] Press it: the ✂ and 🔗 appear, the playhead carries a ✂; the button shows pressed. Reload:
+      it stays on (per device). Press it again with a split pending: the split is cancelled and the
+      row is plain again.
+- [ ] With it off: Enter mid-text in a translation box saves (the tick); Enter mid-text in an
+      authored line's box still breaks the line at the cursor; Enter with no box focused does not
+      start a split.
+- [ ] Undo / Redo: after a split or a join, the Undo button and Ctrl+Z take it back, Redo and
+      Ctrl+Shift+Z or Ctrl+Y bring it back.

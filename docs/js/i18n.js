@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v588';
+export const ENGINE_VERSION = 'v589';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1428,6 +1428,8 @@ internet after the first time.</p>
     ,'panel.rel.new.headerIcons': 'Icons in the top row: a disk on Save, a green check and a send arrow on Done \u2014 send, and a waveform, a typing mark and interlinear rows on the Cut, Baseline and Gloss tabs. The words stay beside them for now; the title box is shorter so the row stays on one line.'
     ,'panel.rel.new.touchKnob': 'Touch screens: scrolling and scrubbing no longer fight. On a waveform strip, a tap places the playhead, dragging the orange dot on the playhead scrubs, and dragging anywhere else scrolls the page \u2014 the way a WhatsApp voice note works. The listening page does the same.'
     ,'panel.rel.new.touchLine': 'Touch screens: the playhead line itself is the handle. Touch anywhere on the line and drag to scrub; a tap places it; dragging anywhere else scrolls. No dot.'
+    ,'panel.rel.new.headerLabels': 'New device setting \u201cTop-row buttons and tabs\u201d: automatic (icons only when the screen is narrower than 1000 px, icons and words on anything wider), icons and words, icons only, or words only. On the Settings tab and pushable from the panel.'
+    ,'panel.rel.new.playerTier': 'The top player\u2019s waveform now really shrinks on small screens (56 px on a tablet, 44 px on a phone). Since v548 only its padding had shrunk; the waveform itself stayed at the desktop height.'
     ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
     ,'panel.rel.new.lazyStrips': 'Long recordings: the waveform strips on the Baseline, Cut and Gloss tabs draw only while they are near the screen, so a 15-minute take cut into hundreds of lines no longer runs out of canvas memory and goes blank part-way down.'
     ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
@@ -1937,6 +1939,12 @@ internet after the first time.</p>
   'panel.f.allowBlankLines': 'Audio Segmenter: let the coworker add blank text lines (for audio with no words yet)',
   'panel.f.allowTextEdit': 'Audio Segmenter: let the coworker edit and add words, glosses and free translations in place',
   'panel.f.uiScale': 'Text size (whole app)',
+  'panel.f.headerLabels': 'Top-row buttons and tabs',
+  'panel.f.headerLabelsNote': 'Automatic goes by the width of the screen alone: icons only when the screen is narrower than 1000 px (a small tablet, a phone, a narrowed window), icons with words on anything wider. The words stay available to screen readers and on hover in every choice.',
+  'panel.opt.labels.auto': 'Automatic (icons only when the screen is narrower than 1000 px)',
+  'panel.opt.labels.both': 'Icons and words',
+  'panel.opt.labels.icons': 'Icons only',
+  'panel.opt.labels.text': 'Words only',
   'panel.opt.scale.0.85': 'Smaller',
   'panel.opt.scale.1': 'Normal',
   'panel.opt.scale.1.15': 'Larger',
@@ -3592,6 +3600,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.headerIcons': 'Ikon di baris atas: disket pada Simpan, centang hijau dan panah kirim pada Sudah selesai (Kirim), serta gelombang, tanda mengetik, dan baris interlinear pada tab Potong, Ketik, dan Glos. Katanya tetap di sampingnya untuk saat ini; kotak judul lebih pendek agar barisnya tetap satu.'
     ,'panel.rel.new.touchKnob': 'Layar sentuh: menggulir dan menggeser tidak lagi bertabrakan. Pada strip gelombang, ketuk untuk menempatkan playhead, seret titik oranye di playhead untuk menggeser, dan seret di tempat lain untuk menggulir halaman \u2014 seperti pesan suara WhatsApp. Halaman dengar berlaku sama.'
     ,'panel.rel.new.touchLine': 'Layar sentuh: garis playhead itu sendiri adalah pegangannya. Sentuh di mana saja pada garis dan seret untuk menggeser; ketuk untuk menempatkannya; seret di tempat lain untuk menggulir. Tanpa titik.'
+    ,'panel.rel.new.headerLabels': 'Pengaturan perangkat baru \u201cTombol dan tab baris atas\u201d: otomatis (ikon saja bila lebar layar kurang dari 1000 px, ikon dan kata pada yang lebih lebar), ikon dan kata, ikon saja, atau kata saja. Di tab Pengaturan dan bisa dikirim dari panel.'
+    ,'panel.rel.new.playerTier': 'Gelombang pemutar atas kini benar-benar mengecil di layar kecil (56 px di tablet, 44 px di ponsel). Sejak v548 hanya jaraknya yang mengecil; gelombangnya sendiri tetap setinggi desktop.'
     ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
     ,'panel.rel.new.lazyStrips': 'Rekaman panjang: strip gelombang di tab Dasar, Potong, dan Glos hanya digambar saat dekat layar, sehingga rekaman 15 menit yang dipotong menjadi ratusan baris tidak lagi kehabisan memori kanvas dan kosong di tengah jalan.'
     ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'
@@ -4029,6 +4039,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.allowBlankLines': 'Pemotong Audio: izinkan rekan kerja menambah baris teks kosong (untuk audio yang belum ada katanya)',
   'panel.f.allowTextEdit': 'Pemotong Audio: izinkan rekan kerja menyunting dan menambah kata, glos, dan terjemahan bebas di tempat',
   'panel.f.uiScale': 'Ukuran teks (seluruh aplikasi)',
+  'panel.f.headerLabels': 'Tombol dan tab baris atas',
+  'panel.f.headerLabelsNote': 'Otomatis hanya melihat lebar layar: ikon saja bila lebar layar kurang dari 1000 px (tablet kecil, ponsel, jendela yang dipersempit), ikon beserta kata pada yang lebih lebar. Katanya tetap tersedia untuk pembaca layar dan saat disorot pada setiap pilihan.',
+  'panel.opt.labels.auto': 'Otomatis (ikon saja bila lebar layar kurang dari 1000 px)',
+  'panel.opt.labels.both': 'Ikon dan kata',
+  'panel.opt.labels.icons': 'Ikon saja',
+  'panel.opt.labels.text': 'Kata saja',
   'panel.opt.scale.0.85': 'Lebih kecil',
   'panel.opt.scale.1': 'Normal',
   'panel.opt.scale.1.15': 'Lebih besar',

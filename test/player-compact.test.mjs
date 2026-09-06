@@ -126,3 +126,17 @@ test('the player and the cut hint compact by tier, without shrinking the transpo
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) throw new Error(`${fail} check(s) failed`);
 });
+
+test('the overview canvas follows the screen tier: a min-height cannot shrink a fixed 72px child (2026-09-06)', () => {
+  const audio = readFileSync(new URL('../docs/js/audio.js', import.meta.url), 'utf8');
+  const ok = (cond, msg) => { console.log((cond ? '  ok    ' : '  FAIL  ') + msg); if (!cond) throw new Error(msg); };
+  ok(/function overviewHeight\(el\)/.test(audio) && /getComputedStyle\(el\)\.minHeight/.test(audio),
+     'wavesurfer height is read from .player-wave\'s computed min-height, not a literal');
+  ok(/height: this\._fittedHeight,/.test(audio) && !/\n\s*height: 72,/.test(audio),
+     'the create() options carry that height and no fixed 72');
+  ok(/fitHeight\(\) \{[\s\S]*?this\.ws\.setOptions\(\{ height: h \}\)/.test(audio),
+     'a tier change re-applies the height through setOptions');
+  ok(/window\.addEventListener\('resize', this\._onWinResize\)/.test(audio) && /window\.removeEventListener\('resize', this\._onWinResize\)/.test(audio),
+     'rotation / window resize triggers it, and the listener is removed on destroy');
+});
+

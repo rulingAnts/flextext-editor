@@ -151,6 +151,15 @@ main {
 /* The labels stay beside the icons for now (Seth, 2026-09-06: "keep the text on the save and send
    buttons too. For now"); the title box gives up width so the whole row stays on one line. */
 #doc-title { flex: 1 1 120px; min-width: 90px; max-width: 260px; }
+/* Words, icons or both in the editor's top row — data-labels on <html>, set by applyHeaderLabels from the
+   researcher's setting (auto = icons only at tablet width or below). Scoped to the editor row: the home
+   tabs have no icons and keep their words in every mode. */
+html[data-labels="icons"] #topbar-editor .btn-icon span, html[data-labels="icons"] #topbar-editor .top-tab span { display: none; }
+html[data-labels="icons"] #topbar-editor .btn-icon { padding: 7px 10px; }
+html[data-labels="icons"] #topbar-editor .top-tab { padding-left: 12px; padding-right: 12px; }
+html[data-labels="icons"] #topbar-editor .top-tab .tab-ico { width: 20px; height: 20px; }
+html[data-labels="icons"] #topbar-editor .btn-icon .ico { width: 20px; height: 20px; }
+html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"] #topbar-editor .top-tab .tab-ico { display: none; }
 /* Tab icons beside the labels (Seth, 2026-09-06: waveform for Cut, typing for Baseline, interlinear
    rows for Gloss; "keep the labels for now until our users get used to the pictures"). Dropping the
    labels later is deleting the <span>, nothing else. */

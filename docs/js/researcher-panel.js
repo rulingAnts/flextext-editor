@@ -671,6 +671,7 @@ const GROUPS = [
     // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and whether the plain
     // Space bar plays (automatic = off on a touch screen). Both pushed like any other setting.
     { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
+    { k: 'headerLabels', type: 'select', opts: ['auto', 'both', 'icons', 'text'], optPrefix: 'panel.opt.labels.', note: 'panel.f.headerLabelsNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
@@ -1156,6 +1157,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v589', date: '2026-09-06', items: [
+    { k: 'panel.rel.new.headerLabels' },
+    { k: 'panel.rel.new.playerTier' },
+  ] },
   { v: 'v588', date: '2026-09-06', items: [
     { k: 'panel.rel.new.touchLine' },
   ] },
@@ -8542,6 +8547,7 @@ function toFormValues(s) {
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
     else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;   // default on, so an unset one shows ticked
     else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
+    else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;

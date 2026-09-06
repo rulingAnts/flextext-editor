@@ -117,7 +117,7 @@ test('#44 uiScale applies as a root zoom at boot and on every live-settings push
   assert.match(body, /querySelectorAll\('\.player \.player-wave'\)\) el\.style\.zoom = \(z > 1\) \? String\(1 \/ z\) : ''/, 'the overview waveform shrinks in proportion when the text grows, and never enlarges');
   assert.match(body, /document\.querySelectorAll\('\.player, #topbar, \.rp-head'\)/, 'applied to every player dock, and the header row, in the shell');
   assert.match(body, /setProperty\('--ui-scale', String\(z\)\)/, 'the scale is published as a CSS variable');
-  const boot = APP.indexOf('  settings = loadSettings();\n  applyUiScale();\n  applyI18n();');
+  const boot = APP.indexOf('  settings = loadSettings();\n  applyUiScale();\n  applyHeaderLabels();\n  applyI18n();');
   assert.ok(boot > 0, 'boot applies it before the first paint');
   const live = APP.indexOf('  settings = loadSettings();\n  applyUiScale();   // a pushed text size lands live');
   assert.ok(live > 0, 'applyLiveSettings applies it too');

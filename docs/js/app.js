@@ -4001,6 +4001,7 @@ function applyLiveSettings() {
   const segBefore = settings.segmentation === true;
   settings = loadSettings();
   applyUiScale();   // a pushed text size lands live, in every app
+  applyHeaderLabels();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
   // The two newest satellites have no Settings tab, no #doc-list and no #view-research: the editor
   // branch below dereferences all three and threw on the first pushed setting. Their lists read
@@ -5798,6 +5799,7 @@ const SETUP_GROUPS = [
     // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and whether the plain
     // Space bar plays (automatic = off on a touch screen, where Space is for typing).
     { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
+    { k: 'headerLabels', type: 'select', opts: ['auto', 'both', 'icons', 'text'], optPrefix: 'panel.opt.labels.', note: 'panel.f.headerLabelsNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
@@ -5978,6 +5980,7 @@ function deviceSetupValues() {
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
     else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;
     else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
+    else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
@@ -6268,7 +6271,7 @@ function updateSetupConditionals(box) {
  * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
  * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
 const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
-  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit', 'uiScale']);
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels']);
 function setupGroupsFor() {
   const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
   return SETUP_GROUPS
@@ -10488,6 +10491,30 @@ function togglePlayFromKey() {
 /* Text size for the whole app (Seth, 2026-09-04: "Font size/screen adjustable?"): one device
  * setting, applied as a root zoom so every fixed pixel in the stylesheet scales together — text,
  * buttons, strips (their ResizeObserver redraws them at the new width). The researcher can push it. */
+/* ⚠ WORDS, ICONS, OR BOTH IN THE TOP ROW — THE RESEARCHER'S CHOICE (Seth, 2026-09-06: "have the
+ * researcher able to select text, icons, both, or auto (auto means icons only for small screens,
+ * like tablet size or smaller, text+icons for larger screens). That's my decision."). The mode
+ * lands as data-labels on <html>; the stylesheet does the hiding, scoped to the editor row, so the
+ * home tabs (which have no icons) never go blank. The words stay in every control's title and
+ * aria-label whatever the mode. Auto follows the viewport WIDTH live — never the user agent — so
+ * turning a tablet or resizing a window re-decides it. */
+// Width, and only width (Seth, 2026-09-06: "triggered by screen width in pixels, not by user agent";
+// then: "resolution less than 1000 width = switch to icons only mode"). A desktop window narrowed
+// below it goes icons-only too, by the same rule.
+const ICONS_BELOW_PX = 1000;
+let headerLabelsMql = null;
+function applyHeaderLabels() {
+  const want = settings.headerLabels || 'auto';
+  let mode = want;
+  if (want === 'auto') {
+    if (!headerLabelsMql && typeof matchMedia === 'function') {
+      headerLabelsMql = matchMedia(`(max-width: ${ICONS_BELOW_PX - 1}px)`);
+      try { headerLabelsMql.addEventListener('change', () => applyHeaderLabels()); } catch { /* old API: no live follow */ }
+    }
+    mode = headerLabelsMql && headerLabelsMql.matches ? 'icons' : 'both';
+  }
+  try { document.documentElement.dataset.labels = mode; } catch { /* noop */ }
+}
 function applyUiScale() {
   const z = Number(settings.uiScale) || 1;
   try { document.documentElement.style.zoom = (z === 1) ? '' : String(z); } catch { /* no zoom support: normal size */ }
@@ -10605,6 +10632,7 @@ function setup() {
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyUiScale();
+  applyHeaderLabels();
   applyI18n();
 
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render

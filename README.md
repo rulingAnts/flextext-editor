@@ -212,7 +212,7 @@ device and lands live, without a reload:
 | Recording | format, maximum length, AGC / noise suppression / echo cancellation, normalisation, archival defaults |
 | Consent | ask, message, consent audio, confirmation |
 | Sending | send options, delete after upload, automatic backup and its interval, recorder welcome |
-| Other | which buttons show; Done button; delete and delete-all; alphabetical sort; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only when the window is narrower than 1000 px); **the Space bar plays / pauses** (automatic = off on a mobile device, an Android phone or tablet; a laptop with a touch screen counts as a laptop); segmenter: blank lines, in-place text editing |
+| Other | which buttons show; Done button; delete and delete-all; alphabetical sort; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only when the window is narrower than 1000 px); **the Space bar plays / pauses** (automatic = off on a mobile device, an Android phone or tablet; a laptop with a touch screen counts as a laptop); **Gloss tab icon** (seven pictures, chosen from a picker that shows them; interlinear rows by default; each device keeps its choice and the dashboard counts which is in use); segmenter: blank lines, in-place text editing |
 
 The top-row setting is on the segmenter's Settings tab as well as the editor's, and in the
 researcher panel's device settings; the Space-bar setting is editor-only.

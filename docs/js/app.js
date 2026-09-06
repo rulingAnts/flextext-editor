@@ -33,7 +33,7 @@ import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
-import { initResearcherPanel, companionApps } from './researcher-panel.js';
+import { initResearcherPanel, companionApps, GLOSS_ICONS, GLOSS_ICON_DEFAULT, iconTilesHtml, syncIconPicks, wireIconPicks } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -209,6 +209,19 @@ function migrateSettings() {
   delete s.linkSendOptions;
   delete s.linkButtons;
   saveSettings(s);
+}
+/* ⚠ A DEFAULT IS A TEMPLATE, NOT A LIVE FALLBACK (Seth, 2026-09-06: "each new device takes the
+ * existing default and then saves it as if it had been specifically chosen … new defaults for this
+ * setting are merely a template for new project templates and new devices"). Written once, at first
+ * boot, only when the key is ABSENT (a presence test, never truthiness: a stored choice is never
+ * touched); from then on the device reads back its own stored choice, so a later change to the
+ * default reaches only devices that have never booted. A researcher's push merges over it like any
+ * other key (syncDispatch 'changeSettings'). Runs in every shell; only the editor shows the tab. */
+function seedSettingDefaults() {
+  const s = loadSettings();
+  let changed = false;
+  if (s.glossIcon === undefined) { s.glossIcon = GLOSS_ICON_DEFAULT; changed = true; }
+  if (changed) saveSettings(s);
 }
 
 // Apply settings arriving via shared setup URL (?vern=fau&vernName=Fayu...&lang=id),
@@ -4002,6 +4015,7 @@ function applyLiveSettings() {
   settings = loadSettings();
   applyUiScale();   // a pushed text size lands live, in every app
   applyHeaderLabels();
+  applyGlossIcon();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
   // The two newest satellites have no Settings tab, no #doc-list and no #view-research: the editor
   // branch below dereferences all three and threw on the first pushed setting. Their lists read
@@ -4331,7 +4345,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -4343,7 +4357,11 @@ async function syncGatherInventory() {
            ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION,
            // Which shell this install runs in. Each shell is its own storage sandbox, so the
            // panel must be able to tell a PWA apart from an APK on the same handset.
-           platform: nativePlatform(), nativeEngine: nativeEngineInfo() };
+           platform: nativePlatform(), nativeEngine: nativeEngineInfo(),
+           // The Gloss tab's picture this device shows — the dashboard tallies it (Seth, 2026-09-06).
+           // Only the editor shell has the tab, so only it votes; JSON drops the undefined elsewhere.
+           glossIcon: (!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE && !CROWD_MODE)
+             ? (GLOSS_ICONS[settings.glossIcon] ? settings.glossIcon : GLOSS_ICON_DEFAULT) : undefined };
 }
 
 // One-time invite link (?invite=<id>#k=<secret>) → bind this install to the
@@ -5801,6 +5819,9 @@ const SETUP_GROUPS = [
     { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
     { k: 'headerLabels', type: 'select', opts: ['auto', 'both', 'icons', 'text'], optPrefix: 'panel.opt.labels.', note: 'panel.f.headerLabelsNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
+    // The Gloss tab's picture (Seth, 2026-09-06): seven candidates, shown as icons, not names. The
+    // default is a template for new devices and new project templates only — see GLOSS_ICON_DEFAULT.
+    { k: 'glossIcon', type: 'select', opts: ['stack', 'globe', 'translate', 'equals', 'bubble', 'book', 'pencil'], optPrefix: 'panel.opt.glossIcon.', icons: true, note: 'panel.f.glossIconNote' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
     // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
@@ -5910,6 +5931,8 @@ function setupFieldHtml(f) {
   }
   if (f.type === 'select') {
     const opts = f.opts.map((o) => `<option value="${esc(o)}">${esc(f.optPrefix ? t(f.optPrefix + o) : o)}</option>`).join('');
+    // A picture picker: the hidden <select> still carries the value for fill/read/save; the tiles show it.
+    if (f.icons) return `<div class="rp-field"><span>${label}</span><select data-sf="${f.k}"${off} hidden>${opts}</select>${iconTilesHtml(f)}</div>${note}`;
     // The recording format is the one setting whose consequences are invisible here — whether the
     // result can be called an archival master at all is not guessable from a name in a dropdown.
     const help = f.help === 'recfmt'
@@ -5981,6 +6004,7 @@ function deviceSetupValues() {
     else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;
     else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
     else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
+    else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
@@ -6011,6 +6035,7 @@ function fillDeviceSetup() {
     if (el.type === 'checkbox') el.checked = el.dataset.v ? (Array.isArray(v[k]) && v[k].includes(el.dataset.v)) : !!v[k];
     else el.value = v[k] != null ? v[k] : '';
   });
+  syncIconPicks(box);
   updateSetupConditionals(box);
 }
 
@@ -6297,6 +6322,7 @@ function renderDeviceSetup() {
     <p class="note rp-enc">${esc(t('setup.localNote'))}</p>
     <p class="note ds-saved" id="ds-saved" role="status" aria-live="polite"></p>`;
   box.replaceChildren(form);
+  wireIconPicks(form);   // a tile sets the hidden select and fires its change, so the save path below runs
 
   /* Only ever non-null between the file dialog closing and the save that immediately follows it.
    * Cleared on a rebuild so a pick that failed to commit is not re-attempted against a fresh form. */
@@ -10517,6 +10543,18 @@ function togglePlayFromKey() {
 // Width, and only width (Seth, 2026-09-06: "triggered by screen width in pixels, not by user agent";
 // then: "resolution less than 1000 width = switch to icons only mode"). A desktop window narrowed
 // below it goes icons-only too, by the same rule.
+/* The Gloss tab's picture, from the device's own stored choice (seeded at first boot, pushable from
+ * the panel). Only the <svg>'s CHILDREN change; the wrapper keeps its class, viewBox and stroke
+ * attributes, so the CSS that sizes and hides tab icons never has to know which picture is inside.
+ * Shells without a Gloss tab (every satellite) have nothing to swap and return. */
+function applyGlossIcon() {
+  const svg = $('#topbar-editor .top-tab[data-tab="gloss"] .tab-ico');
+  if (!svg) return;
+  const want = GLOSS_ICONS[settings.glossIcon] ? settings.glossIcon : GLOSS_ICON_DEFAULT;
+  if (svg.dataset.icon === want) return;
+  svg.innerHTML = GLOSS_ICONS[want];
+  svg.dataset.icon = want;
+}
 const ICONS_BELOW_PX = 1000;
 let headerLabelsMql = null;
 function applyHeaderLabels() {
@@ -10645,11 +10683,13 @@ function setup() {
     return;
   }
   migrateSettings();
+  seedSettingDefaults();
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyUiScale();
   applyHeaderLabels();
   applyI18n();
+  applyGlossIcon();
 
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render
   // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.

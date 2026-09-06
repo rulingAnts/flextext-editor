@@ -210,3 +210,17 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Settings ▸ Other ▸ "Top-row buttons and tabs": Icons only hides the words on Cut / Baseline / Gloss / Save / Done; Words only hides the icons; Icons and words shows both; Automatic shows icons only when the window is narrower than 1000 px and both above. Same field in the researcher panel, pushed to a device.
 - [ ] Phone: the top player's waveform is visibly shorter than on a laptop (44 px vs 72 px); tablet 56 px. Rotate the phone: it follows.
 
+
+## Gloss tab icon, Cut-tab chord, mobile Space (v590)
+
+- [ ] Researcher panel, a device's settings → Other: "Gloss tab icon" shows seven picture tiles with
+      the current one highlighted; tapping another highlights it; Save pushes it and the device's
+      Gloss tab shows that picture without a reload. The Settings tab of an unpaired editor shows the
+      same tiles and changes the tab at once.
+- [ ] A device that has never had the setting reports "Interlinear rows" (the default, written into
+      its own settings at first boot); the dashboard shows "Gloss tab icon on devices: … ×N" once at
+      least one editor device has reported.
+- [ ] Cut tab: Shift+Space from the page and from inside the title box plays, then pauses, once per
+      press; plain Space in the title box types a space.
+- [ ] Space setting "Automatic": on a laptop, touch screen or not, Space plays; in the browser's
+      Android emulation (or on the phone, [real device]) Space types.

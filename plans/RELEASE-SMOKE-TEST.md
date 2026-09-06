@@ -231,9 +231,9 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       start and end). Dragging a grip moves the boundary and redraws both neighbours as you drag; it
       stops at the neighbour and never passes it. Release: the rows rebuild, Ctrl+Z undoes the whole
       drag in one step, the ✨ button disappears after a manual move.
-- [ ] Cut tab, top player: the cut marks carry a small pill; dragging one moves the same boundary
-      (the strips follow live). On the Baseline and Gloss tabs the top player's marks are gone and
-      nothing there is draggable.
+- [ ] Top player: thin dotted cut marks on all three tabs; nothing on the player is draggable in the
+      editor (the segmenter's matcher keeps its own). While a grip is dragged the player zooms in on
+      that seam and the mark follows; on release the zoom and scroll come back.
 - [ ] Baseline and Gloss tabs: the same grips on the strips; dragging keeps the cursor in the text
       box and the words unchanged; the moved line plays from its new start.
 - [ ] A line that already has text keeps its grips with "cut or join lines that already have text"
@@ -242,3 +242,14 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       drag sentence.
 - [ ] [real device] On a phone: a grip is a 32 px zone; dragging it moves the boundary and does not
       scroll; dragging the waveform beside it still scrolls the page.
+
+## Top player gestures (v592)
+
+- [ ] Mac trackpad, editor: pinch on the top player zooms in around the pointer and out again, never
+      wider than the whole file; a two-finger swipe scrolls the zoomed waveform; a click still seeks.
+- [ ] Mac trackpad, exported listening page: the same on its overview; the slider-less zoom stays
+      until the page is reloaded; row waves are unchanged.
+- [ ] Responsive mode (Android emulation), editor top player: tap places the playhead (playback
+      pauses as with a click); a horizontal drag on the zoomed waveform scrolls it, not the playhead;
+      a drag that starts on the playhead line scrubs; a vertical drag scrolls the page.
+- [ ] [real device] Pinch on the top player zooms; on the listening page too.

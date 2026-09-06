@@ -14,13 +14,13 @@ Status words used below:
 | **designed** | a written plan exists; not started |
 | **idea** | recorded so it is not lost; no design yet |
 
-Last updated 2026-09-06 at v590. The production estate is at v584.
+Last updated 2026-09-06 at v592. The production estate is at v584.
 
 ---
 
-## 1. On staging, waiting for release (v585 to v590)
+## 1. On staging, waiting for release (v585 to v592)
 
-All seven sites are at v590 on the staging estate. Human checks are listed per release in
+All seven sites are at v592 on the staging estate. Human checks are listed per release in
 `plans/RELEASE-SMOKE-TEST.md`.
 
 - **Several analysis languages (v585).** The listening page gets a picker for the gloss language
@@ -39,51 +39,37 @@ All seven sites are at v590 on the staging estate. Human checks are listed per r
   pictures for the Gloss tab from a picker that shows them; each device keeps its own choice and the
   dashboard counts which is in use. Shift+Space plays and pauses on the Cut tab too. The Space
   setting's automatic mode is off on mobile devices, not on every touch screen.
+- **Adjustable boundaries (v591).** A grip at each end of a line's waveform on the Cut, Baseline and
+  Gloss tabs moves the boundary, never past a neighbour, one undo per drag; a new device setting
+  removes every grip at once, independent of the texted-lines switch.
+- **Top player gestures (v592).** Thin cut marks on all three tabs that follow a dragged grip while
+  the player zooms in on the seam; tap to place, drag to scroll when zoomed, playhead line to scrub,
+  pinch (or trackpad pinch) to zoom, on the editor and on the exported listening page. The editor
+  never makes the top player's marks draggable; the segmenter's matcher keeps its own.
 
 ## 2. In progress
 
-### 2.1 Adjustable boundaries on the Cut tab and on strips
+### 2.1 One splitting rule across the tabs (designed, `plans/split-tiers.md`)
 
-Requested 2026-09-06. The Audio Segmenter can already drag a segment boundary on the top
-(overview) player and on a segment row; the editor's Cut tab can only create a boundary at the
-playhead, remove one, or undo. The plan:
+Decided 2026-09-06, not yet built. A more basic tab cannot split or join a line that carries more
+advanced data (the Cut tab refuses texted lines already; the Baseline tab will refuse lines with
+glosses or a free translation). For a line at or below the tab's level, a split is one edit that
+needs one position per active tier: the playhead for audio, the caret for the baseline text or the
+free translation, the word gap for the interlinear. It can start on any tier; the tiers still
+waiting are marked (a thick red-orange border and a glowing caret on the box, a scissors under it, a
+pinned marker on the strip) and nothing is written until every tier has its position, so walking
+away leaves nothing half-done. The Gloss tab also gains per-word baseline editing so a misspelled
+word can be fixed without losing its gloss. The Audio Segmenter already works this way; the
+Paragraph Analysis Tool is to be checked. The open points are listed at the end of the plan.
 
-- **One setting, "adjust boundaries", pushed like any other**, independent of the existing
-  "cut or join lines that already have text" switch. It turns on three things at once: drag-to-move
-  boundary marks on the Cut tab's overview player, drag handles at the edges of Cut-tab rows, and the
-  same drag handles on the Baseline and Gloss tab strips. The Baseline and Gloss overview players do
-  not get boundary marks. A line that already has text can have its boundary moved even when
-  cutting and joining texted lines is off, because moving a boundary changes no words.
-- **How it works.** The overview player already draws boundary marks as percent-positioned
-  elements inside the waveform and has an opt-in drag callback (`Player.onBoundaryDrag`); the Cut
-  tab will arm it when it takes the player and disarm it when it leaves, exactly as the segmenter's
-  matcher does. The clamp rule (a boundary may not come within 120 ms of its neighbours, both
-  neighbours move together, a line still waiting for audio is refused) moves out of the matcher into
-  a pure function in `segments.js` so both surfaces and the tests share it. Row handles get a
-  visible grip on touch screens rather than the matcher's invisible edge zone, and their own
-  `touch-action: none` so they coexist with the pan-to-scroll model. One undo snapshot per drag;
-  rows repaint cheaply during the drag; the document is written once at the end.
-- **What stays the same.** Everything else on the Cut tab: Enter cuts at the playhead, Backspace
-  joins when allowed, the scissors and join buttons, keyboard transport, the ticker.
+### 2.2 The listening page keeps up with the editor
 
-### 2.2 Pinch to zoom and two-finger scroll on the overview player
+The exported listening page (`.preview.html`) has the strips' tap, playhead-line and pan-to-scroll
+model and, since v592, the overview's tap, drag-to-scroll, pinch and trackpad-pinch grammar. Each
+new touch or mobile behaviour added to the editor is added to the exported page in the same
+release, because the page is what a speaker without the app gets.
 
-Requested 2026-09-06, for every app that has an overview player and for the listening page. A
-two-finger pinch zooms the waveform, a two-finger drag scrolls it, one finger scrubs. A trackpad
-pinch is the same wheel event with the Control key and a two-finger trackpad swipe is a horizontal
-wheel, so the desktop gets the same gestures and the maintainer can test that half on a laptop. The
-code is additive and fail-safe: a browser without multi-pointer support, or an exception inside the
-gesture code, leaves today's behaviour in place. Real-finger checks happen on production, marked
-**[real device]** in the smoke test, until a second Android device is free for staging.
-
-### 2.3 The listening page keeps up with the editor
-
-The exported listening page (`.preview.html`) already has the tap, playhead-line and pan-to-scroll
-model. Each new touch or mobile behaviour added to the editor (pinch-zoom above, and whatever
-follows) is added to the exported page in the same release, because the page is what a speaker
-without the app gets.
-
-### 2.4 Contact page (#50)
+### 2.3 Contact page (#50)
 
 `https://flextext.app/contact`: a form protected by Cloudflare Turnstile that emails the
 maintainer through Resend from a small Worker, so the licence and README can point at a contact

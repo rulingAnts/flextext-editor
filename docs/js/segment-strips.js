@@ -595,6 +595,7 @@ export function renderStrips() {
   // The offset first, then focusStrip (called by our callers) may still bring an edited line into
   // view — restore-then-focus is what keeps both the chop gesture and the typing gesture anchored.
   if (scroller) scroller.scrollTop = keepTop;
+  syncOverviewMarks(deps.getPlayer, segs);   // the dock's marks, on this tab too (Seth, 2026-09-06)
   positionCursor();
 }
 
@@ -831,6 +832,12 @@ function positionCursor() {
     const p = deps.getPlayer();
     const t = p?.playheadMs?.();
     const dur = peaksCache.durationMs;
+    // The dock's marks belong to the text on every tab: re-push when a player reload dropped them,
+    // the same one-read-per-frame backstop the Cut ticker uses.
+    if (p && p.boundaryCount && p.durationMs?.()) {
+      const want = overviewMarks(docSegments(doc));
+      if (p.boundaryCount() !== want.filter(Number.isFinite).length) p.setBoundaries(want);
+    }
     deps.container.querySelectorAll('.seg-strip').forEach((row, i) => {
       const seg = docSegments(doc)[i];
       fixStaleWave(row.querySelector('.seg-wave'));
@@ -1155,11 +1162,13 @@ export function attachEdgeHandles(row, wave, i, ctx) {
 export function makeBoundaryDrag(o) {
   let seam = null;
   return (bi, ms, phase) => {
+    const p = o.getPlayer && o.getPlayer();
     if (phase === 'start') {
-      const p = o.getPlayer && o.getPlayer();
       try { p?.clearSpan?.(); p?.pause?.(); } catch { /* the player may be mid-load */ }
       if (o.capture) o.capture();
       seam = bi;
+      // The big player zooms in on the seam for the length of the drag — see Player.boundaryFocus.
+      try { const s = o.getSegs()[bi]; if (s && isAligned(s)) p?.boundaryFocus?.('start', s.end); } catch { /* cosmetic */ }
       return;
     }
     if (phase === 'move') {
@@ -1171,13 +1180,30 @@ export function makeBoundaryDrag(o) {
       delete segs[bi + 1].timeEstimated;
       if (o.redraw) { o.redraw(bi); o.redraw(bi + 1); }
       if (o.syncMarks) o.syncMarks();
+      try { p?.boundaryFocus?.('move', r.t); } catch { /* cosmetic */ }
       return;
     }
     if (seam == null) return;
     seam = null;
+    try { p?.boundaryFocus?.('end'); } catch { /* cosmetic */ }
     if (o.persist) o.persist();
     if (o.onEnd) o.onEnd(bi);
   };
+}
+/* The dock's boundary marks, one entry per seam (NaN for a seam whose line has no time yet, which
+ * keeps the seam numbering — Player.renderBoundaries). The Cut, Baseline and Gloss renders all push
+ * these, and each tab's ticker re-pushes them if a player reload dropped them. */
+export function overviewMarks(segs) {
+  const marks = [];
+  for (let i = 0; i < (segs || []).length - 1; i++) {
+    const s = segs[i];
+    marks.push(isAligned(s) ? s.end : NaN);
+  }
+  return marks;
+}
+export function syncOverviewMarks(getPlayer, segs) {
+  const p = getPlayer && getPlayer();
+  if (p && p.setBoundaries) { try { p.setBoundaries(overviewMarks(segs)); } catch { /* mid-load */ } }
 }
 // The Baseline strips' drag: same consumer, this file's own deps, the cursor re-placed on release.
 let stripsDragFn = null;
@@ -1192,6 +1218,7 @@ function stripsDrag() {
   if (!stripsDragFn) stripsDragFn = makeBoundaryDrag({
     getSegs: () => docSegments(deps.getDoc()), getPlayer: () => deps.getPlayer(), capture: () => deps.capture && deps.capture(),
     persist: () => deps.persist(), redraw: stripsRedrawRow, onEnd: () => positionCursor(),
+    syncMarks: () => syncOverviewMarks(deps.getPlayer, docSegments(deps.getDoc())),
   });
   return stripsDragFn;
 }
@@ -1207,11 +1234,10 @@ export function stopCut() {
   if (cutRaf) cancelAnimationFrame(cutRaf);
   cutRaf = 0;
   cutFollowRow = null;
-  // The boundary marks belong to THIS tab: leaving takes them off the shared dock player, so the
-  // Baseline and Gloss tabs are exactly what they were — and so does the drag handler that made
-  // them movable, which those tabs must never inherit.
-  try { cutDeps?.getPlayer?.()?.onBoundaryDrag?.(null); } catch { /* the player may already be gone */ }
-  try { cutDeps?.getPlayer?.()?.setBoundaries?.([]); } catch { /* the player may already be gone */ }
+  // The dock's boundary marks belong to the TEXT, on every tab (Seth, 2026-09-06: "subtle, light,
+  // skinny segment boundaries visible on the overview/big player on all three tabs"), so leaving
+  // this tab leaves them; the Baseline and Gloss renders push the same marks. Nothing in the editor
+  // ever makes them draggable — that stays the segmenter's matcher's.
 }
 // The Cut tab's drag: the same consumer, this tab's deps; a release rebuilds the rows (as a cut does)
 // so the ✨ state and the captions follow, and the top player's marks are re-armed by that render.
@@ -1234,13 +1260,6 @@ function cutDrag() {
 }
 function cutEdgeCtx(segs) {
   return { allowed: cutAdjustOk, count: () => segs.length, segAt: (k) => segs[k], onDrag: cutDrag(), t: cutDeps.t };
-}
-/* The top player's marks move too, on THIS tab only, under the same switch: armed on every render
- * (a researcher push can flip the switch mid-session) and released in stopCut. */
-function armCutMarks() {
-  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
-  if (!p || !p.onBoundaryDrag) return;
-  p.onBoundaryDrag(cutAdjustOk() ? cutDrag() : null);
 }
 
 function cutSay(msg) {
@@ -1265,15 +1284,7 @@ function cutJoinOk() { return !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTex
  * duplicated the ZOOM and the SEEKING too, which is why there were two places to click.
  *
  * The file's own end is not a boundary, and neither is 0: only the seams BETWEEN spans are marks. */
-function cutBoundaryTimes() {
-  const segs = cutSegs();
-  const marks = [];
-  for (let i = 0; i < segs.length - 1; i++) {
-    const s = segs[i];
-    marks.push(isAligned(s) ? s.end : NaN);   // one entry per seam — NaN keeps the seam numbering (Player.renderBoundaries)
-  }
-  return marks;
-}
+function cutBoundaryTimes() { return overviewMarks(cutSegs()); }
 function syncCutBoundaries() {
   const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
   if (!p || !p.setBoundaries) return;
@@ -1393,7 +1404,6 @@ export function renderCut(anchorIdx) {
   }
 
   syncCutBoundaries();
-  armCutMarks();
   /* Put the view back where it was — see cutScroller(). The offset first (correct whenever nothing
    * above the fold changed height), then the anchor row's own pixel, which is correct even when
    * something did. Both reads are after the rebuild, so layout is final. */

@@ -180,14 +180,22 @@ reports each processing effect (AGC, noise suppression, echo cancellation) as av
 enabled / still active. The full reasoning and the honesty contract are in `android/README.md`;
 the JS↔native contract in `android/CLAUDE.md`.
 
-**Electron** (`electron/`): the Windows desktop shell, for the same reason on laptops, where
-Chrome's capture path is float32 with the same processing questions. It wraps the published editor
-URL (`FLEXTEXT_URL` points it at a dev rig) and is built with electron-builder (`npm run
-dist:win`). It is built but not yet distributed; the recording side of the contract is the same one
-Android implements, and Electron is under the same containment rule, not a looser one.
+**Electron** (`electron/`, public notes in `electron/README.md`): the Windows desktop shell, for
+the same reason on laptops. The window loads the live editor site (the GitHub Pages editor by
+default; `FLEXTEXT_URL` points it at a dev rig), so the shell adds no features and the engine keeps
+auto-updating. Capture does not go through Chromium at all: the main process runs a bundled LGPL
+build of ffmpeg as a separate process, which enumerates the real input devices and writes WAV at an
+exact PCM format. The page sees one object, `window.__flextextNative`, whose methods and return
+shapes mirror the Android plugin, so the engine treats Capacitor and Electron as one contract with
+two transports. Its honesty gap is stated in the code: ffmpeg does not prove what an interface can
+deliver, so a desktop capture is reported as *written at* N-bit, never *captured at* N-bit, until
+per-device probing lands. Status: one Windows x64 test build exists as an unsigned GitHub
+pre-release (2026-07-23, from the manual `Build desktop (Windows)` workflow); it has not been given
+to field users.
 
 **Containment**, because the engine auto-updates and an installed APK does not: `docs/js/native-audio.js`
-is the only file allowed to touch a native bridge, it is inert in a browser, and
+is the only file allowed to touch a native global (`window.Capacitor` on Android,
+`window.__flextextNative` on the desktop), it is inert in a browser, and
 `./check-native-containment.sh` enforces that. A capture is absorbed into IndexedDB before the native
 file is released, so nothing is ever deleted before it is stored.
 
@@ -204,7 +212,10 @@ device and lands live, without a reload:
 | Recording | format, maximum length, AGC / noise suppression / echo cancellation, normalisation, archival defaults |
 | Consent | ask, message, consent audio, confirmation |
 | Sending | send options, delete after upload, automatic backup and its interval, recorder welcome |
-| Other | which buttons show; delete-all; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only below 1000 px wide); **the Space bar plays / pauses** (automatic = off on a touch screen); segmenter: blank lines, in-place text editing |
+| Other | which buttons show; Done button; delete and delete-all; alphabetical sort; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only when the window is narrower than 1000 px); **the Space bar plays / pauses** (automatic = off on a touch screen); segmenter: blank lines, in-place text editing |
+
+The top-row setting is on the segmenter's Settings tab as well as the editor's, and in the
+researcher panel's device settings; the Space-bar setting is editor-only.
 
 ## Touch and keyboard
 
@@ -485,6 +496,15 @@ auto-update — re-bundle and rebuild to move it forward. It also asserts the
 native classes really landed in the packaged dex, because Gradle's up-to-date
 check does not see edits through the symlinked plugin and will happily package
 stale native code.
+
+### Windows desktop shell
+
+Built by the manual `Build desktop (Windows)` workflow (free: public repo,
+standard runner), which bundles an LGPL ffmpeg for capture and produces a
+portable, unsigned x64 exe; `electron/README.md` explains why the shell
+exists, how capture works, and the honesty gap. From source:
+`cd electron && npm install && npm start` (`npm run start:local` runs it
+against the dev rig on port 8012).
 
 > **Note:** `samples/` contains real language data and is `.gitignore`d so it
 > never lands in a public repo. `notes/` (planning docs, schema, retired code)

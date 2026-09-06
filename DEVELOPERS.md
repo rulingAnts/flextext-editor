@@ -107,7 +107,7 @@ committed but never served.
 
 The satellites are **not forks**: each is a thin `index.html` that loads THIS repo's engine
 cross-origin-path (`/flextext-editor/js/app.js` + CSS) and sets `window.__MODE`
-(`record` / `researcher` / `paragraph` / `segmenter` / `consent`; `crowd` is an embed of the recorder). All logic lives in `docs/js/`. Satellite GitHub repos are
+(`record` / `researcher` / `paragraph` / `segmenter` / `consent` / `crowd`). All logic lives in `docs/js/`. Satellite GitHub repos are
 dumb serving mirrors published by `.github/workflows/sync-satellites.yml` — never edit them
 directly. The **Paragraph Analysis** satellite (`paragraph-analysis/`) is the exception in
 deployment only: it ships as its own git-connected Cloudflare Worker whose `build.sh` copies
@@ -341,14 +341,26 @@ an archive may have to sign off on it: `capabilities()` reports only what it has
 available / was-enabled / still-active; bit depth is documented as a property of the file, not the
 microphone. Build: `android/scripts/build.sh recorder|editor`; the APK pins a snapshot of `docs/`.
 
-**Electron** (`electron/`): the Windows desktop shell, for the same reason on laptops. `src/main.js`
-wraps the published editor URL (`FLEXTEXT_URL` for a dev rig), `npm run dist:win` builds an
-installer with electron-builder. Built, not yet distributed. It is under the same containment rule
-as Android, not a looser one, and the recording contract it implements is the same one.
+**Electron** (`electron/`, public notes in `electron/README.md`): the Windows desktop shell, for the
+same reason on laptops. `src/main.js` opens the live editor site (`FLEXTEXT_URL` overrides the
+default GitHub Pages URL) in a sandboxed, context-isolated window that refuses navigation and
+window-opens off that origin and grants only the media permission; `src/preload.js` exposes exactly
+one object, `window.__flextextNative`, whose methods mirror the Android plugin; `src/ipc.js` maps
+each method to one named handler (no generic invoke channel, because the page is remote content);
+`src/audio.js` does the capture in the main process by spawning a bundled LGPL ffmpeg (dshow on
+Windows) that writes WAV at an exact PCM format, with an `astats` level meter. It carries the same
+`CONTRACT_VERSION` as Android and declares its honesty gap, `probed: false` and
+`depthVerified: false`, because ffmpeg will write 24-bit from a 16-bit interface without complaint.
+`src/flags.js` decides whether DevTools exist and fails closed (only a literal JSON `true` turns
+them on; `test/devtools-flag.test.mjs`). `Build desktop (Windows)` (manual, free) fetches the LGPL
+ffmpeg, asserts it is neither `--enable-gpl` nor `--enable-nonfree` and has dshow, the four PCM
+encoders and `astats`, ships its licence and source pointer beside the binary, and runs
+`npm run dist:win` for a portable, unsigned x64 exe. One test pre-release exists (2026-07-23).
 
 **Containment:**
-- **`docs/js/native-audio.js` is the only file allowed to touch `window.Capacitor`** (or any other
-  bridge) — enforced by `./check-native-containment.sh`. It feature-detects and is inert in a browser.
+- **`docs/js/native-audio.js` is the only file allowed to touch a native global** (`window.Capacitor`
+  on Android, `window.__flextextNative` on the desktop) — enforced by `./check-native-containment.sh`.
+  It feature-detects and is inert in a browser.
 - The engine touches the native path in a handful of commented places in `app.js` (import, the
   service-worker skip, `startNative`, the `rec.mode === 'native'` branches, absorb-then-delete).
 - Capture lifecycle is absorb-then-delete: bytes are stored in IndexedDB before the native file is
@@ -357,7 +369,7 @@ as Android, not a looser one, and the recording contract it implements is the sa
 
 ## 8. Testing
 
-- `node --test "test/*.test.mjs"` runs the whole suite (about 160 files, static source pins plus
+- `node --test "test/*.test.mjs"` runs the whole suite (135 files at v589, static source pins plus
   pure-function runs). Two suites, `worker-projects` and `worker-sessions`, need `wrangler dev` on
   :8787 and fail otherwise; count `not ok` lines rather than trusting grep's exit status.
 - `test/*.test.mjs` — plain node, assertion-style, also run by `check-native-containment.sh`.

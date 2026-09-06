@@ -223,6 +223,12 @@ researcher panel's device settings; the Space-bar setting is editor-only.
 - **On a touch screen, a waveform strip behaves like a WhatsApp voice note:** a tap places the
   playhead; touching the playhead line and dragging scrubs; dragging anywhere else scrolls the page,
   at any slant, because the strip listens to no finger movement at all. Same on the listening page.
+- **The top player is the same grammar plus zoom:** a tap places the playhead, the playhead line
+  scrubs, dragging anywhere else scrolls the waveform once it is zoomed, pinching zooms (a trackpad
+  pinch zooms too). Its thin cut marks show on all three tabs and follow a boundary you drag on a
+  line, while the player zooms in on that spot for the length of the drag.
+- **A boundary is moved by its grip** at either end of a line's waveform, never on the top player;
+  the researcher's "allow moving line boundaries by dragging" switch removes every grip at once.
 - **Space** plays or pauses outside a text box on a laptop or desktop, touch screen or not; on a
   mobile device it types a space (setting above). **Shift+Space** always plays or pauses, inside a box too, and inside a box it
   plays that box's own line without moving the cursor.

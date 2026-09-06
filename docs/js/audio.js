@@ -616,6 +616,7 @@ export async function fetchFileViaUrl(url) {
 
 const ZOOM_MIN = 1;     // px per second (fit-ish)
 const ZOOM_MAX = 300;
+const FOCUS_PX = 120;   // px per second while a strip's boundary is being dragged (boundaryFocus)
 
 /* The overview waveform's height, as the stylesheet says for THIS screen: .player-wave's
  * min-height is 72px on a desktop, 56 on a tablet, 44 on a phone (app.css, the v548 tiers). */
@@ -773,6 +774,7 @@ export class Player {
       // Boundary marks need the duration, and a set() that arrived before the load did is still
       // remembered on the instance — so re-draw them here rather than losing them to the race.
       this.renderBoundaries();
+      this.renderCursorHit();
       // First load: persist decoded peaks so future opens skip decoding.
       if (!media.peaks && this.onPeaks) {
         try {
@@ -797,6 +799,7 @@ export class Player {
      * to. Zooming changes the CANVAS width, never this element's CSS box, so there is no feedback
      * loop — the same reasoning segment-strips' observeWave documents for the strip canvases. */
     this.attachWaveResize();
+    this.attachWaveGestures();
     this.ws.on('error', (err) => {
       // Raw demuxer text ("DEMUXER_ERROR_COULD_NOT_OPEN") means nothing to a field user, so the
       // message stays plain — but it must not be USELESS either.
@@ -867,6 +870,7 @@ export class Player {
     };
     this.el.time.textContent =
       fmt(this.ws.getCurrentTime()) + ' / ' + fmt(this.ws.getDuration());
+    this.placeCursorHit();
   }
 
   /* Current playhead in MILLISECONDS, or null when there is no media.
@@ -935,6 +939,149 @@ export class Player {
   /* Fit the whole recording into the visible width, and remember the width we fitted to.
    * Returns false when there is nothing to fit yet (no player, no duration, or a box with no
    * width), so the caller can tell "not ready" from "done". */
+  /* ── THE OVERVIEW'S OWN TOUCH GRAMMAR (Seth, 2026-09-06: "tapping positions the playhead at the
+   * point tapped, dragging anywhere other than the playhead scrolls the waveform (if it's zoomed in
+   * enough to scroll), and pinching zooms in and out") — the strips' WhatsApp model (v588) on the
+   * big player: only the playhead line scrubs. wavesurfer's own click-and-drag seeking stays for the
+   * mouse; touch pointers are taken here in the CAPTURE phase so wavesurfer never sees a finger. A
+   * vertical finger still scrolls the page (touch-action: pan-y on .player-wave). A trackpad pinch
+   * arrives as a wheel with ctrlKey and zooms the same way, which is how this is tested on a Mac.
+   * Additive and fail-safe: without pointer events, or on any exception, the player is as before. */
+  attachWaveGestures() {
+    const wave = this.el.wave;
+    if (!wave || this._gesturesOn || typeof PointerEvent === 'undefined') return;
+    this._gesturesOn = true;
+    const touches = new Map();          // pointerId → { x, y }
+    let mode = null;                    // 'tap' | 'scroll' | 'scrub' | 'pinch'
+    let x0 = 0, y0 = 0, scroll0 = 0, dist0 = 1, px0 = 0, midT = 0;
+    const ready = () => { try { return !!(this.ws && this.ws.getDuration() > 0); } catch { return false; } };
+    const timeAt = (clientX) => {
+      try {
+        const r = this.ws.getWrapper().getBoundingClientRect(); const d = this.ws.getDuration();
+        return r.width > 0 ? Math.min(d, Math.max(0, ((clientX - r.left) / r.width) * d)) : null;
+      } catch { return null; }
+    };
+    const onCursor = (ev) => { try { return ev.composedPath().some((el) => el && el.classList && el.classList.contains('player-cursor-hit')); } catch { return false; } };
+    const pts = () => [...touches.values()];
+    const down = (ev) => {
+      if (ev.pointerType !== 'touch' || !ready()) return;
+      ev.stopPropagation();             // wavesurfer's drag-to-seek never sees a finger
+      touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }
+      if (touches.size === 1) {
+        x0 = ev.clientX; y0 = ev.clientY; scroll0 = this.ws.getScroll();
+        mode = onCursor(ev) ? 'scrub' : 'tap';
+        if (mode === 'scrub') { ev.preventDefault(); try { this.ws.pause(); } catch { /* noop */ } }
+      } else if (touches.size === 2) {
+        const [a, b] = pts();
+        mode = 'pinch'; dist0 = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)); px0 = this.ws.options.minPxPerSec;
+        midT = timeAt((a.x + b.x) / 2) ?? 0;
+        ev.preventDefault();
+      }
+    };
+    const move = (ev) => {
+      if (!touches.has(ev.pointerId)) return;
+      ev.stopPropagation();
+      touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      try {
+        if (mode === 'pinch' && touches.size >= 2) {
+          const [a, b] = pts();
+          const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+          this.zoomAround(px0 * (dist / dist0), midT, (a.x + b.x) / 2);
+          ev.preventDefault();
+          return;
+        }
+        if (mode === 'scrub') { const t = timeAt(ev.clientX); if (t != null) this.ws.setTime(t); return; }
+        const dx = ev.clientX - x0, dy = ev.clientY - y0;
+        if (mode === 'tap' && Math.hypot(dx, dy) > 10) mode = 'scroll';
+        if (mode === 'scroll') { ev.preventDefault(); this.ws.setScroll(scroll0 - dx); }
+      } catch { /* a reload mid-gesture; the next finger starts clean */ }
+    };
+    const up = (ev) => {
+      if (!touches.has(ev.pointerId)) return;
+      ev.stopPropagation();
+      touches.delete(ev.pointerId);
+      try {
+        if (mode === 'tap' && ev.type === 'pointerup') {
+          const t = timeAt(ev.clientX);
+          if (t != null) { this.ws.setTime(t); this.onSeekInteraction?.(); }   // the same hook a mouse click reaches
+        } else if (mode === 'scrub') { this.onSeekInteraction?.(); }
+      } catch { /* host's problem */ }
+      if (touches.size === 0) mode = null;
+      else if (touches.size === 1) { const [a] = pts(); x0 = a.x; y0 = a.y; scroll0 = this.ws.getScroll(); mode = 'scroll'; }
+    };
+    wave.addEventListener('pointerdown', down, true);
+    wave.addEventListener('pointermove', move, true);
+    wave.addEventListener('pointerup', up, true);
+    wave.addEventListener('pointercancel', up, true);
+    wave.addEventListener('wheel', (ev) => {
+      if (!ev.ctrlKey || !ready()) return;   // a trackpad pinch, or ctrl+wheel: zoom around the pointer
+      ev.preventDefault();
+      this.zoomAround(this.ws.options.minPxPerSec * Math.exp(-ev.deltaY * 0.01), timeAt(ev.clientX) ?? 0, ev.clientX);
+    }, { passive: false });
+  }
+
+  /* Zoom to `px` px/s keeping the time `tAnchor` under the screen x `clientX` — what a pinch and a
+   * trackpad pinch both mean. Clamped between the whole-file fit and ZOOM_MAX; the slider follows. */
+  zoomAround(px, tAnchor, clientX) {
+    if (!this.ws) return;
+    try {
+      px = Math.min(ZOOM_MAX, Math.max(this._fitPx || ZOOM_MIN, px));
+      this.ws.zoom(px);
+      const r = this.el.wave.getBoundingClientRect();
+      this.ws.setScroll(tAnchor * px - (clientX - r.left));
+      if (this.el.zoom) this.el.zoom.value = String(px);
+    } catch { /* not ready yet */ }
+  }
+  centerOn(ms) {
+    if (!this.ws) return;
+    try { this.ws.setScroll((ms / 1000) * this.ws.options.minPxPerSec - this.ws.getWidth() / 2); } catch { /* noop */ }
+  }
+  /* A momentary close-up on a boundary being dragged on a strip (Seth, 2026-09-06: "see the
+   * overview/big player momentarily zoom in close on that spot so the user can see the waveform
+   * and the boundary they're moving in realtime with precision"): start remembers the zoom and
+   * scroll and zooms to FOCUS_PX around the seam, move keeps the seam centred, end puts both back. */
+  boundaryFocus(phase, ms) {
+    if (!this.ws) return;
+    try {
+      if (phase === 'start') {
+        this._focusPrev = { px: this.ws.options.minPxPerSec, scroll: this.ws.getScroll(), slider: this.el.zoom ? this.el.zoom.value : null };
+        this.ws.zoom(Math.min(ZOOM_MAX, Math.max(this._focusPrev.px, FOCUS_PX)));
+        this.centerOn(ms);
+      } else if (phase === 'move') {
+        if (this._focusPrev) this.centerOn(ms);
+      } else if (phase === 'end' && this._focusPrev) {
+        const prev = this._focusPrev; this._focusPrev = null;
+        this.ws.zoom(prev.px); this.ws.setScroll(prev.scroll);
+        if (this.el.zoom && prev.slider != null) this.el.zoom.value = prev.slider;
+      }
+    } catch { /* a reload mid-drag; nothing to restore */ }
+  }
+  /* The playhead's own grab zone for a finger — the strips' playhead line (v588) on the overview:
+   * inside wavesurfer's wrapper in per cent, 32px wide, only on a coarse pointer. The mouse keeps
+   * wavesurfer's click-and-drag seeking and never meets this. Re-placed on every timeupdate. */
+  renderCursorHit() {
+    let wrap = null;
+    try { wrap = this.ws?.getWrapper?.() || null; } catch { wrap = null; }
+    if (!wrap) return;
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    if (!coarse) { if (this._cursorHit) { this._cursorHit.remove(); this._cursorHit = null; } return; }
+    let hit = this._cursorHit;
+    if (!hit || hit.parentNode !== wrap) {
+      hit = document.createElement('div');
+      hit.className = 'player-cursor-hit';
+      hit.style.cssText = 'position:absolute;top:0;bottom:0;width:32px;margin-left:-16px;pointer-events:auto;touch-action:none;z-index:5;';
+      wrap.appendChild(hit);
+      this._cursorHit = hit;
+    }
+    this.placeCursorHit();
+  }
+  placeCursorHit() {
+    const hit = this._cursorHit;
+    if (!hit || !this.ws) return;
+    try { const d = this.ws.getDuration(); if (d > 0) hit.style.left = ((this.ws.getCurrentTime() / d) * 100) + '%'; } catch { /* noop */ }
+  }
+
   fitZoom() {
     if (!this.ws) return false;
     const w = this.el.wave.clientWidth;
@@ -942,6 +1089,7 @@ export class Player {
     try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
     if (!(w > 0) || !(dur > 0)) return false;
     const fit = Math.max(ZOOM_MIN, w / dur);
+    this._fitPx = fit;   // the floor for pinch and wheel zoom: never wider than the whole file
     this.el.zoom.min = String(Math.floor(fit));
     this.el.zoom.max = String(ZOOM_MAX);
     this.el.zoom.value = String(Math.floor(fit));
@@ -1052,7 +1200,7 @@ export class Player {
       const f = (ms / 1000) / dur;
       const b = document.createElement('span');
       b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
-        + 'border-left:2px dotted rgba(108,118,133,.85);';
+        + 'border-left:1px dotted rgba(108,118,133,.7);';   // subtle, light, skinny (Seth, 2026-09-06)
       b.style.left = (f * 100) + '%';
       b.dataset.bi = String(j);
       if (drag) {
@@ -1068,15 +1216,9 @@ export class Player {
         hit.style.cssText = 'position:absolute;top:0;bottom:0;left:-7px;width:15px;'
           + 'pointer-events:auto;cursor:col-resize;touch-action:none;';
         b.appendChild(hit);
-        /* ⚠ A HANDLE YOU CAN SEE (Seth, 2026-09-06: "something visible in the UI that looks
-         * intuitively draggable"): a small pill on the line, only while the marks are draggable, so
-         * an inert mark (the same marks on a tab that does not move them) still reads as a mark. On
-         * a touch screen the hit box is the 32px of the strips' playhead line. Inline styles, like
-         * everything in this shadow root — app.css cannot reach it. */
-        const knob = document.createElement('b');
-        knob.style.cssText = 'position:absolute;top:50%;left:50%;width:7px;height:20px;margin:-10px 0 0 -3.5px;'
-          + 'border-radius:4px;background:rgba(31,79,143,.8);box-shadow:0 0 0 2px #fff;pointer-events:none;';
-        hit.appendChild(knob);
+        /* On a touch screen the hit box is the 32px of the strips' playhead line. No pill on it:
+         * Seth, 2026-09-06, "draggable pills on the overview player are no good" — the segmenter's
+         * marks stay as they were, an invisible grip on a hairline. The editor never arms this. */
         if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) { hit.style.left = '-16px'; hit.style.width = '32px'; }
         hit.addEventListener('pointerdown', (ev) => {
           ev.preventDefault();
@@ -1232,6 +1374,8 @@ export class Player {
      * on every render, so forgetting them here costs nothing and cannot be wrong. */
     this._bounds = [];
     this._boundLayer = null;   // it lived inside the wrapper being destroyed
+    this._cursorHit = null;    // so did the finger's playhead grip
+    this._focusPrev = null;
     this._peaksOnly = false;   // a property of the load just discarded, not of the next one
     if (this.ws) { try { this.ws.destroy(); } catch { /* noop */ } this.ws = null; }
     if (this._onWinResize) { window.removeEventListener('resize', this._onWinResize); this._onWinResize = null; }

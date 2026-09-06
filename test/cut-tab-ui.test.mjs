@@ -50,14 +50,14 @@ ok(!!rb, 'Player.renderBoundaries exists');
 ok(/getWrapper/.test(rb), 'the marks go inside wavesurfer\'s own wrapper (which scrolls and zooms with the wave)');
 ok(/left = \(f \* 100\) \+ '%'/.test(rb), 'positioned in PER CENT, not pixels');
 ok(/pointer-events:none/.test(rb), 'and they never intercept a click — the whole wave stays a seek surface');
-ok(/border-left:2px dotted/.test(rb) && /rgba\(108,118,133/.test(rb),
-   'light grey, dotted, 2px — visible without crowding the waveform (Seth)');
+ok(/border-left:1px dotted/.test(rb) && /rgba\(108,118,133/.test(rb),
+   'light grey, dotted, 1px — "subtle, light, skinny" (Seth, 2026-09-06), visible without crowding the waveform');
 ok(/this\.renderBoundaries\(\);/.test(audio.match(/this\.ws\.on\('ready'[\s\S]*?\}\);/)[0]),
    're-drawn on ready, so marks set before the audio loaded are not lost to the race');
 ok(/syncCutBoundaries\(\)/.test(strips) && /p\.setBoundaries\(cutBoundaryTimes\(\)\)/.test(strips),
    'the Cut tab pushes its boundaries to the player');
 const stop = fn(strips, 'stopCut');
-ok(/setBoundaries\?\.\(\[\]\)/.test(stop), 'and leaving the tab takes them off again — Baseline and Gloss are untouched');
+ok(!/setBoundaries\?\.\(\[\]\)/.test(stop), 'and leaving the tab LEAVES them: the marks belong to the text on every tab (Seth, 2026-09-06)');
 
 /* ── the marks' LIFETIME. Both halves were found by the v357 preflight review, and the first was
  * the only finding two independent verifiers refused to refute: boundary times mean nothing outside

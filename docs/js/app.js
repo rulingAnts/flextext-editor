@@ -22,7 +22,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -1143,6 +1143,7 @@ function glossDrag() {
       const seg = docSegments(current.doc)[k];
       if (waves[k] && seg) drawSpanWave(waves[k], seg);
     },
+    syncMarks: () => syncOverviewMarks(() => player, docSegments(current.doc)),
   });
   return glossDragFn;
 }
@@ -1284,6 +1285,7 @@ function decorateGlossSegments() {
       }
     }
   });
+  syncOverviewMarks(() => player, segs);   // the dock's marks, on this tab too (Seth, 2026-09-06)
   startGlossCursor(entries);
 }
 
@@ -1295,6 +1297,13 @@ let glossFollowRow = null;
 function startGlossCursor(entries) {
   cancelAnimationFrame(glossRafId);
   const tick = () => {
+    // The dock's marks belong to the text on every tab: re-push when a player reload dropped them.
+    try {
+      if (current && player && player.boundaryCount && player.durationMs?.()) {
+        const want = overviewMarks(docSegments(current.doc));
+        if (player.boundaryCount() !== want.filter(Number.isFinite).length) player.setBoundaries(want);
+      }
+    } catch { /* never costs the frame */ }
     const time = player?.playheadMs?.();
     const rolling = player?.playing?.();
     for (const en of entries) {

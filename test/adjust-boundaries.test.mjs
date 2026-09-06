@@ -45,7 +45,7 @@ test('the Player numbers marks by SEAM, so a line without a time mid-text cannot
   assert.match(APP, /out\.push\(sp\.timePending \? NaN : sp\.end\);/, 'and so does the matcher');
   assert.match(STRIPS, /p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length/, 'the Cut ticker compares drawn marks with drawable seams');
   assert.match(APP, /p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length/, 'the matcher ticker too');
-  assert.match(AUDIO, /const knob = document\.createElement\('b'\);/, 'a visible pill on a draggable mark');
+  assert.doesNotMatch(AUDIO, /createElement\('b'\)/, 'no pill on a mark (Seth, 2026-09-06: "draggable pills on the overview player are no good")');
   assert.match(AUDIO, /matchMedia\('\(pointer: coarse\)'\)\.matches\) \{ hit\.style\.left = '-16px'; hit\.style\.width = '32px'; \}/, '32px on a touch screen');
 });
 
@@ -63,10 +63,8 @@ test('one gesture, one consumer, three tabs and the top player, one switch', () 
   assert.match(STRIPS, /attachEdgeHandles\(row, wave, i, cutEdgeCtx\(segs\)\);/, 'Cut rows');
   assert.match(STRIPS, /attachEdgeHandles\(row, wave, i, stripsEdgeCtx\(segs\)\);/, 'Baseline rows');
   assert.match(APP, /attachEdgeHandles\(waveWrap, wave, i, \{ allowed: adjustBoundariesAllowed,/, 'Gloss rows');
-  assert.match(STRIPS, /p\.onBoundaryDrag\(cutAdjustOk\(\) \? cutDrag\(\) : null\);/, 'the top player\'s marks move on the Cut tab, under the switch');
-  assert.match(STRIPS, /syncCutBoundaries\(\);\n  armCutMarks\(\);/, 're-armed on every render, so a push lands');
-  const stop = STRIPS.slice(STRIPS.indexOf('export function stopCut()'), STRIPS.indexOf('let cutDragFn = null;'));
-  assert.match(stop, /onBoundaryDrag\?\.\(null\)/, 'and released on leaving, so Baseline and Gloss never inherit it');
+  assert.doesNotMatch(STRIPS, /onBoundaryDrag\(/, 'the editor never makes the top player\'s marks draggable (Seth, 2026-09-06: grips on the strips only)');
+  assert.doesNotMatch(APP.slice(0, APP.indexOf('function mgPrepareAudio')), /onBoundaryDrag\(/, 'nor does any editor tab; only the segmenter\'s matcher arms it');
   assert.match(APP, /function adjustBoundariesAllowed\(\) \{ return segmentationEnabled\(\) && settings\.adjustBoundaries !== false; \}/, 'default on, gated on segmentation');
   assert.doesNotMatch(APP.slice(APP.indexOf('function adjustBoundariesAllowed()'), APP.indexOf('function adjustBoundariesAllowed()') + 200), /cutJoinTexted/, 'independent of the texted-lines switch');
   assert.match(APP, /allowAdjust: \(\) => adjustBoundariesAllowed\(\),\n/, 'handed to the strips as a function, so a push lands mid-session');

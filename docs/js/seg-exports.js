@@ -457,6 +457,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   .player { position: sticky; top: 0; background: Canvas; padding: 6px 0 4px; z-index: 5;
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
+  .player .wwrap { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }   /* the overview scrolls once zoomed */
   #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; }
   .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
@@ -597,6 +598,7 @@ ${withAudio ? `<script>
     // dragging anywhere else scrolls (touch-action:pan-y above; no pointermove on the canvas).
     el.addEventListener('pointerdown', function (ev) {
       if (ev.pointerType === 'touch') {
+        if (el === ov) return;   // the overview has its own touch grammar — see below
         var x0 = ev.clientX, y0 = ev.clientY;
         var up = function (e2) { el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
           if (e2.type === 'pointerup' && Math.abs(e2.clientX - x0) < 10 && Math.abs(e2.clientY - y0) < 10) { audio.pause(); seek(e2); } };
@@ -622,6 +624,52 @@ ${withAudio ? `<script>
     var c = row.querySelector('.rw');
     if (c) wireScrub(c, +row.dataset.s, +row.dataset.e);
   });
+
+  /* ── THE OVERVIEW'S OWN TOUCH GRAMMAR (Seth, 2026-09-06; the editor's big player does the same):
+   * a tap parks the playhead where it lands, dragging anywhere but the playhead line scrolls the
+   * waveform once it is zoomed, pinching zooms in and out, and the playhead line itself scrubs
+   * (the knob above). A trackpad pinch (a wheel with ctrlKey) zooms too; a horizontal two-finger
+   * swipe scrolls natively (overflow-x on the wrapper). Vertical drags still scroll the page. */
+  var ovWrap = ov.parentNode, ovZoom = 1;
+  function ovMs(clientX) { var r = ov.getBoundingClientRect(), T = totalMs(); return r.width > 0 ? Math.min(T, Math.max(0, (clientX - r.left) / r.width * T)) : 0; }
+  function setOvZoom(z, anchorMs, clientX) {
+    z = Math.min(40, Math.max(1, z));
+    if (Math.abs(z - ovZoom) < 0.001) return;
+    ovZoom = z;
+    ov.style.width = (z * 100) + '%';
+    draw(ov, 0, totalMs());
+    var T = totalMs();
+    if (T > 0) ovWrap.scrollLeft = (anchorMs / T) * ov.clientWidth - (clientX - ovWrap.getBoundingClientRect().left);
+  }
+  (function () {
+    var touches = {}, count = 0, mode = null, x0 = 0, y0 = 0, scroll0 = 0, dist0 = 1, z0 = 1, midMs = 0;
+    function pts() { var a = []; for (var k in touches) a.push(touches[k]); return a; }
+    function dist(p) { return Math.max(1, Math.sqrt((p[0].x - p[1].x) * (p[0].x - p[1].x) + (p[0].y - p[1].y) * (p[0].y - p[1].y))); }
+    ov.addEventListener('pointerdown', function (ev) {
+      if (ev.pointerType !== 'touch') return;
+      touches[ev.pointerId] = { x: ev.clientX, y: ev.clientY }; count++;
+      try { ov.setPointerCapture(ev.pointerId); } catch (e) {}
+      if (count === 1) { mode = 'tap'; x0 = ev.clientX; y0 = ev.clientY; scroll0 = ovWrap.scrollLeft; }
+      else if (count === 2) { var p = pts(); mode = 'pinch'; dist0 = dist(p); z0 = ovZoom; midMs = ovMs((p[0].x + p[1].x) / 2); ev.preventDefault(); }
+    });
+    ov.addEventListener('pointermove', function (ev) {
+      if (!touches[ev.pointerId]) return;
+      touches[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      if (mode === 'pinch' && count >= 2) { var p = pts(); setOvZoom(z0 * dist(p) / dist0, midMs, (p[0].x + p[1].x) / 2); ev.preventDefault(); return; }
+      var dx = ev.clientX - x0, dy = ev.clientY - y0;
+      if (mode === 'tap' && Math.sqrt(dx * dx + dy * dy) > 10) mode = 'scroll';
+      if (mode === 'scroll') { ovWrap.scrollLeft = scroll0 - dx; ev.preventDefault(); }
+    });
+    function end(ev) {
+      if (!touches[ev.pointerId]) return;
+      delete touches[ev.pointerId]; count--;
+      if (mode === 'tap' && ev.type === 'pointerup') { audio.pause(); audio.currentTime = ovMs(ev.clientX) / 1000; }
+      if (count <= 0) { count = 0; mode = null; }
+      else if (count === 1) { var p = pts(); x0 = p[0].x; y0 = p[0].y; scroll0 = ovWrap.scrollLeft; mode = 'scroll'; }
+    }
+    ov.addEventListener('pointerup', end); ov.addEventListener('pointercancel', end);
+    ov.addEventListener('wheel', function (ev) { if (!ev.ctrlKey) return; ev.preventDefault(); setOvZoom(ovZoom * Math.exp(-ev.deltaY * 0.01), ovMs(ev.clientX), ev.clientX); }, { passive: false });
+  })();
 
   /* ── SPACE = PLAY/PAUSE, and the view FOLLOWS the playing line ────────────────────────────────
    * Seth, 2026-08-15: "add the auto-scrolling and space to play/pause behavior to the

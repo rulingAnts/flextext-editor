@@ -725,7 +725,7 @@ export function renderStrips() {
       const join = document.createElement('button');
       join.className = 'gseg-join';
       join.tabIndex = -1;            // see the ▶ above: Tab walks TEXT BOXES on this tab
-      join.textContent = '⤙⤚';
+      join.textContent = '🔗';   // the chain link, as between two words (Seth, 2026-09-06: "For consistency")
       join.setAttribute('aria-label', deps.t('seg.joinTip'));
       join.title = deps.t('seg.joinTip');
       join.addEventListener('click', () => mergeAt(i, i + 1));
@@ -1613,7 +1613,7 @@ export function renderCut(anchorIdx) {
       jr.className = 'seg-joinrow';
       const j = document.createElement('button');
       j.className = 'gseg-join';
-      j.textContent = '⤙⤚';
+      j.textContent = '🔗';   // the chain link, as on every join button
       j.title = cutDeps.t('seg.joinTip');
       j.setAttribute('aria-label', cutDeps.t('seg.joinTip'));
       j.addEventListener('click', () => cutJoinPrev(i + 1));

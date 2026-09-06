@@ -114,6 +114,14 @@ test('the ✂ for a text tier hangs under the blinking caret and follows it (Set
   assert.match(STRIPS, /if \(!p\) \{ syncCaretScissors\(\); return; \}/, 're-decided the moment the split completes or cancels');
 });
 
+test('the join button between two lines is the chain link, the same picture as between two words (Seth, 2026-09-06)', () => {
+  assert.equal((STRIPS.match(/textContent = '🔗';/g) || []).length, 2, 'Baseline and Cut join buttons');
+  assert.match(APP, /join\.textContent = '🔗';/, 'the Gloss join button');
+  assert.match(APP, /link\.textContent = '🔗';/, 'and the link between two words it matches');
+  assert.equal((I18N.match(/\\u2919\\u291a/g) || []).length, 0, 'no hint names the old glyph');
+  assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.joinChain': '/g) || []).length, 2);
+});
+
 test('the Paragraph Analysis Tool goes through the same planner; words exist in both languages; the styles exist', () => {
   assert.match(PAT, /import \{ splitTiers, splitPlan \} from '\.\/segments\.js';/);
   assert.match(PAT, /if \(!splitPlan\(splitTiers\(\{ tab: 'baseline', text: txt, aligned: false \}\), \{ text: caret \}\)\.complete\) return;/);

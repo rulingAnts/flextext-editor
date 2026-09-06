@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v586';
+export const ENGINE_VERSION = 'v587';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1424,6 +1424,9 @@ internet after the first time.</p>
     ,'panel.rel.new.playerScale': 'Text size: a larger text no longer enlarges the top player. Its controls keep their normal size and its overview waveform shrinks in proportion, so the bigger text gets the screen space.'
     ,'panel.rel.new.typeToLine': 'When the Space bar does not play (off, or automatic on a touch screen), typing with no box selected goes to the line you last played: the nearest text box is focused at its end and the keystroke lands there.'
     ,'panel.rel.new.shiftSpaceOwnLine': 'Shift+Space inside a text box now plays or pauses that box\u2019s own line, without moving the cursor, whatever the Space setting. Edit and listen to the same line without leaving it.'
+    ,'panel.rel.new.headerFixed': 'Text size: the top row (tabs, Save, Done \u2014 send, back, help) and the researcher panel\u2019s header keep their normal size at every text size, like the player.'
+    ,'panel.rel.new.headerIcons': 'Icons in the top row: a disk on Save, a green check and a send arrow on Done \u2014 send, and a waveform, a typing mark and interlinear rows on the Cut, Baseline and Gloss tabs. The words stay beside them for now; the title box is shorter so the row stays on one line.'
+    ,'panel.rel.new.touchKnob': 'Touch screens: scrolling and scrubbing no longer fight. On a waveform strip, a tap places the playhead, dragging the orange dot on the playhead scrubs, and dragging anywhere else scrolls the page \u2014 the way a WhatsApp voice note works. The listening page does the same.'
     ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
     ,'panel.rel.new.lazyStrips': 'Long recordings: the waveform strips on the Baseline, Cut and Gloss tabs draw only while they are near the screen, so a 15-minute take cut into hundreds of lines no longer runs out of canvas memory and goes blank part-way down.'
     ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
@@ -3584,6 +3587,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.playerScale': 'Ukuran teks: teks yang lebih besar tidak lagi memperbesar pemutar atas. Kontrolnya tetap berukuran normal dan gelombang ikhtisarnya menyusut sebanding, sehingga ruang layar untuk teks yang lebih besar.'
     ,'panel.rel.new.typeToLine': 'Saat tombol Spasi tidak memutar (mati, atau otomatis di layar sentuh), mengetik tanpa kotak yang dipilih masuk ke baris yang terakhir diputar: kotak teks terdekat difokuskan di ujungnya dan ketikan masuk di sana.'
     ,'panel.rel.new.shiftSpaceOwnLine': 'Shift+Spasi di dalam kotak teks kini memutar atau menjeda baris kotak itu sendiri, tanpa memindahkan kursor, apa pun pengaturan Spasi. Sunting dan dengarkan baris yang sama tanpa meninggalkannya.'
+    ,'panel.rel.new.headerFixed': 'Ukuran teks: baris atas (tab, Simpan, Sudah selesai, kembali, bantuan) dan kepala panel peneliti tetap berukuran normal pada setiap ukuran teks, seperti pemutar.'
+    ,'panel.rel.new.headerIcons': 'Ikon di baris atas: disket pada Simpan, centang hijau dan panah kirim pada Sudah selesai (Kirim), serta gelombang, tanda mengetik, dan baris interlinear pada tab Potong, Ketik, dan Glos. Katanya tetap di sampingnya untuk saat ini; kotak judul lebih pendek agar barisnya tetap satu.'
+    ,'panel.rel.new.touchKnob': 'Layar sentuh: menggulir dan menggeser tidak lagi bertabrakan. Pada strip gelombang, ketuk untuk menempatkan playhead, seret titik oranye di playhead untuk menggeser, dan seret di tempat lain untuk menggulir halaman \u2014 seperti pesan suara WhatsApp. Halaman dengar berlaku sama.'
     ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
     ,'panel.rel.new.lazyStrips': 'Rekaman panjang: strip gelombang di tab Dasar, Potong, dan Glos hanya digambar saat dekat layar, sehingga rekaman 15 menit yang dipotong menjadi ratusan baris tidak lagi kehabisan memori kanvas dan kosong di tengah jalan.'
     ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'

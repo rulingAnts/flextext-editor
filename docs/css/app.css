@@ -141,6 +141,21 @@ main {
 }
 
 #topbar .primary-btn { background: #2e7d32; }
+/* Icon-only header actions (Seth, 2026-09-06: "replace text with icons wherever possible … a green
+   checkbox and a WhatsApp-like send icon … the Save button should get a disk"). The words stay in
+   aria-label and title through data-i18n-aria / data-i18n-title, so screen readers and hover keep
+   them; the button itself is the picture. */
+.btn-icon { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; white-space: nowrap; }
+.btn-icon .ico { width: 18px; height: 18px; display: block; flex: none; }
+.btn-icon .ico-check { width: 19px; height: 19px; }
+/* The labels stay beside the icons for now (Seth, 2026-09-06: "keep the text on the save and send
+   buttons too. For now"); the title box gives up width so the whole row stays on one line. */
+#doc-title { flex: 1 1 120px; min-width: 90px; max-width: 260px; }
+/* Tab icons beside the labels (Seth, 2026-09-06: waveform for Cut, typing for Baseline, interlinear
+   rows for Gloss; "keep the labels for now until our users get used to the pictures"). Dropping the
+   labels later is deleting the <span>, nothing else. */
+.top-tab { display: inline-flex; align-items: center; gap: 6px; }
+.top-tab .tab-ico { width: 17px; height: 17px; flex: none; }
 #topbar .primary-btn:hover { background: #25652a; }
 
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
@@ -288,6 +303,18 @@ main {
 .gseg-join:hover { background: #ece3f7; color: #5b3d8a; }
 /* The playhead cursor, drawn on whichever strip contains the current time. */
 .seg-cursor { position: absolute; width: 2px; background: #c9772a; pointer-events: none; }
+/* ⚠ ON A TOUCH SCREEN THE CURSOR IS A KNOB (Seth, 2026-09-06). The 2px line becomes a 30px hit
+   zone with the line drawn inside it and a dot in the middle; it is the ONLY thing on a strip with
+   touch-action:none, so dragging the dot scrubs and dragging anywhere else scrolls (the canvases
+   are pan-y). The ticker still sets `left` to the line's x; the negative margin centres the zone
+   on it, so nothing about positioning changed. Same for the Gloss tab's .gseg-cursor. */
+@media (pointer: coarse) {
+  .seg-cursor, .gseg-cursor { width: 30px; margin-left: -14px; background: transparent; pointer-events: auto; touch-action: none; z-index: 3; }
+  .seg-cursor::before, .gseg-cursor::before { content: ''; position: absolute; left: 14px; top: 0; bottom: 0; width: 2px; background: #c9772a; }
+  .seg-cursor::after, .gseg-cursor::after { content: ''; position: absolute; left: 15px; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+    border-radius: 50%; background: #c9772a; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); box-sizing: border-box; }
+  .player-wave { touch-action: pan-y; }   /* the sticky overview never blocks a vertical scroll either */
+}
 
 /* ---------- Audio player ---------- */
 

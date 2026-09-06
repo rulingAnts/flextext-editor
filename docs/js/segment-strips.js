@@ -923,6 +923,34 @@ export function guessedBoundaries() {
  * surface, is what stops the next waveform list from being added without it.
  *
  * An unaligned (timePending) span has no timeline to seek into, so it is wired to nothing at all. */
+/* ⚠ THE DOT IS THE SCRUBBER ON A TOUCH SCREEN. The playhead cursor every strip draws (.seg-cursor,
+ * .gseg-cursor) becomes, on coarse pointers only, a 30px-wide hit zone with a visible dot (CSS), the
+ * one element on a strip carrying touch-action:none. Dragging it scrubs the strip it sits on; the
+ * strip's canvas keeps touch-action:pan-y, so dragging anywhere else scrolls. One delegated
+ * listener serves every surface: the cursor's parent holds the canvas, and wireWaveSeek left the
+ * canvas its own seek mapping (wave.__seekAt), so the knob needs no per-surface wiring and appears
+ * wherever a cursor is drawn — Baseline, Cut, Gloss and the matcher alike. */
+let knobDragInstalled = false;
+function installKnobDrag() {
+  if (knobDragInstalled || typeof document === 'undefined') return;
+  knobDragInstalled = true;
+  document.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType !== 'touch' || !ev.target || !ev.target.closest) return;
+    const cur = ev.target.closest('.seg-cursor, .gseg-cursor');
+    if (!cur) return;
+    const wave = cur.parentElement && cur.parentElement.querySelector('canvas');
+    if (!wave || !wave.__seekAt) return;
+    ev.preventDefault();
+    try { cur.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
+    wave.__park();
+    const move = (e2) => wave.__seekAt(e2);
+    const end = () => { cur.removeEventListener('pointermove', move); cur.removeEventListener('pointerup', end); cur.removeEventListener('pointercancel', end); };
+    cur.addEventListener('pointermove', move);
+    cur.addEventListener('pointerup', end);
+    cur.addEventListener('pointercancel', end);
+  }, { passive: false });
+}
+
 export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
   if (!isAligned(seg)) return;
   const seekAt = (ev) => {
@@ -930,43 +958,32 @@ export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
     const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
     getPlayer()?.seekMs?.(seg.start + f * (seg.end - seg.start));
   };
+  // The knob (see installKnobDrag) scrubs through these, so the mapping lives in one place.
+  wave.__seekAt = seekAt;
+  wave.__park = () => { onTarget?.(seg); getPlayer()?.pause?.(); };
+  installKnobDrag();
   wave.addEventListener('pointerdown', (ev) => {
-    /* ⚠ A FINGER IS NOT A MOUSE (Seth, 2026-09-04: "Touch screen scrolling not easy with lots of
-     * scrubable preview players"). With touch-action:none and a seek on every pointerdown, the
-     * first finger on a strip scrubbed it and the page could not scroll — a list of forty strips
-     * was forty places a scroll gesture died. So on TOUCH the strip waits to see what the finger
-     * means: a tap parks the playhead; a mostly-horizontal drag scrubs; a mostly-vertical one is
-     * handed to the browser (touch-action:pan-y in the CSS), which scrolls. Mouse and pen keep the
-     * immediate park-and-drag: a pointer that cannot scroll needs no arbitration. */
+    /* ⚠ A FINGER IS NOT A MOUSE (Seth, 2026-09-04 and again 2026-09-06: "it's hard to scroll because
+     * most of the screen is clickable waveforms, and the vertical (or maybe less than perfectly
+     * vertical) is grabbed by the waveform player and treated like left and right scrubbing … It
+     * needs to be intuitive and automatic and not confusing for someone who can barely read").
+     * v579 tried to read the finger's intent from its first few pixels of movement, and in the field
+     * a slightly slanted scroll still read as a scrub. So there is no guessing any more. On TOUCH the
+     * strip does exactly what a WhatsApp voice note does, which every coworker already knows:
+     *   - a TAP parks the playhead where the finger landed (the orange line and dot appear there);
+     *   - dragging the DOT scrubs (the dot is the only surface with touch-action:none);
+     *   - dragging anywhere else is a scroll, and the strip never touches it (touch-action:pan-y in
+     *     the CSS, and no pointermove listener here at all, so nothing can steal the gesture).
+     * Mouse and pen keep the immediate park-and-drag: a pointer that cannot scroll needs no rule. */
     if (ev.pointerType === 'touch') {
       const x0 = ev.clientX, y0 = ev.clientY;
-      let mode = 'undecided';
-      const decide = (e2) => {
-        const dx = e2.clientX - x0, dy = e2.clientY - y0;
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return 'undecided';
-        return Math.abs(dx) > Math.abs(dy) ? 'scrub' : 'scroll';
-      };
-      const move = (e2) => {
-        if (mode === 'undecided') mode = decide(e2);
-        if (mode === 'scrub') {
-          if (!wave.hasPointerCapture?.(e2.pointerId)) {
-            try { wave.setPointerCapture(e2.pointerId); } catch { /* comfort only */ }
-            onTarget?.(seg); getPlayer()?.pause?.();
-          }
-          seekAt(e2);
-        } else if (mode === 'scroll') done();
-      };
       const up = (e2) => {
-        if (mode === 'undecided') { onTarget?.(seg); getPlayer()?.pause?.(); seekAt(e2); }   // a tap parks it
-        done();
+        wave.removeEventListener('pointerup', up); wave.removeEventListener('pointercancel', cancel);
+        if (Math.abs(e2.clientX - x0) < 10 && Math.abs(e2.clientY - y0) < 10) { wave.__park(); seekAt(e2); }   // a tap parks it
       };
-      const done = () => {
-        wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up);
-        wave.removeEventListener('pointercancel', done);
-      };
-      wave.addEventListener('pointermove', move);
+      const cancel = () => { wave.removeEventListener('pointerup', up); wave.removeEventListener('pointercancel', cancel); };
       wave.addEventListener('pointerup', up);
-      wave.addEventListener('pointercancel', done);
+      wave.addEventListener('pointercancel', cancel);
       return;
     }
     ev.preventDefault();

@@ -668,7 +668,7 @@ ${withAudio ? `<script>
       else if (count === 1) { var p = pts(); x0 = p[0].x; y0 = p[0].y; scroll0 = ovWrap.scrollLeft; mode = 'scroll'; }
     }
     ov.addEventListener('pointerup', end); ov.addEventListener('pointercancel', end);
-    ov.addEventListener('wheel', function (ev) { if (!ev.ctrlKey) return; ev.preventDefault(); setOvZoom(ovZoom * Math.exp(-ev.deltaY * 0.01), ovMs(ev.clientX), ev.clientX); }, { passive: false });
+    ov.addEventListener('wheel', function (ev) { if (!ev.ctrlKey) return; ev.preventDefault(); setOvZoom(ovZoom * Math.exp(-ev.deltaY * 0.005), ovMs(ev.clientX), ev.clientX); }, { passive: false });
   })();
 
   /* ── SPACE = PLAY/PAUSE, and the view FOLLOWS the playing line ────────────────────────────────

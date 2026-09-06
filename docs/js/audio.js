@@ -616,7 +616,7 @@ export async function fetchFileViaUrl(url) {
 
 const ZOOM_MIN = 1;     // px per second (fit-ish)
 const ZOOM_MAX = 300;
-const FOCUS_PX = 120;   // px per second while a strip's boundary is being dragged (boundaryFocus)
+const FOCUS_WINDOW_S = 4;   // seconds across the dock while a strip's boundary is being dragged (boundaryFocus)
 
 /* The overview waveform's height, as the stylesheet says for THIS screen: .player-wave's
  * min-height is 72px on a desktop, 56 on a tablet, 44 on a phone (app.css, the v548 tiers). */
@@ -1017,7 +1017,7 @@ export class Player {
     wave.addEventListener('wheel', (ev) => {
       if (!ev.ctrlKey || !ready()) return;   // a trackpad pinch, or ctrl+wheel: zoom around the pointer
       ev.preventDefault();
-      this.zoomAround(this.ws.options.minPxPerSec * Math.exp(-ev.deltaY * 0.01), timeAt(ev.clientX) ?? 0, ev.clientX);
+      this.zoomAround(this.ws.options.minPxPerSec * Math.exp(-ev.deltaY * 0.005), timeAt(ev.clientX) ?? 0, ev.clientX);   // a mouse notch (120) ≈ 1.8×; a trackpad pinch step is a few units
     }, { passive: false });
   }
 
@@ -1040,13 +1040,14 @@ export class Player {
   /* A momentary close-up on a boundary being dragged on a strip (Seth, 2026-09-06: "see the
    * overview/big player momentarily zoom in close on that spot so the user can see the waveform
    * and the boundary they're moving in realtime with precision"): start remembers the zoom and
-   * scroll and zooms to FOCUS_PX around the seam, move keeps the seam centred, end puts both back. */
+   * scroll and zooms so about FOCUS_WINDOW_S seconds fill the dock around the seam (a phone and a
+   * laptop get the same close-up), move keeps the seam centred, end puts both back. */
   boundaryFocus(phase, ms) {
     if (!this.ws) return;
     try {
       if (phase === 'start') {
         this._focusPrev = { px: this.ws.options.minPxPerSec, scroll: this.ws.getScroll(), slider: this.el.zoom ? this.el.zoom.value : null };
-        this.ws.zoom(Math.min(ZOOM_MAX, Math.max(this._focusPrev.px, FOCUS_PX)));
+        this.ws.zoom(Math.min(ZOOM_MAX, Math.max(this._focusPrev.px, this.ws.getWidth() / FOCUS_WINDOW_S)));
         this.centerOn(ms);
       } else if (phase === 'move') {
         if (this._focusPrev) this.centerOn(ms);

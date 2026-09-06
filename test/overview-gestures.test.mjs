@@ -48,7 +48,8 @@ test('the marks show on every tab, follow a grip drag, and the player zooms in o
   const focus = AUDIO.slice(AUDIO.indexOf('boundaryFocus(phase, ms) {'), AUDIO.indexOf('renderCursorHit() {'));
   assert.match(focus, /this\._focusPrev = \{ px: this\.ws\.options\.minPxPerSec, scroll: this\.ws\.getScroll\(\)/, 'remembers where it was');
   assert.match(focus, /this\.ws\.zoom\(prev\.px\); this\.ws\.setScroll\(prev\.scroll\);/, 'and goes back there');
-  assert.match(AUDIO, /const FOCUS_PX = 120;/);
+  assert.match(AUDIO, /const FOCUS_WINDOW_S = 4;/);
+  assert.match(focus, /this\.ws\.getWidth\(\) \/ FOCUS_WINDOW_S/, 'the close-up is a window of seconds, the same on a phone and a laptop');
 });
 
 test('the exported listening page has the same overview grammar', () => {
@@ -61,6 +62,6 @@ test('the exported listening page has the same overview grammar', () => {
   assert.match(ov, /if \(mode === 'tap' && Math\.sqrt\(dx \* dx \+ dy \* dy\) > 10\) mode = 'scroll';/);
   assert.match(ov, /if \(mode === 'scroll'\) \{ ovWrap\.scrollLeft = scroll0 - dx; ev\.preventDefault\(\); \}/);
   assert.match(ov, /if \(mode === 'tap' && ev\.type === 'pointerup'\) \{ audio\.pause\(\); audio\.currentTime = ovMs\(ev\.clientX\) \/ 1000; \}/, 'a tap parks');
-  assert.match(ov, /if \(!ev\.ctrlKey\) return; ev\.preventDefault\(\); setOvZoom\(ovZoom \* Math\.exp\(-ev\.deltaY \* 0\.01\)/, 'trackpad pinch');
+  assert.match(ov, /if \(!ev\.ctrlKey\) return; ev\.preventDefault\(\); setOvZoom\(ovZoom \* Math\.exp\(-ev\.deltaY \* 0\.005\)/, 'trackpad pinch');
   assert.match(EXPORTS, /var knob = el\.parentNode && el\.parentNode\.querySelector\('\.cur'\);/, 'the playhead knob still scrubs');
 });

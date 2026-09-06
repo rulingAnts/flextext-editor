@@ -332,6 +332,19 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
   .seg-cursor::before, .gseg-cursor::before { content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 3px; background: #c9772a; border-radius: 2px; }
   .player-wave { touch-action: pan-y; }   /* the sticky overview never blocks a vertical scroll either */
 }
+/* ⚠ BOUNDARY GRIPS (Seth, 2026-09-06: "segment-drag handles (something visible in the UI that looks
+   intuitively draggable would be good)"). A grip sits at each end of a strip's waveform, on the seam
+   it moves: a small pill on the line, dimmer at rest, full on hover and while held. The zone is 14px
+   (32px on a touch screen) with touch-action:none, so dragging it never scrolls; the canvases keep
+   pan-y. Positioned by segment-strips.js placeEdge from the waveform's own box. */
+.seg-edge { position: absolute; width: 14px; cursor: col-resize; touch-action: none; z-index: 3; background: transparent; }
+.seg-edge::before { content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 22px; margin: -11px 0 0 -3px;
+                    border-radius: 3px; background: #1f4f8f; opacity: .55; box-shadow: 0 0 0 2px #fff; }
+.seg-edge:hover::before, .seg-edge:active::before { opacity: 1; }
+@media (pointer:coarse) {
+  .seg-edge { width: 32px; }
+  .seg-edge::before { width: 8px; height: 28px; margin: -14px 0 0 -4px; }
+}
 
 /* ---------- Audio player ---------- */
 

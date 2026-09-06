@@ -36,8 +36,12 @@ test('#45 strip canvases let a finger scroll the page (pan-y), grips still captu
     assert.match(rule, /touch-action: pan-y/, `${sel} pans vertically`);
   }
   assert.doesNotMatch(CSS, /\.seg-wave \{[^}]*touch-action: none/);
-  const grip = CSS.split('\n').find((l) => l.startsWith('.mg-edge {'));
-  if (grip) assert.match(grip, /touch-action: none/, 'the drag grips keep the whole gesture');
+  const grip = CSS.split('\n').find((l) => l.startsWith('.mg-edge{'));
+  assert.ok(grip, 'the matcher\'s edge grip rule exists');
+  assert.match(grip, /touch-action:none/, 'the drag grips keep the whole gesture');
+  const edge = CSS.split('\n').find((l) => l.startsWith('.seg-edge {'));
+  assert.ok(edge, 'the strips\' edge grip rule exists');
+  assert.match(edge, /touch-action: none/, 'and so does the strips\' grip');
 });
 
 test('#45 on touch a strip is a WhatsApp voice note: tap parks, the dot scrubs, anything else scrolls', () => {

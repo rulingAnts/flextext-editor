@@ -64,7 +64,7 @@ ok(/setBoundaries\?\.\(\[\]\)/.test(stop), 'and leaving the tab takes them off a
  * the recording they were measured in, and this Player is a singleton reused for every document. */
 ok(/this\._bounds = \[\];/.test(method(audio, 'destroyWs')),
    'a destroyed waveform forgets its marks, so doc A\'s cuts cannot be painted on doc B');
-ok(/boundaryCount\(\)/.test(audio) && /p\.boundaryCount\(\) !== want\.length/.test(strips),
+ok(/boundaryCount\(\)/.test(audio) && /p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length/.test(strips),
    'and the ticker re-pushes them if a player reload took them away — nothing else would');
 
 console.log('\nthe per-segment strips are clickable: that is how a cut is placed at all');
@@ -168,8 +168,8 @@ ok(/j\.addEventListener\('click', \(\) => cutJoinPrev\(i \+ 1\)\)/.test(render),
 for (const k of ['cut.hint', 'cut.hintNoJoinKey']) {
   ok((i18n.match(new RegExp(`'${k}':`, 'g')) || []).length === 2, `${k} exists in both languages`);
 }
-ok(/hint\.dataset\.i18nHtml = joinKeysEnabled\(\) \? 'cut\.hint' : 'cut\.hintNoJoinKey'/.test(app),
-   'and the hint names the key only when the key works');
+ok(/hint\.dataset\.i18nHtml = \(joinKeysEnabled\(\) \? 'cut\.hint' : 'cut\.hintNoJoinKey'\) \+ \(adjustBoundariesAllowed\(\) \? 'Drag' : ''\)/.test(app),
+   'and the hint names the key only when the key works (and the drag only when the grips exist)');
 ok(/applyCutHint\(\);/.test(app.match(/function applyLiveSettings\(\)[\s\S]*?\n\}/)[0]),
    'a PUSHED backspaceJoin re-words the hint in place — a researcher push lands mid-session');
 ok(/on the Cut tab, where Backspace joins/.test(i18n),

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v590';
+export const ENGINE_VERSION = 'v591';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -165,6 +165,7 @@ en: {
   'mg.moreText': 'Audio: {a} \u00b7 Text: {t} \u2014 {n} more lines than audio. The last lines will have no audio; cut the recording, or join lines.',
   'mg.addLine': 'Add a blank line here (for audio with no words yet)',
   'mg.dragEdge': 'Drag to move this boundary',
+  'seg.dragEdge': 'Drag to move this boundary',
   'mg.resumed': 'Picked up where you left off — your unfinished matching was saved automatically.',
   'mg.startOver': 'Start over',
   'mg.startOverConfirm': 'Throw away the unfinished matching and start again from the saved text? This cannot be undone.',
@@ -1434,6 +1435,7 @@ internet after the first time.</p>
     ,'panel.rel.new.glossIcon': 'New device setting \u201cGloss tab icon\u201d: seven pictures to choose from, shown as icons on the panel and on the device\u2019s Settings tab; interlinear rows by default. Each device stores its choice, and the dashboard counts which icon devices use.'
     ,'panel.rel.new.cutShiftSpace': 'Shift+Space plays and pauses on the Cut tab too, from anywhere on the page, once \u2014 the same chord on every tab.'
     ,'panel.rel.new.spaceMobile': 'The Space bar setting\u2019s automatic mode is now \u201coff on mobile devices\u201d (Android phones and tablets), not \u201coff on touch screens\u201d: a laptop with a touch screen keeps Space to play.'
+    ,'panel.rel.new.adjustBoundaries': 'Boundaries can be dragged: a grip at each end of a line\u2019s waveform on the Cut, Baseline and Gloss tabs, and movable cut marks on the Cut tab\u2019s top player \u2014 never past a neighbour, the words untouched, one undo per drag. New device setting \u201cAllow moving line boundaries by dragging\u201d, on by default and independent of the texted-lines switch.'
     ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
     ,'panel.rel.new.lazyStrips': 'Long recordings: the waveform strips on the Baseline, Cut and Gloss tabs draw only while they are near the screen, so a 15-minute take cut into hundreds of lines no longer runs out of canvas memory and goes blank part-way down.'
     ,'panel.rel.new.touchSpace': 'Typing on a tablet no longer plays the audio: the Space bar types a space on touch screens (a new device setting, \u201cThe Space bar plays / pauses\u201d). Shift+Space always plays or pauses, even inside a text box. Enter in a translation box moves to the next line.'
@@ -1983,6 +1985,8 @@ internet after the first time.</p>
   /* Shown INSTEAD when the researcher has switched Backspace-to-join off: same tab, one fewer key,
      and the button named in its place so the screen never promises a key that does nothing. */
   'cut.hintNoJoinKey': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \u2919\u291a button between two lines joins them. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later.',
+  'cut.hintDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \u2919\u291a button, joins a line to the one above. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later. Drag the grip at the end of a line\u2019s waveform, or a mark on the top player, to move a boundary; it can never pass its neighbours.',
+  'cut.hintNoJoinKeyDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \u2919\u291a button between two lines joins them. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later. Drag the grip at the end of a line\u2019s waveform, or a mark on the top player, to move a boundary; it can never pass its neighbours.',
   'cut.cut': 'Cut here',
   'cut.join': 'Join with previous',
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
@@ -2013,6 +2017,8 @@ internet after the first time.</p>
   'panel.f.joinSplitGloss': 'Allow joining and splitting lines on the Gloss tab',
   'panel.f.joinSplitGlossNote': 'On by default. Same as above, for the Gloss tab.',
   'panel.f.cutJoinTexted': 'Allow joining lines that already have text, on the Cut tab',
+  'panel.f.adjustBoundaries': 'Allow moving line boundaries by dragging',
+  'panel.f.adjustBoundariesNote': 'On by default. Puts a grip at each end of every line\u2019s waveform on the Cut, Baseline and Gloss tabs, and makes the cut marks on the Cut tab\u2019s top player draggable. A boundary can never be dragged past its neighbours, and the words stay where they are \u2014 only the timing changes, one undo per drag. Lines that already have text keep their grips even when cutting and joining them is off. Turn this off to remove every grip.',
   'panel.f.cutJoinTextedNote': 'Off by default. On the Cut tab, lines that already have words typed for them are left alone \u2014 neither cut nor joined \u2014 so segmenting cannot disturb work already done. Turn this on to allow joining them anyway; joining keeps both pieces of text, so nothing is lost. Splitting them is never allowed there, because there is no cursor to say where the words should divide.',
   'panel.f.exportEaf': 'Include ELAN file (.eaf) in sent/saved bundles',
   'panel.f.exportSaymore': 'Include SayMore annotation file (<audio>.annotations.eaf) in sent/saved bundles',
@@ -2506,6 +2512,7 @@ id: {
   'mg.moreText': 'Audio: {a} \u00b7 Teks: {t} \u2014 baris lebih banyak {n} dari audio. Baris terakhir tidak akan punya audio; potong rekamannya, atau gabungkan baris.',
   'mg.addLine': 'Tambahkan baris kosong di sini (untuk audio yang belum ada kata-katanya)',
   'mg.dragEdge': 'Seret untuk memindahkan batas ini',
+  'seg.dragEdge': 'Seret untuk memindahkan batas ini',
   'mg.resumed': 'Dilanjutkan dari tempat Anda berhenti — pencocokan yang belum selesai tersimpan otomatis.',
   'mg.startOver': 'Mulai dari awal',
   'mg.startOverConfirm': 'Buang pencocokan yang belum selesai dan mulai lagi dari teks tersimpan? Ini tidak bisa dibatalkan.',
@@ -3619,6 +3626,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.glossIcon': 'Pengaturan perangkat baru \u201cIkon tab Terjemahan Balik\u201d: tujuh gambar untuk dipilih, ditampilkan sebagai ikon di panel dan di tab Pengaturan perangkat; bawaannya baris interlinear. Setiap perangkat menyimpan pilihannya, dan dasbor menghitung ikon mana yang dipakai perangkat.'
     ,'panel.rel.new.cutShiftSpace': 'Shift+Spasi memutar dan menjeda di tab Potong juga, dari mana pun di halaman, sekali saja \u2014 kombinasi tombol yang sama di setiap tab.'
     ,'panel.rel.new.spaceMobile': 'Mode otomatis pengaturan tombol Spasi kini \u201cmati di perangkat seluler\u201d (ponsel dan tablet Android), bukan \u201cmati di layar sentuh\u201d: laptop berlayar sentuh tetap memakai Spasi untuk memutar.'
+    ,'panel.rel.new.adjustBoundaries': 'Batas bisa diseret: pegangan di kedua ujung gelombang baris di tab Potong, Ketik dan Terjemahan Balik, serta tanda potongan yang bisa dipindah di pemutar atas tab Potong \u2014 tidak pernah melewati tetangganya, kata-katanya tak tersentuh, satu urungan per seretan. Pengaturan perangkat baru \u201cIzinkan memindahkan batas baris dengan menyeret\u201d, aktif secara bawaan dan terpisah dari saklar baris berteks.'
     ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
     ,'panel.rel.new.lazyStrips': 'Rekaman panjang: strip gelombang di tab Dasar, Potong, dan Glos hanya digambar saat dekat layar, sehingga rekaman 15 menit yang dipotong menjadi ratusan baris tidak lagi kehabisan memori kanvas dan kosong di tengah jalan.'
     ,'panel.rel.new.touchSpace': 'Mengetik di tablet tidak lagi memutar audio: tombol Spasi mengetik spasi di layar sentuh (pengaturan perangkat baru, \u201cTombol Spasi memutar / menjeda\u201d). Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks. Enter di kotak terjemahan pindah ke baris berikutnya.'
@@ -4092,6 +4100,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'tabs.cut': 'Potong',
   'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \u2919\u291a, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
   'cut.hintNoJoinKey': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \u2919\u291a di antara dua baris menggabungkan keduanya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hintDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \u2919\u291a, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di ujung gelombang sebuah baris, atau tanda di pemutar atas, untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya.',
+  'cut.hintNoJoinKeyDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \u2919\u291a di antara dua baris menggabungkan keduanya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di ujung gelombang sebuah baris, atau tanda di pemutar atas, untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya.',
   'cut.cut': 'Potong di sini',
   'cut.join': 'Gabung dengan sebelumnya',
   'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',
@@ -4120,6 +4130,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.joinSplitGloss': 'Izinkan menggabungkan dan memisahkan baris di tab Gloss',
   'panel.f.joinSplitGlossNote': 'Aktif secara bawaan. Sama seperti di atas, untuk tab Gloss.',
   'panel.f.cutJoinTexted': 'Izinkan menggabungkan baris yang sudah ada teksnya, di tab Potong',
+  'panel.f.adjustBoundaries': 'Izinkan memindahkan batas baris dengan menyeret',
+  'panel.f.adjustBoundariesNote': 'Aktif secara bawaan. Menaruh pegangan di kedua ujung gelombang setiap baris di tab Potong, Ketik dan Terjemahan Balik, dan membuat tanda potongan di pemutar atas tab Potong bisa diseret. Batas tidak pernah bisa diseret melewati tetangganya, dan kata-katanya tetap di tempatnya \u2014 hanya waktunya yang berubah, satu urungan per seretan. Baris yang sudah ada teksnya tetap punya pegangan meski pemotongan dan penggabungannya dimatikan. Matikan untuk menghilangkan semua pegangan.',
   'panel.f.cutJoinTextedNote': 'Mati secara bawaan. Di tab Potong, baris yang sudah ada kata-katanya dibiarkan saja \u2014 tidak dipotong maupun digabung \u2014 sehingga pemotongan tidak mengganggu pekerjaan yang sudah ada. Aktifkan untuk mengizinkan penggabungannya; menggabungkan tetap menyimpan kedua teksnya, jadi tidak ada yang hilang. Memisahkannya tidak pernah diizinkan di sana, karena tidak ada kursor untuk menentukan di mana kata-katanya dibagi.',
   'panel.f.exportEaf': 'Sertakan file ELAN (.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportSaymore': 'Sertakan file anotasi SayMore (<audio>.annotations.eaf) dalam bundel yang dikirim/disimpan',

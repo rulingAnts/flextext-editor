@@ -889,8 +889,8 @@ export class Player {
   /* Play just [startMs, endMs) — one segment — then stop.
    *
    * ⚠ NO REGIONS PLUGIN, DELIBERATELY. wavesurfer's regions plugin would add a vendor dependency
-   * and an editable-region UI we explicitly do NOT want (dragging must stay scrub-only; boundaries
-   * are created by text edits, never by dragging). Seeking + watching timeupdate does the whole job.
+   * and an editable-region UI we explicitly do NOT want (dragging the WAVE stays scrub-only; the
+   * boundary marks a host opts into moving are our own DOM — renderBoundaries). Seeking + watching timeupdate does the whole job.
    *
    * The stop watcher is stored on the instance and cleared by any new call, pause, or destroy, so
    * overlapping span plays can never leave two watchers fighting over the transport.
@@ -980,7 +980,9 @@ export class Player {
   }
 
   setBoundaries(list) {
-    this._bounds = Array.isArray(list) ? list.filter((n) => Number.isFinite(n)) : [];
+    // One entry per SEAM, kept in place: a non-finite entry is a seam that cannot be drawn (a line
+    // without a time yet) and it keeps its number — see renderBoundaries for why the index matters.
+    this._bounds = Array.isArray(list) ? list.map((n) => (Number.isFinite(n) ? n : NaN)) : [];
     this.renderBoundaries();
   }
 
@@ -1008,7 +1010,14 @@ export class Player {
     }
     let dur = 0;
     try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
-    const want = (dur && this._bounds) ? this._bounds.filter((ms) => {
+    /* ⚠ THE INDEX HANDED BACK TO A DRAG IS THE PUSHED-LIST INDEX — the seam number — not the
+     * position among the marks actually drawn. A host pushes one entry per seam (NaN for a seam it
+     * cannot time yet); entries that cannot be drawn are skipped here but keep their number, so
+     * `drag(j, …)` always names the seam between line j and line j+1. The old form compacted the
+     * list first, and one line without a time mid-text shifted every mark after it onto the wrong
+     * seam — the drag then moved a boundary the user had not touched. */
+    const want = (dur && this._bounds) ? this._bounds.map((ms, j) => ({ ms, j })).filter(({ ms }) => {
+      if (!Number.isFinite(ms)) return false;
       const f = (ms / 1000) / dur;
       return f > 0 && f < 1;                 // 0 and the file end are edges, not boundaries
     }) : [];
@@ -1024,10 +1033,10 @@ export class Player {
      * Moving a boundary never changes how many there are, so the reuse path is the one a drag takes
      * — the node under the finger survives, and the update is a style write instead of a rebuild. */
     if (layer.children.length === want.length) {
-      want.forEach((ms, i) => {
+      want.forEach(({ ms, j }, i) => {
         const el = layer.children[i];
         el.style.left = (((ms / 1000) / dur) * 100) + '%';
-        el.dataset.bi = String(i);
+        el.dataset.bi = String(j);
       });
       return;
     }
@@ -1039,13 +1048,13 @@ export class Player {
      * it; nothing else does. The LAYER stays pointer-events:none so it cannot swallow clicks meant
      * for the waveform underneath — only the marks themselves become targets. */
     const drag = this._onBoundaryDrag;
-    want.forEach((ms, i) => {
+    want.forEach(({ ms, j }) => {
       const f = (ms / 1000) / dur;
       const b = document.createElement('span');
       b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
         + 'border-left:2px dotted rgba(108,118,133,.85);';
       b.style.left = (f * 100) + '%';
-      b.dataset.bi = String(i);
+      b.dataset.bi = String(j);
       if (drag) {
         /* ⚠ THE GRAB AREA IS A CHILD, so the LINE stays exactly on the boundary.
          *
@@ -1059,6 +1068,16 @@ export class Player {
         hit.style.cssText = 'position:absolute;top:0;bottom:0;left:-7px;width:15px;'
           + 'pointer-events:auto;cursor:col-resize;touch-action:none;';
         b.appendChild(hit);
+        /* ⚠ A HANDLE YOU CAN SEE (Seth, 2026-09-06: "something visible in the UI that looks
+         * intuitively draggable"): a small pill on the line, only while the marks are draggable, so
+         * an inert mark (the same marks on a tab that does not move them) still reads as a mark. On
+         * a touch screen the hit box is the 32px of the strips' playhead line. Inline styles, like
+         * everything in this shadow root — app.css cannot reach it. */
+        const knob = document.createElement('b');
+        knob.style.cssText = 'position:absolute;top:50%;left:50%;width:7px;height:20px;margin:-10px 0 0 -3.5px;'
+          + 'border-radius:4px;background:rgba(31,79,143,.8);box-shadow:0 0 0 2px #fff;pointer-events:none;';
+        hit.appendChild(knob);
+        if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) { hit.style.left = '-16px'; hit.style.width = '32px'; }
         hit.addEventListener('pointerdown', (ev) => {
           ev.preventDefault();
           ev.stopPropagation();             // never let the drag double as a seek
@@ -1074,13 +1093,13 @@ export class Player {
            * once against where the boundary actually is, then held for the gesture. */
           const t0 = at(ev);
           const grab = (t0 == null) ? 0 : t0 - ms;
-          drag(i, null, 'start');
-          const move = (e2) => { const t = at(e2); if (t != null) drag(i, t - grab, 'move'); };
+          drag(j, null, 'start');
+          const move = (e2) => { const t = at(e2); if (t != null) drag(j, t - grab, 'move'); };
           const up = (e2) => {
             hit.removeEventListener('pointermove', move);
             hit.removeEventListener('pointerup', up);
             hit.removeEventListener('pointercancel', up);
-            drag(i, null, 'end');
+            drag(j, null, 'end');
           };
           hit.addEventListener('pointermove', move);
           hit.addEventListener('pointerup', up);

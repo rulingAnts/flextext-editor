@@ -209,7 +209,7 @@ device and lands live, without a reload:
 | Group | Settings |
 |---|---|
 | Languages | app language; vernacular and analysis writing systems (code, font) |
-| Segmentation | segmentation on/off; Cut tab; land on Cut; Backspace joins; join/split on Baseline and Gloss; cut/join lines that already have text; export timing as notes; which exports ride a bundle (ELAN, SayMore, listening page, JSON) |
+| Segmentation | segmentation on/off; Cut tab; land on Cut; Backspace joins; join/split on Baseline and Gloss; cut/join lines that already have text; **allow moving boundaries by dragging** (grips on the strips of all three tabs and movable cut marks on the Cut tab's top player; independent of the texted-lines switch); export timing as notes; which exports ride a bundle (ELAN, SayMore, listening page, JSON) |
 | Recording | format, maximum length, AGC / noise suppression / echo cancellation, normalisation, archival defaults |
 | Consent | ask, message, consent audio, confirmation |
 | Sending | send options, delete after upload, automatic backup and its interval, recorder welcome |

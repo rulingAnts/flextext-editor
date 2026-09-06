@@ -684,6 +684,9 @@ const GROUPS = [
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
+    // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
+    // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
+    { k: 'adjustBoundaries', type: 'checkbox', note: 'panel.f.adjustBoundariesNote' },
     // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
     // an UNSET value follows the mode. toFormValues prefils these with the EFFECTIVE value so the
     // checkboxes never lie about what the device actually exports.
@@ -1225,6 +1228,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v591', date: '2026-09-06', items: [
+    { k: 'panel.rel.new.adjustBoundaries' },
+  ] },
   { v: 'v590', date: '2026-09-06', items: [
     { k: 'panel.rel.new.glossIcon' },
     { k: 'panel.rel.new.cutShiftSpace' },
@@ -8648,6 +8654,7 @@ function toFormValues(s) {
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
+    else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

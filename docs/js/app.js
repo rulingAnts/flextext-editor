@@ -22,7 +22,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -902,7 +902,8 @@ function applyBaselineHint() {
 function applyCutHint() {
   const hint = $('#view-cut .tab-hint');
   if (!hint) return;
-  hint.dataset.i18nHtml = joinKeysEnabled() ? 'cut.hint' : 'cut.hintNoJoinKey';
+  // Four variants: with or without the Backspace sentence, with or without the drag sentence.
+  hint.dataset.i18nHtml = (joinKeysEnabled() ? 'cut.hint' : 'cut.hintNoJoinKey') + (adjustBoundariesAllowed() ? 'Drag' : '');
   hint.innerHTML = t(hint.dataset.i18nHtml);
 }
 
@@ -959,6 +960,11 @@ function joinSplitAllowed(tab) {
   if (!segmentationEnabled()) return true;   // classic mode has its own rules; this is not its gate
   return tab === 'gloss' ? settings.joinSplitGloss !== false : settings.joinSplitBaseline !== false;
 }
+/* May a boundary be DRAGGED — the grips on the Cut, Baseline and Gloss strips and the movable marks
+ * on the Cut tab's top player (Seth, 2026-09-06: "adjusting boundaries enabled/disabled should be a
+ * separate setting … independently of whether joining/splitting lines that already have text on the
+ * cut tab is enabled"). Default on, like its four siblings above; nothing in classic mode. */
+function adjustBoundariesAllowed() { return segmentationEnabled() && settings.adjustBoundaries !== false; }
 /* May the CUT tab join two spans that already carry baseline text?
  *
  * ⚠ DEFAULT OFF — `=== true`, unlike its four siblings. Seth, 2026-08-13: "I would like to be able
@@ -1127,6 +1133,19 @@ function normalizePhraseLines(doc) {
   return changed;
 }
 
+// The Gloss strips' drag: the shared consumer with this file's undo and persist; the strip redrawn in place.
+let glossDragFn = null;
+function glossDrag() {
+  if (!glossDragFn) glossDragFn = makeBoundaryDrag({
+    getSegs: () => docSegments(current.doc), getPlayer: () => player, capture: () => captureUndo(), persist: () => schedulePersist(),
+    redraw: (k) => {
+      const waves = $('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment .gseg-wave') : [];
+      const seg = docSegments(current.doc)[k];
+      if (waves[k] && seg) drawSpanWave(waves[k], seg);
+    },
+  });
+  return glossDragFn;
+}
 function decorateGlossSegments() {
   if (!segmentationEnabled() || !current) return;
   const segs = docSegments(current.doc);
@@ -1162,6 +1181,8 @@ function decorateGlossSegments() {
     // wireWaveSeek deliberately leaves unwired (there is no time in it to seek to).
     if (!isAligned(seg)) wave.addEventListener('pointerdown', () => { lastPlayTarget = seg; });
     entries.push({ btn, seg, wave, wrap: waveWrap });
+    // The grips (adjustBoundaries): the wrap is the positioned ancestor, as for the cursor.
+    attachEdgeHandles(waveWrap, wave, i, { allowed: adjustBoundariesAllowed, count: () => segs.length, segAt: (k) => segs[k], onDrag: glossDrag(), t });
     /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
      * to be the group's last child, a 44px tap target 6px under the full-width free-translation
      * input — an undershot tap meant an accidental join. Outside both groups, a missed tap on the
@@ -1531,6 +1552,7 @@ function switchTab(tab, landing) {
       persist: () => schedulePersist(),
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
+      allowAdjust: () => adjustBoundariesAllowed(),
       // Guessing replaces every cut in the text, so hand-made work is confirmed before it goes.
       confirmReplace: () => confirmDialog(t('cut.guessConfirm')),   // async now; cutGuessSplits awaits it
       t,
@@ -1563,6 +1585,7 @@ function switchTab(tab, landing) {
         // answer until the next open, which is the drift this setting exists to remove.
         joinKeys: () => joinKeysEnabled(),
         joinSplit: () => joinSplitAllowed('baseline'),
+        allowAdjust: () => adjustBoundariesAllowed(),
         t,
       });
       /* ⚠ THE STRIPS DO NOT EXIST UNTIL THE AUDIO DOES (Seth, 2026-08-07): "can we actually have
@@ -4345,7 +4368,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -5751,6 +5774,9 @@ const SETUP_GROUPS = [
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
+    // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
+    // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
+    { k: 'adjustBoundaries', type: 'checkbox', note: 'panel.f.adjustBoundariesNote' },
     // The times ride the .flextext as begin/end attributes always; this is whether they ALSO ride
     // as a note item FLEx shows on its own line. Default on (the behaviour every export had).
     { k: 'segTimeNotes', type: 'checkbox', note: 'panel.f.segTimeNotesNote' },
@@ -6011,6 +6037,7 @@ function deviceSetupValues() {
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
+    else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
     else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
     else if (f.k === 'agc') v.agc = SETUP_AGC_OPTS.includes(s.agc) ? s.agc : 'off';
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
@@ -6296,7 +6323,7 @@ function updateSetupConditionals(box) {
  * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
  * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
 const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
-  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels']);
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels', 'adjustBoundaries']);
 function setupGroupsFor() {
   const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
   return SETUP_GROUPS
@@ -8890,7 +8917,7 @@ function mgStartTicker() {
        * One property read per frame; re-pushed only when the counts disagree — same as the Cut tab. */
       if (p && p.boundaryCount && p.durationMs?.()) {
         const want = mgBoundaryTimes();
-        if (p.boundaryCount() !== want.length) p.setBoundaries(want);
+        if (p.boundaryCount() !== want.filter(Number.isFinite).length) p.setBoundaries(want);
       }
       host.querySelectorAll('.mg-span').forEach((row) => {
         const sp = MG.spans.find((x) => x.id === row.dataset.sp);
@@ -8933,7 +8960,7 @@ function mgBoundaryTimes() {
   if (!MG) return out;
   for (let i = 0; i < MG.spans.length - 1; i++) {
     const sp = MG.spans[i];
-    if (!sp.timePending) out.push(sp.end);
+    out.push(sp.timePending ? NaN : sp.end);   // one entry per seam — NaN keeps the seam numbering (Player.renderBoundaries)
   }
   return out;
 }

@@ -14,13 +14,13 @@ Status words used below:
 | **designed** | a written plan exists; not started |
 | **idea** | recorded so it is not lost; no design yet |
 
-Last updated 2026-09-06 at v592. The production estate is at v584.
+Last updated 2026-09-06 at v593. The production estate is at v592.
 
 ---
 
-## 1. On staging, waiting for release (v585 to v592)
+## 1. On staging, waiting for release (v593)
 
-All seven sites are at v592 on the staging estate. Human checks are listed per release in
+All seven sites are at v593 on the staging estate; v585 to v592 are in production. Human checks are listed per release in
 `plans/RELEASE-SMOKE-TEST.md`.
 
 - **Several analysis languages (v585).** The listening page gets a picker for the gloss language
@@ -46,30 +46,21 @@ All seven sites are at v592 on the staging estate. Human checks are listed per r
   the player zooms in on the seam; tap to place, drag to scroll when zoomed, playhead line to scrub,
   pinch (or trackpad pinch) to zoom, on the editor and on the exported listening page. The editor
   never makes the top player's marks draggable; the segmenter's matcher keeps its own.
+- **One splitting rule (v593).** A more basic tab cannot split or join a line with more advanced
+  data; a split needs one position per part the line has, placed in any order, and writes nothing
+  until all are placed, with the missing part marked and every natural gesture cancelling. Words
+  on the Gloss tab are editable in place. The Paragraph Analysis Tool goes through the same planner.
 
 ## 2. In progress
 
-### 2.1 One splitting rule across the tabs (designed, `plans/split-tiers.md`)
-
-Decided 2026-09-06, not yet built. A more basic tab cannot split or join a line that carries more
-advanced data (the Cut tab refuses texted lines already; the Baseline tab will refuse lines with
-glosses or a free translation). For a line at or below the tab's level, a split is one edit that
-needs one position per active tier: the playhead for audio, the caret for the baseline text or the
-free translation, the word gap for the interlinear. It can start on any tier; the tiers still
-waiting are marked (a thick red-orange border and a glowing caret on the box, a scissors under it, a
-pinned marker on the strip) and nothing is written until every tier has its position, so walking
-away leaves nothing half-done. The Gloss tab also gains per-word baseline editing so a misspelled
-word can be fixed without losing its gloss. The Audio Segmenter already works this way; the
-Paragraph Analysis Tool is to be checked. The open points are listed at the end of the plan.
-
-### 2.2 The listening page keeps up with the editor
+### 2.1 The listening page keeps up with the editor
 
 The exported listening page (`.preview.html`) has the strips' tap, playhead-line and pan-to-scroll
 model and, since v592, the overview's tap, drag-to-scroll, pinch and trackpad-pinch grammar. Each
 new touch or mobile behaviour added to the editor is added to the exported page in the same
 release, because the page is what a speaker without the app gets.
 
-### 2.3 Contact page (#50)
+### 2.2 Contact page (#50)
 
 `https://flextext.app/contact`: a form protected by Cloudflare Turnstile that emails the
 maintainer through Resend from a small Worker, so the licence and README can point at a contact
@@ -198,14 +189,23 @@ timestamped FLExText backups, and forces the settings that disable text editing.
 on the text in FLEx and on the audio beside it. Gated on the same shared-backend test as the
 keeper's phase 2; built on the keeper library.
 
-### 3.4 Translators add a UI language without a coding session (#47)
+### 3.4 One-line export from the segmenter and the Paragraph Analysis Tool (idea, issue #52)
+
+A per-row button that exports one audio segment or interlinear line in the form the moment
+needs: a FLEx-like TSV copied to the clipboard, LaTeX `langsci-gb4e` code (reusing the LingTeX
+Tools generator), the line's audio as a file, a self-contained one-line preview page with the
+interlinear and a player, or Word 2007 XML in the schema FLEx's own interlinear export uses. It
+matters most in the FLEx-backed segmenter (§3.3), where the Word file should open in a Word window
+at once for copy and paste; in the browser it is a download the system opens.
+
+### 3.5 Translators add a UI language without a coding session (#47)
 
 Today a UI language is a block in `docs/js/i18n.js`, added by the maintainer. The plan: one
 editable file per language, an in-app editor for it (a translator must never be asked to edit
 JSON in a text editor), a parity check that names missing keys, and a way for a translated file to
 reach the maintainer for inclusion in a release.
 
-### 3.5 Right-to-left support (#48)
+### 3.6 Right-to-left support (#48)
 
 For the UI (Arabic-script interface languages) and for right-to-left vernaculars in the text boxes,
 the listening page and the exports. The typing rule already targets the *logical* end of a box so

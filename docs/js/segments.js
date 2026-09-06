@@ -536,3 +536,40 @@ export function applyGuessedSplits(paragraphs, boundaries, opts = {}) {
   const out = normalizeSegments(segs, { duration });
   return { ok: true, reason: '', segments: out, paragraphs: out.map(() => '') };
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * ONE SPLITTING RULE ACROSS THE TABS (Seth, 2026-09-06; plans/split-tiers.md).
+ *
+ * A line's LEVEL is the most advanced tier it carries: 0 audio only, 1 baseline text, 2 glosses or
+ * a free translation. A tab of level L may split or join only lines at or below L: "for a more
+ * basic editing tab (cut is more basic than baseline, which is more basic than gloss), you cannot
+ * cut lines that already have more advanced data associated with them". A split is ONE edit that
+ * needs ONE POSITION PER ACTIVE TIER — the playhead for audio, the caret for the baseline text or
+ * the free translation, the word gap for the interlinear — started on any tier and completed when
+ * every tier has its position; nothing is written before that. A tier a line does not carry (no
+ * time yet, no words yet, no translation yet) needs no position. These are the pure parts; the
+ * pending state and its markers live in segment-strips.js (splitPlace) and the tabs.
+ * ------------------------------------------------------------------------------------------- */
+export const TAB_LEVEL = { cut: 0, baseline: 1, gloss: 2 };
+export function lineLevel(info) {
+  if (info && info.hasGloss) return 2;
+  if (info && String(info.text || '').trim()) return 1;
+  return 0;
+}
+export function splitAllowed(tab, info) { return lineLevel(info) <= (TAB_LEVEL[tab] ?? 0); }
+export function splitTiers(info) {
+  const tiers = [];
+  if (info && info.aligned) tiers.push('audio');
+  if (info && info.tab === 'gloss') {
+    if ((info.words || 0) > 0) tiers.push('words');
+    if (String(info.free || '').trim()) tiers.push('free');
+  } else if (info && info.tab === 'baseline') {
+    if (String(info.text || '').trim()) tiers.push('text');
+  }
+  return tiers;
+}
+export function splitPlan(tiers, placed) {
+  const have = placed || {};
+  const missing = (tiers || []).filter((t) => !Object.prototype.hasOwnProperty.call(have, t));
+  return { missing, complete: missing.length === 0 };
+}

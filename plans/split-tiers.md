@@ -28,9 +28,8 @@ Seth, 2026-09-06, verbatim in the parts that decide things:
 > Just splitting and joining needs to not work with segments that have more advanced data than the
 > current tab."
 
-Status: **designed, not built** (2026-09-06). The overview-player and grip changes decided in the
-same message are built separately (v592). This document is the design to build against once the
-open points at the end are settled.
+Status: **built as v593** (2026-09-06), on the answers recorded in §6. The overview-player and grip
+changes decided in the same message shipped as v591/v592.
 
 ## 1. Tiers and levels
 
@@ -126,16 +125,18 @@ translation stays one text box per language.
 - `docs/js/i18n.js`: the prompts and refusals, EN and ID.
 - Tests: pure tests for `splitPlan`; source pins for the routing; the smoke test gets a section.
 
-## 6. Open points (answers needed before building)
+## 6. Decisions (Seth, 2026-09-06, on the open points)
 
-1. **Atomic or incremental?** Above, nothing is written until every tier is placed. The other
-   reading of "immediately requires" is that the first tier's cut is applied at once and the line
-   sits half-split until the rest is placed. Atomic is proposed because a half-split line has no
-   good on-disk shape and a user who walks away leaves nothing broken.
-2. **Cancel gesture.** Escape, tapping a placed tier's scissors again, switching tab, opening
-   another text. Any of these to drop?
-3. **Gloss tab, free translation empty.** A line with words but no free translation needs only
-   audio + word gap. Confirm that an empty tier is skipped rather than required.
-4. **Joins under rule A.** Proposed: refuse the join on a tab of level *L* if either line has data
-   above *L*; the Cut tab's "join texted lines" switch stays the one override. Confirm.
-5. **Paragraph Analysis Tool.** Does it split lines today? If so, which tiers does it show?
+1. **Atomic.** "Nothing is split until every active tier has its position. That was my main idea."
+2. **Cancel.** Escape; the same scissors again ("like toggling it off"); clicking another segment
+   or elsewhere; the Undo button ("it already does in the audio segmenter app"); a tab switch and
+   closing the text. All built, plus a visible *Cancel the split* link in the prompt.
+3. **An empty tier is skipped** (not answered explicitly; built as proposed).
+4. **Joins under the rule.** Agreed.
+5. **Paragraph Analysis Tool.** It splits authored lines at the caret (text only, no audio, no
+   glosses); it now goes through the same planner, so its single tier completes at once. A stale
+   feature branch that once aimed at something like this is superseded by this design.
+
+One consequence worth knowing: mid-text Enter in a free-translation box now places the
+translation's side of a split (this rule) instead of walking to the next line (2026-09-04); the
+walk remains for an empty box, and Tab still walks everywhere.

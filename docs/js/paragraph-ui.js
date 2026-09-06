@@ -13,6 +13,7 @@
 import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
+import { splitTiers, splitPlan } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
 import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
@@ -1955,6 +1956,10 @@ function openLineEditor(row, lineId) {
        * thing as adding a line, so the fast type-Enter-type-Enter flow is unchanged; in the middle
        * it divides the proposition, which is what you meant if you put the cursor there. */
       const caret = input.selectionStart ?? txt.length;
+      /* The suite's one splitting rule: an authored line carries text only (no audio, no glosses),
+       * so its single tier is placed by this caret and the split completes at once. The same
+       * planner decides on the editor's tabs, where a line has more tiers to place. */
+      if (!splitPlan(splitTiers({ tab: 'baseline', text: txt, aligned: false }), { text: caret }).complete) return;
       const withText = commitText(txt);
       const next = caret >= txt.trimEnd().length ? addLine(withText, lineId) : splitLine(withText, lineId, caret);
       focusLineId = next._added;

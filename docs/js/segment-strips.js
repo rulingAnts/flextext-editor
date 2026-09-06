@@ -21,11 +21,64 @@
  */
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
-         cutAtPlayhead, joinWithPrevious, segmentIndexAt,
+         cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 
-let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t }
+/* ═══ THE PENDING SPLIT — one edit, one position per tier (Seth, 2026-09-06; plans/split-tiers.md)
+ * "any cut that's made starts with a cut executed on any of the active tiers and immediately
+ * requires the user to position that cut on other tiers as well … nothing is split until every
+ * active tier has its position." One pending split at a time, for one line on one tab. A tab hands
+ * splitPlace a spec: the line's tiers (segments.js splitTiers), a commit(pos) that does the write
+ * once every tier is placed, and a render(p | null) that draws the markers and the prompt. Placing
+ * the same tier at the same position again toggles the whole thing off; Escape, Undo, a tap away
+ * from the line, a tab switch and closing the text all cancel — with nothing written, nothing to undo. */
+let pendingSplit = null;
+export function splitPending() { return pendingSplit; }
+export function splitCancel() {
+  if (!pendingSplit) return false;
+  const p = pendingSplit; pendingSplit = null;
+  try { p.render(null); } catch { /* the surface may already be gone */ }
+  return true;
+}
+export function splitPlace(key, tier, value, spec) {
+  if (!pendingSplit || pendingSplit.tab !== key.tab || pendingSplit.i !== key.i) {
+    if (pendingSplit) splitCancel();
+    pendingSplit = { tab: key.tab, i: key.i, tiers: spec.tiers.slice(), pos: {}, commit: spec.commit, render: spec.render };
+  }
+  const p = pendingSplit;
+  if (!p.tiers.includes(tier)) {
+    // A tier this line does not carry: if nothing else is pending either, there is nothing to hold.
+    if (!Object.keys(p.pos).length) { const plan = splitPlan(p.tiers, p.pos); if (plan.complete) { pendingSplit = null; p.commit(p.pos); return 'done'; } }
+    return 'ignored';
+  }
+  if (Object.prototype.hasOwnProperty.call(p.pos, tier) && p.pos[tier] === value) { splitCancel(); return 'cancelled'; }   // the same scissors again: off
+  p.pos[tier] = value;
+  const plan = splitPlan(p.tiers, p.pos);
+  if (plan.complete) {
+    pendingSplit = null;
+    try { p.render(null); } catch { /* cosmetic */ }
+    p.commit(p.pos);
+    return 'done';
+  }
+  try { p.render(p); } catch { /* cosmetic */ }
+  return 'pending';
+}
+let splitCancelWired = false;
+export function installSplitCancel() {
+  if (splitCancelWired || typeof document === 'undefined') return;
+  splitCancelWired = true;
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && pendingSplit) { e.preventDefault(); splitCancel(); } });
+  // A tap anywhere but the pending line, its prompt, a scissors, or the player: cancel.
+  document.addEventListener('pointerdown', (e) => {
+    if (!pendingSplit) return;
+    const el = e.target && e.target.closest ? e.target : null;
+    if (el && el.closest('.split-pending, #audio-player, .cut-scissors, .gseg-scissors, .split-here, .split-prompt, .scissor-btn')) return;
+    splitCancel();
+  }, true);
+}
+
+let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t, hasGloss, say }
 let peaksCache = { docId: null, peaks: null, durationMs: 0 };
 /* ⚠ A WAVE DRAWN BEFORE THE PEAKS EXISTED MUST REDRAW WHEN THEY ARRIVE (Seth, 2026-08-05: "the
  * first time a text with audio segmentation loads, we get no waveform until we close and re-open
@@ -525,7 +578,7 @@ export function renderStrips() {
     const seg = segs[i] || { timePending: true };
     const row = document.createElement('div');
     row.className = 'seg-strip' + (isAligned(seg) ? '' : ' seg-pending') + (text.trim() ? '' : ' seg-empty')
-      + (seg.timeEstimated ? ' seg-est' : '');
+      + (seg.timeEstimated ? ' seg-est' : '') + (deps.hasGloss && deps.hasGloss(i) ? ' seg-locked' : '');
     row.dataset.i = i;
 
     const play = document.createElement('button');
@@ -577,7 +630,7 @@ export function renderStrips() {
      * incorrectly" was ⇥ moving a boundary). Same control, same glyph, same semantics as the gloss
      * tab's, in its own row OUTSIDE both strips so a missed tap hits nothing destructive; it calls
      * exactly what Backspace calls (mergeAt), so button and key can never disagree. */
-    if (i < paras.length - 1 && joinSplitOk()) {
+    if (i < paras.length - 1 && joinSplitOk() && !stripsLocked(i) && !stripsLocked(i + 1)) {
       const joinRow = document.createElement('div');
       joinRow.className = 'seg-joinrow';
       const join = document.createElement('button');
@@ -704,7 +757,7 @@ function joinSplitOk() { return !(deps.joinSplit && !deps.joinSplit()); }
  * of a time nobody chose. Which is why the WORDS still split there — the caret is the transcriber's
  * own intent and blocking it would make Enter stop working whenever nothing is playing — while the
  * playhead-driven gesture below, which has no such intent behind it, refuses outright. */
-function splitLineAt(i, caret, focusNext) {
+function splitLineAt(i, caret, focusNext, audioMs = null) {
   const doc = deps.getDoc();
   if (!doc) return false;
   const input = deps.container.querySelectorAll('.seg-text')[i];
@@ -712,7 +765,9 @@ function splitLineAt(i, caret, focusNext) {
   const c = caret == null ? text.length : Math.max(0, Math.min(text.length, caret));
   const paras = deps.getParagraphs(doc).slice();
   paras.splice(i, 1, text.slice(0, c), text.slice(c));
-  doc.segments = boundaryAtPlayhead(docSegments(doc), i, deps.getPlayer()?.playheadMs?.() ?? null,
+  // The audio position is the one the user PLACED (the pending split's audio tier), never read
+  // from the playhead here; a line without a time gets none and the new line is timePending.
+  doc.segments = boundaryAtPlayhead(docSegments(doc), i, audioMs,
                                     { duration: peaksDurationFor(deps) || null });
   deps.setParagraphs(doc, paras);
   deps.persist();
@@ -736,15 +791,82 @@ function splitLineAt(i, caret, focusNext) {
 export function stripSplitAtPlayhead() {
   const doc = deps && deps.getDoc();
   if (!doc || !joinSplitOk()) return false;
-  const i = segmentIndexAt(docSegments(doc), deps.getPlayer()?.playheadMs?.());
+  const ms = deps.getPlayer()?.playheadMs?.();
+  const i = segmentIndexAt(docSegments(doc), ms);
   if (i < 0) return false;
-  /* ⚠ AND IT IS AN UNDO STEP, unlike the text-box Enter beside it — which is not an inconsistency but
-   * the reason this one needs it. Typing is what creates undo points on this tab, so a split made
-   * while typing is always recoverable by the entry either side of it. A chopping run types NOTHING:
-   * a dozen Enters in a row would leave a dozen structural edits with no way back to any of them.
-   * Same rule, and the same reason, as the Cut tab's cutHere. */
-  if (deps.capture) deps.capture();
-  return splitLineAt(i, null, false);
+  // The AUDIO tier of the pending split (one undo per completed split — see stripsSpec's commit).
+  return stripsPlace(i, 'audio', ms) !== 'ignored';
+}
+
+/* ── the Baseline tab's side of the pending split ──────────────────────────────────────────── */
+function stripsInfo(i) {
+  const doc = deps.getDoc();
+  return { tab: 'baseline', aligned: isAligned(docSegments(doc)[i]), text: deps.getParagraphs(doc)[i] || '',
+           hasGloss: !!(deps.hasGloss && deps.hasGloss(i)) };
+}
+/* Rule A: a line that already carries glosses or a translation is not this tab's to split or join. */
+function stripsLocked(i) { return !splitAllowed('baseline', stripsInfo(i)); }
+function stripsRefuse() { if (deps.say) deps.say(deps.t('split.no.glossed')); }
+function stripsSpec(i) {
+  return {
+    tiers: splitTiers(stripsInfo(i)),
+    // ONE undo per completed split, taken here rather than at the first gesture: a pending split
+    // that is cancelled has changed nothing and must leave nothing behind.
+    commit: (pos) => { if (deps.capture) deps.capture(); splitLineAt(i, 'text' in pos ? pos.text : null, 'text' in pos, 'audio' in pos ? pos.audio : null); },
+    render: renderStripsPending,
+  };
+}
+function stripsPlace(i, tier, value) {
+  if (!joinSplitOk()) return 'ignored';
+  if (stripsLocked(i)) { stripsRefuse(); return 'refused'; }
+  return splitPlace({ tab: 'baseline', i }, tier, value, stripsSpec(i));
+}
+function renderStripsPending(p) {
+  const host = deps && deps.container;
+  if (!host) return;
+  host.querySelectorAll('.split-pending').forEach((r) => r.classList.remove('split-pending'));
+  host.querySelectorAll('.needs-split, .split-placed').forEach((el) => el.classList.remove('needs-split', 'split-placed'));
+  host.querySelectorAll('.split-prompt, .seg-cutmark').forEach((el) => el.remove());
+  if (!p) return;
+  const row = host.querySelector(`.seg-strip[data-i="${p.i}"]`);
+  if (!row) return;
+  row.classList.add('split-pending');
+  const input = row.querySelector('.seg-text');
+  const wave = row.querySelector('.seg-wave');
+  const missing = splitPlan(p.tiers, p.pos).missing;
+  if (input) {
+    input.classList.toggle('needs-split', missing.includes('text'));
+    input.classList.toggle('split-placed', Object.prototype.hasOwnProperty.call(p.pos, 'text'));
+  }
+  if (wave && Object.prototype.hasOwnProperty.call(p.pos, 'audio')) {
+    const seg = docSegments(deps.getDoc())[p.i];
+    if (isAligned(seg)) {
+      const mark = document.createElement('div');
+      mark.className = 'seg-cutmark';
+      const frac = Math.min(1, Math.max(0, (p.pos.audio - seg.start) / Math.max(1, seg.end - seg.start)));
+      mark.style.left = (wave.offsetLeft + frac * wave.offsetWidth) + 'px';
+      mark.style.top = wave.offsetTop + 'px';
+      mark.style.height = wave.offsetHeight + 'px';
+      row.appendChild(mark);
+    }
+  }
+  const prompt = document.createElement('div');
+  prompt.className = 'split-prompt';
+  if (missing.includes('text') && input) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'split-here'; b.textContent = '\u2702';
+    b.title = deps.t('split.here'); b.setAttribute('aria-label', deps.t('split.here'));
+    b.addEventListener('click', () => stripsPlace(p.i, 'text', input.selectionStart ?? input.value.length));
+    prompt.appendChild(b);
+  }
+  const say = document.createElement('span');
+  say.textContent = deps.t('split.now.' + missing[0]);
+  prompt.appendChild(say);
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'link-btn split-cancel'; cancel.textContent = deps.t('split.cancel');
+  cancel.addEventListener('click', () => splitCancel());
+  prompt.appendChild(cancel);
+  row.appendChild(prompt);
 }
 
 function onKey(e, i, input) {
@@ -752,7 +874,9 @@ function onKey(e, i, input) {
   if (e.key === 'Enter') {
     if (!joinSplitOk()) return;
     e.preventDefault();
-    splitLineAt(i, input.selectionStart ?? input.value.length, true);
+    // The TEXT tier of the pending split; the audio tier is placed at the playhead (Enter outside
+    // the boxes, or the ✂ under the playhead) — see plans/split-tiers.md.
+    stripsPlace(i, 'text', input.selectionStart ?? input.value.length);
   /* ⚠ RESEARCHER-GATED, DEFAULT OFF (Seth, 2026-08-13): "some users are finding it too easy to
    * accidentally join lines and then they don't want to split them again." When disabled these keys
    * are simply not intercepted — Backspace deletes a character and Delete deletes forward, i.e. what
@@ -777,6 +901,8 @@ function onKey(e, i, input) {
 
 function mergeAt(a, b, caretAtJoin) {
   const doc = deps.getDoc();
+  if (stripsLocked(a) || stripsLocked(b)) { stripsRefuse(); return; }   // rule A covers joins too
+  splitCancel();
   const paras = deps.getParagraphs(doc).slice();
   // ⚠ Joined lines get a SPACE between them (Seth): without it "…akhir" + "Mulai…" mashes into one
   // orthographic word — data corruption from the transcriber's point of view. The caret lands
@@ -859,14 +985,32 @@ function positionCursor() {
       const rolling = p?.playing?.() && inSeg;
       if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
       if (inSeg) { takeReveal(row); followRow = followLine(row, rolling, followRow, p); }
+      let sc = row.querySelector('.cut-scissors');
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
         const wave = row.querySelector('.seg-wave');
         const frac = (t - seg.start) / (seg.end - seg.start);
-        cur.style.left = (wave.offsetLeft + frac * wave.offsetWidth) + 'px';
+        const x = wave.offsetLeft + frac * wave.offsetWidth;
+        cur.style.left = x + 'px';
         cur.style.top = wave.offsetTop + 'px';
         cur.style.height = wave.offsetHeight + 'px';
-      } else if (cur) cur.remove();
+        /* ✂ under the playhead, as on the Cut tab: the AUDIO tier of a split, for a thumb. Absent on
+         * a locked line (rule A) and when the researcher has removed split/join from this tab. */
+        const canCut = joinSplitOk() && !row.classList.contains('seg-locked');
+        if (canCut) {
+          if (!sc) {
+            sc = document.createElement('button');
+            sc.className = 'cut-scissors'; sc.type = 'button'; sc.tabIndex = -1; sc.textContent = '\u2702';
+            sc.title = deps.t('cut.cut'); sc.setAttribute('aria-label', deps.t('cut.cut'));
+            sc.addEventListener('click', (ev) => { ev.stopPropagation(); stripSplitAtPlayhead(); });
+            row.appendChild(sc);
+          }
+          sc.style.left = x + 'px';
+          sc.style.top = (wave.offsetTop + wave.offsetHeight) + 'px';
+          const pend = pendingSplit && pendingSplit.tab === 'baseline' && pendingSplit.i === i && !Object.prototype.hasOwnProperty.call(pendingSplit.pos, 'audio');
+          if (sc.classList.contains('needs-split') !== !!pend) sc.classList.toggle('needs-split', !!pend);
+        } else if (sc) sc.remove();
+      } else { if (cur) cur.remove(); if (sc) sc.remove(); }
     });
     } finally {
       // ⚠ ALWAYS re-arm. This is the line whose position is the bug — see the note above.

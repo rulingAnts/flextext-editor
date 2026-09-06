@@ -2720,6 +2720,28 @@ body.rp-standalone main { padding-top: 0; }
    segment-strips.js) and the row recedes to match, so "grey" means one thing on this tab and the
    refusal is visible before it is tried. */
 .cut-row.cut-locked { background: var(--panel, #f4f6fa); }
+/* ── THE PENDING SPLIT (plans/split-tiers.md; Seth, 2026-09-06: "highlighted with a red or orange thick
+   border and the text cursor be slightly more glow-y, also with a scissors button underneath it").
+   A locked line (rule A) is drawn the way the Cut tab draws a texted one. */
+.seg-strip.seg-locked { background: var(--panel, #f4f6fa); }
+.seg-strip.seg-locked .seg-text { color: var(--muted); }
+.seg-strip.split-pending, .segment.split-pending { outline: 2px solid #f0a060; outline-offset: 2px; }
+.needs-split { outline: 3px solid #e65100 !important; outline-offset: 1px; caret-color: #e65100;
+               box-shadow: 0 0 0 3px rgba(230,81,0,.25), 0 0 8px rgba(230,81,0,.6) !important; }
+input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,.55); }
+.split-placed { box-shadow: inset 4px 0 0 #2e7d32; }
+.cut-scissors.needs-split, .scissor-btn.needs-split { outline: 3px solid #e65100; box-shadow: 0 0 8px rgba(230,81,0,.7); }
+.split-prompt { grid-column: 2; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #b23c00; padding: 6px 0 0; flex-wrap: wrap; }
+.split-prompt .split-here { appearance: none; border: 1px solid #e65100; background: #fff3e0; color: #e65100; border-radius: 999px;
+                            width: 34px; height: 30px; font-size: 15px; cursor: pointer; box-shadow: 0 0 6px rgba(230,81,0,.5); flex: none; }
+.split-prompt .split-cancel { margin-left: auto; }
+.seg-cutmark { position: absolute; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
+.gseg-cutmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
+.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 2px; }
+/* A word on the Gloss tab is editable in place (glossEditWord). */
+.word-txt[contenteditable] { cursor: text; border-bottom: 1px dotted transparent; min-width: 1ch; }
+.word-txt[contenteditable]:hover { border-bottom-color: var(--muted); }
+.word-txt[contenteditable]:focus { outline: 2px solid var(--blue); border-radius: 3px; }
 /* ⚠ The caption is a caption: not editable, and NOT SELECTABLE (Seth: "text can't be edited or
    selected"). Selection would invite editing on a tab whose whole purpose is that you cannot. */
 .cut-cap {

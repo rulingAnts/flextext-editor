@@ -558,6 +558,7 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 }
 
 .free-row {
+  position: relative;   /* the ✂ under the caret positions against this row (attachCaretScissors) */
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -2732,8 +2733,10 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 .split-placed { box-shadow: inset 4px 0 0 #2e7d32; }
 .cut-scissors.needs-split, .scissor-btn.needs-split { outline: 3px solid #e65100; box-shadow: 0 0 8px rgba(230,81,0,.7); }
 .split-prompt { grid-column: 2; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #b23c00; padding: 6px 0 0; flex-wrap: wrap; }
-.split-prompt .split-here { appearance: none; border: 1px solid #e65100; background: #fff3e0; color: #e65100; border-radius: 999px;
-                            width: 34px; height: 30px; font-size: 15px; cursor: pointer; box-shadow: 0 0 6px rgba(230,81,0,.5); flex: none; }
+/* The ✂ under the text cursor: the playhead's ✂, re-coloured to the pending tier, hanging off the
+   caret (attachCaretScissors keeps `left` on the caret and `top` at the box's bottom edge). */
+.caret-scissors { border-color: #e65100; background: #fff3e0; color: #e65100; box-shadow: 0 0 6px rgba(230,81,0,.5); z-index: 4; }
+.split-prompt.has-caret-scissors { margin-top: 30px; }   /* room for the ✂ hanging off the box above */
 .split-prompt .split-cancel { margin-left: auto; }
 .seg-cutmark { position: absolute; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
 .gseg-cutmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }

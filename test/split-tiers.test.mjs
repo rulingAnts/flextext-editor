@@ -70,8 +70,9 @@ test('Baseline tab: the box places the text tier, the playhead the audio tier; r
   assert.match(APP, /hasGloss: \(i\) => lineHasAnalysis\(current && current\.doc, i\),/);
   const render = STRIPS.slice(STRIPS.indexOf('function renderStripsPending(p)'), STRIPS.indexOf('function onKey(e, i, input)'));
   assert.match(render, /input\.classList\.toggle\('needs-split', missing\.includes\('text'\)\);/, 'the box still to be placed is marked');
-  assert.match(render, /say\.textContent = deps\.t\('split\.now\.' \+ missing\[0\]\);/, 'and told what to do');
-  assert.match(render, /b\.className = 'split-here'/, 'with a ✂ under it');
+  assert.match(STRIPS, /registerCaretScissors\(input, row, \(\) => stripsCaretWant\(input, i\), \(at\) => stripsPlace\(i, 'text', at\), deps\.t\('split\.here'\)\);/, 'every Baseline box registers its ✂');
+  assert.match(render, /if \(missing\.includes\('text'\) && input\) prompt\.classList\.add\('has-caret-scissors'\);/, 'and the prompt keeps clear of it');
+  assert.match(render, /say\.textContent = splitPromptText\(deps\.t, missing\);/, 'and every missing tier named');
 });
 
 test('Gloss tab: the ✂ between words, the translation\'s caret and the playhead each place a tier; words editable in place', () => {
@@ -94,6 +95,24 @@ test('Gloss tab: the ✂ between words, the translation\'s caret and the playhea
   assert.match(APP, /if \(v && v !== was\) glossEditWord\(seg, i, v\); else t2\.textContent = was;/, 'committed on blur, reverted otherwise');
 });
 
+test('the ✂ for a text tier hangs under the blinking caret and follows it (Seth, 2026-09-06)', () => {
+  const helper = STRIPS.slice(STRIPS.indexOf('export function caretX(input)'), STRIPS.indexOf('export function splitPromptText'));
+  assert.match(helper, /caretMirror\.textContent = input\.value\.slice\(0, at\);/, 'a mirror span in the input\'s own font measures the text before the caret');
+  assert.match(helper, /for \(const k of \['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'textTransform', 'wordSpacing'\]\) caretMirror\.style\[k\] = cs\[k\];/);
+  assert.match(helper, /btn\.style\.left = \(input\.offsetLeft \+ caretX\(input\)\) \+ 'px';\s*\n\s*btn\.style\.top = \(input\.offsetTop \+ input\.offsetHeight\) \+ 'px';/, 'under the caret, at the box\'s bottom edge');
+  assert.match(helper, /document\.addEventListener\('selectionchange', onSel\);/, 'follows the caret');
+  assert.match(helper, /for \(const ev of \['input', 'keyup', 'click', 'scroll', 'focus'\]\) input\.addEventListener\(ev, place\);/, 'and typing, scrolling, focus');
+  assert.match(helper, /btn\.addEventListener\('pointerdown', \(ev\) => \{ ev\.preventDefault\(\); ev\.stopPropagation\(\); onCut\(input\.selectionStart \?\? input\.value\.length\); \}\);/, 'placed on pointerdown so the caret is still where the user sees it');
+  assert.match(helper, /btn\.className = 'cut-scissors split-here caret-scissors';/, 'the playhead\'s ✂, on the caret');
+  assert.match(APP, /registerCaretScissors\(input, freeRow, \(\) => glossCaretWant\(input, seg\), /, 'every translation box registers its ✂');
+  const want = STRIPS.slice(STRIPS.indexOf('function stripsCaretWant(input, i)'), STRIPS.indexOf('function stripsCaretWant(input, i)') + 500);
+  assert.match(want, /if \(document\.activeElement === input\) return true;/, 'shown whenever the focused box can be split by Enter');
+  assert.match(want, /if \(!joinSplitOk\(\) \|\| stripsLocked\(i\)\) return false;/, 'never on a locked line');
+  assert.match(STRIPS, /document\.addEventListener\('focusin', \(\) => syncCaretScissors\(\)\);\s*\n\s*document\.addEventListener\('focusout', \(\) => setTimeout\(syncCaretScissors, 0\)\);/, 'follows focus');
+  assert.match(APP, /say\.textContent = splitPromptText\(t, missing\);/, 'the Gloss prompt names every missing tier');
+  assert.match(STRIPS, /if \(!p\) \{ syncCaretScissors\(\); return; \}/, 're-decided the moment the split completes or cancels');
+});
+
 test('the Paragraph Analysis Tool goes through the same planner; words exist in both languages; the styles exist', () => {
   assert.match(PAT, /import \{ splitTiers, splitPlan \} from '\.\/segments\.js';/);
   assert.match(PAT, /if \(!splitPlan\(splitTiers\(\{ tab: 'baseline', text: txt, aligned: false \}\), \{ text: caret \}\)\.complete\) return;/);
@@ -102,7 +121,8 @@ test('the Paragraph Analysis Tool goes through the same planner; words exist in 
   }
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.splitTiers': '/g) || []).length, 2, 'release note in EN and ID');
   assert.match(CSS, /\.needs-split \{ outline: 3px solid #e65100 !important; outline-offset: 1px; caret-color: #e65100;/, 'a thick orange border and a glowing caret');
-  assert.match(CSS, /\.split-prompt \.split-here \{/, 'a ✂ under the box');
+  assert.match(CSS, /\.caret-scissors \{ border-color: #e65100;/, 'the ✂ under the caret');
+  assert.match(CSS, /\.free-row \{\n  position: relative;/, 'the translation row positions it');
   assert.match(CSS, /\.seg-strip\.seg-locked \{ background: var\(--panel, #f4f6fa\); \}/, 'a locked line');
   assert.match(CSS, /\.word-txt\[contenteditable\] \{ cursor: text;/);
 });

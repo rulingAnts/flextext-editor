@@ -802,10 +802,27 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
     const free = !plan ? ''
       : plan.wordSlice ? (plan.takesFree ? old.free : '')
         : plan.olds.map((o) => o.free).filter(Boolean).join(' ');
+    /* ⚠ EACH PIECE OF A SPLIT IS ITS OWN PHRASE. attrs used to be passed BY REFERENCE, so every piece
+     * of a split line shared one object — one GUID for two phrases in the FLExText, and the old
+     * begin/end offsets (the whole line's) on both. The first piece keeps the line's GUID (it IS the
+     * line, shortened, as a join keeps the first phrase's); the others are new phrases with new
+     * GUIDs; no piece carries the old offsets (half an extent is not an extent — the app's own
+     * timing in doc.segments is written fresh). The notes and other unknown items ride with the
+     * piece that keeps the free translation, once, not on every piece. A join keeps every item from
+     * every side (mergePhrases' rule) — that path is untouched here. */
+    const isSplit = !!(plan && plan.wordSlice);
+    const firstPiece = isSplit && plan.wordSlice[0] === 0;
+    const attrs = old ? { ...(old.attrs || {}) } : undefined;
+    if (attrs && isSplit) {
+      if (!firstPiece) attrs.guid = newGuid();
+      delete attrs['begin-time-offset'];
+      delete attrs['end-time-offset'];
+    }
+    const carriesItems = !isSplit || plan.takesFree;
     const seg = makeSegment(ns.text, words, old ? {
       free, freeLang: old.freeLang,
-      preItemsXML: old.preItemsXML, postItemsXML: old.postItemsXML,
-      attrs: old.attrs,
+      preItemsXML: carriesItems ? old.preItemsXML : [], postItemsXML: carriesItems ? old.postItemsXML : [],
+      attrs,
     } : {});
     if (old && old.txtLang) seg.txtLang = old.txtLang;
     return { seg, para: ns.para };

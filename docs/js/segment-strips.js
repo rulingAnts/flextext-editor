@@ -69,6 +69,10 @@ export function installSplitCancel() {
   if (splitCancelWired || typeof document === 'undefined') return;
   splitCancelWired = true;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && pendingSplit) { e.preventDefault(); splitCancel(); } });
+  // The ✂ under the caret follows focus: shown when a splittable box takes it, gone when it leaves
+  // (after the blur has settled, so a tap on the button itself — which keeps focus — never flickers).
+  document.addEventListener('focusin', () => syncCaretScissors());
+  document.addEventListener('focusout', () => setTimeout(syncCaretScissors, 0));
   // A tap anywhere but the pending line, its prompt, a scissors, or the player: cancel.
   document.addEventListener('pointerdown', (e) => {
     if (!pendingSplit) return;
@@ -77,6 +81,85 @@ export function installSplitCancel() {
     splitCancel();
   }, true);
 }
+
+/* ── A ✂ UNDER THE TEXT CURSOR (Seth, 2026-09-06: "the scissors button for the free translation to sit
+ * immediately under the blinking text cursor exactly the way it sits under / attached to the
+ * playhead … Make the scissors follow/attach to the text cursor") — the same picture for every tier:
+ * the thing that will be cut, and the ✂ hanging under the exact spot. The caret's x is measured with
+ * a mirror span in the input's own font (an <input> exposes no caret geometry), and the button is
+ * re-placed on every caret move, keystroke, scroll and resize. Tapping it places that tier at the
+ * caret; while the box is not focused it stays where the caret last was, so the cut point is visible.
+ * ⚠ RTL (#48): the mirror measures from the left edge; a right-to-left box will need the mirror
+ * anchored at the right. This helper is the one place to change. */
+let caretMirror = null;
+export function caretX(input) {
+  const cs = getComputedStyle(input);
+  if (!caretMirror) {
+    caretMirror = document.createElement('span');
+    caretMirror.setAttribute('aria-hidden', 'true');
+  }
+  caretMirror.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;left:-9999px;top:0;pointer-events:none;';
+  for (const k of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'textTransform', 'wordSpacing']) caretMirror.style[k] = cs[k];
+  if (!caretMirror.isConnected) document.body.appendChild(caretMirror);
+  const at = input.selectionStart ?? input.value.length;
+  caretMirror.textContent = input.value.slice(0, at);
+  const w = caretMirror.getBoundingClientRect().width;
+  return (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0) + w - (input.scrollLeft || 0);
+}
+/* ⚠ WHENEVER ENTER WOULD SPLIT, THE ✂ IS THERE (Seth, 2026-09-06: "show underneath the text cursor
+ * in the baseline or free translation input box whenever it's possible (and allowed per our above
+ * rules) to split the line by pressing enter"). A box registers itself with a `want()` that says
+ * when: focused and splittable (not locked, splitting allowed on the tab, something to split), or
+ * a pending split on its line still needs its tier. syncCaretScissors re-decides on every focus
+ * change and every pending-split change, attaching or removing the button. */
+const caretRegs = new Map();   // input → { host, want, onCut, label, dispose }
+export function registerCaretScissors(input, host, want, onCut, label) {
+  if (!input || !host) return;
+  const had = caretRegs.get(input);
+  if (had && had.dispose) had.dispose();
+  caretRegs.set(input, { host, want, onCut, label, dispose: null });
+  syncCaretScissors();
+}
+export function syncCaretScissors() {
+  for (const [input, r] of caretRegs) {
+    if (!input.isConnected) { if (r.dispose) r.dispose(); caretRegs.delete(input); continue; }
+    let want = false;
+    try { want = !!r.want(); } catch { want = false; }
+    if (want && !r.dispose) r.dispose = attachCaretScissors(input, r.host, r.onCut, r.label);
+    else if (!want && r.dispose) { r.dispose(); r.dispose = null; }
+  }
+}
+export function attachCaretScissors(input, host, onCut, label) {
+  if (!input || !host) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.tabIndex = -1;
+  btn.className = 'cut-scissors split-here caret-scissors';
+  btn.textContent = '\u2702';
+  btn.title = label; btn.setAttribute('aria-label', label);
+  // ⚠ pointerdown, not click: a click on the button would first blur the input and move nothing,
+  // but the caret position read here must be the one the user is looking at.
+  btn.addEventListener('pointerdown', (ev) => { ev.preventDefault(); ev.stopPropagation(); onCut(input.selectionStart ?? input.value.length); });
+  host.appendChild(btn);
+  const place = () => {
+    if (!btn.isConnected || !input.isConnected) return;
+    btn.style.left = (input.offsetLeft + caretX(input)) + 'px';
+    btn.style.top = (input.offsetTop + input.offsetHeight) + 'px';
+  };
+  const onSel = () => { if (document.activeElement === input) place(); };
+  document.addEventListener('selectionchange', onSel);
+  for (const ev of ['input', 'keyup', 'click', 'scroll', 'focus']) input.addEventListener(ev, place);
+  window.addEventListener('resize', place);
+  const dispose = () => {
+    document.removeEventListener('selectionchange', onSel);
+    for (const ev of ['input', 'keyup', 'click', 'scroll', 'focus']) input.removeEventListener(ev, place);
+    window.removeEventListener('resize', place);
+    btn.remove();
+  };
+  place();
+  return dispose;
+}
+/* The prompt names EVERY tier still to be placed, one sentence each. */
+export function splitPromptText(t, missing) { return missing.map((m) => t('split.now.' + m)).join(' '); }
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t, hasGloss, say }
 let peaksCache = { docId: null, peaks: null, durationMs: 0 };
@@ -621,6 +704,8 @@ export function renderStrips() {
     input.spellcheck = false;
     input.addEventListener('input', () => commitTexts());
     input.addEventListener('keydown', (e) => onKey(e, i, input));
+    // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).
+    registerCaretScissors(input, row, () => stripsCaretWant(input, i), (at) => stripsPlace(i, 'text', at), deps.t('split.here'));
 
     row.append(play, wave, input);
     host.appendChild(row);
@@ -827,7 +912,7 @@ function renderStripsPending(p) {
   host.querySelectorAll('.split-pending').forEach((r) => r.classList.remove('split-pending'));
   host.querySelectorAll('.needs-split, .split-placed').forEach((el) => el.classList.remove('needs-split', 'split-placed'));
   host.querySelectorAll('.split-prompt, .seg-cutmark').forEach((el) => el.remove());
-  if (!p) return;
+  if (!p) { syncCaretScissors(); return; }
   const row = host.querySelector(`.seg-strip[data-i="${p.i}"]`);
   if (!row) return;
   row.classList.add('split-pending');
@@ -852,21 +937,25 @@ function renderStripsPending(p) {
   }
   const prompt = document.createElement('div');
   prompt.className = 'split-prompt';
-  if (missing.includes('text') && input) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'split-here'; b.textContent = '\u2702';
-    b.title = deps.t('split.here'); b.setAttribute('aria-label', deps.t('split.here'));
-    b.addEventListener('click', () => stripsPlace(p.i, 'text', input.selectionStart ?? input.value.length));
-    prompt.appendChild(b);
-  }
+  // The ✂ for the words hangs under the caret (registerCaretScissors, in renderStrips); the prompt keeps clear of it.
+  if (missing.includes('text') && input) prompt.classList.add('has-caret-scissors');
   const say = document.createElement('span');
-  say.textContent = deps.t('split.now.' + missing[0]);
+  say.textContent = splitPromptText(deps.t, missing);
   prompt.appendChild(say);
   const cancel = document.createElement('button');
   cancel.type = 'button'; cancel.className = 'link-btn split-cancel'; cancel.textContent = deps.t('split.cancel');
   cancel.addEventListener('click', () => splitCancel());
   prompt.appendChild(cancel);
   row.appendChild(prompt);
+  syncCaretScissors();
+}
+/* When a Baseline box shows the ✂ under its caret: focused and splittable, or its line's pending
+ * split still needs the words' side. */
+function stripsCaretWant(input, i) {
+  if (!joinSplitOk() || stripsLocked(i)) return false;
+  if (document.activeElement === input) return true;
+  const p = pendingSplit;
+  return !!(p && p.tab === 'baseline' && p.i === i && !Object.prototype.hasOwnProperty.call(p.pos, 'text'));
 }
 
 function onKey(e, i, input) {

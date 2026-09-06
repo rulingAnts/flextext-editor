@@ -19,30 +19,30 @@ Bundles [wavesurfer.js](https://wavesurfer.xyz/) (BSD-3-Clause, see
 
 > ## ⚠ Which branch you are looking at
 >
-> **`main` is the DEVELOPMENT branch. It is work in progress and may be partially
-> broken at any moment** — half-finished features, code behind flags that is not
-> ready, experiments mid-verification. Do not judge the app by `main`, and do not
-> run it from `main` expecting a stable tool.
+> | branch | what it is |
+> |---|---|
+> | **`productionWeb`** | the live release. Every production site (`*.flextext.app`, and the legacy GitHub Pages editor) is built from it. It only moves forward by fast-forward after the maintainer has tested staging and signed off. |
+> | **`main`** | the release line; fast-forwarded together with `productionWeb` at every release, so the two match. |
+> | **`staging`** | what the staging estate (`staging-*.68mh29kgsd.workers.dev`) is built from; feature branches are merged here for testing first. |
+> | feature branches | day-to-day work (currently `satellite-apps-v566`); may be broken at any moment. |
 >
-> **[`productionWeb`](../../tree/productionWeb) is the live, stable version** —
-> the branch GitHub Pages actually serves, and the only one field users ever run.
-> It only ever moves forward by fast-forward from a tested `main`, after the
-> maintainer has explicitly signed it off.
->
-> | | branch | state |
-> |---|---|---|
-> | Live app people use | **`productionWeb`** | stable, tested, signed off |
-> | Day-to-day development | **`main`** | in progress, may be broken |
->
-> Running the live app: <https://rulingants.github.io/flextext-editor/> ·
-> deployment mechanics in [Deployment](#deployment).
+> Running the live apps: <https://app.flextext.app> (editor) and the others listed under
+> [Repository layout](#repository-layout--one-repo-seven-published-sites); deployment mechanics in
+> [Deployment](#deployment).
 
-An offline-capable web app (PWA) that duplicates FieldWorks Language Explorer's
-interlinear **Baseline** and **Gloss** tabs, editing
-[`.flextext`](notes/FlexInterlinear.xsd) files directly — no FLEx, no lexicon, no
-server. Built for the workflow where a researcher sets up the language settings
-and a native-speaker coworker transcribes, glosses, and free-translates texts on
-whatever device they have (Windows, Mac, Linux, iOS, Android).
+An offline-capable web app (PWA) for documenting oral texts with minority-language communities.
+The **editor** duplicates FieldWorks Language Explorer's interlinear **Baseline** and **Gloss** tabs
+and adds a **Cut** tab that segments a recording into playable lines, editing
+[`.flextext`](notes/FlexInterlinear.xsd) files directly — no FLEx, no lexicon, no server. Around
+it sit six sibling apps built on the same engine (recording, crowd recording, audio segmentation,
+consent capture, paragraph analysis, and the researcher's console). Built for the workflow where a
+researcher sets up the language settings and a native-speaker coworker, who may be barely literate,
+transcribes, glosses, segments and free-translates texts on whatever device they have — a cheap
+Android phone or tablet first, then Windows, Mac and Linux.
+
+**Where this is going:** the [Corpus Keeper](https://github.com/rulingAnts/corpus-keeper) plan ties
+the suite to FLEx, lameta and a corpus checklist so one researcher can keep texts, recordings, consent
+and archive metadata in step; the plan and its issues live in that repository.
 
 ## How it works
 
@@ -109,56 +109,114 @@ On Chromium browsers the app offers a one-tap **Install app** banner
 without hunting through browser menus; Firefox users get instructions in the
 built-in help.
 
-## Repository layout — one repo, four published apps
+## Repository layout — one repo, seven published sites
 
-**All development happens in this repository.** Only `docs/` is published:
-GitHub Pages serves `productionWeb:/docs`, so everything else is committed but
-never served.
+**All development happens in this repository.** `docs/` is the engine and the editor's own site;
+everything else is committed but only served through the deploy plumbing described below.
 
 ```
-docs/          THE PUBLISHED SITE (the PWA) → /flextext-editor/
-satellites/    source of the three sibling apps (see below)
-android/       Capacitor wrappers — recorder + editor APKs
-electron/      Windows desktop shell (planned)
-notes/         planning docs, schema, retired code — gitignored
+docs/                THE ENGINE + the editor site (index.html, js/, css/, help/, sw.js)
+satellites/          the five sibling app shells (each an index.html + manifest + sw.js + icons)
+paragraph-analysis/  the Paragraph Analysis Tool shell
+apps/                Cloudflare deploy plumbing, one folder per site (build.sh copies docs/ in, deploy.sh routes
+                     productionWeb → production, any other branch → a staging alias)
+worker/              the connectivity Worker (Cloudflare Worker + D1 + Drive) and its migrations
+android/             Capacitor wrappers — recorder + editor APKs (see Native shells)
+electron/            the Windows desktop shell (see Native shells)
+test/                the node test suite (`node --test "test/*.test.mjs"`)
+plans/               design docs and the release smoke-test checklist — tracked, never served
+notes/               schema, retired code, samples — gitignored, never served
 ```
 
-### The sibling apps
+### The apps
 
-Three companion PWAs ship from their own repos **only because they have to**:
-GitHub Pages serves a project site at `/<repo-name>/`, and two PWAs sharing a
-scope are treated by the browser as **one installed app**. They therefore need
-paths disjoint from `/flextext-editor/`:
+Every app is a thin shell that loads **this repo's engine** (`docs/js/app.js` + `docs/css/app.css`)
+and sets `window.__MODE`. None is a fork; all logic lives in `docs/js/`.
 
-| App | Path | What it is |
-|---|---|---|
-| **Flextext Recorder** | `/text-recorder/` | record → send, for coworkers gathering audio on a phone |
-| **Flextext Researcher** | `/flextext-researcher/` | the researcher console |
-| **Crowd Recorder** | `/crowd-recorder/` | public, embeddable, one-clip contribution |
+| App | Production | Source | What it is |
+|---|---|---|---|
+| **FlexText Editor** | `app.flextext.app` | `docs/` | Baseline / Cut / Gloss tabs; the reference app |
+| **Flextext Recorder** | `record.flextext.app` | `satellites/text-recorder/` | record → consent → send, for coworkers gathering audio on a phone |
+| **Audio Segmenter** | `audio-segmenter.flextext.app` | `satellites/audio-segmenter/` | cut a recording into lines and match them to a text, one row per line; ELAN export |
+| **Consent Collector** | `consent.flextext.app` | `satellites/consent-collector/` | recorded consent and receipts, importable with or without a text |
+| **Crowd Recorder** | `crowd.flextext.app` | `satellites/crowd-recorder/` | public, embeddable, one-clip contribution |
+| **Paragraph Analysis Tool** | `pat.flextext.app` | `paragraph-analysis/` | groups interlinear lines into phrase → clause → sentence → paragraph trees (`.fxpa`) |
+| **Flextext Researcher** | `research.flextext.app` | `satellites/flextext-researcher/` | the researcher console: devices, assignments, settings push, Drive corpus, history |
 
-None is a fork. Each is a thin shell that loads **this repo's engine**
-(`docs/js/app.js` + `docs/css/app.css`) and sets a mode flag. Their source lives
-here in `satellites/`; the sibling repos are **machine-managed mirrors** — do
-not edit them directly.
+Each production site is its own origin, which is what lets each be installed as its own PWA (two
+PWAs sharing a scope are one installed app to the browser). The editor is additionally still served
+by GitHub Pages at `rulingants.github.io/flextext-editor/`, the original home, for installs that
+predate the move; the researcher panel knows both estates and links companion apps accordingly.
 
 ### How they are published
 
-The `Publish satellites` workflow mirrors `satellites/<name>/` into each repo
-using a per-repo SSH deploy key. **It enforces the ordering that matters:** it
-waits until the live editor actually serves this commit's `sw.js` version, then
-verifies every engine path that satellite precaches returns 200, and refuses to
-publish if any does not. A satellite published ahead of the engine it caches
-fails its service-worker install — which silently costs new installs their
-offline support.
+`Deploy to production` (GitHub Actions, run by hand on `productionWeb` only) builds and deploys
+**all seven** sites at one version — a release is one estate at one version, and every satellite's
+service worker verifies at install that the engine it precached carries that same version, so a
+partial deploy is refused rather than shipped. `Deploy to staging / preview` does the same per app
+from any branch. The satellite GitHub repositories (`text-recorder`, `flextext-researcher`,
+`crowd-recorder`) are machine-managed mirrors published by the `Publish satellites` workflow for the
+GitHub Pages estate; do not edit them directly.
 
-### Native wrappers
+### Native shells — Android and Electron, and why they exist
 
-The Android apps (`android/`) exist for one reason: **archive-compliant audio**.
-The Web Audio API is 32-bit float *by specification*, so a browser can never
-capture at a chosen integer bit depth — it can only capture float and reduce
-afterwards. Native `AudioRecord` can. `docs/js/native-audio.js` is the single
-file permitted to touch a native bridge, and `check-native-containment.sh`
-enforces that.
+The web is the product; the native shells are not forks and add no features. **They exist for one
+reason: archive-quality audio capture**, which a browser cannot provide, for two independent
+reasons:
+
+1. **The browser controls the microphone and will not let go.** In a mobile WebView the browser
+   sets the input level itself and offers no analog-gain control, so a loud voice clips. The only
+   escape a web app has is automatic gain control, and AGC is *processing*, which IASA TC-03 and
+   FADGI prohibit on a preservation master. Native capture sidesteps the dilemma.
+2. **The web cannot record at a chosen bit depth at all.** The Web Audio API is 32-bit float by
+   specification; a web app can only capture float and reduce afterwards, so "16-bit" or "24-bit"
+   from a browser is a conversion, never a capture. Android's `AudioRecord` can request a genuine
+   integer capture.
+
+**Android** (`android/`, mirrored at `rulingAnts/flextext-native`): Capacitor wrappers for the
+recorder and the editor, with one small plugin whose job is to be *auditable* — it reports only
+capabilities it has proven by opening `AudioRecord`, never substitutes a format silently, and
+reports each processing effect (AGC, noise suppression, echo cancellation) as available / was
+enabled / still active. The full reasoning and the honesty contract are in `android/README.md`;
+the JS↔native contract in `android/CLAUDE.md`.
+
+**Electron** (`electron/`): the Windows desktop shell, for the same reason on laptops, where
+Chrome's capture path is float32 with the same processing questions. It wraps the published editor
+URL (`FLEXTEXT_URL` points it at a dev rig) and is built with electron-builder (`npm run
+dist:win`). It is built but not yet distributed; the recording side of the contract is the same one
+Android implements, and Electron is under the same containment rule, not a looser one.
+
+**Containment**, because the engine auto-updates and an installed APK does not: `docs/js/native-audio.js`
+is the only file allowed to touch a native bridge, it is inert in a browser, and
+`./check-native-containment.sh` enforces that. A capture is absorbed into IndexedDB before the native
+file is released, so nothing is ever deleted before it is stored.
+
+## What the researcher can set on a device
+
+Every setting below lives on the device's **Settings** tab (the editor and the segmenter each show
+the groups that apply to them) and in the researcher panel, from which it is pushed to a paired
+device and lands live, without a reload:
+
+| Group | Settings |
+|---|---|
+| Languages | app language; vernacular and analysis writing systems (code, font) |
+| Segmentation | segmentation on/off; Cut tab; land on Cut; Backspace joins; join/split on Baseline and Gloss; cut/join lines that already have text; export timing as notes; which exports ride a bundle (ELAN, SayMore, listening page, JSON) |
+| Recording | format, maximum length, AGC / noise suppression / echo cancellation, normalisation, archival defaults |
+| Consent | ask, message, consent audio, confirmation |
+| Sending | send options, delete after upload, automatic backup and its interval, recorder welcome |
+| Other | which buttons show; delete-all; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only below 1000 px wide); **the Space bar plays / pauses** (automatic = off on a touch screen); segmenter: blank lines, in-place text editing |
+
+## Touch and keyboard
+
+- **On a touch screen, a waveform strip behaves like a WhatsApp voice note:** a tap places the
+  playhead; touching the playhead line and dragging scrubs; dragging anywhere else scrolls the page,
+  at any slant, because the strip listens to no finger movement at all. Same on the listening page.
+- **Space** plays or pauses outside a text box on a desktop; on a touch screen it types a space
+  (setting above). **Shift+Space** always plays or pauses, inside a box too, and inside a box it
+  plays that box's own line without moving the cursor.
+- When Space does not play, typing with no box selected goes to the line you last played: the
+  nearest box is focused at its end and the keystroke lands there.
+- **Enter** in a free-translation box moves to the next line when no split applies.
 
 ## Localization & help
 

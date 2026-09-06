@@ -24,6 +24,8 @@ An **offline-first suite** for oral-text documentation with minority-language co
 | **Flextext Recorder** | `satellites/text-recorder/` | Record-only companion PWA for low-literacy speakers: record, consent, upload. |
 | **Flextext Researcher** | `satellites/flextext-researcher/` | The researcher console: device management, assignments, settings push, corpus/Drive management, history. |
 | **Crowd recorder** | `satellites/crowd-recorder/` | Embeddable one-shot recorder. |
+| **Audio Segmenter** | `satellites/audio-segmenter/` | Cuts a recording into lines and pairs them with a text one row per line (the matcher); ELAN export; a third invite kind for devices. |
+| **Consent Collector** | `satellites/consent-collector/` | Recorded consent and receipts, importable with or without a text; consent per speaker is where the Corpus Keeper plan takes it. |
 | **Flextext Paragraph Analysis Tool** | `paragraph-analysis/` | Discourse-structure satellite: groups interlinear lines into phrase→clause→sentence→paragraph trees (SSA / arcing / Longacre-style) over a `.fxpa` or `.flextext` file. Own Cloudflare Worker deploy (`paragraph-analysis-tool`), where it is the ROOT of its own origin https://pat.flextext.app/ — not a Pages mirror, and the one app in the suite not confined to a sub-path. |
 | **Connectivity Worker** | `worker/` | Cloudflare Worker + D1: no-login device sync, researcher accounts (Google Sign-In), E2EE metadata, uploads streamed into the researcher's own Google Drive. |
 | **Native shells** | `android/` (Capacitor), `electron/` | Thin wrappers whose sole reason to exist is archive-grade audio capture (see §7). |
@@ -105,7 +107,7 @@ committed but never served.
 
 The satellites are **not forks**: each is a thin `index.html` that loads THIS repo's engine
 cross-origin-path (`/flextext-editor/js/app.js` + CSS) and sets `window.__MODE`
-(`record` / `researcher` / `paragraph`). All logic lives in `docs/js/`. Satellite GitHub repos are
+(`record` / `researcher` / `paragraph` / `segmenter` / `consent`; `crowd` is an embed of the recorder). All logic lives in `docs/js/`. Satellite GitHub repos are
 dumb serving mirrors published by `.github/workflows/sync-satellites.yml` — never edit them
 directly. The **Paragraph Analysis** satellite (`paragraph-analysis/`) is the exception in
 deployment only: it ships as its own git-connected Cloudflare Worker whose `build.sh` copies
@@ -323,19 +325,42 @@ because the failure mode that matters is a limit that is *silent*.
 ## 7. Native shells & the bridge contract
 
 The web engine auto-updates; an installed APK does not. So the native layer is kept so thin it
-almost never needs to change:
+almost never needs to change, and it exists for exactly one reason.
 
-- **`docs/js/native-audio.js` is the only file allowed to touch `window.Capacitor`** — enforced by
-  `./check-native-containment.sh`. It feature-detects and is inert in a browser.
-- Native exists for exactly two reasons the web can't satisfy: Android `AudioRecord` capture
-  without the WebView AGC-or-clip dilemma, and integer bit-depth capture (Web Audio is float32 by
-  spec). Capture lifecycle is absorb-then-delete: bytes are stored in IndexedDB before the native
-  file is released.
+**Why native at all — two independent archival reasons** (full argument in `android/README.md`):
+the WebView's AGC-or-clip dilemma (AGC is processing, which IASA TC-03 and FADGI forbid on a
+preservation master), and the fact that Web Audio is float32 by specification, so a browser can
+never capture at a chosen integer bit depth, only convert afterwards. Android's `AudioRecord` can
+request a genuine integer capture and can be told to leave the signal unprocessed.
+
+**Android** (`android/`, mirrored at `rulingAnts/flextext-native`): Capacitor wrappers for the
+recorder and the editor around one small plugin. The plugin's design goal is *auditability*, since
+an archive may have to sign off on it: `capabilities()` reports only what it has proven by opening
+`AudioRecord` per encoding and rate; substitution is allowed but silent substitution is not
+(`requested` vs actual is always reported, with a reason); each processing effect is reported as
+available / was-enabled / still-active; bit depth is documented as a property of the file, not the
+microphone. Build: `android/scripts/build.sh recorder|editor`; the APK pins a snapshot of `docs/`.
+
+**Electron** (`electron/`): the Windows desktop shell, for the same reason on laptops. `src/main.js`
+wraps the published editor URL (`FLEXTEXT_URL` for a dev rig), `npm run dist:win` builds an
+installer with electron-builder. Built, not yet distributed. It is under the same containment rule
+as Android, not a looser one, and the recording contract it implements is the same one.
+
+**Containment:**
+- **`docs/js/native-audio.js` is the only file allowed to touch `window.Capacitor`** (or any other
+  bridge) — enforced by `./check-native-containment.sh`. It feature-detects and is inert in a browser.
+- The engine touches the native path in a handful of commented places in `app.js` (import, the
+  service-worker skip, `startNative`, the `rec.mode === 'native'` branches, absorb-then-delete).
+- Capture lifecycle is absorb-then-delete: bytes are stored in IndexedDB before the native file is
+  released, so nothing is deleted before it is stored.
 - The bridge declares a `CONTRACT_VERSION`; the full contract lives in `android/CLAUDE.md`.
 
 ## 8. Testing
 
-- `test/*.test.mjs` — plain node, assertion-style, run by `check-native-containment.sh`.
+- `node --test "test/*.test.mjs"` runs the whole suite (about 160 files, static source pins plus
+  pure-function runs). Two suites, `worker-projects` and `worker-sessions`, need `wrangler dev` on
+  :8787 and fail otherwise; count `not ok` lines rather than trusting grep's exit status.
+- `test/*.test.mjs` — plain node, assertion-style, also run by `check-native-containment.sh`.
   Notable suites: `segments-ordering` (adversarial span-model inputs), `seg-exports`
   (EAF/flextext/preview/bext, includes pinned regressions from adversarial audits),
   `loose-conversions` (the Utilities converter, asserted as PARITY with the Files ▾ menu),
@@ -349,14 +374,32 @@ almost never needs to change:
   Chromium), not part of the node suite. They exist for the half node cannot reach: wiring, decode,
   downloads. `loose-exporter` found a `new DataView(Uint8Array)` throw that a `catch` was swallowing
   into a permanently-silent duration check — every node test passed with the feature half-dead.
-- UI verification is done against the no-cache dev rig; the repo's history shows the working
-  method: probe with real DOM, screenshot, and assert — not "it should work".
+- UI verification is done against the no-cache dev rig (`bash dev-serve.sh 8012`); the method is
+  to drive the real controls, screenshot, and assert on the DOM and on stored data, and to say so
+  when a step had to be synthetic (a dispatched event) because the tool could not produce the
+  gesture. Touch behaviour is checked under Chromium's Android emulation and then on a real tablet.
 - `notes/TEST-CHECKLIST.md` is the human pre-release checklist (real ELAN/SayMore/FLEx round
   trips are the acceptance tests for the interop claims — tier conventions are recognized by
   name, not schema, so only the real tools prove them).
 
 ## 9. Licensing & contact
 
-AGPL-3.0 throughout (see `worker/CLAUDE.md` for the history of the worker fold-in). Maintainer:
-Seth J (rulingAnts on GitHub). If your organization wants to run with any of this — from a small
-contribution to full stewardship — open an issue and say so.
+AGPL-3.0 throughout (see `worker/CLAUDE.md` for the history of the worker fold-in). Other licensing
+terms — MIT-style permission, for example — are available to partner organisations and individuals
+for their own work, case by case, on request: <https://flextext.app/contact>. Maintainer: Seth
+Johnston (rulingAnts on GitHub). If your organization wants to run with any of this, from a small
+contribution to full stewardship, open an issue and say so.
+
+## 10. Related repositories and plans
+
+| Repository | What it holds |
+|---|---|
+| [`rulingAnts/corpus-keeper`](https://github.com/rulingAnts/corpus-keeper) | the plan (approved 2026-09-06) and, from next week, the code that keeps FLEx, lameta, this suite and the corpus checklist in step: a FLExTools module first, a resident tray app later, the FLEx-backed audio segmenter's sidecar |
+| [`rulingAnts/flextext-native`](https://github.com/rulingAnts/flextext-native) | mirror of `android/` |
+| `rulingAnts/text-recorder`, `flextext-researcher`, `crowd-recorder` | machine-published mirrors of the satellite shells for the GitHub Pages estate |
+| `rulingAnts/flextext.app_cloudflare_pages` | the landing page at flextext.app |
+
+Design documents are in `plans/` (see `plans/README.md` for what belongs there);
+`plans/RELEASE-SMOKE-TEST.md` is the human checklist run on staging before every production
+release, and each release adds its lines to it. Open work is tracked as GitHub issues on this
+repository (the suite) and on `corpus-keeper` (the integration).

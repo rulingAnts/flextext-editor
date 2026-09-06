@@ -123,7 +123,7 @@ test('the join button between two lines is the chain link, the same picture as b
 });
 
 test('the Paragraph Analysis Tool goes through the same planner; words exist in both languages; the styles exist', () => {
-  assert.match(PAT, /import \{ splitTiers, splitPlan \} from '\.\/segments\.js';/);
+  assert.match(PAT, /import \{ splitTiers, splitPlan, isAligned \} from '\.\/segments\.js';/);
   assert.match(PAT, /paPlace\(lineId, 'text', caret\);/, 'mid-text Enter places the text tier through the engine (v598)');
   for (const k of ['split.here', 'split.cancel', 'split.no.glossed', 'gloss.editWordTip']) {
     assert.equal((I18N.match(new RegExp(`\n  '${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);

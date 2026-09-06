@@ -64,6 +64,9 @@ All seven sites and the GitHub Pages editor are at v597 in production; staging m
 - **The tool's Join/split switch (v601, on staging).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
+- **The tool's grips and close-up (v602, on staging).** The editor's segment grips on the tool's rows
+  (with the switch on), the overview showing the seams, and a close-up that zooms in, grows taller
+  and marks the dragged seam blue while a grip is dragged or a line's waveform is scrubbed.
 
 ## 2. In progress
 

@@ -327,3 +327,14 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       start a split.
 - [ ] Undo / Redo: after a split or a join, the Undo button and Ctrl+Z take it back, Redo and
       Ctrl+Shift+Z or Ctrl+Y bring it back.
+
+## Paragraph Analysis Tool: grips, scrub close-up, overview marks (v602)
+
+- [ ] The top player shows a thin dotted mark at every seam between two timed lines.
+- [ ] Join/split on: each line's waveform has a blue pill at the ends it shares with a timed
+      neighbour. Dragging one moves the boundary: the two waveforms redraw live, the top player
+      zooms in on the seam, grows taller, and shows that seam as a blue dashed line; on release it
+      goes back to size and one Undo restores the old boundary. Join/split off: no pills.
+- [ ] Dragging the playhead across a line's waveform (switch on or off) zooms and heightens the
+      top player around the playhead for the length of the drag; a plain click does not.
+      [real device] The same with a finger.

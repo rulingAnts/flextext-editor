@@ -77,7 +77,7 @@ export function installSplitCancel() {
   document.addEventListener('pointerdown', (e) => {
     if (!pendingSplit) return;
     const el = e.target && e.target.closest ? e.target : null;
-    if (el && el.closest('.split-pending, #audio-player, .cut-scissors, .gseg-scissors, .split-here, .split-prompt, .scissor-btn')) return;
+    if (el && el.closest('.split-pending, #audio-player, .cut-scissors, .gseg-scissors, .split-here, .split-prompt, .scissor-btn, .pa-cut, .pa-rowcut, .pa-player, .pa-rowplay, #btn-undo, #pa-undo, #mg-undo')) return;   // ⚠ the Undo buttons are excluded so their click cancels the split (doUndo) rather than this pointerdown cancelling it first and the click then undoing the previous edit
     splitCancel();
   }, true);
 }
@@ -113,11 +113,15 @@ export function caretX(input) {
  * a pending split on its line still needs its tier. syncCaretScissors re-decides on every focus
  * change and every pending-split change, attaching or removing the button. */
 const caretRegs = new Map();   // input → { host, want, onCut, label, dispose }
+let caretSelSync = false;
 export function registerCaretScissors(input, host, want, onCut, label) {
   if (!input || !host) return;
   const had = caretRegs.get(input);
   if (had && had.dispose) had.dispose();
   caretRegs.set(input, { host, want, onCut, label, dispose: null });
+  /* A `want` may depend on where the caret is (the tool's line box: only before the end), so the
+   * sweep also runs on every selection change. It is a walk over a handful of boxes. */
+  if (!caretSelSync && typeof document !== 'undefined') { caretSelSync = true; document.addEventListener('selectionchange', syncCaretScissors); }
   /* ⚠ NOT A SYNCHRONOUS SWEEP: a box registers while its row is still being built, before it is in
    * the document, and the sweep drops any box that is not connected — so it dropped the box it had
    * just been handed. By the microtask the render has appended the row. */
@@ -131,7 +135,7 @@ export function syncCaretScissors() {
     if (want && !r.dispose) r.dispose = attachCaretScissors(input, r.host, r.onCut, r.label);
     else if (!want && r.dispose) { r.dispose(); r.dispose = null; }
     // The pending prompt steps down from under the ✂ whenever one is showing on its line.
-    const prompt = r.host.closest && r.host.closest('.seg-strip, .segment') && r.host.closest('.seg-strip, .segment').querySelector('.split-prompt');
+    const prompt = r.host.closest && r.host.closest('.seg-strip, .segment, .pa-row') && r.host.closest('.seg-strip, .segment, .pa-row').querySelector('.split-prompt');
     if (prompt) prompt.classList.toggle('has-caret-scissors', !!r.dispose);
   }
 }
@@ -1188,8 +1192,9 @@ function installKnobDrag() {
     ev.preventDefault();
     try { cur.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
     wave.__park();
-    const move = (e2) => wave.__seekAt(e2);
-    const end = () => { cur.removeEventListener('pointermove', move); cur.removeEventListener('pointerup', end); cur.removeEventListener('pointercancel', end); };
+    let dragged = false;
+    const move = (e2) => { const ms = wave.__seekAt(e2); wave.__focus?.(dragged ? 'move' : 'start', ms); dragged = true; };   // the dock's close-up rides the drag
+    const end = () => { cur.removeEventListener('pointermove', move); cur.removeEventListener('pointerup', end); cur.removeEventListener('pointercancel', end); if (dragged) wave.__focus?.('end'); };
     cur.addEventListener('pointermove', move);
     cur.addEventListener('pointerup', end);
     cur.addEventListener('pointercancel', end);
@@ -1201,10 +1206,19 @@ export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
   const seekAt = (ev) => {
     const r = wave.getBoundingClientRect();
     const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-    getPlayer()?.seekMs?.(seg.start + f * (seg.end - seg.start));
+    const ms = seg.start + f * (seg.end - seg.start);
+    getPlayer()?.seekMs?.(ms);
+    return ms;
   };
   // The knob (see installKnobDrag) scrubs through these, so the mapping lives in one place.
   wave.__seekAt = seekAt;
+  /* THE DOCK'S MOMENTARY CLOSE-UP WHILE A STRIP IS SCRUBBED (Seth, 2026-09-07: "when the user is
+   * scrubbing on an audio segment, I'd like to have the momentary auto-zoom/scroll on the preview
+   * player just like we use for dragging the drag handles … help a user more precisely place the
+   * play head for a cut"): the same Player.boundaryFocus the grips use. It opens on the FIRST MOVE
+   * of a drag, never on a click or a tap (those would only flash the dock), follows the playhead,
+   * and closes on release. */
+  wave.__focus = (phase, ms) => { try { getPlayer()?.boundaryFocus?.(phase, ms); } catch { /* cosmetic */ } };
   wave.__park = () => { onTarget?.(seg); getPlayer()?.pause?.(); };
   installKnobDrag();
   wave.addEventListener('pointerdown', (ev) => {
@@ -1242,8 +1256,9 @@ export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
      * the click mean "here", which is what it looks like it means. */
     getPlayer()?.pause?.();
     seekAt(ev);
-    const move = (e2) => seekAt(e2);
-    const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
+    let dragged = false;
+    const move = (e2) => { const ms = seekAt(e2); wave.__focus(dragged ? 'move' : 'start', ms); dragged = true; };
+    const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); if (dragged) wave.__focus('end'); };
     wave.addEventListener('pointermove', move);
     wave.addEventListener('pointerup', up);
   });

@@ -2152,6 +2152,21 @@ body.rp-standalone main { padding-top: 0; }
 .pa-words .wt { color: var(--vern); font-size: 16px; }
 .pa-words .wg { color: var(--gloss); font-size: 13px; }
 .pa-words .punct .wt { color: var(--muted); }
+/* The tool's share of the pending split (plans/split-tiers.md): a ✂ between two words, a ✂ under
+   the row's playhead (positioned by the ticker), a dashed mark where the sound was placed, a 🔗 to
+   join with the next line, and the caret's ✂ positioned against the line's own row. */
+.pa-words .pa-cut { align-self: center; appearance: none; border: 1px solid var(--border); background: var(--card, #fff); color: #c9772a;
+                    border-radius: 999px; width: 24px; height: 24px; line-height: 1; font-size: 12px; cursor: pointer; padding: 0; margin: 0 -6px; }
+.pa-words .pa-cut:hover { background: #fdf1e4; }
+.pa-words .pa-cut-edge { border-style: dashed; margin: 0 2px; }
+.pa-wavewrap .pa-rowcut { top: 50%; transform: translate(-50%, -50%); width: 26px; height: 26px; font-size: 13px; }   /* on the wave, at the playhead */
+.pa-cutmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
+.pa-linetools { display: flex; gap: 6px; margin-top: 4px; }
+.pa-join { appearance: none; border: 1px solid var(--border); background: var(--card, #fff); color: var(--muted);
+           border-radius: 6px; min-width: 34px; height: 24px; font-size: 12px; cursor: pointer; padding: 0 6px; }
+.pa-join:hover { background: #ece3f7; color: #5b3d8a; }
+.pa-authored, .pa-free { position: relative; }
+.pa-row.split-pending { outline: 2px solid #f0a060; outline-offset: 2px; }
 .pa-free { color: var(--text); font-size: 14px; margin-top: 2px; font-style: italic; }
 .pa-rowplay { flex: none; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 50%; background: var(--bg); cursor: pointer; font-size: 13px; line-height: 1; }
 .pa-rowplay:hover { border-color: var(--blue); color: var(--blue); }
@@ -2657,6 +2672,8 @@ body.rp-standalone main { padding-top: 0; }
 .scissor-btn { appearance: none; border: 1px solid var(--border); background: #fff; color: var(--muted);
                border-radius: 6px; min-width: 26px; height: 20px; font-size: 11px; cursor: pointer; line-height: 1; }
 .scissor-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+/* The edge ✂ (Seth, 2026-09-07): before the first and after the last word of a timed line, to trim the silence at that end. */
+.word-row .edge-scissors { align-self: center; margin: 0 4px; border-style: dashed; }
 
 /* Consent-prompt status: the visible half of a hidden value carrier (researcher panel). The stored
    value is a minted private URL, never something to read, so the field reports STATE instead. */

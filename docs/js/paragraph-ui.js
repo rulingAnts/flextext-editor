@@ -14,6 +14,7 @@ import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { splitTiers, splitPlan } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
+import { splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors } from './segment-strips.js';   // its pending state and the ✂ under a caret
 import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
@@ -26,7 +27,7 @@ import {
   canExtend, extendGroup, releaseEdge, willDissolve, checkInvariants, repairDocument,
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
-  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
+  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine, splitLineTiers, joinLines,
   setWordText, setWordGloss, deleteWord, derivedGroupLabel,
 } from './paragraph-model.js';
 
@@ -54,6 +55,20 @@ export function initParagraphApp() {
   root = document.getElementById('pa-main');
   if (!root) return;
   applyI18n();
+  installSplitCancel();   // Escape and a tap away cancel a pending split (plans/split-tiers.md)
+  /* Enter with no box focused places the AUDIO tier of a split at the playhead, on the line the
+   * playhead is in — the same gesture as the editor's Baseline and Gloss tabs. */
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.repeat || e.metaKey || e.ctrlKey || e.altKey || !state || !audio) return;
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.isContentEditable)) return;
+    if (document.querySelector('.modal:not([hidden]), dialog[open]')) return;
+    const tNow = audio.currentTime * 1000;
+    const l = state.lines.find((x) => typeof x.start === 'number' && typeof x.end === 'number' && tNow > x.start && tNow < x.end);
+    if (!l) return;
+    e.preventDefault();
+    paPlace(l.id, 'audio', tNow);
+  });
   // A reload must not lose the session: restore the working copy if one exists.
   db.getMedia(WORKING_KEY).then((rec) => {
     if (rec && rec.text) {
@@ -1104,6 +1119,7 @@ function applyHistory(entry) {
 }
 
 function doUndo() {
+  if (splitCancel()) return;   // Undo first cancels a pending split (Seth, 2026-09-06)
   if (!history.length) return;
   future.unshift({ state, selection: new Set(selection) });
   applyHistory(history.pop());
@@ -1331,11 +1347,26 @@ function startTicker() {
         const cur = row.querySelector('.pa-rowcur');
         if (cur) {
           const wrap = cur.parentElement;
+          let sc = wrap.querySelector('.pa-rowcut');
           if (inside && e > s && wrap.clientWidth) {
             cur.style.display = 'block';
-            cur.style.left = (((tNow - s) / (e - s)) * wrap.clientWidth) + 'px';
-          } else if (cur.style.display !== 'none') {
-            cur.style.display = 'none';
+            const x = ((tNow - s) / (e - s)) * wrap.clientWidth;
+            cur.style.left = x + 'px';
+            // ✂ under the playhead: the AUDIO tier of a split on this line (plans/split-tiers.md).
+            if (!sc) {
+              sc = document.createElement('button');
+              sc.type = 'button'; sc.className = 'cut-scissors pa-rowcut'; sc.tabIndex = -1; sc.textContent = '\u2702';
+              sc.title = t('cut.cut'); sc.setAttribute('aria-label', t('cut.cut'));
+              sc.addEventListener('click', (ev) => { ev.stopPropagation(); if (audio) paPlace(row.dataset.unit, 'audio', audio.currentTime * 1000); });
+              wrap.appendChild(sc);
+            }
+            sc.style.left = x + 'px';
+            const p = splitPending();
+            const pend = !!(p && p.tab === 'paragraph' && p.i === row.dataset.unit && !Object.prototype.hasOwnProperty.call(p.pos, 'audio'));
+            if (sc.classList.contains('needs-split') !== pend) sc.classList.toggle('needs-split', pend);
+          } else {
+            if (cur.style.display !== 'none') cur.style.display = 'none';
+            if (sc) sc.remove();
           }
         }
       });
@@ -1617,7 +1648,7 @@ function renderWorkInner() {
   $('#pa-group').addEventListener('click', () => (selectedGroup() ? openEditDialog() : openGroupDialog()));
   $('#pa-ungroup').addEventListener('click', doUngroup);
   $('#pa-clear').addEventListener('click', clearSelection);
-  $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
+  $('#pa-undo').addEventListener('click', () => { if (splitCancel()) return; history.length ? doUndo() : alert(t('para.undoNone')); });   // a pending split is the first thing Undo takes back
   $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
   /* ⚠ THE SCROLL LISTENER. An earlier edit to attach this silently no-opped, so the crumb — whose
    * entire purpose is to follow the scroll position — only ever updated on re-render. */
@@ -1660,6 +1691,7 @@ function renderWorkInner() {
   refreshActionButtons();
   drawAllWaves();
   startTicker();
+  { const p = splitPending(); if (p && p.tab === 'paragraph') paRenderPending(p); }   // a re-render keeps a pending split's markers
   if (focusLineId) {
     // A structural change re-renders, which is exactly when the cursor has to be put back
     // deliberately — into the new proposition when one was just added, else the line editor.
@@ -1918,6 +1950,89 @@ function inlineEdit(holder, { fields, onSave, onDelete, onEnter, deleteTitle } =
   return inputs[0];
 }
 
+/* ── THE PENDING SPLIT, THIS TOOL'S SHARE (plans/split-tiers.md) ─────────────────────────────
+ * The engine (segment-strips.js splitPlace) holds one pending split; this file supplies the tiers a
+ * line carries, the commit (paragraph-model.js splitLineTiers) and the markers. A join goes through
+ * joinLines, absorbing any blank audio line between the two rows. */
+function paInfo(id) {
+  const l = nodeById(state, id) || {};
+  return { tab: 'interlinear', aligned: typeof l.start === 'number' && typeof l.end === 'number' && l.end > l.start,
+           words: (l.words || []).length, text: l.baseline || '', free: l.free || '' };
+}
+function paSpec(id) {
+  return {
+    tiers: splitTiers(paInfo(id)),
+    commit: (pos) => {
+      try {
+        const next = splitLineTiers(state, id, pos);
+        if ('text' in pos && state.authored) focusLineId = next._added;   // keep type-Enter-type-Enter
+        commit(next);
+      } catch (e) { alert(e.message); }
+    },
+    render: paRenderPending,
+  };
+}
+function paPlace(id, tier, value) {
+  if (!state || !nodeById(state, id)) return 'ignored';
+  return splitPlace({ tab: 'paragraph', i: id }, tier, value, paSpec(id));
+}
+/* The words tier; at an EDGE (0 or the count) the translation's tier lands at the same edge so
+ * the whole translation stays with the words, and only the sound is left to place. The second
+ * placement happens only while the first left the split pending (see glossPlaceEdge in app.js). */
+function paPlaceWords(id, gap) {
+  const l = nodeById(state, id);
+  if (!l) return 'ignored';
+  const n = (l.words || []).length;
+  const r = paPlace(id, 'words', gap);
+  if (r === 'pending' && (gap <= 0 || gap >= n)) paPlace(id, 'free', gap <= 0 ? 0 : String(l.free || '').length);
+  return r;
+}
+function paJoin(id) {
+  splitCancel();
+  try { commit(joinLines(state, id)); } catch (e) { alert(e.message); }
+}
+function paRenderPending(p) {
+  if (!root) return;
+  root.querySelectorAll('.split-pending').forEach((r) => r.classList.remove('split-pending'));
+  root.querySelectorAll('.needs-split, .split-placed').forEach((el) => el.classList.remove('needs-split', 'split-placed'));
+  root.querySelectorAll('.split-prompt, .pa-cutmark').forEach((el) => el.remove());
+  if (!p || p.tab !== 'paragraph') { syncCaretScissors(); return; }
+  const row = root.querySelector(`.pa-row[data-unit="${CSS.escape(p.i)}"]`);
+  if (!row) return;
+  row.classList.add('split-pending');
+  const missing = splitPlan(p.tiers, p.pos).missing;
+  const has = (k) => Object.prototype.hasOwnProperty.call(p.pos, k);
+  row.querySelectorAll('.pa-cut').forEach((b) => {
+    b.classList.toggle('needs-split', missing.includes('words'));
+    b.classList.toggle('split-placed', has('words') && +b.dataset.gap === p.pos.words);
+  });
+  const fi = row.querySelector('.pa-freeinput'), fe = row.querySelector('.pa-freeedit');
+  if (fi) { fi.classList.toggle('needs-split', missing.includes('free')); fi.classList.toggle('split-placed', has('free')); }
+  else if (fe) fe.classList.toggle('needs-split', missing.includes('free'));
+  const ti = row.querySelector('.pa-inline-in'), te = row.querySelector('.pa-lineedit');
+  if (ti) { ti.classList.toggle('needs-split', missing.includes('text')); ti.classList.toggle('split-placed', has('text')); }
+  else if (te) te.classList.toggle('needs-split', missing.includes('text'));
+  const l = nodeById(state, p.i);
+  const wrap = row.querySelector('.pa-wavewrap');
+  if (wrap && has('audio') && l && typeof l.start === 'number' && l.end > l.start) {
+    const mark = document.createElement('div');
+    mark.className = 'pa-cutmark';
+    mark.style.left = (Math.min(1, Math.max(0, (p.pos.audio - l.start) / (l.end - l.start))) * 100) + '%';
+    wrap.appendChild(mark);
+  }
+  const cell = row.querySelector('.pa-cell') || row;
+  const prompt = document.createElement('div');
+  prompt.className = 'split-prompt';
+  if (missing.includes('text') || missing.includes('free')) prompt.classList.add('has-caret-scissors');
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'split-cancel'; cancel.textContent = '\u2715';
+  cancel.title = t('split.cancel'); cancel.setAttribute('aria-label', t('split.cancel'));
+  cancel.addEventListener('click', (e) => { e.stopPropagation(); splitCancel(); });
+  prompt.appendChild(cancel);
+  cell.appendChild(prompt);
+  syncCaretScissors();
+}
+
 /* A word and its gloss are edited TOGETHER — they are one unit, and correcting a word while its
  * gloss still says the old thing is how an interlinear text quietly goes wrong. The bin removes
  * the word entirely; the line survives even if it loses every word (it still owns a time span). */
@@ -1956,16 +2071,23 @@ function openLineEditor(row, lineId) {
        * thing as adding a line, so the fast type-Enter-type-Enter flow is unchanged; in the middle
        * it divides the proposition, which is what you meant if you put the cursor there. */
       const caret = input.selectionStart ?? txt.length;
-      /* The suite's one splitting rule: an authored line carries text only (no audio, no glosses),
-       * so its single tier is placed by this caret and the split completes at once. The same
-       * planner decides on the editor's tabs, where a line has more tiers to place. */
-      if (!splitPlan(splitTiers({ tab: 'baseline', text: txt, aligned: false }), { text: caret }).complete) return;
-      const withText = commitText(txt);
-      const next = caret >= txt.trimEnd().length ? addLine(withText, lineId) : splitLine(withText, lineId, caret);
-      focusLineId = next._added;
-      commit(next);
+      if (caret >= txt.trimEnd().length) {   // at the end: a new line, the fast type-Enter-type-Enter flow
+        const next = addLine(commitText(txt), lineId);
+        focusLineId = next._added;
+        commit(next);
+        return;
+      }
+      /* Mid-text: the TEXT tier of the suite's one splitting rule (plans/split-tiers.md). An
+       * authored line carries text alone, so this completes at once; a timed or translated line
+       * waits for its other tiers, exactly as on the editor's tabs. The typed text is committed
+       * first so the split works on what the box shows. */
+      if (txt !== original) { state = commitText(txt); }
+      paPlace(lineId, 'text', caret);
     },
   });
+  // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).
+  registerCaretScissors(input, holder, () => document.activeElement === input && (input.selectionStart ?? 0) < input.value.trimEnd().length,
+    (at) => { if (input.value !== original) { state = setLineText(state, lineId, input.value); } paPlace(lineId, 'text', at); }, t('split.here'));
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Backspace' && !input.value && state.lines.length > 1) {
       e.preventDefault();
@@ -1994,11 +2116,23 @@ function openFreeEditor(row, lineId) {
   holder.querySelector('.pa-freeok').addEventListener('click', (e) => { e.stopPropagation(); save(); });
   holder.querySelector('.pa-freecancel').addEventListener('click', (e) => { e.stopPropagation(); close(); });
   input.addEventListener('click', (e) => e.stopPropagation());
+  const inside = () => { const c = input.selectionStart ?? input.value.length; return input.value.trim() && c > 0 && c < input.value.length; };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      /* Mid-text: the TRANSLATION tier of a split (plans/split-tiers.md); at either end, the tick.
+       * The typed text is committed first so the split works on what the box shows. */
+      if (inside()) { if (input.value !== original) state = setLineFree(state, lineId, input.value); paPlace(lineId, 'free', input.selectionStart); return; }
+      save();
+    }
     // Esc is the app-wide "clear selection" key — swallow it here so it cancels the edit instead.
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
   });
+  // The ✂ under the caret whenever the box has a translation to split (plans/split-tiers.md). At
+  // either end Enter is the tick, but the ✂ still places the tier there: the whole translation
+  // stays on one side, and the words are still to be placed.
+  registerCaretScissors(input, holder, () => document.activeElement === input && !!input.value.trim(),
+    (at) => { if (input.value !== original) state = setLineFree(state, lineId, input.value); paPlace(lineId, 'free', at); }, t('split.here'));
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 }
@@ -2128,9 +2262,16 @@ function renderLineRow(id, nodeLabel = '', header = false) {
   } else if (v.layer === 'interlinear') {
     // Each word is individually editable (Seth, 2026-08-05) — click opens a box for the word AND
     // its gloss together, because the two are one unit; the bin removes the word entirely.
-    const words = (l.words || []).map((w, i) => w.punct
+    // A ✂ between two words is the WORDS tier of a split (plans/split-tiers.md), as on the Gloss tab;
+    // on a timed line an EDGE ✂ before the first and after the last trims the silence at that end
+    // into a line of its own (Seth, 2026-09-07), the translation staying whole with the words.
+    const timed = typeof l.start === 'number' && typeof l.end === 'number' && l.end > l.start;
+    const n = (l.words || []).length;
+    const cutBtn = (gap, tip, extra) => `<button type="button" class="pa-cut${extra}" data-gap="${gap}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">\u2702</button>`;
+    const words = (timed && n ? cutBtn(0, 'gloss.edgeStartTip', ' pa-cut-edge') : '') + (l.words || []).map((w, i) => (i ? cutBtn(i, 'para.cutTip', '') : '') + (w.punct
       ? `<span class="w punct" data-i="${i}"><span class="wt">${esc(w.txt)}</span></span>`
-      : `<span class="w w-edit" data-i="${i}" title="${esc(t('para.wordEditTip'))}"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('');
+      : `<span class="w w-edit" data-i="${i}" title="${esc(t('para.wordEditTip'))}"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`)).join('')
+      + (timed && n ? cutBtn(n, 'gloss.edgeEndTip', ' pa-cut-edge') : '');
     body.push(`<div class="pa-words" data-line="${esc(id)}">${words}</div>`);
   }
   /* The free translation is EDITABLE — the one imported field that is (Seth, 2026-08-05). A pencil
@@ -2162,6 +2303,12 @@ function renderLineRow(id, nodeLabel = '', header = false) {
    * every line there already IS one and a control to add a proposition beneath it is nonsense.
    * Propositions exist to break IMPORTED language data into what it semantically expresses. */
 
+  /* 🔗 JOIN WITH THE NEXT LINE — the chain link, as between two lines on the editor's tabs (Seth,
+   * 2026-09-06). Any blank audio line between the two comes along (joinLines). Not on the last line. */
+  const li = state.lines.findIndex((x) => x.id === id);
+  if (li >= 0 && li < state.lines.length - 1) {
+    body.push(`<div class="pa-linetools"><button type="button" class="pa-join" data-line="${esc(id)}" title="${esc(t('para.joinTip'))}" aria-label="${esc(t('para.joinTip'))}">\ud83d\udd17</button></div>`);
+  }
   body.push('</div>');
   /* ⚠ ADD-PROPOSITION SITS AT THE END OF THE LINE (Seth, 2026-08-07), not in the left gutter.
    * In the gutter it wedged between the play button and the text — crowded, and it pushed the words
@@ -2245,6 +2392,12 @@ function renderLineRow(id, nodeLabel = '', header = false) {
     selection.delete(id);
     commit(deleteLine(state, id));
   });
+  row.querySelectorAll('.pa-cut').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    paPlaceWords(id, +b.dataset.gap);
+  }));
+  const joinBtn = row.querySelector('.pa-join');
+  if (joinBtn) joinBtn.addEventListener('click', (e) => { e.stopPropagation(); paJoin(id); });
   row.querySelectorAll('.w-edit').forEach((w) => {
     w.addEventListener('click', (e) => {
       if (selectFirst(e)) return;

@@ -43,7 +43,7 @@ test('the pending-split engine: one at a time, toggle off, and every cancel with
   assert.match(eng, /p\.pos\[tier\] === value\) \{ splitCancel\(\); return 'cancelled'; \}/, 'the same scissors again toggles it off');
   assert.match(eng, /if \(plan\.complete\) \{\s*\n\s*pendingSplit = null;\s*\n\s*try \{ p\.render\(null\); \} catch \{[^}]*\}\s*\n\s*p\.commit\(p\.pos\);/, 'the write happens once, when the last tier lands');
   assert.match(eng, /if \(e\.key === 'Escape' && pendingSplit\) \{ e\.preventDefault\(\); splitCancel\(\); \}/, 'Escape cancels');
-  assert.match(eng, /closest\('\.split-pending, #audio-player, \.cut-scissors, \.gseg-scissors, \.split-here, \.split-prompt, \.scissor-btn'\)\) return;\s*\n\s*splitCancel\(\);/, 'a tap away from the line cancels');
+  assert.match(eng, /closest\('\.split-pending, #audio-player, \.cut-scissors, \.gseg-scissors, \.split-here, \.split-prompt, \.scissor-btn, \.pa-cut, \.pa-rowcut, \.pa-player, \.pa-rowplay, #btn-undo, #pa-undo, #mg-undo'\)\) return;[^\n]*\n\s*splitCancel\(\);/, 'a tap away from the line cancels');
   assert.match(APP, /function doUndo\(\) \{ if \(splitCancel\(\)\) return;/, 'Undo cancels first');
   assert.match(APP, /function switchTab\(tab, landing\) \{\s*\n\s*splitCancel\(\);/, 'a tab switch cancels');
   assert.match(APP, /current = null;\s*\n\s*splitCancel\(\);/, 'closing the text cancels');
@@ -79,7 +79,7 @@ test('Gloss tab: the ✂ between words, the translation\'s caret and the playhea
   assert.match(APP, /sc\.addEventListener\('click', \(\) => glossPlace\(i, 'words', before\)\);/);
   assert.match(APP, /glossPlace\(i, 'words', atStart \? w : w \+ 1\);/);
   assert.match(APP, /if \(fi\.value\.trim\(\) && joinSplitAllowed\('gloss'\)\) \{ glossPlace\(i, 'free', fi\.selectionStart \?\? fi\.value\.length\); return; \}/, 'mid-text Enter in the translation places its tier');
-  assert.match(APP, /glossPlace\(i, 'words', 0\); glossPlace\(i, 'free', 0\);/, 'Enter at the start: an empty line before, audio still to place');
+  assert.match(APP, /glossPlaceEdge\(i, 0\);/, 'Enter at the start: an empty line before, audio still to place (through the edge helper, v598)');
   assert.match(APP, /if \(onGloss\) glossPlaceAudio\(\); else stripSplitAtPlayhead\(\);/, 'Enter outside the boxes places audio on either tab');
   assert.match(APP, /sc\.addEventListener\('click', \(ev\) => \{ ev\.stopPropagation\(\); glossPlaceAudio\(\); \}\);/, 'a ✂ under the gloss playhead');
   const spec = APP.slice(APP.indexOf('function glossSpec(i)'), APP.indexOf('function glossPlace(i, tier, value)'));
@@ -109,7 +109,7 @@ test('the ✂ for a text tier hangs under the blinking caret and follows it (Set
   const want = STRIPS.slice(STRIPS.indexOf('function stripsCaretWant(input, i)'), STRIPS.indexOf('function stripsCaretWant(input, i)') + 500);
   assert.match(want, /if \(document\.activeElement === input\) return true;/, 'shown whenever the focused box can be split by Enter');
   assert.match(want, /if \(!joinSplitOk\(\) \|\| stripsLocked\(i\)\) return false;/, 'never on a locked line');
-  assert.match(STRIPS, /caretRegs\.set\(input, \{ host, want, onCut, label, dispose: null \}\);[\s\S]{0,400}queueMicrotask\(syncCaretScissors\);/, 'the first sweep waits for the row to be in the document');
+  assert.match(STRIPS, /caretRegs\.set\(input, \{ host, want, onCut, label, dispose: null \}\);[\s\S]{0,800}queueMicrotask\(syncCaretScissors\);/, 'the first sweep waits for the row to be in the document');
   assert.match(STRIPS, /document\.addEventListener\('focusin', \(\) => syncCaretScissors\(\)\);\s*\n\s*document\.addEventListener\('focusout', \(\) => setTimeout\(syncCaretScissors, 0\)\);/, 'follows focus');
   assert.match(STRIPS, /if \(!p\) \{ syncCaretScissors\(\); return; \}/, 're-decided the moment the split completes or cancels');
 });
@@ -124,7 +124,7 @@ test('the join button between two lines is the chain link, the same picture as b
 
 test('the Paragraph Analysis Tool goes through the same planner; words exist in both languages; the styles exist', () => {
   assert.match(PAT, /import \{ splitTiers, splitPlan \} from '\.\/segments\.js';/);
-  assert.match(PAT, /if \(!splitPlan\(splitTiers\(\{ tab: 'baseline', text: txt, aligned: false \}\), \{ text: caret \}\)\.complete\) return;/);
+  assert.match(PAT, /paPlace\(lineId, 'text', caret\);/, 'mid-text Enter places the text tier through the engine (v598)');
   for (const k of ['split.here', 'split.cancel', 'split.no.glossed', 'gloss.editWordTip']) {
     assert.equal((I18N.match(new RegExp(`\n  '${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
   }

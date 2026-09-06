@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v597';
+export const ENGINE_VERSION = 'v598';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -683,6 +683,8 @@ en: {
   'player.home': 'Rewind to the start',
   'edit.undo': 'Undo (Ctrl+Z)',
   'gloss.splitTip': 'Split the line here (text and audio)',
+  'gloss.edgeStartTip': 'Trim the sound before the first word into a line of its own',
+  'gloss.edgeEndTip': 'Trim the sound after the last word into a line of its own',
   'task.ftRetrying': 'Fetching the assigned text\u2026',
   'task.ftRetryReason': 'The assigned text has not arrived: {msg}. It will keep retrying \u2014 the researcher can run fxCheck() on the link.',
   'task.ftStillPending': 'The text has not arrived yet \u2014 it will keep retrying while you are online.',
@@ -1439,6 +1441,9 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.edgeScissors': 'On the Gloss tab (and in the Paragraph Analysis Tool) a timed line also has a \u2702 before its first word and after its last, so the silence at either end can be trimmed into a line of its own; the translation stays whole with the words and only the sound is left to place.'
+    ,'panel.rel.new.scrubFocus': 'Scrubbing a line\u2019s waveform now opens the same momentary close-up on the top player that dragging a boundary does, so the playhead can be placed precisely for a cut. The listening page does the same.'
+    ,'panel.rel.new.patSplit': 'The Paragraph Analysis Tool splits and joins lines by the same rule as the editor: a \u2702 between two words, a \u2702 under the text cursor in a line or its translation, a \u2702 under the row\u2019s playhead, each placing one part, with nothing written until every part the line has is placed; a round \u2715 cancels. The \ud83d\udd17 on a line joins it with the next line, and any blank audio between the two comes along so the joined line covers the whole recording area.'
     ,'panel.rel.new.caretScissors': 'A \u2702 hangs under the blinking text cursor in a line\u2019s box or its translation whenever Enter there would split the line, and follows the cursor, the way the one under the playhead does; a round \u2715 cancels a pending split.'
     ,'panel.rel.new.splitTiers': 'One splitting rule on every tab: a line that already has words cannot be cut on the Cut tab, and a line that already has glosses or a translation cannot be split or joined on the Baseline tab. A split now asks for one position per part the line has \u2014 the playhead for the sound, the cursor for the words or the translation, the \u2702 between two words \u2014 in any order, and does nothing until every part is placed; the part still needed is marked in orange with a \u2702 under it. Escape, Undo, the same \u2702 again or a tap elsewhere cancels. On the Gloss tab a word can now be corrected in place without losing its gloss.'
     ,'panel.rel.new.originalRides': 'The original recording now rides every local save and export: the device\u2019s Share / Save bundle and the satellite \u2934 export (even for a researcher-locked recording), and the panel\u2019s ELAN and SayMore zips beside the timeline WAV. Uploads are unchanged.'
@@ -2216,6 +2221,8 @@ internet after the first time.</p>
   'para.wordPh': 'word',
   'para.glossPh': 'gloss',
   'para.wordDelete': 'Delete this word',
+  'para.cutTip': 'Split the line between these words',
+  'para.joinTip': 'Join with the next line \u2014 any silence between them comes along',
   'para.splitNote': 'Splitting or joining lines is not done here — use the FlexText editor or ELAN for that, then re-import.',
   'para.sfmPasteWay': 'From Toolbox, or SFM kept in a Word or RTF document.',
   'para.scratchWay': 'Type the propositions yourself — no recording or language data needed.',
@@ -3005,6 +3012,8 @@ id: {
   'player.home': 'Kembali ke awal',
   'edit.undo': 'Urungkan (Ctrl+Z)',
   'gloss.splitTip': 'Pisahkan baris di sini (teks dan audio)',
+  'gloss.edgeStartTip': 'Pangkas suara sebelum kata pertama menjadi baris tersendiri',
+  'gloss.edgeEndTip': 'Pangkas suara setelah kata terakhir menjadi baris tersendiri',
   'task.ftRetrying': 'Mengambil teks tugas\u2026',
   'task.ftRetryReason': 'Teks tugas belum diterima: {msg}. Akan terus dicoba.',
   'task.ftStillPending': 'Teks belum diterima \u2014 akan terus dicoba selama Anda online.',
@@ -3639,6 +3648,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.edgeScissors': 'Pada tab Glos (dan di Alat Analisis Paragraf) baris yang berwaktu juga punya \u2702 sebelum kata pertama dan setelah kata terakhir, sehingga keheningan di kedua ujung dapat dipangkas menjadi baris tersendiri; terjemahan tetap utuh bersama kata-katanya dan hanya suara yang tersisa untuk ditempatkan.'
+    ,'panel.rel.new.scrubFocus': 'Menggeser kepala putar pada gelombang sebuah baris kini membuka tampilan dekat sesaat yang sama pada pemutar atas seperti saat menyeret batas, sehingga kepala putar dapat ditempatkan dengan tepat untuk pemotongan. Halaman dengar melakukan hal yang sama.'
+    ,'panel.rel.new.patSplit': 'Alat Analisis Paragraf membagi dan menggabungkan baris dengan aturan yang sama seperti editor: \u2702 di antara dua kata, \u2702 di bawah kursor teks di sebuah baris atau terjemahannya, \u2702 di bawah kepala putar baris, masing-masing menempatkan satu bagian, dan tidak ada yang ditulis sampai setiap bagian yang dimiliki baris ditempatkan; \u2715 bulat membatalkan. \ud83d\udd17 pada sebuah baris menggabungkannya dengan baris berikutnya, dan audio kosong di antara keduanya ikut serta sehingga baris gabungan mencakup seluruh area rekaman.'
     ,'panel.rel.new.caretScissors': 'Sebuah \u2702 menggantung di bawah kursor teks yang berkedip di kotak sebuah baris atau terjemahannya setiap kali Enter di sana akan membagi baris, dan mengikuti kursor, seperti \u2702 di bawah kepala putar; \u2715 bulat membatalkan pembagian yang tertunda.'
     ,'panel.rel.new.splitTiers': 'Satu aturan pembagian di setiap tab: baris yang sudah ada kata-katanya tidak bisa dipotong di tab Potong, dan baris yang sudah punya glos atau terjemahan tidak bisa dibagi atau digabung di tab Ketik. Pembagian kini meminta satu posisi untuk tiap bagian yang dimiliki baris \u2014 kepala putar untuk suara, kursor untuk kata-kata atau terjemahan, \u2702 di antara dua kata \u2014 dalam urutan apa pun, dan tidak melakukan apa-apa sampai semua bagian ditempatkan; bagian yang masih diperlukan ditandai jingga dengan \u2702 di bawahnya. Escape, Urungkan, \u2702 yang sama lagi, atau ketukan di tempat lain membatalkan. Di tab Terjemahan Balik, sebuah kata kini bisa diperbaiki di tempat tanpa kehilangan glosnya.'
     ,'panel.rel.new.originalRides': 'Rekaman asli kini ikut di setiap simpanan dan ekspor lokal: bundel Bagikan / Simpan perangkat dan ekspor \u2934 aplikasi satelit (termasuk rekaman yang dikunci peneliti), serta zip ELAN dan SayMore panel di samping WAV lini masa. Unggahan tidak berubah.'
@@ -4330,6 +4342,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.wordPh': 'kata',
   'para.glossPh': 'glos',
   'para.wordDelete': 'Hapus kata ini',
+  'para.cutTip': 'Bagi baris di antara kedua kata ini',
+  'para.joinTip': 'Gabungkan dengan baris berikutnya \u2014 keheningan di antaranya ikut serta',
   'para.splitNote': 'Memecah atau menggabung baris tidak dilakukan di sini — pakai editor FlexText atau ELAN, lalu impor ulang.',
   'para.sfmPasteWay': 'Dari Toolbox, atau SFM yang tersimpan di dokumen Word atau RTF.',
   'para.scratchWay': 'Ketik sendiri proposisinya — tanpa rekaman atau data bahasa.',

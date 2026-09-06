@@ -565,6 +565,12 @@ export function splitTiers(info) {
     if (String(info.free || '').trim()) tiers.push('free');
   } else if (info && info.tab === 'baseline') {
     if (String(info.text || '').trim()) tiers.push('text');
+  } else if (info && info.tab === 'interlinear') {
+    // The Paragraph Analysis Tool: one view of the whole interlinear. Words when the line has them
+    // (an imported text), else its text (an authored chart); the translation when there is one.
+    if ((info.words || 0) > 0) tiers.push('words');
+    else if (String(info.text || '').trim()) tiers.push('text');
+    if (String(info.free || '').trim()) tiers.push('free');
   }
   return tiers;
 }

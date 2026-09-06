@@ -52,6 +52,13 @@ All seven sites and the GitHub Pages editor are at v597 in production; staging m
   split and follows it; a round ✕ cancels; the join button between lines is the chain link. Words
   on the Gloss tab are editable in place. Each piece of a split is its own phrase in the FLExText.
   The Paragraph Analysis Tool goes through the same planner.
+- **The tool splits and joins; edge trims; scrub close-up (v598, on staging).** The Paragraph
+  Analysis Tool has the full rule: a ✂ between two words, under the text cursor in a line or its
+  translation, and under the row's playhead; a 🔗 joins with the next line and absorbs any blank
+  audio between the two so the joined line spans the whole recording area. On the Gloss tab and in
+  the tool a timed line also carries a ✂ before its first word and after its last, to trim the
+  silence at that end into a line of its own. Scrubbing a line's waveform opens the same momentary
+  close-up on the top player that dragging a boundary does, on the editor and the listening page.
 
 ## 2. In progress
 

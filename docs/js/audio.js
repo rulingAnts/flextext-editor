@@ -617,6 +617,13 @@ export async function fetchFileViaUrl(url) {
 const ZOOM_MIN = 1;     // px per second (fit-ish)
 const ZOOM_MAX = 300;
 
+/* The overview waveform's height, as the stylesheet says for THIS screen: .player-wave's
+ * min-height is 72px on a desktop, 56 on a tablet, 44 on a phone (app.css, the v548 tiers). */
+function overviewHeight(el) {
+  try { const h = parseInt(getComputedStyle(el).minHeight, 10); if (Number.isFinite(h) && h >= 24) return h; } catch { /* no layout yet */ }
+  return 72;
+}
+
 export class Player {
   /**
    * @param {HTMLElement} root - container with the expected sub-elements
@@ -705,10 +712,18 @@ export class Player {
     this._expectedBytes = media.total != null ? media.total : null;
     this._srcKind = (media.mimeType || media.blob && media.blob.type) || 'unknown';
     this.objectUrl = URL.createObjectURL(media.blob);
+    /* ⚠ THE WAVEFORM'S HEIGHT COMES FROM THE STYLESHEET (Seth, 2026-09-06: "our auto-reduction of
+     * the big/overview player that we used to have for mobile devices seems to be not working
+     * anymore"). v548 gave .player-wave three sizes by screen (72 / 56 / 44px min-height) but the
+     * canvas was still created at a fixed 72, so the smaller tiers only ever tightened the padding —
+     * a min-height cannot shrink a taller child. The canvas now takes its height from the computed
+     * min-height, and follows it when the screen changes (rotation, a resized window, a text-size
+     * change): see attachWaveResize. */
+    this._fittedHeight = overviewHeight(this.el.wave);
     const opts = {
       container: this.el.wave,
       url: this.objectUrl,
-      height: 72,
+      height: this._fittedHeight,
       waveColor: '#9db4d4',
       progressColor: '#1f4f8f',
       cursorColor: '#c0392b',
@@ -944,8 +959,24 @@ export class Player {
     this._waveRO = new ResizeObserver(() => {
       const w = this.el.wave.clientWidth;
       if (w > 0 && w !== this._fittedWidth) this.fitZoom();
+      this.fitHeight();
     });
     try { this._waveRO.observe(this.el.wave); } catch { this._waveRO = null; }
+    // A tier change (rotation, a narrowed window) moves the stylesheet's min-height without
+    // necessarily changing the element's box, which the ResizeObserver would not see.
+    if (!this._onWinResize) {
+      this._onWinResize = () => { clearTimeout(this._fitHeightT); this._fitHeightT = setTimeout(() => this.fitHeight(), 120); };
+      window.addEventListener('resize', this._onWinResize);
+    }
+  }
+
+  /* Re-read the stylesheet's height for the overview and hand it to wavesurfer when it changed. */
+  fitHeight() {
+    if (!this.ws) return;
+    const h = overviewHeight(this.el.wave);
+    if (h === this._fittedHeight) return;
+    this._fittedHeight = h;
+    try { this.ws.setOptions({ height: h }); } catch { /* an old wavesurfer without setOptions keeps its height */ }
   }
 
   setBoundaries(list) {
@@ -1184,6 +1215,7 @@ export class Player {
     this._boundLayer = null;   // it lived inside the wrapper being destroyed
     this._peaksOnly = false;   // a property of the load just discarded, not of the next one
     if (this.ws) { try { this.ws.destroy(); } catch { /* noop */ } this.ws = null; }
+    if (this._onWinResize) { window.removeEventListener('resize', this._onWinResize); this._onWinResize = null; }
     if (this.objectUrl) { URL.revokeObjectURL(this.objectUrl); this.objectUrl = null; }
     this.el.play.textContent = '▶';
     this.el.time.textContent = '';

@@ -195,3 +195,8 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Save shows a disk, Done — send a green check and a send arrow, the tabs a waveform / typing mark / interlinear rows, each with its label. In Indonesian too, the row stays on one line on a laptop and on the tablet.
 - [ ] Tablet, Cut or Baseline tab with many strips: a finger dragged up or down anywhere on the strips scrolls, even at a slant. A tap on a strip places the playhead line. Touching anywhere on that line and dragging scrubs that line. The same three on the listening page.
 
+## Top-row labels and the small-screen player (v589)
+
+- [ ] Settings ▸ Other ▸ "Top-row buttons and tabs": Icons only hides the words on Cut / Baseline / Gloss / Save / Done; Words only hides the icons; Icons and words shows both; Automatic shows icons only when the window is narrower than 1000 px and both above. Same field in the researcher panel, pushed to a device.
+- [ ] Phone: the top player's waveform is visibly shorter than on a laptop (44 px vs 72 px); tablet 56 px. Rotate the phone: it follows.
+

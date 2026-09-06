@@ -50,3 +50,25 @@ test('the Cut, Baseline and Gloss tabs carry an icon beside a label the i18n bin
   assert.match(CSS, /\.top-tab \{ display: inline-flex; align-items: center; gap: 6px; \}/);
 });
 
+
+test('the researcher chooses words, icons, both, or auto; auto is icons only below 1000 px wide', () => {
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  for (const [name, src] of [['app', APP], ['panel', PANEL]]) {
+    assert.match(src, /\{ k: 'headerLabels', type: 'select', opts: \['auto', 'both', 'icons', 'text'\], optPrefix: 'panel\.opt\.labels\.', note: 'panel\.f\.headerLabelsNote' \}/, `${name}: the select`);
+    assert.match(src, /else if \(f\.k === 'headerLabels'\) v\.headerLabels = s\.headerLabels \|\| 'auto';/, `${name}: unset shows Automatic`);
+  }
+  const fn = APP.slice(APP.indexOf('function applyHeaderLabels()'));
+  const body = fn.slice(0, fn.indexOf('\n}\n') + 3);
+  assert.match(APP, /const ICONS_BELOW_PX = 1000;/, 'Seth: less than 1000 px wide = icons only');
+  assert.doesNotMatch(APP.slice(APP.indexOf('function applyHeaderLabels()'), APP.indexOf('function applyUiScale()')), /userAgent|maxTouchPoints|pointer: coarse/, 'width only, never the user agent');
+  assert.match(body, /matchMedia\(`\(max-width: \$\{ICONS_BELOW_PX - 1\}px\)`\)/, 'auto follows the viewport width: 999 px and below');
+  assert.match(body, /headerLabelsMql\.addEventListener\('change', \(\) => applyHeaderLabels\(\)\)/, 'and re-decides live');
+  assert.match(body, /mode = headerLabelsMql && headerLabelsMql\.matches \? 'icons' : 'both';/);
+  assert.match(body, /document\.documentElement\.dataset\.labels = mode;/);
+  assert.match(APP, /applyUiScale\(\);\n  applyHeaderLabels\(\);\n  applyI18n\(\);/, 'applied at boot');
+  assert.match(APP, /applyUiScale\(\);   \/\/ a pushed text size lands live, in every app\n  applyHeaderLabels\(\);/, 'and on every settings push');
+  assert.match(APP.slice(APP.indexOf('const SEGMENTER_SETUP_KEYS'), APP.indexOf('const SEGMENTER_SETUP_KEYS') + 320), /'headerLabels'/, 'the segmenter has the header too');
+  assert.match(CSS, /html\[data-labels="icons"\] #topbar-editor \.btn-icon span, html\[data-labels="icons"\] #topbar-editor \.top-tab span \{ display: none; \}/);
+  assert.match(CSS, /html\[data-labels="text"\] #topbar-editor \.btn-icon \.ico, html\[data-labels="text"\] #topbar-editor \.top-tab \.tab-ico \{ display: none; \}/);
+  assert.doesNotMatch(CSS, /html\[data-labels="icons"\] #topbar-home/, 'home tabs keep their words in every mode');
+});

@@ -22,7 +22,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, splitPromptText,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -1399,7 +1399,7 @@ function renderGlossPending(p) {
   body.querySelectorAll('.split-pending').forEach((g) => g.classList.remove('split-pending'));
   body.querySelectorAll('.needs-split, .split-placed').forEach((el) => el.classList.remove('needs-split', 'split-placed'));
   body.querySelectorAll('.split-prompt, .gseg-cutmark').forEach((el) => el.remove());
-  if (!p) return;
+  if (!p) { syncCaretScissors(); return; }
   const g = body.querySelectorAll('.segment')[p.i];
   if (!g) return;
   g.classList.add('split-pending');
@@ -1418,21 +1418,27 @@ function renderGlossPending(p) {
   }
   const prompt = document.createElement('div');
   prompt.className = 'split-prompt';
-  if (missing.includes('free') && fi) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'split-here'; b.textContent = '\u2702';
-    b.title = t('split.here'); b.setAttribute('aria-label', t('split.here'));
-    b.addEventListener('click', () => glossPlace(p.i, 'free', fi.selectionStart ?? fi.value.length));
-    prompt.appendChild(b);
-  }
+  // The ✂ for the translation hangs under the caret (registerCaretScissors, in the free row); the prompt keeps clear of it.
+  if (missing.includes('free') && fi) prompt.classList.add('has-caret-scissors');
   const say = document.createElement('span');
-  say.textContent = t('split.now.' + missing[0]);
+  say.textContent = splitPromptText(t, missing);
   prompt.appendChild(say);
   const cancel = document.createElement('button');
   cancel.type = 'button'; cancel.className = 'link-btn split-cancel'; cancel.textContent = t('split.cancel');
   cancel.addEventListener('click', () => splitCancel());
   prompt.appendChild(cancel);
   g.appendChild(prompt);
+  syncCaretScissors();
+}
+/* When a translation box shows the ✂ under its caret: focused with something to split, or its
+ * line's pending split still needs the translation's side. */
+function glossCaretWant(fi, seg) {
+  if (!current || !joinSplitAllowed('gloss') || !fi.value.trim()) return false;
+  const i = current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg);
+  if (i < 0) return false;
+  if (document.activeElement === fi) return true;
+  const p = splitPending();
+  return !!(p && p.tab === 'gloss' && p.i === i && !Object.prototype.hasOwnProperty.call(p.pos, 'free'));
 }
 /* Baseline editing on the Gloss tab, one word at a time (Seth, 2026-09-06: "so people can correct
  * misspelled words without losing their glosses"). The line's text is rebuilt from its words, the
@@ -3846,6 +3852,11 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   input.value = seg.free || '';
   if (analFont) input.style.fontFamily = analFont;
   input.addEventListener('input', () => { seg.free = input.value; schedulePersist(); });
+  // The ✂ under the caret, whenever Enter here would place a split (plans/split-tiers.md).
+  registerCaretScissors(input, freeRow, () => glossCaretWant(input, seg), (at) => {
+    const i = current ? current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg) : -1;
+    if (i >= 0) glossPlace(i, 'free', at);
+  }, t('split.here'));
   /* ⚠ THE FREE TRANSLATION IS PART OF THE SAME WALK. Without this it had no Tab handler at all, so
    * Tab out of it fell back to the native order — which is the next BUTTON, not the next gloss.
    * focusNextWordGloss walks '.gloss-input, .free-input' in DOM order, so the last gloss of a line

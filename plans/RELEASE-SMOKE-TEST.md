@@ -275,3 +275,14 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       first.
 - [ ] Cut tab is unchanged: Enter or ✂ cuts at the playhead; a texted line refuses.
 - [ ] Paragraph Analysis Tool: Enter inside an authored line still splits it at the cursor.
+
+## The ✂ under the text cursor (v594)
+
+- [ ] Baseline tab: click into any line's box: a ✂ hangs directly under the blinking cursor; the
+      arrow keys, a click elsewhere in the text, or typing moves it; tapping it does what Enter does.
+      No ✂ on a glossed (locked) line, nor when the researcher has turned split/join off.
+- [ ] Baseline tab, a split started with the playhead: the box turns orange and the ✂ stays under
+      the cursor even after clicking away; tapping it places the words' side exactly at the cursor.
+- [ ] Gloss tab, a split started with the scissors between two words: the same ✂ under the cursor
+      in the translation box, following it; the prompt names both the sound and the translation
+      while both are still to be placed, then only the one left.

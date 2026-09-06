@@ -46,6 +46,13 @@ let followRow = null;             // the line the playhead is in, so we only aut
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
+/* THE JOIN/SPLIT UI IS A SWITCH, OFF BY DEFAULT (Seth, 2026-09-07: "a 'join/split' button that
+ * toggles the join/split UI options (scissors and chain links) on and off (when off, just a normal
+ * playhead shows)"). Grouping, editing and playback never depend on it. A device preference, not a
+ * document setting: a colleague opening the file gets the plain view. */
+const JOIN_SPLIT_KEY = 'pa.joinSplit';
+let joinSplitOn = false;
+try { joinSplitOn = localStorage.getItem(JOIN_SPLIT_KEY) === '1'; } catch { /* private mode: off */ }
 
 const $ = (sel) => root.querySelector(sel);
 
@@ -59,7 +66,7 @@ export function initParagraphApp() {
   /* Enter with no box focused places the AUDIO tier of a split at the playhead, on the line the
    * playhead is in — the same gesture as the editor's Baseline and Gloss tabs. */
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.repeat || e.metaKey || e.ctrlKey || e.altKey || !state || !audio) return;
+    if (e.key !== 'Enter' || e.repeat || e.metaKey || e.ctrlKey || e.altKey || !state || !audio || !joinSplitOn) return;
     const el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.isContentEditable)) return;
     if (document.querySelector('.modal:not([hidden]), dialog[open]')) return;
@@ -1074,12 +1081,13 @@ function stepZoom(dir) {
 if (typeof window !== 'undefined') {
   document.addEventListener('keydown', (e) => {
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-    if (String(e.key).toLowerCase() !== 'z') return;
+    const k = String(e.key).toLowerCase();
+    if (k !== 'z' && k !== 'y') return;   // Ctrl+Z / Ctrl+Shift+Z, and Ctrl+Y for redo (Seth, 2026-09-07)
     const el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
     if (!state) return;
     e.preventDefault();
-    if (e.shiftKey) doRedo(); else doUndo();
+    if (e.shiftKey || k === 'y') doRedo(); else doUndo();
   }, true);
 }
 
@@ -1353,17 +1361,20 @@ function startTicker() {
             const x = ((tNow - s) / (e - s)) * wrap.clientWidth;
             cur.style.left = x + 'px';
             // ✂ under the playhead: the AUDIO tier of a split on this line (plans/split-tiers.md).
-            if (!sc) {
+            if (!sc && joinSplitOn) {
               sc = document.createElement('button');
               sc.type = 'button'; sc.className = 'cut-scissors pa-rowcut'; sc.tabIndex = -1; sc.textContent = '\u2702';
               sc.title = t('cut.cut'); sc.setAttribute('aria-label', t('cut.cut'));
               sc.addEventListener('click', (ev) => { ev.stopPropagation(); if (audio) paPlace(row.dataset.unit, 'audio', audio.currentTime * 1000); });
               wrap.appendChild(sc);
             }
+            if (sc && !joinSplitOn) { sc.remove(); sc = null; }   // the switch went off: a plain playhead
+            if (sc) {
             sc.style.left = x + 'px';
             const p = splitPending();
             const pend = !!(p && p.tab === 'paragraph' && p.i === row.dataset.unit && !Object.prototype.hasOwnProperty.call(p.pos, 'audio'));
             if (sc.classList.contains('needs-split') !== pend) sc.classList.toggle('needs-split', pend);
+            }
           } else {
             if (cur.style.display !== 'none') cur.style.display = 'none';
             if (sc) sc.remove();
@@ -1533,6 +1544,7 @@ function renderWorkInner() {
         <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
+        <button class="secondary-btn" id="pa-joinsplit" aria-pressed="${joinSplitOn ? 'true' : 'false'}" title="${esc(t('para.joinSplitTip'))}">\u2702 ${esc(t('para.joinSplit'))}</button>
         <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
         <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
         <button class="secondary-btn pa-iconbtn" id="pa-chart" title="${esc(t('para.chartTip'))}"
@@ -1669,6 +1681,7 @@ function renderWorkInner() {
   $('#pa-zoom-in').addEventListener('click', () => stepZoom(1));
   applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
+  $('#pa-joinsplit').addEventListener('click', toggleJoinSplit);
   refreshUndoButtons();
   $('#pa-collapse-all').addEventListener('click', () => { closeMenus(); collapseAllAction(true); });
   $('#pa-expand-all').addEventListener('click', () => { closeMenus(); collapseAllAction(false); });
@@ -1972,7 +1985,14 @@ function paSpec(id) {
     render: paRenderPending,
   };
 }
+function toggleJoinSplit() {
+  joinSplitOn = !joinSplitOn;
+  try { localStorage.setItem(JOIN_SPLIT_KEY, joinSplitOn ? '1' : '0'); } catch { /* non-fatal */ }
+  splitCancel();   // switching off mid-split abandons it, nothing written
+  renderWork();
+}
 function paPlace(id, tier, value) {
+  if (!joinSplitOn) return 'ignored';
   if (!state || !nodeById(state, id)) return 'ignored';
   return splitPlace({ tab: 'paragraph', i: id }, tier, value, paSpec(id));
 }
@@ -2081,12 +2101,18 @@ function openLineEditor(row, lineId) {
        * authored line carries text alone, so this completes at once; a timed or translated line
        * waits for its other tiers, exactly as on the editor's tabs. The typed text is committed
        * first so the split works on what the box shows. */
+      if (!joinSplitOn) {   // the join/split UI is off: the plain text-only break of an authored line, as before v598
+        const next = splitLine(commitText(txt), lineId, caret);
+        focusLineId = next._added;
+        commit(next);
+        return;
+      }
       if (txt !== original) { state = commitText(txt); }
       paPlace(lineId, 'text', caret);
     },
   });
   // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).
-  registerCaretScissors(input, holder, () => document.activeElement === input && (input.selectionStart ?? 0) < input.value.trimEnd().length,
+  registerCaretScissors(input, holder, () => joinSplitOn && document.activeElement === input && (input.selectionStart ?? 0) < input.value.trimEnd().length,
     (at) => { if (input.value !== original) { state = setLineText(state, lineId, input.value); } paPlace(lineId, 'text', at); }, t('split.here'));
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Backspace' && !input.value && state.lines.length > 1) {
@@ -2122,7 +2148,7 @@ function openFreeEditor(row, lineId) {
       e.preventDefault();
       /* Mid-text: the TRANSLATION tier of a split (plans/split-tiers.md); at either end, the tick.
        * The typed text is committed first so the split works on what the box shows. */
-      if (inside()) { if (input.value !== original) state = setLineFree(state, lineId, input.value); paPlace(lineId, 'free', input.selectionStart); return; }
+      if (joinSplitOn && inside()) { if (input.value !== original) state = setLineFree(state, lineId, input.value); paPlace(lineId, 'free', input.selectionStart); return; }
       save();
     }
     // Esc is the app-wide "clear selection" key — swallow it here so it cancels the edit instead.
@@ -2131,7 +2157,7 @@ function openFreeEditor(row, lineId) {
   // The ✂ under the caret whenever the box has a translation to split (plans/split-tiers.md). At
   // either end Enter is the tick, but the ✂ still places the tier there: the whole translation
   // stays on one side, and the words are still to be placed.
-  registerCaretScissors(input, holder, () => document.activeElement === input && !!input.value.trim(),
+  registerCaretScissors(input, holder, () => joinSplitOn && document.activeElement === input && !!input.value.trim(),
     (at) => { if (input.value !== original) state = setLineFree(state, lineId, input.value); paPlace(lineId, 'free', at); }, t('split.here'));
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
@@ -2267,11 +2293,12 @@ function renderLineRow(id, nodeLabel = '', header = false) {
     // into a line of its own (Seth, 2026-09-07), the translation staying whole with the words.
     const timed = typeof l.start === 'number' && typeof l.end === 'number' && l.end > l.start;
     const n = (l.words || []).length;
+    const cuts = joinSplitOn;   // the switch (toggleJoinSplit): off, and the line shows no ✂ at all
     const cutBtn = (gap, tip, extra) => `<button type="button" class="pa-cut${extra}" data-gap="${gap}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">\u2702</button>`;
-    const words = (timed && n ? cutBtn(0, 'gloss.edgeStartTip', ' pa-cut-edge') : '') + (l.words || []).map((w, i) => (i ? cutBtn(i, 'para.cutTip', '') : '') + (w.punct
+    const words = (cuts && timed && n ? cutBtn(0, 'gloss.edgeStartTip', ' pa-cut-edge') : '') + (l.words || []).map((w, i) => (cuts && i ? cutBtn(i, 'para.cutTip', '') : '') + (w.punct
       ? `<span class="w punct" data-i="${i}"><span class="wt">${esc(w.txt)}</span></span>`
       : `<span class="w w-edit" data-i="${i}" title="${esc(t('para.wordEditTip'))}"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`)).join('')
-      + (timed && n ? cutBtn(n, 'gloss.edgeEndTip', ' pa-cut-edge') : '');
+      + (cuts && timed && n ? cutBtn(n, 'gloss.edgeEndTip', ' pa-cut-edge') : '');
     body.push(`<div class="pa-words" data-line="${esc(id)}">${words}</div>`);
   }
   /* The free translation is EDITABLE — the one imported field that is (Seth, 2026-08-05). A pencil
@@ -2306,7 +2333,7 @@ function renderLineRow(id, nodeLabel = '', header = false) {
   /* 🔗 JOIN WITH THE NEXT LINE — the chain link, as between two lines on the editor's tabs (Seth,
    * 2026-09-06). Any blank audio line between the two comes along (joinLines). Not on the last line. */
   const li = state.lines.findIndex((x) => x.id === id);
-  if (li >= 0 && li < state.lines.length - 1) {
+  if (joinSplitOn && li >= 0 && li < state.lines.length - 1) {
     body.push(`<div class="pa-linetools"><button type="button" class="pa-join" data-line="${esc(id)}" title="${esc(t('para.joinTip'))}" aria-label="${esc(t('para.joinTip'))}">\ud83d\udd17</button></div>`);
   }
   body.push('</div>');

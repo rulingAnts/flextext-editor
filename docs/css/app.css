@@ -2166,6 +2166,7 @@ body.rp-standalone main { padding-top: 0; }
            border-radius: 6px; min-width: 34px; height: 24px; font-size: 12px; cursor: pointer; padding: 0 6px; }
 .pa-join:hover { background: #ece3f7; color: #5b3d8a; }
 .pa-authored, .pa-free { position: relative; }
+.pa-actions .secondary-btn[aria-pressed="true"] { background: #ece3f7; border-color: #5b3d8a; color: #5b3d8a; }   /* the Join/split switch, on */
 .pa-row.split-pending { outline: 2px solid #f0a060; outline-offset: 2px; }
 .pa-free { color: var(--text); font-size: 14px; margin-top: 2px; font-style: italic; }
 .pa-rowplay { flex: none; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 50%; background: var(--bg); cursor: pointer; font-size: 13px; line-height: 1; }

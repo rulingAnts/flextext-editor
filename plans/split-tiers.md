@@ -120,6 +120,10 @@ translation stays one text box per language.
   tier lands at 0 or the count, the translation's tier at the same edge (the whole translation
   stays with the words), and only the sound is left to place. A line without a time has no edge to
   trim and shows none.
+- **The tool's switch** (Seth, 2026-09-07): in the Paragraph Analysis Tool the ✂ and 🔗 are behind a
+  Join/split toolbar button, off by default and remembered per device. Off, a line shows a plain
+  playhead, nothing can be placed, Enter in a translation box saves, and Enter mid-text in an
+  authored line's box is the plain text-only break it always was.
 
 ## 5. Where the code goes
 

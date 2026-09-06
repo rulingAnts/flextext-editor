@@ -108,6 +108,7 @@ test('the ✂ for a text tier hangs under the blinking caret and follows it (Set
   const want = STRIPS.slice(STRIPS.indexOf('function stripsCaretWant(input, i)'), STRIPS.indexOf('function stripsCaretWant(input, i)') + 500);
   assert.match(want, /if \(document\.activeElement === input\) return true;/, 'shown whenever the focused box can be split by Enter');
   assert.match(want, /if \(!joinSplitOk\(\) \|\| stripsLocked\(i\)\) return false;/, 'never on a locked line');
+  assert.match(STRIPS, /caretRegs\.set\(input, \{ host, want, onCut, label, dispose: null \}\);[\s\S]{0,400}queueMicrotask\(syncCaretScissors\);/, 'the first sweep waits for the row to be in the document');
   assert.match(STRIPS, /document\.addEventListener\('focusin', \(\) => syncCaretScissors\(\)\);\s*\n\s*document\.addEventListener\('focusout', \(\) => setTimeout\(syncCaretScissors, 0\)\);/, 'follows focus');
   assert.match(APP, /say\.textContent = splitPromptText\(t, missing\);/, 'the Gloss prompt names every missing tier');
   assert.match(STRIPS, /if \(!p\) \{ syncCaretScissors\(\); return; \}/, 're-decided the moment the split completes or cancels');
@@ -122,6 +123,9 @@ test('the Paragraph Analysis Tool goes through the same planner; words exist in 
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.splitTiers': '/g) || []).length, 2, 'release note in EN and ID');
   assert.match(CSS, /\.needs-split \{ outline: 3px solid #e65100 !important; outline-offset: 1px; caret-color: #e65100;/, 'a thick orange border and a glowing caret');
   assert.match(CSS, /\.caret-scissors \{ border-color: #e65100;/, 'the ✂ under the caret');
+  assert.match(STRIPS, /cancel\.className = 'split-cancel'; cancel\.textContent = '\\u2715';/, 'cancel is an icon button (Seth, 2026-09-06)');
+  assert.match(APP, /cancel\.className = 'split-cancel'; cancel\.textContent = '\\u2715';/, 'on the Gloss tab too');
+  assert.match(CSS, /\.split-prompt \.split-cancel \{ margin-left: auto; appearance: none; border: 1px solid #b23c00;/, 'round, like the ✂');
   assert.match(CSS, /\.free-row \{\n  position: relative;/, 'the translation row positions it');
   assert.match(CSS, /\.seg-strip\.seg-locked \{ background: var\(--panel, #f4f6fa\); \}/, 'a locked line');
   assert.match(CSS, /\.word-txt\[contenteditable\] \{ cursor: text;/);

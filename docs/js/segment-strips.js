@@ -118,7 +118,10 @@ export function registerCaretScissors(input, host, want, onCut, label) {
   const had = caretRegs.get(input);
   if (had && had.dispose) had.dispose();
   caretRegs.set(input, { host, want, onCut, label, dispose: null });
-  syncCaretScissors();
+  /* ⚠ NOT A SYNCHRONOUS SWEEP: a box registers while its row is still being built, before it is in
+   * the document, and the sweep drops any box that is not connected — so it dropped the box it had
+   * just been handed. By the microtask the render has appended the row. */
+  queueMicrotask(syncCaretScissors);
 }
 export function syncCaretScissors() {
   for (const [input, r] of caretRegs) {
@@ -127,6 +130,9 @@ export function syncCaretScissors() {
     try { want = !!r.want(); } catch { want = false; }
     if (want && !r.dispose) r.dispose = attachCaretScissors(input, r.host, r.onCut, r.label);
     else if (!want && r.dispose) { r.dispose(); r.dispose = null; }
+    // The pending prompt steps down from under the ✂ whenever one is showing on its line.
+    const prompt = r.host.closest && r.host.closest('.seg-strip, .segment') && r.host.closest('.seg-strip, .segment').querySelector('.split-prompt');
+    if (prompt) prompt.classList.toggle('has-caret-scissors', !!r.dispose);
   }
 }
 export function attachCaretScissors(input, host, onCut, label) {
@@ -942,8 +948,10 @@ function renderStripsPending(p) {
   const say = document.createElement('span');
   say.textContent = splitPromptText(deps.t, missing);
   prompt.appendChild(say);
+  // An icon button, not a text link (Seth, 2026-09-06): the round ✕ beside the round ✂.
   const cancel = document.createElement('button');
-  cancel.type = 'button'; cancel.className = 'link-btn split-cancel'; cancel.textContent = deps.t('split.cancel');
+  cancel.type = 'button'; cancel.className = 'split-cancel'; cancel.textContent = '\u2715';
+  cancel.title = deps.t('split.cancel'); cancel.setAttribute('aria-label', deps.t('split.cancel'));
   cancel.addEventListener('click', () => splitCancel());
   prompt.appendChild(cancel);
   row.appendChild(prompt);
@@ -1074,7 +1082,7 @@ function positionCursor() {
       const rolling = p?.playing?.() && inSeg;
       if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
       if (inSeg) { takeReveal(row); followRow = followLine(row, rolling, followRow, p); }
-      let sc = row.querySelector('.cut-scissors');
+      let sc = row.querySelector('.cut-scissors:not(.caret-scissors)');   // the playhead's ✂, never the one under a text cursor (attachCaretScissors)
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
         const wave = row.querySelector('.seg-wave');
@@ -1698,7 +1706,7 @@ function startCutTicker() {
         // from a seek on the whole-file player — see requestReveal.
         if (inSeg) { takeReveal(row); cutFollowRow = followLine(row, rolling, cutFollowRow, p); }
         let cur = row.querySelector('.seg-cursor');
-        let sc = row.querySelector('.cut-scissors');
+        let sc = row.querySelector('.cut-scissors:not(.caret-scissors)');   // the playhead's ✂, never the one under a text cursor (attachCaretScissors)
         if (inSeg) {
           if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
           const w = row.querySelector('.seg-wave');

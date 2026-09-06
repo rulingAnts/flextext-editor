@@ -261,7 +261,7 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       with no box focused, or the ✂ under the playhead, places the sound; nothing changes until both
       are placed, then one line becomes two and one Ctrl+Z undoes it. Starting with the playhead
       first works the same way in the other order.
-- [ ] Cancel: Escape; the same ✂ again; clicking another line; Undo; switching tab. After each, the
+- [ ] Cancel: Escape; the same ✂ again; the round ✕; clicking another line; Undo; switching tab. After each, the
       text is unchanged and Undo has nothing new to undo.
 - [ ] Baseline tab, a line that has a gloss or a translation: drawn grey, no join button beside it,
       Enter and the playhead ✂ refuse with the message; joining onto it refuses too.
@@ -276,7 +276,7 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Cut tab is unchanged: Enter or ✂ cuts at the playhead; a texted line refuses.
 - [ ] Paragraph Analysis Tool: Enter inside an authored line still splits it at the cursor.
 
-## The ✂ under the text cursor (v594)
+## The ✂ under the text cursor (v595)
 
 - [ ] Baseline tab: click into any line's box: a ✂ hangs directly under the blinking cursor; the
       arrow keys, a click elsewhere in the text, or typing moves it; tapping it does what Enter does.

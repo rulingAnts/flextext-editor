@@ -73,6 +73,16 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **The recording is never one string (v614).** Seth hit "Could not build the download: allocation
+  size overflow" exporting a .fxpa from the Audio Segmenter and "Download failed" building a listening
+  page in the panel — one shared engine path. Measured in headless Firefox 155 on the rig: Firefox
+  refuses to JSON.stringify a string past ~179M characters (~134 MB of audio), under the 200 MB size
+  gate; V8 quietly yields nothing past its 536.9M-character cap. The engine now assembles both files
+  around the recording as Blob chunks (seg-exports.js `fxpaBlob` / `previewBlob`, on `spliceB64` +
+  `b64PartsOf`), byte-identical to before, and the listening page decodes chunk by chunk. The tool's
+  save, export and autosave use the same primitives (autosave keeps the recording in its own record).
+  The Audio Segmenter gained a listening-page download; dropping ELAN's .pfsx sidecar on the tool now
+  says what it is. Verified at 150/200/300 MB in Firefox and Chromium.
 - **A cancelled upload cleans up after itself (v613, #55).** Seth: "deleting the half-made text is
   the right decision here." The manifest is written before the first source byte, so a cancel used
   to leave a text in the estate with no recording and no way to resume it. Cancel now trashes the

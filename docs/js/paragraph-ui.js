@@ -20,7 +20,7 @@ import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flext
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
          normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm } from './sfm.js';
-import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, rasterizeSsa } from './paragraph-export.js';
+import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, rasterizeSsa, fxpaBlobOf, paragraphPreviewBlob } from './paragraph-export.js';
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
@@ -33,6 +33,13 @@ import {
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
+/* The recording lives in its OWN record, written once per recording rather than re-serialised on
+ * every edit (2026-09-07): the working text is a few KB and changes constantly; the audio is
+ * hundreds of MB and never does. Stringifying the two together on each keystroke was a
+ * whole-recording JSON.stringify per edit — the very call Firefox refuses above ~134 MB, and it
+ * threw BEFORE the render, so the tool appeared to stop responding. */
+const WORKING_AUDIO_KEY = 'fxpa:working-audio';
+let persistedAudio = null;   // the state.audio object the audio record was last written for
 const EAF_MAP_KEY = 'fxpa:eaf-mapping';   // the last tier mapping, so a repeated file shape is one click
 const SFM_MAP_KEY = 'fxpa:sfm-mapping';
 
@@ -79,11 +86,22 @@ export function initParagraphApp() {
     paPlace(l.id, 'audio', tNow);
   });
   // A reload must not lose the session: restore the working copy if one exists.
-  db.getMedia(WORKING_KEY).then((rec) => {
+  Promise.all([db.getMedia(WORKING_KEY), db.getMedia(WORKING_AUDIO_KEY).catch(() => null)]).then(([rec, aud]) => {
     if (rec && rec.text) {
       try {
-        const v = validateFxpa(JSON.parse(rec.text));
-        if (v.ok) { load(checkAndOfferRepair(v.data), { persist: false }); return; }
+        const raw = JSON.parse(rec.text);
+        // The recording rides in its own record (see WORKING_AUDIO_KEY); a working copy written
+        // before that split still carries its audio inline and restores exactly as it did.
+        if (aud && aud.audio && aud.audio.b64 && !(raw.audio && raw.audio.b64)) {
+          raw.audio = aud.audio;
+          if (raw.view && raw.view.audio === false) delete raw.view.audio;
+        }
+        const v = validateFxpa(raw);
+        if (v.ok) {
+          load(checkAndOfferRepair(v.data), { persist: false });
+          persistedAudio = state ? state.audio : null;   // already on disk — do not write it again
+          return;
+        }
       } catch { /* fall through to the open screen */ }
     }
     renderOpen();
@@ -177,12 +195,20 @@ async function handleFiles(files) {
       };
       return renderEafMapping();
     }
+    /* ⚠ ELAN's OWN SIDECAR (Seth, 2026-09-07, after dragging one in and getting the spreadsheet
+     * wizard for an XML file): a .pfsx is the preferences file our ELAN export writes BESIDE the
+     * .eaf — tier order and colours, no text at all — and its name is one letter off .fxpa. Say
+     * what it is and name the files that do open, rather than let the CSV sniff read it as a
+     * 127-row sheet. Any other XML that is not a .flextext or .eaf gets the same courtesy. */
+    const pfsx = files.find((f) => /\.pfsx$/i.test(f.name));
+    if (pfsx) return renderOpen([t('para.errPfsx', { name: pfsx.name })]);
     // CSV / TSV. Checked before the SFM sniff: an SFM file starts with a backslash marker and a
     // delimited file does not, so the two cannot be confused.
     const maybeCsv = files.find((f) => !/\.(fxpa|eaf|flextext)$/i.test(f.name) && !/^audio\//.test(f.type));
     if (maybeCsv) {
       const txt = await maybeCsv.text().catch(() => '');
       if (txt.trim() && !/^\\\S+/m.test(txt)) {
+        if (/^\s*<\?xml|^\s*<[A-Za-z]/.test(txt)) return renderOpen([t('para.errXml', { name: maybeCsv.name })]);
         const { rows, delimiter } = parseDelimited(txt);
         if (rows.length && Math.max(...rows.map((r) => r.length)) > 1) {
           const hasHeader = looksLikeHeader(rows);
@@ -1225,7 +1251,14 @@ function commit(next) {
 }
 
 function persistWorking() {
-  db.putMedia(WORKING_KEY, { text: serializeFxpa(state) }).catch(() => {});
+  if (!state) return;
+  db.putMedia(WORKING_KEY, { text: serializeFxpa(state, { audio: false }) }).catch(() => {});
+  if (state.audio !== persistedAudio) {
+    persistedAudio = state.audio;
+    (state.audio && state.audio.b64
+      ? db.putMedia(WORKING_AUDIO_KEY, { audio: state.audio })
+      : db.deleteMedia(WORKING_AUDIO_KEY)).catch(() => {});
+  }
 }
 
 /* ---------------- audio (preview-v2 machinery, app-module form) ---------------- */
@@ -1844,6 +1877,8 @@ function renderWorkInner() {
   const doClose = () => {
     if (!confirm(t('para.closeConfirm'))) return;
     db.deleteMedia(WORKING_KEY).catch(() => {});
+    db.deleteMedia(WORKING_AUDIO_KEY).catch(() => {});
+    persistedAudio = null;
     state = null; stopAudio(); renderOpen();
   };
   on('#pa-close', doClose); on('#pa-close-x', doClose);
@@ -3877,7 +3912,7 @@ const humanSize = (n) => (n < 1024 ? n + ' B'
   : n < 1024 * 1024 ? (n / 1024).toFixed(0) + ' KB'
   : (n / 1048576).toFixed(1) + ' MB');
 
-function runExport() {
+async function runExport() {
   const dlg = $('#pa-dialog');
   const kind = dlg.querySelector('#pa-exp-what').value;
   const scope = dlg.querySelector('#pa-exp-scope').value;
@@ -3914,7 +3949,7 @@ function runExport() {
     dlg.hidden = true; dlg.innerHTML = '';
     return;
   }
-  const html = buildParagraphPreviewHtml(state, {
+  const html = await paragraphPreviewBlob(state, {
     title: state.title,
     audioB64: withAudio ? state.audio.b64 : '',
     audioMime: withAudio ? (state.audio.mime || 'audio/wav') : '',
@@ -3960,7 +3995,7 @@ async function saveFile(text, suggestedName, mime, description) {
         types: [{ description: description || suggestedName, accept: { [mime]: [ext] } }],
       });
       const w = await handle.createWritable();
-      await w.write(new Blob([text], { type: mime }));
+      await w.write(text instanceof Blob ? text : new Blob([text], { type: mime }));
       await w.close();
       return true;
     } catch (err) {
@@ -3983,7 +4018,7 @@ async function saveFile(text, suggestedName, mime, description) {
 
 function downloadFile(text, name, mime) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.href = URL.createObjectURL(text instanceof Blob ? text : new Blob([text], { type: mime }));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
@@ -3991,10 +4026,12 @@ function downloadFile(text, name, mime) {
 
 /* ---------------- save ---------------- */
 
-function saveFxpa(withAudio = true) {
+async function saveFxpa(withAudio = true) {
   const base = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
   /* ⚠ A DIFFERENT FILENAME when the audio is left out, so the two cannot be confused in a folder a
    * year later. The suffix is part of the name, not a silent difference in byte count. */
   const name = base + (withAudio ? '' : '.no-audio') + '.fxpa';
-  saveFile(serializeFxpa(state, { audio: withAudio }), name, 'application/json', t('para.fxpaFile'));
+  /* Through fxpaBlobOf, never JSON.stringify of the base64: Firefox refuses to quote a string past
+   * ~179M characters (measured 2026-09-07), which a real recording's base64 is. */
+  saveFile(await fxpaBlobOf(state, { audio: withAudio }), name, 'application/json', t('para.fxpaFile'));
 }

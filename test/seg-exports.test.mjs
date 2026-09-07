@@ -297,7 +297,7 @@ console.log('adversarial audit regressions (2026-08-03)');
   // title containing the literal marker text hijacked the audio slot.
   const doc = segDoc();
   const html = buildSegPreviewHtml(doc, { title: 'weird __AUDIO_B64__ title', audioB64: 'QUJD', audioMime: 'audio/wav' });
-  ok(html.includes('var b64 = "QUJD"'), 'F1: marker text in a title cannot hijack the embedded audio');
+  ok(html.includes('var b64 = ["QUJD"]'), 'F1: marker text in a title cannot hijack the embedded audio');
 
   // F2: re-exporting an IMPORTED doc must keep its phrases' media-file references (we only filter
   // that attr when minting our own guid).

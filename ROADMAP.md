@@ -73,6 +73,13 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **The Toolbox reader, corrected by real files (v611).** Seth's samples exposed three faults no
+  invented fixture had: a title marker occurring ONCE (`\id`, naming the file) beat one occurring
+  per story (`\t`), so eleven narratives arrived as a single 407-line text; `\te` (a title
+  translation) took the free-translation role from `\fte`; and the new-text marker's value replaced
+  the real titles with record numbers, which FLEx's own rule forbids. Detection now prefers a title
+  marker that recurs, drops it when it collides with the baseline, and treats the new-text value as
+  a fallback only. Both files, and the same corpus copied out of Word, now convert untouched.
 - **Next: the segmenter opens a .fxpa (#54).** The outbound leg shipped in v609 and blank audio
   survives the format (measured: four segments in, four lines out, silences keeping their times).
   What is missing is the return leg — the segmenter accepts `.flextext`/`.xml`/`.txt` only, and no

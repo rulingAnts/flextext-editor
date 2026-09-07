@@ -226,5 +226,45 @@ console.log('\npasted SFM — normalization, detection, and whether the columns 
      'an explicitly mapped title marker beats the \\id convention');
 }
 
+/* ── REAL TOOLBOX FILES (Das Iau narratives, from Seth 2026-09-07: two .txt exports and the same
+ * corpus as a Word .doc) ──────────────────────────────────────────────────────────────────────
+ * What they taught, which no invented fixture had: a real file's markers are not the ones a
+ * defaults list expects, and getting the TITLE wrong silently collapses a whole corpus into one
+ * text. Before this, InterlinTxNarA.txt imported as 1 text of 407 lines instead of 11 stories. */
+console.log('\nreal Toolbox files: the corpus must not collapse into one text');
+{
+  const lines = ['\\_sh v3.0  400  iatx', '\\no 0', '\\id txnara.txt'];
+  for (let i = 1; i <= 3; i++) {
+    lines.push('\\no ' + i, '\\t Title ' + i, '\\a Author', '\\genre Nar',
+               '\\tx aa  bb', '\\gl one two', '\\fte A sentence.');
+  }
+  const fields = parseSfm(lines.join('\n'));
+  const m = detectMapping(fields);
+  ok(m.title === 't', 'a title marker that RECURS beats \\id, which occurs once and names the FILE');
+  ok(m.free === 'fte', '\\fte is the free translation; \\te (a title translation) must not take it');
+  const { texts } = sfmToTexts(fields, m);
+  ok(texts.length === 3, '…and so the corpus splits, instead of collapsing into a single text');
+  eq(texts.map((t) => t.title), ['Title 1', 'Title 2', 'Title 3'], 'each story keeps its own title');
+}
+{
+  const m = detectMapping(parseSfm(['\\t aaa bbb', '\\gl one two', '\\ft One two.'].join('\n')));
+  ok(m.baseline === 't', 'a file that uses \\t for the vernacular line keeps it as the baseline');
+  ok(m.title === undefined, '…and the title is dropped rather than fighting it for the same marker');
+}
+{
+  /* FLEx: use the "New Text" destination for the marker that begins a text "when that marker does
+   * not contain any data to import". \no is a record NUMBER; taking it as the title named the
+   * eleven stories "1".."11" and threw the real ones away. */
+  const src = ['\\no 1', '\\t The real title', '\\tx aa', '\\gl one', '\\fte One.',
+               '\\no 2', '\\t Another', '\\tx bb', '\\gl two', '\\fte Two.'].join('\n');
+  const fields = parseSfm(src);
+  const { texts } = sfmToTexts(fields, { ...detectMapping(fields), newtext: 'no', title: 't' });
+  eq(texts.map((t) => t.title), ['The real title', 'Another'], 'the new-text marker names nothing');
+  const bare = sfmToTexts(parseSfm('\\no 7\n\\tx aa\n\\gl one'), { baseline: 'tx', gloss: 'gl', newtext: 'no' }).texts;
+  ok(bare[0].title === '7', '…but with nothing else holding the title, its value beats no title at all');
+}
+
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the SFM reader holds.\n');
 process.exit(fail ? 1 : 0);
+

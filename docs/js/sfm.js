@@ -70,9 +70,13 @@ const DEFAULTS = {
   baseline: ['tx', 't', 's', 'po', 'lx'],
   gloss: ['ge', 'g', 'gl'],
   morphemes: ['mb', 'm', 'mor'],
-  free: ['ft', 'f', 'fe', 'fr', 'fre', 'et', 'st', 'te'],
+  // `fte` before `te`: a real Toolbox file (Das Iau narratives) uses \fte for the free translation
+  // and \te for a title translation, and matching `te` first mapped the wrong field to it.
+  free: ['ft', 'fte', 'f', 'fe', 'fr', 'fre', 'et', 'st', 'te'],
   literal: ['lt', 'l', 'li', 'lit'],
-  title: ['id', 'ti', 'tit', 'title', 'title-e', 'title-v', 'title-s', 'etitle', 'filename', 'itm', 'sectn'],
+  // `t` last: it is also a baseline candidate, and detectMapping drops it here if the file uses it
+  // for the vernacular line. A real Toolbox file (Das Iau narratives) titles each text with \t.
+  title: ['id', 'ti', 'tit', 'title', 'title-e', 'title-v', 'title-s', 'etitle', 'filename', 'itm', 'sectn', 't'],
   ref: ['ref', 'rf', 'tn'],
   note: ['nt', 'nd', 'note', 'cmt', 'com', 'dt', 'fn', 'sn', 'wn', 'en'],
   speaker: ['elanparticipant', 'sp', 'spkr', 'speaker', 'participant'],
@@ -83,14 +87,27 @@ const DEFAULTS = {
 
 export function detectMapping(fields) {
   const present = new Set(fields.map((f) => f.marker.toLowerCase()));
+  /* ⚠ A TITLE THAT OCCURS ONCE IN A FILE OF MANY RECORDS IS THE FILE'S ID, NOT A TEXT'S TITLE.
+   * Measured on two real Toolbox files (Das Iau narratives, 2026-09-07): `\id txnara.txt` appears
+   * ONCE and `\t` appears eleven times, once per story. Taking `\id` — first in the candidate list
+   * — named the whole file and, because a title only splits texts when it recurs, collapsed eleven
+   * narratives into a single 407-line text. Counting fixes it without guessing: among the title
+   * markers a file actually has, prefer one that recurs, keeping the list's order among those. */
+  const count = new Map();
+  for (const f of fields) { const k = f.marker.toLowerCase(); count.set(k, (count.get(k) || 0) + 1); }
   const m = {};
   for (const [role, markers] of Object.entries(DEFAULTS)) {
-    const hit = markers.find((x) => present.has(x));
+    const here = markers.filter((x) => present.has(x));
+    const hit = (role === 'title' ? (here.find((x) => (count.get(x) || 0) > 1) || here[0]) : here[0]);
     if (hit) {
       // Give back the marker with the file's own capitalisation (\ELANBegin, not \elanbegin).
       m[role] = (fields.find((f) => f.marker.toLowerCase() === hit) || {}).marker || hit;
     }
   }
+  /* `t` is a candidate for BOTH the vernacular line and the title. When a file uses it for the
+   * baseline it cannot also be the title, and a marker carrying two roles resolves to whichever
+   * the role map happens to write last — so the title is dropped rather than left ambiguous. */
+  if (m.title && m.baseline && m.title.toLowerCase() === m.baseline.toLowerCase()) delete m.title;
   return m;
 }
 
@@ -193,7 +210,14 @@ export function sfmToTexts(fields, mapping = {}) {
     const r = role(f);
     const v = f.value;
 
-    if (r === 'newtext') { flushLine(); newText(v.trim()); continue; }
+    /* ⚠ THE NEW-TEXT MARKER USUALLY CARRIES NO TITLE — it is a record number, and FLEx's own
+     * documentation says to use its "New Text" destination for "the marker which indicates the
+     * beginning of a new text … when that marker does not contain any data to import". Measured on
+     * two real Toolbox files (Das Iau narratives, 2026-09-07): `\no 1` starts each text and `\t`
+     * holds its actual title, so taking the marker's value gave every text the name "1", "2", "3"
+     * and threw the real titles away — the later \t found a title already set and left it alone.
+     * The value is now only a FALLBACK, used when nothing else is mapped to hold the title. */
+    if (r === 'newtext') { flushLine(); newText(roleOf.has(String(mapping.title || '').toLowerCase()) ? '' : v.trim()); continue; }
     if (r === 'title') {
       // A title after body content means the previous text ended and another begins.
       if (sawBody) { flushLine(); newText(v.trim()); }

@@ -43,7 +43,7 @@ test('an upload offers all three; a pause parks the record so no sweep resumes i
   assert.match(PANEL, /shouldStop: \(\) => aqStop\.has\(docId\),/, 'the loop reads the flag');
   assert.match(PANEL, /pause: \(\) => \{ aqPause\(docId\); jobSet\(job, t\('panel\.jobs\.pausing'\)\); \},\s*\n\s*resume: \(\) => aqResume\(docId\),\s*\n\s*cancel: \(\) => aqCancelRunning\(docId\),/);
   const c = PANEL.slice(PANEL.indexOf('const stop = e && e.stopped ? aqStop.get(docId) : null;'), PANEL.indexOf('// TRANSIENT (network, stalled chunks, 5xx)'));
-  assert.match(c, /if \(stop === 'cancel'\) \{\s*\n\s*await db\.deleteMedia\(key\)\.catch/, 'cancel throws the queue record away');
+  assert.match(c, /await db\.deleteMedia\(key\)\.catch/, 'cancel throws the queue record away');
   assert.match(c, /rec\.state = 'paused'; rec\.error = '';/, 'pause keeps every fileId and the open session');
   assert.match(c, /jobPaused\(job, true, t\('panel\.aq\.pausedPct'/, 'and the row stays, showing where it stopped');
   assert.match(PANEL, /if \(rec\.state === 'paused'\) continue;\s*\/\/ a deliberate pause waits for Resume/, 'the sweep leaves it alone');
@@ -76,4 +76,19 @@ test('every new string is in both languages, and the release note too', () => {
   }
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.transferCtl': '/g) || []).length, 2);
   assert.match(PANEL, /\{ v: 'v605', date: '2026-09-07', items: \[\s*\n\s*\{ k: 'panel\.rel\.new\.transferCtl' \},/);
+});
+
+test('a cancel takes its leftovers with it — narrowly, and to the trash (Seth, 2026-09-07; issue #55)', () => {
+  const c = PANEL.slice(PANEL.indexOf("const stop = e && e.stopped ? aqStop.get(docId) : null;"), PANEL.indexOf('// TRANSIENT (network, stalled chunks, 5xx)'));
+  // The folder ONLY when this run created it; otherwise just the files this run uploaded.
+  assert.match(c, /const ids = rec\.createdFolder && rec\.folderId\s*\n\s*\? \[rec\.folderId\]\s*\n\s*: \[rec\.manifestFileId, rec\.audioFileId, rec\.flextextFileId\]\.filter\(Boolean\);/);
+  assert.match(c, /Researcher\.trashFiles\(ids, 'cancelled assignment upload'\)/, 'trash, never a permanent delete');
+  assert.match(c, /catch \{ deps\.toast\(t\('panel\.aq\.cancelLeftovers'/, 'a cleanup that fails must not turn a cancel into an error');
+  assert.match(c, /renderDashboard\(\);/, 'and the text comes off the screen with it');
+  // The flag itself: set only when the folder did not exist before this run.
+  assert.match(PANEL, /const hadFolder = !!rec\.folderId;/);
+  assert.match(PANEL, /if \(!hadFolder\) rec\.createdFolder = true;/,
+    'a re-upload into a folder that already held the researcher\'s work must not trash it');
+  for (const k of ['panel.aq.cancelLeftovers'])
+    assert.equal((I18N.match(new RegExp(`\n  '${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
 });

@@ -73,6 +73,11 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **A cancelled upload cleans up after itself (v613, #55).** Seth: "deleting the half-made text is
+  the right decision here." The manifest is written before the first source byte, so a cancel used
+  to leave a text in the estate with no recording and no way to resume it. Cancel now trashes the
+  text folder when that run created it, or just the files that run uploaded when the text already
+  existed — Drive trash, recoverable for 30 days.
 - **Transfer controls, proven on a real account (v612).** Pause, resume and cancel were run against
   a researcher account on staging with a 19 MB upload: paused at 12%, settled at 35% after its chunk
   landed, survived a reload, resumed at 35% rather than zero, and a cancel read as cancelled. Two

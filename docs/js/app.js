@@ -5084,13 +5084,14 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const hasAligned = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const expDefault = segmentationEnabled();
   /* ⚠ THE EMBEDDING OUTPUTS ARE SIZE-GATED, HERE, BY THE SAME conversionCaps THE PANEL READS. The
-   * listening page and the .fxpa each carry the recording as base64 — the byte-string, its base64
-   * and the assembled document all alive at once, twice over — and on a six-minute WAV that is
-   * several hundred megabytes of strings in one call. Firefox answered "allocation size overflow"
-   * to the satellite download of exactly such a text (Seth, 2026-09-03: "not a particularly large
-   * text"). The recording itself still rides as a FILE; only the copies-inside-text are dropped,
-   * and `trimmed` says so, so a caller can tell the user rather than let the zip look complete.
-   * opts.wants lets a caller decide per output — the satellites never want the embeds at all. */
+   * listening page and the .fxpa each carry the recording as base64. The gate is for memory and
+   * for the READER: the tool must JSON.parse a .fxpa's base64 as one string, and V8 caps a string
+   * at 536,870,888 characters (~402 MB of audio) — the 200 MB ceiling keeps 1.9× headroom. (The old
+   * reason — Firefox's "allocation size overflow" while ASSEMBLING these, Seth, 2026-09-03 — is
+   * gone since 2026-09-07: the engine lays the base64 in as Blob chunks and never holds the
+   * recording as a string; see seg-exports.js.) The recording itself still rides as a FILE; only
+   * the copies-inside-text are dropped, and `trimmed` says so, so a caller can tell the user
+   * rather than let the zip look complete. opts.wants lets a caller decide per output. */
   const caps = media ? conversionCaps({
     bytes: (media.blob && media.blob.size) || 0,
     isWav: /\.wav$/i.test(String(media.name || '')) || /wav/i.test(String(media.mimeType || '')),
@@ -7938,6 +7939,7 @@ function satExportChoice() {
       <button class="secondary-btn" data-x="eaf">${esc(t('sat.exportEaf'))}</button>
       <button class="secondary-btn" data-x="flextext">${esc(t('sat.exportFlextext'))}</button>
       <button class="secondary-btn" data-x="fxpa">${esc(t('sat.exportFxpa'))}</button>
+      <button class="secondary-btn" data-x="preview">${esc(t('sat.exportPreview'))}</button>
       <button class="link-btn" data-x="">${esc(t('share.cancel'))}</button>
     </div>`;
     document.body.appendChild(wrap);
@@ -7958,14 +7960,17 @@ async function satExport(id) {
   if (rec.matchDraft) toast(t('sat.exportDraft'), 8000);
   toast(t('sat.exporting'), 3000);
   let bundle;
-  /* The three files a linguist wants from this app, and nothing that embeds the recording INSIDE
-   * a text file: the listening page and the .fxpa base64 the audio — see buildBundleFor — and on
-   * the first six-minute WAV that was "allocation size overflow" in Firefox, with no download at
-   * all. The recording rides as a file, which costs nothing to assemble. */
+  /* The embedding outputs — the listening page and the .fxpa carry the recording as base64 — are
+   * built only when asked for. They USED to be excluded here outright: the first six-minute WAV was
+   * "allocation size overflow" in Firefox, with no download at all. Since 2026-09-07 the engine
+   * assembles both around the recording in chunks (seg-exports.js, "THE RECORDING IS NEVER ONE
+   * STRING"), verified at 300 MB in Firefox and Chromium, so the failure that justified the
+   * exclusion is gone. conversionCaps still gates them by size, for memory and for the reader's
+   * side (the tool must JSON.parse a .fxpa's base64 as one string). */
   /* ⚠ BUILD ONLY WHAT WAS ASKED FOR. The .fxpa embeds the recording as base64 (that is the point of
    * the format — the Paragraph Analysis Tool opens one file and has its audio), so it is built when
    * it is what the user chose, never as a by-product of asking for the ELAN file. */
-  const wants = { eaf: kind === 'all' || kind === 'eaf', saymore: false, preview: false, fxpa: kind === 'fxpa' };
+  const wants = { eaf: kind === 'all' || kind === 'eaf', saymore: false, preview: kind === 'preview', fxpa: kind === 'fxpa' };
   try { bundle = await buildBundleFor(rec, true, { full: true, wants }); }
   catch (err) { toast(t('sat.exportFailed', { msg: err.message }), 8000); return; }
   let blob = bundle.blob, filename = bundle.filename;
@@ -7981,6 +7986,13 @@ async function satExport(id) {
      * alignment: buildSegEntries writes a text-only .fxpa when there is nothing to embed. */
     const e = (bundle.entries || []).find((x) => /\.fxpa$/i.test(x.name));
     if (!e) { toast(t('sat.exportNoFxpa'), 8000); return; }
+    blob = e.data; filename = e.name;
+  } else if (kind === 'preview') {
+    /* Seth, 2026-09-07: "I'd like preview HTML export from audio segmenter as well." The page for
+     * the speaker's own phone — the recording inside it, line by line, offline. Two ways to have
+     * none, told apart: no timed lines yet, or a recording past the embed ceiling (`trimmed`). */
+    const e = (bundle.entries || []).find((x) => /\.preview\.html$/i.test(x.name));
+    if (!e) { toast(t((bundle.trimmed || []).includes('preview') ? 'sat.exportPreviewTooBig' : 'sat.exportNoPreview'), 8000); return; }
     blob = e.data; filename = e.name;
   } else if (!bundle.zipped) toast(t('sat.exportNoAudio'), 6000);
   // The editor's own blind-download idiom (openShareMenu): a synthetic <a download>, revoked late.

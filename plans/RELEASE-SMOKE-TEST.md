@@ -444,3 +444,27 @@ changes.
 - [ ] Cancel a RE-upload into a text that already had files: the text and its existing files must
       still be there, with only what that upload added gone. NOT yet run — it needs a text that
       already has files, and the guard for it (`createdFolder`) is pinned by tests only.
+
+## The recording is never one string — Firefox "allocation size overflow", panel "Download failed" (v614)
+
+Measured on the rig, 2026-09-07, headless Firefox 155 running the engine's own functions: the old
+assembly JSON.stringify'd the whole base64, and Firefox refuses that above ~179M characters
+(~134 MB of audio) — 120 MB passed, 135 MB threw — while V8 (Chrome) silently produced nothing past
+its 536.9M-character cap. Both under or near the 200 MB size gate, so real recordings failed. The
+engine now stringifies around a placeholder and lays the base64 in as Blob chunks; the new assembly
+built 150, 200 and 300 MB recordings in both Firefox and Chromium on the rig.
+
+- [ ] Audio Segmenter, a text with a real-length recording (over 135 MB of WAV is the case that
+      failed): Download → Paragraph Analysis file. A .fxpa arrives; pat.flextext.app opens it with
+      its audio. [Firefox]
+- [ ] Audio Segmenter → Download → Listening page (NEW): the .preview.html arrives, opens offline,
+      plays line by line. On a text with no timed lines the message says to match it first.
+- [ ] Researcher panel, the same real-length text: Listening page (.html) and Paragraph analysis
+      (.fxpa) rows both produce a file. [Firefox] — this was "Download failed".
+- [ ] Paragraph Analysis Tool: open a big .fxpa, edit, Save (with audio). The file saves; a reload
+      restores the working copy WITH its recording (autosave now keeps the recording in its own
+      record, written once). Export → listening page still plays.
+- [ ] Paragraph Analysis Tool: drag the .pfsx that the ELAN export wrote beside the .eaf onto the
+      open screen. The message names it as ELAN's settings sidecar and points to the .fxpa/.eaf,
+      instead of the spreadsheet wizard.
+- [x] Engine: 150/200/300 MB in Firefox 155 and Chromium, old vs new, on the rig (harness) — DONE.

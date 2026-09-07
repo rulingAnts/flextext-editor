@@ -19,6 +19,8 @@
  */
 
 import { esc } from './flextext.js';
+import { B64_MARK, spliceB64, b64PartsOf } from './seg-exports.js';
+import { serializeFxpa } from './paragraph-model.js';
 
 /* ⚠ SYM/ASYM IS DERIVED FROM `heads`, NEVER STORED (the 2026-08-06 model change). A local copy of
  * the predicate rather than an import: this is a pure format module that deliberately depends on
@@ -284,9 +286,17 @@ footer { padding:10px 14px; color:var(--muted); font-size:12px; border-top:1px s
 <footer>Read-only view — expand or collapse the brackets to explore the structure.${audioB64 ? ' Press the space bar to play or pause; the page follows the line being played.' : ''} Made with the Flextext Paragraph Analysis Tool.</footer>
 ${audioB64 ? `<script>
 (function () {
-  var b = atob("${audioB64}"), u = new Uint8Array(b.length);
-  for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
-  var audio = new Audio(URL.createObjectURL(new Blob([u], { type: "${esc(audioMime)}" })));
+  // base64 in chunks, each decoded on its own (see paragraphPreviewBlob) — the page never holds
+  // the whole recording as one binary string.
+  var b64 = ["${audioB64}"], parts = [];
+  for (var k = 0; k < b64.length; k++) {
+    var b = atob(b64[k]), u = new Uint8Array(b.length);
+    for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    parts.push(u); b = null;
+  }
+  b64 = null;
+  var audio = new Audio(URL.createObjectURL(new Blob(parts, { type: "${esc(audioMime)}" })));
+  parts = null;
   var stopAt = 0, active = null, peaks = null, mpb = 0, dur = 0;
   audio.addEventListener("timeupdate", function () {
     if (stopAt && audio.currentTime * 1000 >= stopAt - 20) audio.pause();
@@ -1153,4 +1163,29 @@ export function rasterizeSsa(svgText, { scale = 2, type = 'image/png', quality =
     img.onerror = () => reject(new Error('The diagram could not be drawn for export.'));
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
   });
+}
+
+/* ─── The tool's two audio-carrying files, assembled AROUND the recording (2026-09-07) ───
+ * The engine's rule (seg-exports.js, "THE RECORDING IS NEVER ONE STRING"): the document is
+ * stringified with a placeholder where the base64 belongs and the audio is laid in as Blob parts.
+ * The tool already holds its recording as one base64 string (that is the .fxpa format); it is
+ * SLICED into parts, never re-encoded and never stringified — JSON.stringify of it is precisely
+ * what Firefox refuses above ~134 MB of audio. Same bytes as the plain assembly; the model tests
+ * prove it. */
+export async function fxpaBlobOf(data, opts = {}) {
+  const type = 'application/json';
+  const b64 = data && data.audio && data.audio.b64;
+  if (opts.audio === false || !b64) return new Blob([serializeFxpa(data, opts)], { type });
+  // `audio` keeps its original key position under the spread, so the bytes match JSON.stringify(data).
+  const json = JSON.stringify({ ...data, audio: { ...data.audio, b64: B64_MARK } });
+  return spliceB64(json, await b64PartsOf(b64), { type }) || new Blob([serializeFxpa(data, opts)], { type });
+}
+
+export async function paragraphPreviewBlob(data, opts = {}) {
+  const { audioB64 = '', ...rest } = opts;
+  const type = 'text/html';
+  if (!audioB64) return new Blob([buildParagraphPreviewHtml(data, { ...rest, audioB64: '' })], { type });
+  const html = buildParagraphPreviewHtml(data, { ...rest, audioB64: B64_MARK });
+  return spliceB64(html, await b64PartsOf(audioB64), { type, join: '","' })
+    || new Blob([buildParagraphPreviewHtml(data, { ...rest, audioB64 })], { type });
 }

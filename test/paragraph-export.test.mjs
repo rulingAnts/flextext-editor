@@ -75,7 +75,7 @@ console.log('\nthe preview page itself');
   ok(/class="grp[^"]*"/.test(html), 'groups render as brackets');
   ok(html.includes('class="head '), 'the HEAD member is marked');
   ok(html.includes('Barnabas') && html.includes('Tim'), 'speakers are shown');
-  ok(html.includes('atob("QUJD")'), 'the audio is embedded, so the file stands alone');
+  ok(html.includes('var b64 = ["QUJD"]'), 'the audio is embedded, so the file stands alone');
   ok(html.includes('data-s="0" data-e="1000"'), 'rows carry their spans for playback');
   ok(!/<script[^>]*src=/.test(html) && !/<link[^>]*href="http/.test(html), 'nothing is fetched from the network');
   // A screenshot caught this where every DOM assertion passed: text colour without a background

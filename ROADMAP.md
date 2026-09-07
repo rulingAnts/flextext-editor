@@ -73,6 +73,16 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **v617: each app wears its own colour, and its own mark.** Seth, with the Consent Collector and the
+  Audio Segmenter installed as apps: "let's make sure our top heading bars match the title bar theme
+  color." The shared header was hard-coded blue while each shell declares its own theme-color, so a
+  violet or amber window chrome sat directly above a blue bar. `#topbar` now paints with `--topbar`,
+  set beside each shell's meta tag, and topbar-theme.test.mjs asserts meta, manifest and CSS agree —
+  and that white still reads on the bar and the selected tab's label still reads on white (the crowd
+  recorder's green needed a darker ink at 4.08:1). The researcher panel had carried this fix alone
+  since 2026-08-28; it is now general. The Paragraph Analysis Tool and the Researcher Panel also got
+  real icons — a pilcrow over a square right-branching SSA spine, and a disc stack — replacing the
+  editor's interlinear-rows mark recoloured, which differed by hue alone.
 - **v616: the review pass.** A structured review of v603..v615, with each finding checked by running
   the code rather than reading it, found 21 defects the release's own tests had missed — several
   introduced by the v614/v615 embedding rewrite. Fixed: the tool's autosave split could lose a

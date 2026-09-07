@@ -1,25 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#0f766e"/>
-  <!-- interlinear rows: vernacular word bars with gloss bars beneath (recolored editor mark) -->
+  <!-- The researcher panel mark (Seth, 2026-09-07: "maybe a gear or database-like icon"). It used to
+       be the EDITOR's interlinear rows recoloured teal — identical artwork, so the two apps were
+       told apart by hue alone, which fails on a home screen, in a tab strip and for anyone who does
+       not separate teal from blue. A stack says what this app is: the researcher's view over a whole
+       corpus estate, not one text. -->
   <g fill="#ffffff">
-    <rect x="88"  y="116" width="120" height="34" rx="10"/>
-    <rect x="232" y="116" width="76"  height="34" rx="10"/>
-    <rect x="332" y="116" width="98"  height="34" rx="10"/>
-    <g opacity="0.62">
-      <rect x="88"  y="162" width="96"  height="20" rx="8"/>
-      <rect x="232" y="162" width="60"  height="20" rx="8"/>
-      <rect x="332" y="162" width="76"  height="20" rx="8"/>
-    </g>
-    <rect x="88"  y="244" width="84"  height="34" rx="10"/>
-    <rect x="196" y="244" width="130" height="34" rx="10"/>
-    <rect x="350" y="244" width="74"  height="34" rx="10"/>
-    <g opacity="0.62">
-      <rect x="88"  y="290" width="64"  height="20" rx="8"/>
-      <rect x="196" y="290" width="104" height="20" rx="8"/>
-      <rect x="350" y="290" width="58"  height="20" rx="8"/>
-    </g>
-    <g opacity="0.85">
-      <rect x="88"  y="372" width="336" height="22" rx="9"/>
-    </g>
+    <!-- the body: straight sides, rounded foot -->
+    <path d="M120 150 V344 a136 46 0 0 0 272 0 V150 Z"/>
+    <!-- the top face -->
+    <ellipse cx="256" cy="150" rx="136" ry="46"/>
+  </g>
+  <!-- the two seams between the discs, cut back out of the body -->
+  <g fill="none" stroke="#0f766e" stroke-width="15" stroke-linecap="round">
+    <path d="M120 216 a136 46 0 0 0 272 0"/>
+    <path d="M120 282 a136 46 0 0 0 272 0"/>
   </g>
 </svg>

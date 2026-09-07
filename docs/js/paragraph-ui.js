@@ -1289,13 +1289,35 @@ function ovCenter(ms) {
   if (!e || !(T > 0)) return;
   e.wrap.scrollLeft = (ms / T) * e.ov.clientWidth - e.wrap.clientWidth / 2;
 }
+/* ⚠ GROWING THE PLAYER MUST NOT MOVE THE ROW OUT FROM UNDER THE FINGER (Seth, 2026-09-07: "when
+ * it expands, the currently focused segment waveform jumps down and then dragging right or left is
+ * ineffective until the user drags their finger (or mouse cursor) back down to the segment").
+ *
+ * The player is sticky above the list, so anything that makes it taller pushes every row down. The
+ * player still grows — the transport inside it must not be covered — but the SAME amount is taken
+ * off its bottom margin, so everything below it stays exactly where the finger found it (Seth,
+ * 2026-09-07: "the audio segments … should remain where they were when the user started scrubbing
+ * or dragging"). The grown player simply covers the rows it grew over, opaque and above them, and
+ * on release both go back. This holds whether or not the list is long enough to scroll, which is
+ * why it is not done by scrolling.
+ *
+ * The drag surviving at all is the pointer capture in wireScrub; this keeps the picture still. */
 function ovFocus(phase, ms) {
   const e = ovEls(), T = ovTotal();
   if (!e || !(T > 0)) return;
+  const player = e.wrap.closest('.pa-player');
   if (phase === 'start') {
-    if (!ovFocusPrev) ovFocusPrev = { width: e.ov.style.width, height: e.wrap.style.height, scroll: e.wrap.scrollLeft };
-    e.wrap.classList.add('pa-ovfocus');
-    e.wrap.style.height = OV_FOCUS_H + 'px';
+    if (!ovFocusPrev) {
+      ovFocusPrev = { width: e.ov.style.width, height: e.wrap.style.height, scroll: e.wrap.scrollLeft,
+                      player, playerMargin: player ? player.style.marginBottom : '' };
+      const h0 = player ? player.getBoundingClientRect().height : 0;
+      if (player) player.classList.add('pa-ovfocus');
+      e.wrap.style.height = OV_FOCUS_H + 'px';
+      if (player) {
+        const base = parseFloat(getComputedStyle(player).marginBottom) || 0;
+        player.style.marginBottom = (base - (player.getBoundingClientRect().height - h0)) + 'px';
+      }
+    }
     e.ov.style.width = (Math.max(1, T / (OV_FOCUS_S * 1000)) * 100) + '%';
     drawWave(e.ov, 0, T); renderOvMarks();
     ovCenter(ms);
@@ -1303,8 +1325,9 @@ function ovFocus(phase, ms) {
     if (ovFocusPrev) ovCenter(ms);
   } else if (phase === 'end' && ovFocusPrev) {
     const p = ovFocusPrev; ovFocusPrev = null;
-    e.wrap.classList.remove('pa-ovfocus');
+    if (p.player) p.player.classList.remove('pa-ovfocus');
     e.wrap.style.height = p.height; e.ov.style.width = p.width;
+    if (p.player) p.player.style.marginBottom = p.playerMargin;
     drawWave(e.ov, 0, T); renderOvMarks();
     e.wrap.scrollLeft = p.scroll;
   }
@@ -1414,10 +1437,23 @@ function wireScrub(el, s, e) {
     const r = el.getBoundingClientRect();
     const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
     const ms = s + f * (e - s);
+    // A waveform with no width yet makes f NaN, and a non-finite currentTime throws (see the
+    // listening page's copy of this): never write one.
+    if (!isFinite(ms)) return null;
     audio.currentTime = ms / 1000;
     return ms;
   };
-  el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); down = true; dragged = false; seek(ev); });
+  el.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    down = true; dragged = false;
+    /* ⚠ CAPTURE THE POINTER, or the drag dies the moment the row is not under it (Seth,
+     * 2026-09-07). A pointermove listener on an element only fires while the pointer is over that
+     * element, and opening the close-up makes the player taller, which slides this row down. With
+     * the capture the moves keep arriving wherever the finger goes, which is also what the
+     * editor's strips have always done (wireWaveSeek). */
+    try { el.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
+    seek(ev);
+  });
   // The overview's close-up rides the drag (the editor's strips do the same, v598): opened on the
   // first move, never on a click, the playhead kept centred, closed on release.
   el.addEventListener('pointermove', (ev) => {
@@ -1427,13 +1463,17 @@ function wireScrub(el, s, e) {
     ovFocus(dragged ? 'move' : 'start', ms);
     dragged = true;
   });
-  window.addEventListener('pointerup', () => {
-    if (down && dragged) ovFocus('end');
+  const end = () => {
+    if (!down) return;
+    if (dragged) ovFocus('end');
     // Select on RELEASE, not during the drag: re-selecting on every pointermove would rebuild the
     // selection dozens of times a second while the user is still deciding where to land.
-    if (down && audio) focusLineAtTime(audio.currentTime * 1000);
+    if (audio) focusLineAtTime(audio.currentTime * 1000);
     down = false; dragged = false;
-  });
+  };
+  // pointercancel too: the browser taking the gesture for a scroll must not leave the player big.
+  el.addEventListener('pointercancel', end);
+  window.addEventListener('pointerup', end);
 }
 
 function playSpan(s, e) {

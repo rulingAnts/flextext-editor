@@ -458,7 +458,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
   .player .wwrap { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }   /* the overview scrolls once zoomed */
-  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; transition: height .15s ease; }
+  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; }
   .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
   @media (pointer: coarse) {
@@ -593,13 +593,17 @@ ${withAudio ? `<script>
       var r = el.getBoundingClientRect();
       var f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
       var ms = start + f * Math.max(0, span);
-      if (span > 0) audio.currentTime = ms / 1000;
-      return ms;
+      /* ⚠ A WAVEFORM WITH NO WIDTH YET makes f NaN, and assigning a non-finite currentTime THROWS —
+       * which on this page would take the rest of the gesture's handler with it. A tap during the
+       * first moments of a big file (the audio is embedded, so loading is not instant) is exactly
+       * when that happens, and this page is the one a speaker with no other tools opens. */
+      if (span > 0 && isFinite(ms)) audio.currentTime = ms / 1000;
+      return isFinite(ms) ? ms : null;
     }
     // The overview's momentary close-up while a ROW is scrubbed (the editor's dock does the same,
     // v598): opens on the first move of a drag, never on a click or a tap, follows the playhead,
     // closes on release. Scrubbing the overview itself is left alone.
-    function drag(ev) { var ms = seek(ev); if (el !== ov) ovFocus(dragged ? 'move' : 'start', ms); dragged = true; }
+    function drag(ev) { var ms = seek(ev); if (ms == null) return; if (el !== ov) ovFocus(dragged ? 'move' : 'start', ms); dragged = true; }
     function release() { if (dragged && el !== ov) ovFocus('end'); dragged = false; }
     // Touch (same rule as the editor's strips): a tap parks the playhead, dragging the dot scrubs,
     // dragging anywhere else scrolls (touch-action:pan-y above; no pointermove on the canvas).
@@ -612,9 +616,21 @@ ${withAudio ? `<script>
         el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
         return;
       }
-      ev.preventDefault(); down = true; dragged = false; seek(ev);
+      /* ⚠ CAPTURE THE POINTER (the editor's wireWaveSeek does the same): a pointermove listener
+       * only fires while the pointer is over its element, and the close-up makes the player taller,
+       * which slides this line down — without the capture the drag would die the moment it moved
+       * (Seth, 2026-09-07). Mouse and pen only; the touch path above never reaches here. */
+      ev.preventDefault(); down = true; dragged = false;
+      try { el.setPointerCapture(ev.pointerId); } catch (e2) {}
+      /* ⚠ PLACING THE PLAYHEAD STOPS PLAYBACK, on a mouse as well as a finger (the editor's rule,
+       * Seth 2026-08-13: "if the user clicks on a player at all (to place a playhead) playback
+       * should pause"). The touch tap above already paused; this is the same for a mouse, so the
+       * spot the user aimed at has not slid away by the time they look at it. */
+      audio.pause();
+      seek(ev);
     });
     el.addEventListener('pointermove', function (ev) { if (down && ev.pointerType !== 'touch') drag(ev); });
+    el.addEventListener('pointercancel', function () { if (down) release(); down = false; });
     window.addEventListener('pointerup', function () { if (down) release(); down = false; });
     var knob = el.parentNode && el.parentNode.querySelector('.cur');
     if (knob) knob.addEventListener('pointerdown', function (ev) {
@@ -644,11 +660,29 @@ ${withAudio ? `<script>
    * placed (Seth, 2026-09-07, of the tool: "the big preview player gets taller as well"), the
    * playhead kept centred, then the height, zoom and scroll put back. Nothing here is editable:
    * this page shows a recording, it does not adjust one. */
+  /* ⚠ THE LINES MUST NOT MOVE WHILE THE CLOSE-UP IS OPEN (Seth, 2026-09-07: "the audio segments …
+   * should remain where they were when the user started scrubbing or dragging"). The player is
+   * sticky at the top of the page, so growing it would push every line down and the line being
+   * scrubbed would slide out from under the finger. The player still grows — the transport inside
+   * it must not be covered — but the SAME amount comes off its bottom margin, so everything below
+   * stays put and the taller player simply covers the lines it grew over. On release both go back.
+   * This holds however short the page is, which is why it is not done by scrolling. The drag itself
+   * survives on the pointer capture in wireScrub. (The Paragraph Analysis Tool does the same.) */
+  var player = ov.closest ? ov.closest('.player') : null;
   function ovFocus(phase, ms) {
     var T = totalMs(); if (!(T > 0)) return;
     if (phase === 'start') {
-      focusPrev = { z: ovZoom, scroll: ovWrap.scrollLeft, h: ov.style.height };
-      ov.style.height = OV_FOCUS_H + 'px';
+      if (!focusPrev) {
+        focusPrev = { z: ovZoom, scroll: ovWrap.scrollLeft, h: ov.style.height,
+                      playerMargin: player ? player.style.marginBottom : '', shadow: player ? player.style.boxShadow : '' };
+        var h0 = player ? player.getBoundingClientRect().height : 0;
+        ov.style.height = OV_FOCUS_H + 'px';
+        if (player) {
+          var base = parseFloat(getComputedStyle(player).marginBottom) || 0;
+          player.style.marginBottom = (base - (player.getBoundingClientRect().height - h0)) + 'px';
+          player.style.boxShadow = '0 6px 12px rgba(0,0,0,.12)';
+        }
+      }
       setOvZoom(Math.max(ovZoom, T / 4000), ms, ovWrap.getBoundingClientRect().left + ovWrap.clientWidth / 2);
       draw(ov, 0, T);   // setOvZoom returns early when the zoom is already there; the height changed regardless
     }
@@ -656,6 +690,7 @@ ${withAudio ? `<script>
     if (phase === 'end' && focusPrev) {
       var p = focusPrev; focusPrev = null;
       ov.style.height = p.h;
+      if (player) { player.style.marginBottom = p.playerMargin; player.style.boxShadow = p.shadow; }
       setOvZoom(p.z, 0, ovWrap.getBoundingClientRect().left);
       draw(ov, 0, T);
       ovWrap.scrollLeft = p.scroll;

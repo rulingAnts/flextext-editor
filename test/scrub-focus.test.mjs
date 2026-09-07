@@ -37,7 +37,7 @@ test('scrubbing a strip opens the dock\'s close-up on the first move, follows, a
 
 test('the listening page keeps parity: a row scrub opens the overview\'s close-up, the overview\'s own scrub does not', () => {
   const scrub = SEGX.slice(SEGX.indexOf('function wireScrub(el, s, e)'), SEGX.indexOf('wireScrub(ov, 0, totalMs);'));
-  assert.match(scrub, /function drag\(ev\) \{ var ms = seek\(ev\); if \(el !== ov\) ovFocus\(dragged \? 'move' : 'start', ms\); dragged = true; \}/);
+  assert.match(scrub, /function drag\(ev\) \{ var ms = seek\(ev\); if \(ms == null\) return; if \(el !== ov\) ovFocus\(dragged \? 'move' : 'start', ms\); dragged = true; \}/);
   assert.match(scrub, /function release\(\) \{ if \(dragged && el !== ov\) ovFocus\('end'\); dragged = false; \}/);
   assert.match(scrub, /window\.addEventListener\('pointerup', function \(\) \{ if \(down\) release\(\); down = false; \}\);/);
   assert.match(scrub, /var move = function \(e2\) \{ drag\(e2\); \};/, 'the knob too');
@@ -46,7 +46,7 @@ test('the listening page keeps parity: a row scrub opens the overview\'s close-u
   assert.match(focus, /ov\.style\.height = OV_FOCUS_H \+ 'px';/, 'and taller for the length of the drag (v603)');
   assert.match(focus, /ov\.style\.height = p\.h;/, 'the height put back with the zoom and scroll');
   assert.match(SEGX, /var OV_FOCUS_H = 112;/);
-  assert.match(SEGX, /#ov \{[^}]*transition: height \.15s ease; \}/, 'the growth is animated');
+  assert.doesNotMatch(SEGX, /#ov \{[^}]*transition: height/, 'instant, so the page shift that keeps the lines still is exact (v604)');
   assert.doesNotMatch(SEGX, /seg-edge|attachEdgeHandles|makeBoundaryDrag/, 'the listening page never adjusts a boundary (Seth, 2026-09-07)');
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.listenZoom': '/g) || []).length, 2);
   assert.match(focus, /ovWrap\.scrollLeft = \(ms \/ T\) \* ov\.clientWidth - ovWrap\.clientWidth \/ 2;/, 'the playhead centred');

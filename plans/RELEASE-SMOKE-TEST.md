@@ -438,7 +438,9 @@ Resume button on the Assignment uploads card → resumes AT 35%, not zero → a 
 and reads "cancelled". Download All still completes. So these need no repeating unless the code
 changes.
 
-- [ ] Cancel a running upload of a NEW text: the text does not appear in the list afterwards, and
-      the folder is in the Drive trash (issue #55, fixed v613).
-- [ ] Cancel a RE-upload into a text that already had files: the text and its existing files are
-      still there — only what that upload added is gone.
+- [x] Cancel a running upload of a NEW text: DONE on the real account at v613 — a 7.6 MB upload
+      cancelled at "starting…" left nothing behind, and the project went back to exactly the 4
+      texts / 60 KB it held before. At v612 the same test left the half-made text in the list.
+- [ ] Cancel a RE-upload into a text that already had files: the text and its existing files must
+      still be there, with only what that upload added gone. NOT yet run — it needs a text that
+      already has files, and the guard for it (`createdFolder`) is pinned by tests only.

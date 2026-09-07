@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v612';
+export const ENGINE_VERSION = 'v613';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1443,6 +1443,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.cancelTidy': 'Cancelling an upload now removes the half-made text it had started on Drive, instead of leaving it in the list without its recording. It goes to the Drive trash and stays recoverable for 30 days, and a re-upload into a text that already existed only removes what that upload itself added.'
     ,'panel.rel.new.aqDest': 'A paused or waiting upload in the Assignment uploads list now names where it is going. An upload to a project used to show a bare question mark there, because the list asked for a device name and a project upload deliberately goes to no device.'
     ,'panel.rel.new.sfmReal': 'The Toolbox reader was corrected against real Toolbox files. A file whose header names the FILE once (\\id) but titles each story separately (\\t) now splits into its stories instead of arriving as one enormous text; \\fte is recognised as the free translation; and a marker that only numbers the records no longer replaces the real titles with \u201c1\u201d, \u201c2\u201d, \u201c3\u201d. Text copied out of a Word document converts with its columns intact.'
     ,'panel.rel.new.sfmConvert': 'A Toolbox / SFM converter turns a standard-format interlinear file into .flextext, which FLEx and every app here can open. It shows which markers the file uses, lets you say what each one means \u2014 including which marker starts a new text, the thing that decides where one text ends and the next begins \u2014 and then saves one text, or every text in the file as a zip. It is on the Utilities tab in the editor and the Audio Segmenter, in Utilities in the researcher panel, and in the File menu of the Paragraph Analysis Tool. Nothing is uploaded.'
@@ -1867,6 +1868,7 @@ internet after the first time.</p>
   'panel.aq.failed': 'Assignment "{title}" failed: {msg}',
   'panel.aq.retry': 'Retry',
   'panel.aq.pausedRow': 'paused — resume when you are ready',
+  'panel.aq.cancelLeftovers': 'Upload cancelled, but the part already on Drive for "{title}" could not be tidied up. You can delete it from the text list.',
   'panel.aq.pausedPct': 'paused at {pct}% of {size}',
   'panel.aq.cancelConfirm': 'Remove this queued assignment? Nothing has been sent to the device.',
   'panel.util.ttl': 'Assignment download window (days)',
@@ -3713,6 +3715,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.cancelTidy': 'Membatalkan unggahan kini menghapus teks setengah jadi yang sudah dimulainya di Drive, alih-alih meninggalkannya dalam daftar tanpa rekaman. Teks itu masuk ke tempat sampah Drive dan tetap dapat dipulihkan selama 30 hari, dan unggahan ulang ke teks yang sudah ada hanya menghapus apa yang ditambahkan unggahan itu sendiri.'
     ,'panel.rel.new.aqDest': 'Unggahan yang dijeda atau menunggu di daftar Unggahan penugasan kini menyebutkan tujuannya. Unggahan ke sebuah proyek sebelumnya hanya menampilkan tanda tanya, karena daftar itu menanyakan nama perangkat sedangkan unggahan proyek memang tidak menuju perangkat mana pun.'
     ,'panel.rel.new.sfmReal': 'Pembaca Toolbox diperbaiki dengan berkas Toolbox sungguhan. Berkas yang menamai BERKAS-nya sekali (\\id) tetapi memberi judul tiap cerita secara terpisah (\\t) kini terbagi menjadi cerita-ceritanya, bukan datang sebagai satu teks raksasa; \\fte dikenali sebagai terjemahan bebas; dan penanda yang hanya menomori rekaman tidak lagi mengganti judul asli dengan \u201c1\u201d, \u201c2\u201d, \u201c3\u201d. Teks yang disalin dari dokumen Word terkonversi dengan kolomnya tetap utuh.'
     ,'panel.rel.new.sfmConvert': 'Pengubah Toolbox / SFM mengubah berkas interlinear format standar menjadi .flextext, yang dapat dibuka FLEx dan semua aplikasi di sini. Ia menampilkan penanda yang dipakai berkas itu, membiarkan Anda menentukan arti tiap penanda \u2014 termasuk penanda mana yang memulai teks baru, hal yang menentukan di mana satu teks berakhir dan berikutnya dimulai \u2014 lalu menyimpan satu teks, atau semua teks dalam berkas sebagai zip. Tersedia di tab Utilitas pada editor dan Pemotong Audio, di Utilitas pada panel peneliti, dan di menu Berkas pada Alat Analisis Paragraf. Tidak ada yang diunggah.'
@@ -4070,6 +4073,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.aq.failed': 'Penugasan "{title}" gagal: {msg}',
   'panel.aq.retry': 'Coba lagi',
   'panel.aq.pausedRow': 'dijeda — lanjutkan saat Anda siap',
+  'panel.aq.cancelLeftovers': 'Unggahan dibatalkan, tetapi bagian yang sudah ada di Drive untuk "{title}" tidak dapat dibersihkan. Anda dapat menghapusnya dari daftar teks.',
   'panel.aq.pausedPct': 'dijeda pada {pct}% dari {size}',
   'panel.aq.cancelConfirm': 'Hapus penugasan yang antre ini? Belum ada yang dikirim ke perangkat.',
   'panel.util.ttl': 'Jendela unduh penugasan (hari)',

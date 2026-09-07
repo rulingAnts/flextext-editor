@@ -1229,6 +1229,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v613', date: '2026-09-07', items: [
+    { k: 'panel.rel.new.cancelTidy' },
+  ] },
   { v: 'v612', date: '2026-09-07', items: [
     { k: 'panel.rel.new.aqDest' },
   ] },
@@ -5017,11 +5020,17 @@ async function runAssignUpload(docId) {
        * null rather than an exception — so the failure is one honest sentence at the top of the
        * queue instead of a half-uploaded text. This is what lets the client ship before the worker
        * is deployed. */
+      /* ⚠ WHOSE FOLDER IS IT. A cancel cleans up after itself (issue #55), and the one thing it
+       * must never do is trash a folder that already held the researcher's work: assignBegin is
+       * given an EXISTING folderId when the text is already on Drive, and a re-upload into it must
+       * leave it alone. So this records whether the folder came into existence on this run. */
+      const hadFolder = !!rec.folderId;
       const b = rec.projectFolderId
         ? await Researcher.projectTextBegin(rec.projectFolderId, docId, rec.title)
         : await Researcher.assignBegin(rec.instanceId, docId, rec.title, rec.folderId || '');
       if (!b) throw new Error(t('panel.assign.projNoWorker'));
       rec.folderId = b.folderId; rec.originalsFolderId = b.originalsFolderId;
+      if (!hadFolder) rec.createdFolder = true;
       await save();
     }
     /* The manifest goes FIRST, before a single source byte — so that from the moment the folder
@@ -5141,8 +5150,27 @@ async function runAssignUpload(docId) {
       aqStop.delete(docId);
       aqActive.delete(docId);
       if (stop === 'cancel') {
+        /* ⚠ A CANCEL TAKES ITS LEFTOVERS WITH IT (Seth, 2026-09-07: "deleting the half-made text is
+         * the right decision here"). Without this the manifest — written before the first source
+         * byte — and any finished part stayed on Drive, so a cancelled upload appeared in the
+         * estate as a real text missing its audio, and one that could never be resumed because the
+         * queue record it needed had just been thrown away.
+         *
+         * WHAT is removed is deliberately narrow: the text FOLDER only when this run created it,
+         * otherwise just the files this run uploaded. A re-upload into a folder that already held
+         * the researcher's work must not take that work with it. Drive TRASH, never a permanent
+         * delete — recoverable for 30 days, the same promise the panel's own delete makes.
+         * Best-effort: a cleanup that fails must not turn a cancel into an error. */
+        const ids = rec.createdFolder && rec.folderId
+          ? [rec.folderId]
+          : [rec.manifestFileId, rec.audioFileId, rec.flextextFileId].filter(Boolean);
+        if (ids.length) {
+          try { await Researcher.trashFiles(ids, 'cancelled assignment upload'); }
+          catch { deps.toast(t('panel.aq.cancelLeftovers', { title: rec.title || '?' }), 8000); }
+        }
         await db.deleteMedia(key).catch(() => {});
         jobEnd(job, t('panel.jobs.cancelledShort'));
+        renderDashboard();   // the half-made text is gone from Drive; take it off the screen too
       } else {
         rec.state = 'paused'; rec.error = '';
         await save();

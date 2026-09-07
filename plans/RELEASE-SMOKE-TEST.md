@@ -438,4 +438,7 @@ Resume button on the Assignment uploads card → resumes AT 35%, not zero → a 
 and reads "cancelled". Download All still completes. So these need no repeating unless the code
 changes.
 
-- [ ] Still open (issue #55): a cancelled upload leaves the half-made text in Drive.
+- [ ] Cancel a running upload of a NEW text: the text does not appear in the list afterwards, and
+      the folder is in the Drive trash (issue #55, fixed v613).
+- [ ] Cancel a RE-upload into a text that already had files: the text and its existing files are
+      still there — only what that upload added is gone.

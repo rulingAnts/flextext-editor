@@ -378,3 +378,16 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Join/split on: the drag grips are still a full-size target (26px tall) and still move the
       boundary. [real device] The same with a finger.
 - [ ] The exported PAT page is unchanged — it never had per-line waveforms.
+
+## The close-up on a REAL-LENGTH recording (v608)
+
+⚠ Test this with a recording of several minutes, not a short fixture. The bug it fixes could not
+happen on a short one: the close-up used to stretch the waveform picture, and only a long file
+asked for a picture wider than a browser will draw.
+
+- [ ] Tool, a recording of 3 minutes or more: scrub a line. The top player shows a few seconds of
+      waveform, NOT a blank white box, and grows taller. There is a little to scroll either side.
+      Release puts it back.
+- [ ] The same on a listening page exported from a recording that long.
+- [ ] The playhead line and the seam marks sit at the right place while zoomed in, not squashed at
+      the left edge.

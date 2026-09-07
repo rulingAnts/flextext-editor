@@ -179,13 +179,55 @@ already self-contained, already exported, already immutable in practice. It stay
 nothing needs to be reconciled because nothing is duplicated.
 
 ```
-Person  { id, name, code?, flexPersonGuid?, createdAt }
-Receipt { …exactly today's consentReceipt…,               // unchanged, still per text
-          personId?,                                      // ← the ONLY addition: nullable
-          scope: 'thisText' | 'listed' | 'allMyRecordings',
-          coversTextIds[] }                               // groupConsent already does this
-Association { receiptId, personId, by, at, note? }        // logged, reversible — §3.5
+Person   { id, name, aliases[], code?, flexPersonGuid?, createdAt }
+Package  { …exactly today's consentReceipt…,               // unchanged evidence
+           scope: 'thisText' | 'listed' | 'allMine',        // what it grants over
+           answers: { <questionId>: <answer> } }            // §4
+PersonPackage { packageId, personId, by, at }               // ← link table 1 (the association)
+TextSpeaker   { textId, personId }                          // ← link table 2 (who is on a text)
 ```
+
+⚠ **AND THAT IS THE WHOLE DELTA — one new entity and two link tables.** Seth, 2026-09-08, on the
+one-to-many-both-ways model: *"So that introduces a lot of complexity."* It looks like four objects
+and it is not, because of one collapse worth stating plainly:
+
+**A "policy" is a package, viewed operationally.** Seth described *"something like a 'policy' that
+could apply to texts"* as a fourth thing. It does not need to be one: a package already says *who*,
+*what they granted*, and *over which texts* — which is exactly a policy with its evidence still
+attached. Splitting them would mean keeping a rule and its proof in step forever, which is the same
+duplication §3.2 just finished removing. **One object, two readings.**
+
+And the link tables are less new than they look: `groupConsent.textIds` **already exists** in today's
+receipts, so package-covers-many-texts is in the data now. What is genuinely new is *package ↔
+person* (the association) and *text ↔ person* (who speaks on a text).
+
+#### The one piece of real logic
+
+Resolving *is this text consented?* — pure, testable, and about thirty lines:
+
+1. For each speaker on the text, take that person's packages whose scope covers it.
+2. **Most specific wins**: `thisText` beats `listed` beats `allMine`. At equal specificity, **later
+   beats earlier** — that is how a speaker changes their mind.
+3. ⚠ **A speaker may widen or narrow their own permission; a researcher hold may only narrow.**
+4. The text is consented only when **every** speaker on it resolves to consented.
+
+Everything else in this plan is storage and UI around that function.
+
+#### Nothing is paid before it is needed
+
+⚠ The editor cannot express a multi-speaker text yet (Seth: *"That's for backlog"* — with video and
+example/elicitation "texts" alongside it). So `TextSpeaker` ships **many-to-many in shape and
+one-row-per-text in practice**: a link table costs nothing extra today and avoids a migration on the
+day the editor catches up. The resolution function is written for many from the start because writing
+it for one and generalising later is how the multi-speaker case quietly never arrives.
+
+Staged so the complexity lands only as it earns its place:
+
+| phase | what resolution has to do |
+|---|---|
+| 2 | *does this person have any package covering this text?* — one speaker per text |
+| 3 | scope and specificity, exclusions, the four states |
+| later | several speakers per text, when the editor can say so |
 
 Three things this buys, each of which was a named risk in the earlier draft:
 
@@ -205,13 +247,14 @@ Three things this buys, each of which was a named risk in the earlier draft:
 checklist define them. Now computed as: every speaker on the text has at least one receipt whose
 scope covers it, none of that person's later receipts excludes it, and no researcher hold applies.
 
-#### ⚠ A text can have more than one speaker, and today's model assumes it does not
+#### ⚠ A text can have more than one speaker — in the data, not yet in the editor
 
 Our own EAF importer exists because ELAN puts a speaker on each tier and *"a conversation (several
-speaker tiers) is COLLAPSED into one time-ordered line list with speaker attributes"*. So
-multi-speaker texts are already first-class in the data. **A text is consented only when EVERY
-speaker on it is covered** — one speaker's yes does not clear a conversation. The per-text receipt
-model cannot express that today, and the person index is what makes it expressible.
+speaker tiers) is COLLAPSED into one time-ordered line list with speaker attributes"*, so
+multi-speaker texts already arrive through import. **The editor cannot yet author or display them**,
+and Seth has put that on the backlog along with video and with "texts" that are really sets of
+elicited examples. Consent does not wait for it: the model above is many-to-many in shape from the
+start, carrying one speaker per text until the editor can say otherwise.
 
 #### "Optional" needs one clarification
 

@@ -142,6 +142,64 @@ the deposit target decides which regime applies.
 
 ## 3. The model
 
+### 3.0 The shape that holds it together
+
+Seth, 2026-09-08: *"where we want to move is a model that works with our remote work, native-speaker
+data collection worker-led, aggressively offline/connection tolerant, intuitive, low skilled, but
+also associated with speakers rather than individual texts. How to hold all that together I'm not
+sure."*
+
+The tension feels real because "person-based" sounds like it needs identity, identity sounds like it
+needs a roster, and a roster needs a researcher and a connection — all of which fight worker-led
+offline capture. **One move dissolves it.**
+
+> **⚠ THE WORKER NEVER HANDLES IDENTITY. THEY HANDLE PEOPLE THEY KNOW.**
+>
+> A coworker in a village does not need a roster, an id, or a canonical spelling. They know
+> Kologwoi. What the app must let them do is record consent from the person in front of them, say who
+> that was in their own words, and have the app remember. Everything else — matching, merging,
+> deciding that this Kolo is that Kologwoi — happens later, on the researcher's side, where both the
+> connection and the whole picture are.
+
+**A person is created by doing the work, not by being provisioned.** The device mints a local person
+the moment a worker types a name. No round trip, no negotiation, no waiting. The canonical identity
+is resolved afterwards by association (§3.6), and the worker is never blocked by it and never sees
+it.
+
+#### And the unit of work is a sitting, not a text
+
+⚠ **This is the part that makes it simpler than what we have now, rather than harder.** The worker's
+mental model is not a database of texts; it is *"who am I recording with today?"* People sit down for
+an afternoon and tell four stories. So:
+
+**Ask once per session — "who are you with?" — and every recording made in that session attaches to
+that person automatically.**
+
+That single change delivers, at once:
+
+- **fewer taps than today**, not more: one identification per sitting instead of a consent dialogue
+  per text;
+- **person-based association for free**, captured at the moment it is actually known, by the only
+  person who reliably knows it;
+- **consent asked once for the sitting**, which is what the Consent Collector's group-ask already
+  does at retrofit time — moved to where it belongs, the front;
+- **offline by construction**, because nothing in it needs a server.
+
+The session is the worker-led path. The assigned worklist (§3.6) is the researcher-led path. Both end
+in the same place: a package, associated with a person, waiting to sync.
+
+#### What each side is allowed to be bad at
+
+| | the device | the researcher's panel |
+|---|---|---|
+| must be | offline, few taps, no reading required, unambiguous | thorough, correcting, auditable |
+| may be | wrong about *who* — spelling, partial names, duplicates | slow, deliberate, connected |
+| never | blocked waiting for a server, or asked to disambiguate people | the thing that has to be right in the field |
+
+⚠ Read that table before adding anything to the device. Nearly every complication in this plan is one
+that belongs in the right-hand column, and the failure mode of the whole design is letting the
+left-hand column inherit it.
+
 ### 3.1 Person
 
 A new entity. Minimum:
@@ -578,17 +636,58 @@ Three things to get right:
 
 ## 4. The question bank
 
-### 4.1 Shape
+### 4.1 Shape — a script is an ordered list of prompt/response pairs
 
-A **bank of question types** the researcher switches on, orders and words, not a fixed form. Each
-question carries: `id`, answer shape (`bool | one-of | many-of | text | date | person-ref | duration`),
-the researcher's own wording, optional recorded audio of that wording, and whether it is required.
-Default profile: a short set that is defensible everywhere (§4.5). Named profiles per archive can come
-later; the bank is what makes them possible.
+Seth, 2026-09-08: *"we want researchers to be able to specify multiple prompts (written or spoken)
+and response pairs and for each one could be written and/or spoken prompt and written, spoken, or
+multiple choice (plus or minus allowing multiple selections) response."*
 
-⚠ **Every question must be answerable by someone who cannot read, has never seen the internet, and is
-being asked through an interpreter.** That is the whole audience for the recorder and the collector.
-A question that cannot be asked aloud in one breath does not belong in the default profile.
+```
+Script   { id, version, lang, questions[] }
+Question { id, required,
+           prompt:   { text?, audioKey? },        // either, or BOTH
+           response: 'spoken' | 'written' | 'choice' | 'signature',
+           choice?:  { multi: bool, options: [{ value, label, audioKey? }] } }
+```
+
+**Today's model is the degenerate case: one question**, prompt `consentMsg` (± audio), response
+yes/no. So the migration is a shim, not a rewrite, and old receipts stay readable — the same
+`responseTypes`/`responseType` precedent the code already set.
+
+⚠ **A choice option must carry its own audio, or multiple choice is useless to this audience.** A
+speaker who cannot read cannot pick from a written list. If an option cannot be *spoken*, it is not
+an option. This is the difference between a feature that works in Jayapura and one that works in a
+village.
+
+#### ⚠ The finding that changes existing behaviour: the gate versus the answers
+
+Today `buildConsentReceipt` writes `consentGiven: true` **always**, because a "no" closes the modal
+and writes nothing. With a script that is wrong and quietly destructive: *"no, not on the public
+web"* is an **answer worth keeping**, not an abandoned dialogue. Losing it means re-asking a speaker
+who already told us — the thing the whole design exists to avoid.
+
+So exactly one question is **the gate** (*may we record / keep this at all?*). A no there stops the
+work and writes nothing, as now. **Every other no is recorded as an answer**, and `consentGiven`
+becomes a derived summary rather than a constant.
+
+#### Snapshotting, without N copies per text
+
+§4.4 says freeze what was asked. With several questions that is several clips, and today a frozen
+prompt is copied per text (`consent-prompt:<docId>`). Naively this becomes *questions × texts*.
+⚠ **Store frozen prompt and option audio once, keyed by content hash, and reference it** — the
+script version already pins which set was used, and identical audio across a hundred texts is one
+blob. The device-wide `asset:consent-prompt` key is the pattern; it just needs to become a small
+content-addressed set.
+
+#### Deliberately not in v1
+
+**No conditional branching.** *"If you said no to archiving, skip the access question"* is the first
+thing a researcher will ask for and the first thing that makes a script untestable, unspeakable aloud,
+and impossible to snapshot honestly. A linear list, kept short (§4.5), covers every profile in §2.
+Revisit only with a real script that cannot be expressed without it.
+
+**No per-question skip logic on the device.** The worker asks what the script says, in order. Any
+cleverness about which questions apply belongs to the researcher who wrote the script.
 
 ### 4.2 Groups
 
@@ -745,7 +844,13 @@ harvest `corpus-manager/PLAN.md` (838 lines specifying an *incompatible* audienc
 the only written treatment of researcher-side tiers, and corpus-keeper supersedes it on nearly every
 other point).
 
-**Phase 2 — the manager, and nothing on the device.** Person store and the association inbox in the
+**Phase 2a — the session (§3.0).** Ask "who are you with?" once per sitting instead of per text, mint
+the person locally, attach every recording from that sitting. ⚠ Sequenced *before* the manager on
+purpose: it is the only device-side change in the whole plan, it removes taps rather than adding
+them, and it starts producing associated packages immediately — which is what gives the manager
+something to reconcile.
+
+**Phase 2b — the manager, and nothing more on the device.** Person store and the association inbox in the
 researcher's panel (§3.6 face 1); `consentSpeaker` surfaced as a hint beside each unassociated
 receipt; association logged and reversible; the D1 `person` table and the Indexed/Strict setting
 (§3.4), with the name E2EE from the first commit. **The capture side does not change at all in this
@@ -762,9 +867,11 @@ the multi-speaker rule, which is where a conversation stops counting as consente
 closes, and the boundary that keeps one colleague from seeing another's answers. Speaker folders
 (§3.7) land here, since this is the first phase that produces receipts not tied to a text.
 
-**Phase 4 — the question bank.** Bank, default profile, per-question wording and audio, the snapshot
-discipline of §4.4. This is the phase that answers Seth's second question and it is deliberately last:
-it is worth little until there is a person to attach the answers to.
+**Phase 4 — the question bank.** The prompt/response pair (§4.1), the researcher's script editor,
+the default profile, content-addressed prompt audio, and the snapshot discipline of §4.4. ⚠ The
+gate-versus-answers change lands here and alters existing behaviour: a "no" stops being an abort and
+starts being data, so `consentGiven` becomes derived. Deliberately last — the answers are worth little
+until there is a person to attach them to.
 
 **Phase 5 — interop out.** `consent/<Name>_Consent.*` in bundles; IMDI `Key` pairs; the `speaker`
 phrase attribute on flextext export; the access-tier projection (speaker's answer → archive code →

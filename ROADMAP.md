@@ -84,7 +84,39 @@ editor is added to the exported page in the same release, because the page is wh
 without the app gets. The page stays read-only — it gains the zooming and scrolling, never the
 boundary adjustment (Seth, 2026-09-07).
 
-### 2.2 Contact page (#50)
+### 2.2 Transfer controls in the In-progress tray (#21, #38) — next release
+
+Seth, 2026-09-07: "Our 'In progress' indicator on researcher panel will need pause/resume/restart/
+cancel support in our next release." Village bandwidth is the reason (#21, long-standing): a large
+transfer that cannot be paused or resumed restarts from zero when the link drops, and on a slow link
+that can mean it never completes.
+
+What exists today: the tray (`jobStart` / `jobSet` / `jobEnd` in `researcher-panel.js`) holds
+display-only rows — a label, a message, a direction arrow, done — with no handle on the transfer
+behind them. Assignment uploads already run on the chunked resumable loop (`runChunkedUpload` in
+`upload.js`), which exposes exactly the hooks needed: `shouldStop()` for a pause or a cancel between
+chunks, `streamId` plus `onSession` for a mid-file resume across drops and restarts. The queue card
+already offers cancel-before-start and retry-after-failure; what is missing is control of a
+transfer that is *running*.
+
+Design, per row in the tray, four verbs:
+
+- **Pause** — sets the job's stop flag; the upload loop exits between chunks with `stopped`; the
+  queue record persists `paused` and the session id, so the pause survives a reload.
+- **Resume** — re-enters the loop with the persisted session id; Drive reports its byte count and
+  the upload continues mid-file. Small single-POST uploads restart, since they are small.
+- **Restart** — cancel, then re-queue from zero with a fresh session (for a transfer that has gone
+  wrong in a way resume cannot repair).
+- **Cancel** — abort the in-flight request, delete the queue record, drop the row.
+
+Downloads (Drive to the panel) get Cancel through an `AbortController` at once; Pause/Resume for
+downloads needs a `Range` read of the Drive file and is to be confirmed against the read path.
+
+Also in the same change (#38): the tray stays collapsible and gains a movable position, and the
+assignment-queue card keeps only rows that need a hand. Each verb is a button on the row with a
+title; the state word on the row ("paused", "resuming…") replaces the spinner while it applies.
+
+### 2.3 Contact page (#50)
 
 `https://flextext.app/contact`: a form protected by Cloudflare Turnstile that emails the
 maintainer through Resend from a small Worker, so the licence and README can point at a contact

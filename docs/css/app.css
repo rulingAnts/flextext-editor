@@ -2109,7 +2109,11 @@ body.rp-standalone main { padding-top: 0; }
 .pa-rowcur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; display: none; }
 /* ⚠ The wave FLEXES and is shorter than it was. It is an overview for seeking, not something to read
    detail off — the per-line waveforms do that job. 48px bought nothing the header could afford. */
-.pa-ovwrap { position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow: hidden; transition: height .15s ease; }
+.pa-ovwrap { position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+/* The close-up grows the player DOWNWARD OVER the rows and takes the same amount off its bottom
+   margin (ovFocus), so nothing below it moves. Opaque and above them for the length of the gesture;
+   no height transition, because a growth the eye can follow is a growth the finger has to chase. */
+.pa-player.pa-ovfocus { box-shadow: 0 6px 12px rgba(0,0,0,.12); }
 /* The seams between lines on the overview, thin and dotted; the one being dragged 2px dashed blue
    (the editor's marks). The close-up (ovFocus) zooms the canvas past the wrapper and scrolls it. */
 .pa-ovmarks { position: absolute; top: 0; left: 0; bottom: 0; width: 100%; pointer-events: none; z-index: 2; }

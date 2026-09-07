@@ -64,6 +64,10 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
 - **The tool's Join/split switch (v601).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
+- **The close-up holds the lines still (v604).** The tool's player and the listening page's grow for a
+  close-up without moving a line: the same height comes off the player's bottom margin, so the rows
+  stay where the finger found them, and the pointer is captured so the drag survives. A seek during
+  load can no longer throw. The listening page's mouse click pauses playback, as the editor's does.
 - **The tool's grips and close-up (v602).** The editor's segment grips on the tool's rows
   (with the switch on), the overview showing the seams, and a close-up that zooms in, grows taller
   and marks the dragged seam blue while a grip is dragged or a line's waveform is scrubbed.

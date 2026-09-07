@@ -346,3 +346,12 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       puts it back on release; a plain click does neither. Scrubbing the top player itself does
       not zoom. [real device] The same with a finger on the playhead line.
 - [ ] Nothing on the page moves a boundary: no grips, no draggable marks.
+
+## The close-up must not move the line under the pointer (v604)
+
+- [ ] Tool and listening page: start dragging the playhead across a line's waveform. The top
+      player grows and zooms, and the line itself does NOT move on screen; keep dragging left and
+      right without moving vertically and the playhead keeps following. Release: the player goes
+      back and the line is still where it was. [real device] The same with a finger on the
+      playhead line.
+- [ ] Listening page: a mouse click on any waveform pauses playback, as it does in the editor.

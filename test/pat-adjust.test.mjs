@@ -27,7 +27,7 @@ test('the overview close-up: about four seconds across, taller, centred; back on
   assert.match(focus, /e\.wrap\.scrollLeft = p\.scroll;/);
   assert.match(UI, /m\.classList\.toggle\('live', ovLiveSeam === s\.j\);/, 'the dragged seam');
   assert.match(UI, /if \(ov\) \{ drawWave\(ov, 0, durMs \|\| 1\); renderOvMarks\(\); \}/, 'marks drawn with the overview');
-  assert.match(CSS, /\.pa-ovwrap \{ position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow: hidden; transition: height \.15s ease; \}/);
+  assert.match(CSS, /\.pa-ovwrap \{ position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow: hidden; \}/, 'no height transition since v604: ovFocus compensates the rows by the exact height gained');
   assert.match(CSS, /\.pa-ovmark \{ position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dotted rgba\(108,118,133,\.7\); \}/);
   assert.match(CSS, /\.pa-ovmark\.live \{ border-left: 2px dashed #2f7cf6; margin-left: -1px; z-index: 1; \}/);
 });
@@ -35,8 +35,8 @@ test('the overview close-up: about four seconds across, taller, centred; back on
 test('scrubbing a line\'s waveform opens the close-up on the first move and closes it on release; a click never does', () => {
   const scrub = UI.slice(UI.indexOf('function wireScrub(el, s, e)'), UI.indexOf('function playSpan(s, e)'));
   assert.match(scrub, /ovFocus\(dragged \? 'move' : 'start', ms\);\s*\n\s*dragged = true;/);
-  assert.match(scrub, /if \(down && dragged\) ovFocus\('end'\);/);
-  assert.match(scrub, /el\.addEventListener\('pointerdown', \(ev\) => \{ ev\.preventDefault\(\); down = true; dragged = false; seek\(ev\); \}\);/);
+  assert.match(scrub, /if \(dragged\) ovFocus\('end'\);/, 'closed by the shared end(), which pointercancel shares (v604)');
+  assert.match(scrub, /ev\.preventDefault\(\);\s*\n\s*down = true; dragged = false;/, 'a click alone never opens the close-up: dragged starts false and only a move sets it');
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.patAdjust': '/g) || []).length, 2, 'release note in EN and ID');
   assert.match(PANEL, /\{ v: 'v602', date: '2026-09-07', items: \[\s*\n\s*\{ k: 'panel\.rel\.new\.patAdjust' \},/);
 });

@@ -73,6 +73,11 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **Transfer controls, proven on a real account (v612).** Pause, resume and cancel were run against
+  a researcher account on staging with a 19 MB upload: paused at 12%, settled at 35% after its chunk
+  landed, survived a reload, resumed at 35% rather than zero, and a cancel read as cancelled. Two
+  things it turned up: the Assignment uploads card showed a bare "?" for a project upload's
+  destination (fixed here), and a cancel leaves the half-made text in Drive (#55, Seth's call).
 - **The Toolbox reader, corrected by real files (v611).** Seth's samples exposed three faults no
   invented fixture had: a title marker occurring ONCE (`\id`, naming the file) beat one occurring
   per story (`\t`), so eleven narratives arrived as a single 407-line text; `\te` (a title

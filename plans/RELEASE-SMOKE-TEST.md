@@ -429,3 +429,13 @@ Checked with Seth's samples (Das Iau narratives: two .txt exports and the same c
 - [ ] Text copied out of a Word document behaves the same, with no alignment warning; a file whose
       gloss line is single-spaced DOES warn.
 - [ ] Save all: one .flextext per story, and FLEx opens them.
+
+## Panel transfer controls — RUN AGAINST A REAL ACCOUNT (v605, re-checked at v612)
+
+Done on staging with a researcher account, 2026-09-07, on a 19 MB upload to a project:
+upload runs → pause at 12% → finishes its chunk and settles at 35% → survives a full reload with a
+Resume button on the Assignment uploads card → resumes AT 35%, not zero → a second upload cancels
+and reads "cancelled". Download All still completes. So these need no repeating unless the code
+changes.
+
+- [ ] Still open (issue #55): a cancelled upload leaves the half-made text in Drive.

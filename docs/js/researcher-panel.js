@@ -1229,6 +1229,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v612', date: '2026-09-07', items: [
+    { k: 'panel.rel.new.aqDest' },
+  ] },
   { v: 'v611', date: '2026-09-07', items: [
     { k: 'panel.rel.new.sfmReal' },
   ] },
@@ -5188,13 +5191,20 @@ function assignQueueHtml(queue) {
   const rows = queue.filter(({ docId }) => !aqActive.has(docId));
   if (!rows.length) return '';
   const nick = (iid) => (((lastData && lastData.instances) || []).find((x) => x.instance_id === iid) || {}).nickname || '?';
+  /* ⚠ A PROJECT UPLOAD HAS NO DEVICE, so asking for a device's nickname printed a bare "?" beside a
+   * paused row — the card asking a question nobody can answer, for a text deliberately going to no
+   * device (issue #4). The activity tray already names the project here; this is the same answer in
+   * the other place the same upload appears. Seen on a real paused upload, 2026-09-07. */
+  const dest = (rec) => (rec.projectFolderId
+    ? `${(((estateCache && estateCache.projects) || []).find((p) => p.folderId === rec.projectFolderId) || {}).name || t('panel.proj.defaultName')} · ${t('panel.store.unassignedGroup')}`
+    : nick(rec.instanceId));
   return `<div class="rp-card rp-aq-card"><div class="rp-inst-name">${esc(t('panel.aq.title'))}</div>
     ${rows.map(({ docId, rec }) => {
       const status = rec.state === 'error' ? t('panel.aq.failedRow', { msg: rec.error || '?' })
         : rec.state === 'paused' ? t('panel.aq.pausedRow') : t('panel.aq.queued');
       return `<div class="rp-install rp-aq-row">
         <div><div class="invite-name">${esc(rec.title || t('panel.hist.untitled'))}</div>
-        <div class="note">${esc(nick(rec.instanceId))} · ${esc(status)}</div></div>
+        <div class="note">${esc(dest(rec))} · ${esc(status)}</div></div>
         <div class="rp-inst-actions">
           ${rec.state === 'error' ? `<button class="secondary-btn" data-aqretry="${esc(docId)}">${esc(t('panel.aq.retry'))}</button>` : ''}
           ${rec.state === 'paused' ? `<button class="secondary-btn" data-aqresume="${esc(docId)}">${esc(t('panel.jobs.resume'))}</button>` : ''}

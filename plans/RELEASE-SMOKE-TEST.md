@@ -355,3 +355,16 @@ prints the same one-time secret on a third base URL; the app reports itself as `
       back and the line is still where it was. [real device] The same with a finger on the
       playhead line.
 - [ ] Listening page: a mouse click on any waveform pauses playback, as it does in the editor.
+
+## Panel transfers and the segmenter close-up (v605, v606)
+
+- [ ] Panel: start a large assignment upload. Its row in "In progress" carries ❚❚ and ✕. Pause:
+      the spinner becomes ❚❚, the row says the percentage it stopped at, and nothing moves.
+      Resume: it continues from that percentage, not from zero. Reload the panel mid-pause: the
+      Assignment uploads card lists it as paused with a Resume button, and no sweep restarts it.
+- [ ] Panel: Cancel a running upload — the row goes, the queue record goes, and the device never
+      hears about it. Cancel a Download All and a single original — both stop and say "cancelled",
+      not "failed".
+- [ ] Segmenter: drag a segment's edge handle — the top player zooms in on that boundary for the
+      drag and shows it as a blue dashed line, then goes back. Dragging the mark on the top player
+      itself moves the boundary WITHOUT zooming, and does not jump. [real device] Both with a finger.

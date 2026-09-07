@@ -70,3 +70,17 @@ test('the seam being dragged is a thick dashed blue mark on the dock, distinct f
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.liveMark': '/g) || []).length, 2);
   assert.match(PANEL, /\{ v: 'v600', date: '2026-09-07', items: \[\s*\n\s*\{ k: 'panel\.rel\.new\.liveMark' \},/);
 });
+
+test('the segmenter\'s row edge handles open the dock close-up; the dock\'s own mark drag does not (Seth, 2026-09-07)', () => {
+  const APP2 = rd('../docs/js/app.js');
+  const fn = APP2.slice(APP2.indexOf('function mgBoundaryDrag(i, ms, phase, src)'), APP2.indexOf('// ── independent editing, left side'));
+  assert.match(fn, /if \(src === 'row'\) \{ try \{ const s = MG\.spans\[i\]; if \(s && !s\.timePending\) player\?\.boundaryFocus\?\.\('start', s\.end\); \}/);
+  assert.match(fn, /if \(src === 'row'\) \{ try \{ player\?\.boundaryFocus\?\.\('end'\); \}/);
+  assert.match(fn, /if \(src === 'row'\) \{ try \{ const s = MG\.spans\[i\]; if \(s\) player\?\.boundaryFocus\?\.\('move', s\.end\); \}/);
+  assert.equal((fn.match(/player\?\.boundaryLive\?\./g) || []).length, 2, 'the blue seam is shown for both gestures');
+  assert.match(APP2, /mgBoundaryDrag\(bi, null, 'start', 'row'\);/, 'the row handle says which gesture it is');
+  assert.match(APP2, /mgBoundaryDrag\(bi, t0 \+ \(e2\.clientX - x0\) \* perPx, 'move', 'row'\);/);
+  assert.match(APP2, /mgBoundaryDrag\(bi, null, 'end', 'row'\);/);
+  assert.match(APP2, /p\.onBoundaryDrag\?\.\(\(i, t, phase\) => mgBoundaryDrag\(i, t, phase\)\);/, 'the dock mark passes no source, so it never zooms itself');
+  assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.segFocus': '/g) || []).length, 2);
+});

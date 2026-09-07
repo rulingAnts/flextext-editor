@@ -9,6 +9,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
+import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 // NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
@@ -6973,6 +6974,14 @@ function fmtClockMs(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/* ⚠ WIRED FROM BOTH BOOT PATHS. The Toolbox/SFM converter's button sits on a Utilities tab that
+ * BOTH the editor and the segmenter have, but setupSegmenterMode() returns long before
+ * setupResearch() (where the audio converter is wired) ever runs — so a single call site there
+ * left the segmenter's button dead, doing nothing when pressed. */
+function wireSfmConverterButton() {
+  $('#usfm-open')?.addEventListener('click', () => openSfmConverter({ settings }));
+}
+
 function wireAudioConverter() {
   if (!$('#uc-file')) return;                    // satellite shells have no Utilities tab
   let srcBuf = null, srcInfo = null, srcName = '', srcSize = 0;
@@ -7077,6 +7086,7 @@ function setupResearch() {
   }
 
   wireAudioConverter();
+  wireSfmConverterButton();
   wireFileExporter();
 
   // Writing system checker
@@ -9452,12 +9462,15 @@ async function mgOpen(id) {
 
 function setupSegmenterMode() {
   renderSegmenterView();
+  wireSfmConverterButton();   // this app's Utilities tab; setupResearch() never runs here
   /* The two home tabs (Seth, 2026-09-04: "an unpaired settings tab, analogous to the editor app").
    * The editor wires its own after the fork; this app has the same two ids and the same rules —
    * the Settings tab is built on entry, hidden by the in-person switch or by a claimed invite, and
    * brought back with Ctrl+Alt+R (there is no Help button here to tap seven times). */
   $$('#topbar-home .top-tab').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.view === 'research') { renderDeviceSetup(); show('research'); }
+    // The Utilities tab (Seth, 2026-09-07) — static markup, like the editor's; nothing to build.
+    else if (b.dataset.view === 'utilities') { show('utilities'); }
     else { sgRenderList(); show('segmenter'); }
   }));
   const hideBtn = $('#btn-hide-research');

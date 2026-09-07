@@ -404,3 +404,16 @@ asked for a picture wider than a browser will draw.
 - [ ] Segmenter: Download this text ▸ offers "Paragraph Analysis file only (.fxpa…)"; the file
       opens in the Paragraph Analysis Tool with its audio. A text with no recording still exports a
       text-only .fxpa.
+
+## The Toolbox / SFM converter (v610)
+
+- [ ] It opens from all four doors: the editor's Utilities tab, the Audio Segmenter's new Utilities
+      tab, Utilities in the researcher panel, and the Paragraph Analysis Tool's File menu.
+- [ ] Choose a Toolbox file with several texts: the marker list appears, the mapping is filled in
+      from the file, and "Texts found" matches what the file really holds. Change the "Starts a new
+      text" marker and the count changes with it.
+- [ ] Save one text: a .flextext lands with the right words, glosses and translations, and FLEx
+      opens it. Save all: a zip with one numbered .flextext per text, none missing.
+- [ ] A file whose word and gloss lines are single-spaced shows the alignment warning BEFORE saving.
+- [ ] A file exported from ELAN as Toolbox keeps its times and speakers, so the .flextext is
+      time-aligned.

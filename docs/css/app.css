@@ -3210,3 +3210,16 @@ a.rp-app-link { display: block; text-align: center; text-decoration: none; box-s
 .doc-dl-stalled .doc-dl-fill { background: #e0a030; }
 .doc-dl-ctl { margin-left: 6px; }
 .doc-dl-btn { font-size: .85rem; padding: 2px 6px; }
+
+/* ---------- Toolbox / SFM converter (sfm-convert.js, issue #29) ----------
+   A wizard in a modal, opened from the editor's and the segmenter's Utilities tab, the researcher
+   panel's Utilities and the Paragraph Analysis Tool's File menu. The mapping grid is the only part
+   that needs its own rules: a dozen role rows read as a wall unless they are columns on a wide
+   screen, and must fall back to one column on a phone. */
+.sfm-card { max-width: 560px; }
+.sfm-paste { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+             font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin: 6px 0; }
+.sfm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px 14px; margin: 8px 0; }
+.sfm-row span { font-size: 12px; }
+.sfm-found { font-weight: 600; color: var(--text); }
+.sfm-msg.sfm-warn { color: #b23c00; }

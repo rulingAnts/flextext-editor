@@ -16,6 +16,7 @@ import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { splitTiers, splitPlan, isAligned } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
 import { splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag, installKeyboardOverlayGuard } from './segment-strips.js';   // its pending state, the ✂ under a caret, and the editor's grips
 import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
+import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
          normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm } from './sfm.js';
@@ -1656,6 +1657,7 @@ function renderWorkInner() {
             <button class="pa-menuitem" id="pa-save">${esc(t('para.saveTip'))}</button>
             <button class="pa-menuitem" id="pa-save-noaudio" hidden>${esc(t('para.saveNoAudio'))}</button>
             <button class="pa-menuitem" id="pa-export">${esc(t('para.exportBtn'))}</button>
+            <button class="pa-menuitem" id="pa-sfm-convert">${esc(t('sfm.utilBtn'))}</button>
             ${state.authored ? `<button class="pa-menuitem" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
             <hr>
             <button class="pa-menuitem" id="pa-close">${esc(t('para.close'))}</button>
@@ -1829,6 +1831,8 @@ function renderWorkInner() {
     }
   }
   $('#pa-export').addEventListener('click', openExportDialog);
+  // Seth, 2026-09-07: "and as a menu item in paragraph analysis tool". The same converter modal.
+  $('#pa-sfm-convert')?.addEventListener('click', () => openSfmConverter());
   if (state.authored) {
     $('#pa-addline').addEventListener('click', () => {
       const last = state.lines[state.lines.length - 1];

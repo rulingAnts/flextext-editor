@@ -461,6 +461,41 @@ removable when the assignment closes** — the same discipline as the pushed ros
 task rather than standing forever. That resolves decision 6 in Seth's favour without the exposure:
 not "no roster ever", but "a roster the size of one job".
 
+#### The match is manual, and the typed name is kept forever
+
+Seth, 2026-09-08: *"The client device doesn't need a drop down. But the researcher will need the
+ability to manually match the entered name with an existing list of names. Because name spelling will
+not be consistent and often not full names."*
+
+That settles the capture side: **no roster, no picker, no dropdown on the device.** The coworker types
+what they would say. Everything else follows from accepting that what they type is a *hint*, not an
+identifier.
+
+⚠ **The typed string is kept verbatim on the receipt, forever, and is never overwritten by the
+canonical name.** It is evidence of what was actually recorded at the time, it is what makes a wrong
+association reviewable later, and it is the only thing that can be checked against the audio. The
+association is a separate layer pointing at a person; it never edits the receipt.
+
+**Matching is a human act.** The manager may *suggest* — normalised comparison, edit distance, known
+aliases — but ⚠ **a suggestion is never auto-applied**, for exactly the reason merging is logged and
+reversible (§3.5): silently attributing one person's consent to another is the worst thing this
+system could do, and "Kolo" may be one person or three. Only someone who knows the village can say.
+
+**Partial and inconsistent names are the normal case, not an error.** *Kologwoi* / *kologwoi* /
+*Kologwoi Suhu* / *Kolo* may be one person, and the same short form may be two people in different
+villages. So:
+
+- a Person carries **known aliases** — every string ever associated to them — so the second receipt
+  from the same coworker suggests correctly and the tenth needs no thought;
+- aliases have a home downstream: lameta's Person has `nickname` and `code`, and FLEx `CmPerson` has
+  `Alias`, so this is not a private invention;
+- ⚠ **an alias list is not a matching rule.** It raises a suggestion. The click is still a person's.
+
+**An unassociated receipt is a normal state, not a backlog item to be nagged about.** Some will never
+be resolved — the coworker has moved on, nobody remembers which Kolo. The manager should show that
+plainly and let it stay, because a forced guess is worse than an honest gap, and the four states
+(§3.2) already have a name for it: *no record*.
+
 #### What the assigned collector must not become
 
 ⚠ It must not display **other people's** consent decisions. A worklist says *ask these people about

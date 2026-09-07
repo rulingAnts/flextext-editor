@@ -288,15 +288,19 @@ ${audioB64 ? `<script>
 (function () {
   // base64 in chunks, each decoded on its own (see paragraphPreviewBlob) — the page never holds
   // the whole recording as one binary string.
-  var b64 = ["${audioB64}"], parts = [];
+  var b64 = ["${audioB64}"], parts = [], total = 0;
   for (var k = 0; k < b64.length; k++) {
-    var b = atob(b64[k]), u = new Uint8Array(b.length);
-    for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
-    parts.push(u); b = null;
+    var b = atob(b64[k]), p = new Uint8Array(b.length);
+    for (var i = 0; i < b.length; i++) p[i] = b.charCodeAt(i);
+    parts.push(p); total += p.length; b = null;
   }
   b64 = null;
-  var audio = new Audio(URL.createObjectURL(new Blob(parts, { type: "${esc(audioMime)}" })));
+  // One array of the whole recording, header first — the player's Blob and the waveform decoder's
+  // bytes (see the engine page's note: v614 gave the decoder the last chunk only).
+  var u = new Uint8Array(total), off = 0;
+  for (k = 0; k < parts.length; k++) { u.set(parts[k], off); off += parts[k].length; }
   parts = null;
+  var audio = new Audio(URL.createObjectURL(new Blob([u], { type: "${esc(audioMime)}" })));
   var stopAt = 0, active = null, peaks = null, mpb = 0, dur = 0;
   audio.addEventListener("timeupdate", function () {
     if (stopAt && audio.currentTime * 1000 >= stopAt - 20) audio.pause();

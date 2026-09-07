@@ -73,6 +73,8 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **v615: the v614 listening page had no waveforms** — the chunked decode left the waveform decoder with
+  the last chunk only; the page now assembles one array for both the player and the decoder.
 - **The recording is never one string (v614).** Seth hit "Could not build the download: allocation
   size overflow" exporting a .fxpa from the Audio Segmenter and "Download failed" building a listening
   page in the panel — one shared engine path. Measured in headless Firefox 155 on the rig: Firefox

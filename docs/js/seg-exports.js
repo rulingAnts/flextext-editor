@@ -501,15 +501,21 @@ ${withAudio ? `<script>
   // never holds the whole recording as one binary string — the difference between a page that
   // opens on a phone and one that does not.
   var b64 = [${JSON.stringify(audioB64)}];
-  var parts = [];
+  var parts = [], total = 0;
   for (var k = 0; k < b64.length; k++) {
-    var bin = atob(b64[k]), u8 = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    parts.push(u8); bin = null;
+    var bin = atob(b64[k]), p = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) p[i] = bin.charCodeAt(i);
+    parts.push(p); total += p.length; bin = null;
   }
   b64 = null;
-  var audio = new Audio(URL.createObjectURL(new Blob(parts, { type: ${JSON.stringify(audioMime)} })));
+  // ⚠ ONE ARRAY OF THE WHOLE RECORDING, header first: the Blob the player streams from AND the
+  // bytes the waveform is decoded from below (decodeAudioData wants the complete file). v614
+  // handed the decoder the last chunk only — the audio played, the waveforms stayed blank (Seth,
+  // 2026-09-07, "Birds vs Snakes").
+  var u8 = new Uint8Array(total), off = 0;
+  for (k = 0; k < parts.length; k++) { u8.set(parts[k], off); off += parts[k].length; }
   parts = null;
+  var audio = new Audio(URL.createObjectURL(new Blob([u8], { type: ${JSON.stringify(audioMime)} })));
   var stopAt = 0, active = null;
   var peaks = null, mpb = 0, durMs = 0;
   var rows = [].slice.call(document.querySelectorAll('.seg[data-s]'));

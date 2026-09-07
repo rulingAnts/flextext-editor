@@ -158,34 +158,69 @@ Stored per project, on the device. Pushable from the panel as a roster (from FLE
 keeper), and **always typeable offline as a new name** — a field worker with no signal must never be
 blocked. That is the keeper plan's own provision, and DEVELOPERS.md's offline rule.
 
-### 3.2 Consent record
+### 3.2 Receipts are the evidence; a person is an index over them
 
-Per person, not per text. Shape (ISO 27560's skeleton, our fields):
+⚠ **REVISED 2026-09-08 on Seth's proposal, and it is a better model than the one this section first
+carried.** The original had a person-level ConsentRecord as the authority and the per-text receipt as
+a snapshot of it, which needed a precedence rule to stop the two disagreeing — the exact failure the
+design exists to prevent. Seth's inversion removes the problem instead of managing it:
+
+> *"keep the existing per-text consent system for the native-speaker side (optional), and then have
+> the consent collector be a consent MANAGER where researchers can see existing consent responses and
+> associate them with people names… and each speaker can have many or multiple consent
+> receipts/response packages associated and saved with it."*
+
+**The receipt is a fact about an event.** Someone was asked something, on a date, and answered. It is
+already self-contained, already exported, already immutable in practice. It stays exactly as it is.
+
+**A person is an index over receipts.** `Person → [receiptId…]`, built by association, not by capture.
+
+**Per-text state is derived** from "does every speaker on this text have a covering receipt", and
+nothing needs to be reconciled because nothing is duplicated.
 
 ```
-ConsentRecord {
-  id, personId, state,                        // Requested|Given|Renewed|Withdrawn|Expired|Invalidated
-  supersedes?,                                // the record this replaces — never overwrite, always chain
-  scope: 'all' | 'listed', textIds[],         // corpus-keeper's model
-  exclusions: [{ textId, date, howExpressed }],
-  answers: { <questionId>: <answer> },        // §4
-  script: { id, version, lang, renderedText, promptAudioKey },   // what was actually asked
-  evidence: { types[], clipKey?, signatureName?, mark?, witness?, collectedBy },
-  audit: { timestamp, timezone, deviceId, app, interfaceLang, ipAddress?, approxLocation? }
-}
+Person  { id, name, code?, flexPersonGuid?, createdAt }
+Receipt { …exactly today's consentReceipt…,               // unchanged, still per text
+          personId?,                                      // ← the ONLY addition: nullable
+          scope: 'thisText' | 'listed' | 'allMyRecordings',
+          coversTextIds[] }                               // groupConsent already does this
+Association { receiptId, personId, by, at, note? }        // logged, reversible — §3.5
 ```
 
-**A text is consented** when its speaker has a record, the text is in scope, not excluded, and not
-held by the researcher. Four named states — *consented / no record / excluded by speaker / held by
-researcher* — exactly as the keeper plan and the checklist define them.
+Three things this buys, each of which was a named risk in the earlier draft:
 
-⚠ **The per-text outcome is derived, never stored** (keeper plan) — *and yet* every text must still
-carry a self-contained receipt copy, because `consent-retrofit-and-segmentation-apps.md:19-21`
-requires that a retrofitted and a natively-recorded text be indistinguishable downstream. These
-reconcile only with an explicit precedence rule, and getting it wrong produces the exact failure the
-design exists to prevent — a text that reads consented in one tool and withheld in another. **The
-rule: the person record is authoritative; the per-text receipt is a snapshot carrying the record id
-and its version. On any disagreement the record wins, and the tool says the snapshot is stale.**
+1. **The migration stops being frightening.** §6's device-side reconciliation of free-text
+   `consentSpeaker` strings, driven offline by a barely-literate user, is gone. Association happens
+   in the researcher's manager, where the whole picture already is.
+2. **"No second-class consent record" holds by construction.** The retrofit plan's requirement — a
+   retrofitted and a natively-recorded text must be indistinguishable downstream — is satisfied
+   because the receipt never changed. No precedence rule, no stale-snapshot state.
+3. **Many receipts per person is what actually happens.** A speaker consents in 2024 for three
+   stories, again in 2026 for eleven more, and withdraws one in between. An ordered list of receipts
+   records that history; a single record with a scope flattens it and loses the middle.
+
+#### The four states, unchanged in meaning
+
+*consented / no record / excluded by speaker / held by researcher* — as the keeper plan and the
+checklist define them. Now computed as: every speaker on the text has at least one receipt whose
+scope covers it, none of that person's later receipts excludes it, and no researcher hold applies.
+
+#### ⚠ A text can have more than one speaker, and today's model assumes it does not
+
+Our own EAF importer exists because ELAN puts a speaker on each tier and *"a conversation (several
+speaker tiers) is COLLAPSED into one time-ordered line list with speaker attributes"*. So
+multi-speaker texts are already first-class in the data. **A text is consented only when EVERY
+speaker on it is covered** — one speaker's yes does not clear a conversation. The per-text receipt
+model cannot express that today, and the person index is what makes it expressible.
+
+#### "Optional" needs one clarification
+
+Seth: *"keep the existing per-text consent system for the native-speaker side (optional)"*.
+⚠ Read as: **the PERSON step is optional on the device, not consent itself.** Consent capture stays
+exactly as configured by the researcher today. What becomes optional is whether the coworker also
+says *who* — because that is the part the manager can supply later, and the part that would otherwise
+put a roster on every phone (§3.5). If it were consent itself that became optional, a coworker could
+record with none at all, which is a step backwards from where the suite already is.
 
 ### 3.3 Where a person's name may and may not live
 
@@ -397,6 +432,70 @@ sentence in the deployment notes, not a feature.
 
 ---
 
+### 3.6 The Consent Manager, and an assignable collector
+
+Seth's second proposal, and it changes what the Consent Collector *is*:
+
+> *"have the consent collector/manager app be something we CAN assign to native speaker colleagues.
+> And that app would have a list of speakers and texts from those speakers that the researcher needs
+> consent for that the user can then collect and record."*
+
+**Two faces of one app, decided by who is signed in — the suite already works this way.**
+
+**Face 1 — the researcher's manager.** Its main view is *an inbox of receipts with no person yet*,
+because that is the daily reality: consent arrives from devices attached to texts, and someone has to
+say who gave it. Association is one click, reversible, and logged. Beside it: a person's card showing
+their receipts in date order and the four states across their texts, which is the "keep track of
+consent by speaker" Seth asked for. Exclusions and holds are entered here, never on a device.
+
+**Face 2 — an assigned worklist.** A researcher assigns *"these people, these texts, please collect
+consent"* to a colleague's device. ⚠ **This is the right answer to a question the whole plan has been
+circling: who should do the asking.** A native-speaking colleague usually should — same language,
+same community, already trusted, and able to explain what an archive is in terms that land. SIL's own
+requirement is consent *"in a form and language that the subject understands"*, and a colleague
+asking in Fayu satisfies that far better than a form asking in Indonesian.
+
+**The worklist is the scoped roster §3.5 argued for, arriving by a better route.** It carries only
+the people that assignment needs, it is per-assignment rather than project-wide, and ⚠ **it must be
+removable when the assignment closes** — the same discipline as the pushed roster, but bounded by a
+task rather than standing forever. That resolves decision 6 in Seth's favour without the exposure:
+not "no roster ever", but "a roster the size of one job".
+
+#### What the assigned collector must not become
+
+⚠ It must not display **other people's** consent decisions. A worklist says *ask these people about
+these texts*; it does not say *and here is what everyone else in the project already answered*. The
+`project_member.caps` model (`see: all | [instanceId…]`) is where that boundary is already expressed
+for researchers, and the device side needs the same idea.
+
+### 3.7 Speaker folders in the project
+
+Seth: *"We might need speaker folders in our project folder system somehow."* Yes — and lameta has
+already chosen the layout for us:
+
+```
+<Project>/People/<Name>/<Name>_Consent.<ext>
+```
+
+That is precisely what lameta detects (a file whose path contains `Consent` in the person's folder),
+so writing it means the keeper's Receive step files it with no renaming. With many receipts per
+person (§3.2) the folder holds a series — `<Name>_Consent_2026-09-08.wav` and its `.json` twin — and
+lameta still sees a consented person because its check is a substring, not a filename match.
+
+Three things to get right:
+
+1. ⚠ **A folder name is a name in the clear — and that is fine here, because this is the
+   researcher's own Drive.** The constraint in §3.3 was about D1 and about devices. Being explicit
+   about the difference is what stops someone "fixing" this later, or citing it as precedent for a
+   name column.
+2. ⚠ **This is a new tree, not a change to the text manifest.** The manifest is immutable by design
+   and boolean-only about consent by test; person folders must not touch it. They are discovered by
+   listing `People/`, the same way lameta discovers them.
+3. **A person folder is where a receipt with no text can live** — the Consent Collector can already
+   import a recording with no text, and a person may give consent covering work not yet recorded.
+
+---
+
 ---
 
 ## 4. The question bank
@@ -534,6 +633,11 @@ rule and §4 are the parts it left open.
 
 ## 6. Migration — and the one thing that cannot be recovered
 
+⚠ **REVISED 2026-09-08.** §3.2's inversion removes the frightening half of this section: there is no
+longer a device-side reconciliation driven by a barely-literate user offline. Association happens in
+the researcher's manager. What remains below is still true and still worth doing, but it is now a
+convenience rather than a rescue.
+
 ⚠ **Every speaker name typed into the Consent Collector exists only in that phone's IndexedDB.**
 `consentSpeaker` is in no export, no upload, no manifest, no inventory, and not even in
 `uploadContentSig` — so editing it does not mark the text as changed. There is no server copy to
@@ -541,10 +645,11 @@ migrate from. The reconciliation has to run **on each device, offline, driven by
 user**, and if a device is wiped first the mapping is gone.
 
 Consequences for the plan:
-1. **Ship a device-side reconciliation before anything depends on person ids** — a screen that lists
-   the distinct `consentSpeaker` strings and offers "these are the same person" plus "this is
-   <roster person>". Free-text matching is unnormalised today: `Kologwoi` and `kologwoi ` are two
-   people.
+1. **The researcher's manager does the reconciliation**, not the device (§3.6). `consentSpeaker`
+   becomes a *hint* shown beside an unassociated receipt — "the coworker typed: Kologwoi" — which is
+   exactly what a human needs to associate it correctly, and needs no normalisation, no matching
+   heuristic and no offline UI. Free-text matching was never going to work anyway: `Kologwoi` and
+   `kologwoi ` are two strings and one person.
 2. **Make `consentSpeaker` survivable first.** Getting it into the E2EE inventory is a small change and
    turns an unrecoverable loss into a recoverable one. Do it in phase 1 even though nothing consumes
    it yet.
@@ -562,16 +667,22 @@ harvest `corpus-manager/PLAN.md` (838 lines specifying an *incompatible* audienc
 the only written treatment of researcher-side tiers, and corpus-keeper supersedes it on nearly every
 other point).
 
-**Phase 2 — the Person entity, minted on the device.** Person store scoped to that device's own
-speakers (§3.5 — *not* a pushed project roster), offline typing, the device-side reconciliation
-screen, and the researcher-side merge with its log. Remote wipe covers the person store from the
-first commit. The D1 `person` table and the Indexed/Strict project setting
+**Phase 2 — the manager, and nothing on the device.** Person store and the association inbox in the
+researcher's panel (§3.6 face 1); `consentSpeaker` surfaced as a hint beside each unassociated
+receipt; association logged and reversible; the D1 `person` table and the Indexed/Strict setting
+(§3.4), with the name E2EE from the first commit. **The capture side does not change at all in this
+phase** — which is what makes it shippable without touching a field device. The D1 `person` table and the Indexed/Strict project setting
 (§3.4); the name rides E2EE from the first commit, never as a column to be removed later. The Consent Collector's grouping key changes from a trimmed
 string to a person id — everything else in its group-ask flow is already right.
 
-**Phase 3 — the consent record.** The lifecycle, scope, exclusions, supersession chain. Receipt gains
-`personId`, `personName`, `flexPersonGuid`, `scope`, `recordId`, `scriptVersion` — all additive, the
-way `responseTypes` was. The four states surface in the panel and the checklist.
+**Phase 3 — scope, exclusions, and the four states.** Receipt gains `personId`, `scope`,
+`coversTextIds` and `scriptVersion` — all additive, the way `responseTypes` was. Exclusions and holds
+in the manager. The four states surface in the panel and the checklist, computed per §3.2 — including
+the multi-speaker rule, which is where a conversation stops counting as consented on one person's yes.
+
+**Phase 3b — the assignable collector** (§3.6 face 2): the worklist, its removal when the assignment
+closes, and the boundary that keeps one colleague from seeing another's answers. Speaker folders
+(§3.7) land here, since this is the first phase that produces receipts not tied to a text.
 
 **Phase 4 — the question bank.** Bank, default profile, per-question wording and audio, the snapshot
 discipline of §4.4. This is the phase that answers Seth's second question and it is deliberately last:
@@ -600,9 +711,9 @@ and the software's job is to make it possible and to record it faithfully when i
    for 97 texts.
 4. **Machine-learning use** as a question — nobody else asks it yet; do we?
 5. **Retire or harvest `corpus-manager/PLAN.md`.**
-6. **Does the pushed roster go?** §3.5 argues the device should mint people locally and the
-   researcher should merge, rather than every phone holding every speaker in the project. That
-   contradicts one line of the keeper plan, so it is Seth's call to overrule or confirm.
+6. **The pushed roster: resolved, pending your nod.** §3.6's worklist is the middle path — not a
+   project-wide roster on every phone, and not nothing, but a roster the size of one assignment that
+   goes away when the job is done. This still narrows the keeper plan's line, so confirm it.
 7. **The default privacy mode** (§3.4): Indexed gives the panel a fast Consent card and lets a dump
    show which texts share a speaker; Strict keeps D1 person-free and makes the panel decrypt
    client-side, which is fast enough at this corpus's size. Recommendation is Indexed by default,

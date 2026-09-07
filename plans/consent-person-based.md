@@ -193,9 +193,12 @@ and its version. On any disagreement the record wins, and the tool says the snap
 already does for a table that does not exist yet. A person's name is at least as revealing as a text
 title, and the minimisation argument refuses titles in D1.
 
+⚠ **A person's NAME and a person's ID are different questions.** The name is what the table below
+governs. The id is designed in §3.4, and it may sit in D1 — provided it is built the right way.
+
 | may hold a person's name | may **not** |
 |---|---|
-| the device's own IndexedDB | any D1 column |
+| the device's own IndexedDB | any D1 column, in any form, including hashed (§3.4) |
 | the E2EE inventory report (ciphertext to the server) | the crowd config (**plaintext in D1 by construction**) |
 | Drive, inside the researcher's own folders | the source manifest (boolean-only, test-enforced, and immutable) |
 | the bundle's `consent/` files | any provenance stamp (BACKLOG: *"nothing identifying a PERSON… a hard line"*) |
@@ -204,6 +207,98 @@ title, and the minimisation argument refuses titles in D1.
 roster has to reach the device; a panel Consent card wants an index; crowd `signature` mode **already**
 sends a typed name to the worker and makes it a Drive folder name; and the manifest is the obvious
 place to declare who consented. **Add the guard test before the feature.**
+
+### 3.4 Tracking speakers in D1 — the id, and what it costs
+
+Seth, 2026-09-08: *"We need to track speakers in the D1 database, at least by guid. But ideally in a
+way which can protect their identity as best as possible. Or at least have an option to do that."*
+
+**⚠ RULE ONE: THE ID IS RANDOM, NEVER DERIVED FROM THE NAME.** The suite's existing precedent for a
+revealing field is `titleHash` — an **unsalted** SHA-256 truncated to 16 hex characters
+(`app.js:4227`). For a title that is arguable. **For a person's name it is not protection at all.**
+The set of human names in one language community is small and enumerable, so anyone holding a dump
+hashes a candidate list and matches every row in seconds. A name hash *looks* like a safeguard and
+is not one, and it is exactly the construction someone would reach for by analogy with `titleHash`
+without stopping to think about the difference in entropy. Use `crypto.randomUUID()`. There is
+nothing to guess, so there is nothing to brute-force.
+
+**RULE TWO: the name rides E2EE, exactly where the title already rides.** `reported_blob` is
+ciphertext under Ki and the full title is already inside it, precisely because only the researcher
+can open it. A person's display name goes in the same envelope. The Worker and D1 see the id and
+never the name.
+
+**RULE THREE: the id is scoped per project.** One D1 serves many researchers and many projects. A
+single global person id would let a dump link the same speaker across two unrelated projects — a
+correlation nobody consented to and nobody needs. Mint the id per project; the device's own roster
+holds the mapping if the same human appears in two.
+
+**RULE FOUR: the crowd recorder never gets a person id.** An anonymous contribution must not become
+linkable, and the four existing anonymisation mechanisms stay exactly as they are.
+⚠ **And there is a live leak to fix while we are here:** crowd `signature` mode already sends a typed
+name to the Worker in plaintext (`app.js:9991`) and makes it the leading component of a Drive folder
+name (`worker/src/v1.js:1788-1808`). That is real today, independent of this feature, and it will be
+cited as precedent the moment someone argues for a name column. Close it or document it deliberately.
+
+#### What a plaintext id still costs, stated plainly
+
+A random id is not invisibility. A dump still shows **shape**: *this speaker has fourteen texts, on
+that device, uploaded across these dates.* That is a social graph with the names filed off — much
+less than a name, but not nothing, and it is the honest price of server-side person queries. Say so
+in the settings text rather than implying the id makes a speaker untraceable.
+
+#### The option: two privacy modes, per project
+
+| | **Indexed** (what Seth asked for) | **Strict** (the option) |
+|---|---|---|
+| D1 holds | `person_id` as a plaintext column | nothing — no person row, no column |
+| the name | E2EE in `reported_blob` | E2EE in `reported_blob` |
+| the panel answers "show me this person's texts" | by query | by decrypting inventories client-side |
+| a dump reveals | which texts share a speaker | that speakers exist |
+| cost | the shape above | no server-side person query or index |
+
+⚠ **Strict is genuinely usable at this corpus's size** — 97 texts and a few dozen people decrypt in
+well under a second — so it should be a real setting, not a token one. Recommend Indexed as the
+default because it is what the panel's Consent card wants, and Strict for a project where the
+community's exposure matters more than the panel's speed.
+
+#### Shape, following `drive_object` (the newest table, and the right precedent)
+
+```sql
+CREATE TABLE IF NOT EXISTS person (
+  person_id  TEXT PRIMARY KEY,   -- random UUID, minted per project. NEVER derived from a name.
+  project_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);                               -- no name, no hash of a name, no demographics, ever.
+CREATE INDEX IF NOT EXISTS person_project ON person(project_id);
+```
+
+The link from text to person lives on the text row when Phase C builds it, or in the E2EE inventory
+until then. ⚠ Note that `project_id` on a text row is *already refused* by
+`d1-minimization-invariants.test.mjs` — so the person link must not become a back door to the
+grouping that rule exists to prevent. Check the two rules together before writing either table.
+
+#### The guard test, written before the table
+
+Extend `test/d1-minimization-invariants.test.mjs`, in the same deliberately-live-before-the-table
+style it already uses for `text`:
+
+1. no column on any table named `name`, `full_name`, `speaker`, `speaker_name`, `person_name`, or
+   ending `_name_hash`;
+2. no person id column on `crowd_recorder` or `crowd_submission`;
+3. the id minting call is `crypto.randomUUID`, pinned by source — the assertion that stops a future
+   `sha256(name)` from looking like an improvement;
+4. `person` carries no demographic column (birth year, gender, ethnicity, contact — all of which the
+   archives ask for and all of which belong in the researcher's own files, not here).
+
+#### Anonymity is a procedure, not a flag
+
+AILLA has no anonymity boolean; it has a **procedure** — an "Anonymous" person record, roles prefixed
+`anonymous:`, the person dropped from the contributor list, filenames scrubbed, audible
+self-introductions edited out. So a speaker who chooses anonymity should not merely set a bit: their
+id should not appear where it can be correlated, and the pseudonym-to-name key belongs in a separately
+access-controlled place — **IMDI's `Anonyms` pattern**, which is the right model to copy.
+
+---
 
 ---
 
@@ -363,13 +458,16 @@ Consequences for the plan:
 ## 7. Order of work
 
 **Phase 1 — stop the bleeding, add nothing.** `consentSpeaker` into the E2EE inventory so it can no
-longer be lost. The D1/manifest guard test from §3.3, written before any person code. Retire or
+longer be lost. The D1/manifest guard tests from §3.3 **and §3.4**, written before any person code —
+including the assertion that the person id is minted by `crypto.randomUUID` and never derived from a
+name. Close or document the crowd signature-name leak (§3.4 rule four). Retire or
 harvest `corpus-manager/PLAN.md` (838 lines specifying an *incompatible* audience-tier model; it holds
 the only written treatment of researcher-side tiers, and corpus-keeper supersedes it on nearly every
 other point).
 
 **Phase 2 — the Person entity and the roster.** Person store, panel-pushable roster, offline typing,
-the device-side reconciliation screen. The Consent Collector's grouping key changes from a trimmed
+the device-side reconciliation screen. The D1 `person` table and the Indexed/Strict project setting
+(§3.4); the name rides E2EE from the first commit, never as a column to be removed later. The Consent Collector's grouping key changes from a trimmed
 string to a person id — everything else in its group-ask flow is already right.
 
 **Phase 3 — the consent record.** The lifecycle, scope, exclusions, supersession chain. Receipt gains
@@ -403,3 +501,7 @@ and the software's job is to make it possible and to record it faithfully when i
    for 97 texts.
 4. **Machine-learning use** as a question — nobody else asks it yet; do we?
 5. **Retire or harvest `corpus-manager/PLAN.md`.**
+6. **The default privacy mode** (§3.4): Indexed gives the panel a fast Consent card and lets a dump
+   show which texts share a speaker; Strict keeps D1 person-free and makes the panel decrypt
+   client-side, which is fast enough at this corpus's size. Recommendation is Indexed by default,
+   Strict available per project — but the default is a community-exposure call, not a technical one.

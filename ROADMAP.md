@@ -204,7 +204,10 @@ file it did not.
 - later (Seth, 2026-09-07, recorded not scheduled): a mode in which the ELAN paragraph tier mirrors
   FLEx's real paragraph grouping instead of one annotation per phrase. The writer already emits both
   structural tiers; the split-per-phrase form is right for the app, where the structure is built by
-  joining in ELAN, and wrong for a file the keeper generates from FLEx, where it is already known;
+  joining in ELAN, and wrong for a file the keeper generates from FLEx, where it is already known.
+  **The keeper's ELAN file is a ONE-WAY mirror of FLEx** (Seth, 2026-09-07) — nothing in it is ever
+  read back into FLEx. That is separate from the suite's own ELAN import, where a user opens an
+  `.eaf` they made as an input file; that stays;
 - panel entries for *Assign from FLEx* (Outbox, later the localhost list) and *Receive* (download
   into the Inbox).
 

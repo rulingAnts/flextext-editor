@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fxpaBlob, previewBlob, spliceB64, b64PartsOf, blobToBase64, blobToBase64Parts, buildFxpa,
-         buildSegPreviewHtml, B64_MARK, ENGINE_STRING_MAX, FIREFOX_STRINGIFY_SEEN_OK,
+         buildSegPreviewHtml, hasAudioBytes, B64_MARK, ENGINE_STRING_MAX, FIREFOX_STRINGIFY_SEEN_OK,
          FIREFOX_STRINGIFY_SEEN_FAIL, CONV_DECODED_MAX } from '../docs/js/seg-exports.js';
 
 const SEGX = readFileSync(new URL('../docs/js/seg-exports.js', import.meta.url), 'utf8');
@@ -87,6 +87,49 @@ test('no recording still writes both files — the text-only forms', async () =>
   assert.doesNotMatch(html, /var b64 = /, 'no audio script at all');
 });
 
+/* ⚠ AN EMPTY RECORDING IS NO RECORDING (the v615 review, 2026-09-07). These builders decided "has
+ * audio" from `audioBlob || audioB64` — an object test, and a 0-byte Blob is truthy — so previewBlob(doc,
+ * { audioBlob: new Blob([]) }) returned a page titled "— segments" with a player on it, a play
+ * button that did nothing, a transport reading 0:00.0 / 0:00.0 and a footer promising "Audio is
+ * embedded in this file". v602 asked the ENCODED string and fell through to the text-only flavour;
+ * every shape the audio can now arrive in has to answer the same way, or the page and the .fxpa
+ * disagree about what the user handed in. */
+test('an empty recording gets the TEXT-ONLY forms, whatever shape it arrives in', async () => {
+  const shapes = [
+    ['a 0-byte Blob', { audioBlob: new Blob([]) }],
+    ['no parts at all', { audioParts: [] }],
+    ['one empty part', { audioParts: [''] }],
+    ['an empty base64 string', { audioB64: '' }],
+    ['parts encoded FROM an empty Blob', { audioParts: await blobToBase64Parts(new Blob([])) }],
+    ["b64PartsOf('') — which is [''], not []", { audioParts: await b64PartsOf('') }],
+  ];
+  for (const [label, opts] of shapes) {
+    const html = await (await previewBlob(doc, { title: 'T', audioMime: 'audio/wav', mediaName: 'a.wav', ...opts })).text();
+    assert.match(html, /— interlinear<\/title>/, `${label}: the page names itself interlinear, not segments`);
+    assert.doesNotMatch(html, /var b64 = /, `${label}: no audio array`);
+    assert.doesNotMatch(html, /id="ov"|<script>/, `${label}: no player and nothing to run`);
+    assert.doesNotMatch(html, /embedded in this file/i, `${label}: and no footer claiming sound that is not there`);
+    const fx2 = JSON.parse(await (await fxpaBlob(doc, { ...fx, audio: meta, ...opts })).text());
+    assert.equal(fx2.audio, undefined, `${label}: the .fxpa carries no audio block, not an empty one`);
+    assert.equal(fx2.lines.length, 1, `${label}: and is still a complete text-only .fxpa`);
+  }
+  // …while a real recording is untouched by the guard.
+  const real = await (await previewBlob(doc, { title: 'T', audioMime: 'audio/wav', mediaName: 'a.wav', audioBlob: bytes(9001) })).text();
+  assert.match(real, /— segments<\/title>/);
+  assert.match(real, /var b64 = \["/);
+  assert.ok(JSON.parse(await (await fxpaBlob(doc, { ...fx, audio: meta, audioBlob: bytes(9001) })).text()).audio.b64.length > 0);
+});
+
+test('hasAudioBytes is the one answer, and an unknown size stays permissive', () => {
+  for (const empty of [null, undefined, '', [], [''], ['', ''], new Blob([]), false])
+    assert.equal(hasAudioBytes(empty), false, `${JSON.stringify(empty)} is not a recording`);
+  for (const real of ['QUJD', ['QUJD'], ['', 'QUJD'], bytes(1)])
+    assert.equal(hasAudioBytes(real), true);
+  // A blob-like with only arrayBuffer() (the stand-ins tests hand in) has no size to judge, and an
+  // unknown size is permissive here exactly as it is in conversionCaps — never a silent drop.
+  assert.equal(hasAudioBytes({ arrayBuffer: async () => new ArrayBuffer(8) }), true);
+});
+
 test('the bundle builder goes through the chunked assembly, and the measurement is written down', () => {
   assert.match(SEGX, /entries\.push\(\{ name: base \+ '\.fxpa',\s*\n\s*data: await fxpaBlob\(doc, \{/);
   assert.match(SEGX, /data: await previewBlob\(doc, \{\s*\n\s*title: title \|\| base, audioMime/);
@@ -94,6 +137,25 @@ test('the bundle builder goes through the chunked assembly, and the measurement 
   assert.doesNotMatch(body, /b64Once|blobToBase64\(segMedia/, 'no whole-recording base64 anywhere in the assembler');
   assert.match(SEGX, /allocation size overflow/, 'the failure that caused this is named where the fix lives');
   assert.match(SEGX, /multiple of three/i, 'and the rule that makes chunking safe');
+});
+
+/* ⚠ AND THE NOTE MUST NOT OVERSELL IT. It used to end "the peak is one chunk", which is false:
+ * b64PartsOf returns the COMPLETE array of parts and spliceB64 runs only once every part exists, so
+ * the whole base64 (~1.33× the recording) is live at once, merely split across ~4 MiB strings. The
+ * danger is not the sentence, it is what a future maintainer does with it — read as licence, it
+ * says CONV_DECODED_MAX is only about the reader and could be raised. */
+test('the memory note says what is TRUE, so nobody raises the ceiling on the strength of it', async () => {
+  assert.doesNotMatch(SEGX, /the peak is one chunk/, 'the false claim is gone');
+  assert.match(SEGX, /the heap holds the WHOLE base64 at once/, 'and the true one is written down');
+  assert.match(SEGX, /33,554,432 characters/, 'with the measurement behind it (24 MB → 8 parts)');
+  assert.match(SEGX, /raising CONV_DECODED_MAX/, 'naming the mistake the old wording invited');
+  // …and the claim is the code's actual behaviour: every part exists before anything is spliced.
+  const b = bytes(3 * 1024 * 1024 * 2 + 5);
+  const parts = await blobToBase64Parts(b);
+  assert.ok(parts.length > 1, 'a real recording is many parts');
+  assert.ok(parts.every((p) => typeof p === 'string'), 'the whole array is in hand, not a stream');
+  assert.equal(parts.reduce((n, p) => n + p.length, 0), Math.ceil(b.size / 3) * 4,
+    'so the live characters are the WHOLE encoding — 1.333x the recording, not one chunk');
 });
 
 test('the size gate sits under every engine ceiling, with the room the reader needs', () => {

@@ -73,6 +73,31 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **v616: the review pass.** A structured review of v603..v615, with each finding checked by running
+  the code rather than reading it, found 21 defects the release's own tests had missed — several
+  introduced by the v614/v615 embedding rewrite. Fixed: the tool's autosave split could lose a
+  recording on upgrade or across two tabs, and swallowed the user's own "hide the audio tier" choice;
+  the #55 cancel cleanup covered only the tray route, not the queue card a researcher actually uses on
+  a paused transfer; pause/cancel was read once and then ignored through ~62s of back-off on a dead
+  link; a resumed upload left a phantom paused row forever; a cancelled Download-all and a refused
+  conversion both ended with "done — check your downloads"; the Toolbox converter emitted 387 empty
+  guids per story where FLEx honours an incoming one, let one marker hold two roles (silently
+  dropping the loser), and only warned about column damage when it was TOTAL — a partial Word-paste
+  mangle left 86% of words glossed and 45% of them wrong, with no warning; the segmenter refused an
+  oversized .fxpa instead of degrading as conversionCaps documents; a single-file export still built
+  and threw away a full zip (100 MB WAV: RSS 1078 MB → 627 MB); a 0-byte recording produced a
+  listening page with a dead player. And the v609 Android keyboard guard was inert — it measured
+  visualViewport, which `interactive-widget=overlays-content` is DEFINED not to shrink — so it now
+  reads the Virtual Keyboard API with visualViewport kept as the iOS fallback.
+- **v616: slow work says so.** Seth: "we genuinely don't want a UI response time that looks like
+  something is jammed or broken … it only takes about a half second for that to feel like the case."
+  The share menu, the tool's save and its export put a spinner up before the encode starts (two frames
+  early, because appending an element does not paint it), and both generated pages show a moving
+  "loading the sound" band until their waveform is ready. The share bundle was also encoding the
+  recording TWICE — v614 dropped v602's encode-once memo — which is what made "Done — send" slow.
+- **v616: a split with waveforms off could never finish.** The ✂ that places a split's audio tier
+  rides the waveform lane; with waveforms off that lane did not exist, so a split stayed pending with
+  no way forward. A thin playhead lane now stands in, only while the join/split switch is on.
 - **v615: the v614 listening page had no waveforms** — the chunked decode left the waveform decoder with
   the last chunk only; the page now assembles one array for both the player and the decoder.
 - **The recording is never one string (v614).** Seth hit "Could not build the download: allocation

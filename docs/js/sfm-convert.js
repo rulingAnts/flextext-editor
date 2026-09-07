@@ -27,7 +27,7 @@
  *     the wrong answer is visible before anything is written.
  */
 import { parseSfm, markerInventory, detectMapping, sfmToTexts, alignmentRisk, normalizePastedSfm } from './sfm.js';
-import { serializeFlextext, esc } from './flextext.js';
+import { serializeFlextext, esc, makeDoc, makeSegment, makeWord, newGuid } from './flextext.js';
 import { t, ENGINE_VERSION } from './i18n.js';
 import { makeZip } from './zip.js';
 
@@ -50,17 +50,82 @@ const safeName = (s, fallback) => (String(s || '').replace(/[\\/:*?"<>|]+/g, '_'
 
 /* One text from sfm.js → the document shape serializeFlextext writes. Deliberately the same shape
  * the Paragraph Analysis Tool builds from the same reader (sfmConfirm), so the two importers
- * produce the same interlinear from the same file. */
-export function textToDoc(tx, fallbackTitle) {
-  return {
-    title: tx.title || fallbackTitle || '',
-    paragraphs: (tx.lines || []).map((l) => ({
-      segments: [{ baseline: l.baseline || '', free: l.free || '', words: l.words || [],
-                   speaker: l.speaker || '', attrs: {} }],
-    })),
-    segments: (tx.lines || []).map((l) => (typeof l.start === 'number'
-      ? { start: l.start, end: l.end } : { timePending: true })),
-  };
+ * produce the same interlinear from the same file.
+ *
+ * ⚠ BUILT THROUGH makeDoc / makeSegment / makeWord, NEVER AS OBJECT LITERALS. The literals are the
+ * obvious-looking shape a later reader will "simplify" this back into, and they cost every guid in
+ * the file: those three helpers are the only things that mint newGuid(), while serializeFlextext
+ * writes guid="${esc(w.guid)}" for whatever it is handed and esc(undefined) is the empty string.
+ * Measured before this was fixed — converting InterlinTxNarA.txt's first story emitted 387 guid
+ * attributes and all 387 were EMPTY, while <interlinear-text> and <phrase> carried no guid at all;
+ * the two FLEx-written exports in samples/ have 0 empty of 7,370, and the editor's own path 0.
+ *
+ * ⚠ AND AN EMPTY GUID IS NOT COSMETIC. Seth, 2026-08-08: "FLEx honors an incoming guid", which is
+ * why plans/BACKLOG.md records the minting as a FEATURE and says not to stop emitting them —
+ * re-importing a corrected text updates the same objects in FLEx instead of duplicating them, and
+ * the audio work in that file plans to name recordings after the phrase guid. A converted corpus
+ * with no guids gives all of that up for every text the converter produces. */
+export function textToDoc(tx, fallbackTitle, settings = {}) {
+  const doc = makeDoc(settings, tx.title || fallbackTitle || '');
+  doc.paragraphs = (tx.lines || []).map((l) => {
+    const words = (l.words || []).map((w) => makeWord(w.txt, { gls: w.gls || '' }));
+    const seg = makeSegment(l.baseline || '', words, { free: l.free || '' });
+    seg.speaker = l.speaker || '';   // carried for the importers that show it; FLEx has no field
+    return { guid: newGuid(), segments: [seg] };
+  });
+  doc.segments = (tx.lines || []).map((l) => (typeof l.start === 'number'
+    ? { start: l.start, end: l.end } : { timePending: true }));
+  return doc;
+}
+
+/* ⚠ ONE MARKER CANNOT DO TWO JOBS, and the modal settles that the moment the choice is made.
+ *
+ * Reproduced before this existed: a file with \tx \mb \ge, the user points "Word glosses" at \mb
+ * while "Morphemes" still holds \mb. The handler wrote `state.mapping[role] = value` with no check
+ * that another role already owned the marker, and the reader resolved \mb to whichever role was
+ * listed last — 0 of 2 words glossed, no message, and a gloss-free .flextext that looks like a
+ * successful conversion.
+ *
+ * The NEWEST choice wins, because it is the one the person just made. The role that held the
+ * marker is emptied — and the caller must put its select back to "none" so the screen still
+ * matches the mapping, and say which role gave it up. A drop-down that silently empties itself is
+ * its own bug report. (sfm.js dedupes as well, by fixed priority; that is the backstop for
+ * mappings with no user event behind them, not a substitute for telling the user.) */
+export function claimMarker(mapping, role, marker) {
+  const out = { ...mapping, [role]: marker || null };
+  const want = String(marker || '').toLowerCase();
+  const freed = want ? Object.keys(out).filter((r) => r !== role && String(out[r] || '').toLowerCase() === want) : [];
+  for (const r of freed) out[r] = null;
+  return { mapping: out, freed };
+}
+
+/* ⚠ A REMEMBERED MAPPING IS RESTORED ONLY ONTO A MARKER NOTHING ELSE CLAIMS.
+ *
+ * It used to restore role by role, keeping any role whose marker the new file also has — which
+ * re-created the exact collision detectMapping deliberately removes. \t is a candidate for BOTH
+ * the title and the vernacular line: session 1 on a file where \t is the title saves title:'t',
+ * session 2 opens a file where \t IS the vernacular line, the restore puts title:'t' back on top
+ * of baseline:'t', and the converter reported "No texts found" on a perfectly good file.
+ *
+ * So this file's own inference wins any conflict: it was computed from THIS file, while the
+ * remembered mapping is a fact about a DIFFERENT one. A remembered choice that no longer fits is
+ * dropped rather than applied — the mapping shown is the one that reads this file, and the user
+ * can still change any of it. */
+export function restoreMapping(detected, saved, markers) {
+  const out = { ...detected };
+  if (!saved || !markers) return out;
+  const owner = new Map();                    // marker (lowercased) → the role holding it
+  for (const [r, m] of Object.entries(out)) if (m) owner.set(String(m).toLowerCase(), r);
+  for (const r of CONVERT_ROLES) {
+    const marker = String(saved[r] || '').toLowerCase();
+    if (!marker || !markers.has(marker)) continue;            // the new file does not have it
+    const held = owner.get(marker);
+    if (held && held !== r) continue;                         // another role has it: leave it there
+    if (out[r]) owner.delete(String(out[r]).toLowerCase());
+    out[r] = saved[r];                                        // keep the saved capitalisation
+    owner.set(marker, r);
+  }
+  return out;
 }
 
 export function openSfmConverter(opts = {}) {
@@ -115,20 +180,21 @@ export function openSfmConverter(opts = {}) {
     state.fields = parseSfm(text);
     if (!state.fields.length) { msg(t('sfm.noMarkers'), true); return; }
     state.inv = markerInventory(state.fields);
-    // The file's own inference first, then whatever was chosen last time, for markers it still has.
+    // The file's own inference first, then whatever was chosen last time, for markers it still has
+    // AND no other role has already claimed (see restoreMapping).
     state.mapping = detectMapping(state.fields);
     try {
       const saved = JSON.parse(localStorage.getItem(MAP_KEY) || 'null');
       const present = new Set(state.inv.map((x) => x.marker.toLowerCase()));
-      if (saved) for (const r of CONVERT_ROLES) {
-        if (saved[r] && present.has(String(saved[r]).toLowerCase())) state.mapping[r] = saved[r];
-      }
+      state.mapping = restoreMapping(state.mapping, saved, present);
     } catch { /* a corrupt remembered mapping is not worth a failed import */ }
     $('[data-step="pick"]').hidden = true;
     renderMap();
   }
 
-  function recount() {
+  // `note` is what just happened to the mapping (a marker changing hands); the rest is what the
+  // mapping now MEANS. Both go in the one message line, note first — the user's own action first.
+  function recount(note = '') {
     // ⚠ sfmToTexts returns { texts, … }, not an array — the same shape the Paragraph Analysis
     // Tool's importer unwraps. Reading it as an array silently yields no texts at all.
     try { const r = sfmToTexts(state.fields, state.mapping); state.texts = (r && r.texts) || []; }
@@ -143,12 +209,14 @@ export function openSfmConverter(opts = {}) {
     const all = $('[data-a="all"]');
     if (all) { all.hidden = state.texts.length < 2; all.textContent = t('sfm.saveAll', { n: state.texts.length }); }
     /* alignmentRisk returns null when the pairing looks sound, or names WHY it does not:
-     * 'single-spaced' (no column geometry to align by) or 'lopsided' (most words got no gloss).
+     * 'single-spaced' (no column geometry to align by), 'shifted' (the geometry is partly gone, so
+     * glosses have slid onto their neighbours) or 'lopsided' (most words got no gloss).
      * Said before anything is written, because a mis-glossed corpus is discovered much later. */
     const risk = state.mapping.baseline ? alignmentRisk(state.fields, state.mapping) : null;
-    msg(!state.mapping.baseline ? t('sfm.needBaseline')
+    const warn = !state.mapping.baseline ? t('sfm.needBaseline')
       : !state.texts.length ? t('sfm.noneFound')
-      : risk ? t('sfm.risk.' + risk.reason) : '', true);
+      : risk ? t('sfm.risk.' + risk.reason) : '';
+    msg([note, warn].filter(Boolean).join(' '), true);
     $('[data-a="save"]').disabled = !state.texts.length || !state.mapping.baseline;
   }
 
@@ -170,16 +238,24 @@ export function openSfmConverter(opts = {}) {
       <button type="button" class="primary-btn" data-a="save">${esc(t('sfm.saveOne'))}</button>
       <button type="button" class="secondary-btn" data-a="all" hidden></button>`;
     box.querySelectorAll('[data-role]').forEach((s) => s.addEventListener('change', () => {
-      state.mapping[s.dataset.role] = s.value || null;
+      const role = s.dataset.role;
+      const { mapping, freed } = claimMarker(state.mapping, role, s.value);
+      state.mapping = mapping;
+      // The emptied roles have to LOOK emptied: their selects still show the marker they lost.
+      for (const r of freed) { const el = box.querySelector(`[data-role="${r}"]`); if (el) el.value = ''; }
       try { localStorage.setItem(MAP_KEY, JSON.stringify(state.mapping)); } catch { /* non-fatal */ }
-      recount();
+      recount(freed.length ? t('sfm.roleTaken', {
+        marker: s.value,
+        from: freed.map((r) => t('sfm.role.' + r)).join(', '),
+        to: t('sfm.role.' + role),
+      }) : '');
     }));
     $('[data-a="save"]').addEventListener('click', () => saveOne());
     $('[data-a="all"]').addEventListener('click', () => saveAll());
     recount();
   }
 
-  const xmlFor = (tx, fallback) => serializeFlextext(textToDoc(tx, fallback), settings,
+  const xmlFor = (tx, fallback) => serializeFlextext(textToDoc(tx, fallback, settings), settings,
     { producedBy: 'Flextext Editor Suite ' + (ENGINE_VERSION || '') + ' (Toolbox/SFM converter)' });
 
   function saveOne() {

@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { textToDoc, CONVERT_ROLES } from '../docs/js/sfm-convert.js';
+import { textToDoc, CONVERT_ROLES, claimMarker, restoreMapping } from '../docs/js/sfm-convert.js';
 import { parseSfm, detectMapping, sfmToTexts } from '../docs/js/sfm.js';
 import { serializeFlextext } from '../docs/js/flextext.js';
 
@@ -38,13 +38,92 @@ test('a text becomes a .flextext with its words, glosses and translations intact
   assert.equal(doc.title, 'Frog story');
   assert.equal(doc.paragraphs.length, 2);
   // Column alignment, not positional zipping — the thing that silently mis-glosses if it is wrong.
-  assert.deepEqual(doc.paragraphs[0].segments[0].words, [{ txt: 'Todn', gls: 'frog' }, { txt: 'lyfch', gls: 'lily.pad' }]);
+  assert.deepEqual(doc.paragraphs[0].segments[0].words.map((w) => [w.txt, w.gls]),
+    [['Todn', 'frog'], ['lyfch', 'lily.pad']]);
   assert.equal(doc.paragraphs[0].segments[0].free, 'Long ago a frog lived.');
   assert.equal(doc.segments[0].timePending, true, 'a Toolbox file has no times unless ELAN wrote them');
   const xml = serializeFlextext(doc, {}, { producedBy: 'test' });
   assert.match(xml, /<phrase\b/);
   assert.match(xml, /exportSource="test"/, 'the file says what made it');
   assert.match(xml, /Todn/);
+});
+
+/* ⚠ EVERY guid IN THE OUTPUT IS REAL. textToDoc used to build paragraphs, segments and words as
+ * bare object literals instead of going through makeDoc/makeSegment/makeWord, which are what mint
+ * newGuid() — and serializeFlextext writes guid="${esc(x)}" unconditionally, with esc(undefined)
+ * being ''. Converting InterlinTxNarA.txt's first story emitted 387 guid attributes and all 387
+ * were empty, while <interlinear-text> and <phrase> carried none at all. It matters because FLEx
+ * honours an incoming guid (Seth, 2026-08-08, plans/BACKLOG.md): with real ones, re-importing a
+ * corrected text updates the same objects instead of duplicating them. */
+test('the .flextext carries real guids: on the text, every paragraph, every phrase, every word', () => {
+  const { texts } = sfmToTexts(parseSfm(FILE), detectMapping(parseSfm(FILE)));
+  const xml = serializeFlextext(textToDoc(texts[0], 'fallback'), {}, { producedBy: 'test' });
+  const guids = (xml.match(/guid="([^"]*)"/g) || []).map((g) => g.slice(6, -1));
+  assert.ok(guids.length >= 8, `something to check (${guids.length} guid attributes)`);
+  assert.equal(guids.filter((g) => !g).length, 0, 'not one empty guid=""');
+  assert.equal(new Set(guids).size, guids.length, 'and no two objects share one');
+  for (const g of guids) assert.match(g, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, g);
+  // Each element type carries one — a phrase with no guid attribute at all passed the checks above.
+  for (const tag of ['interlinear-text', 'paragraph', 'phrase', 'word'])
+    assert.match(xml, new RegExp(`<${tag} guid="[0-9a-f-]{36}"`), `<${tag}> has a guid`);
+  // A second conversion of the SAME text mints fresh ones: a guid identifies an object, not a text.
+  const again = serializeFlextext(textToDoc(texts[0], 'fallback'), {}, { producedBy: 'test' });
+  assert.notEqual(again.match(/<paragraph guid="([^"]+)"/)[1], xml.match(/<paragraph guid="([^"]+)"/)[1]);
+});
+
+/* ⚠ ONE MARKER, ONE ROLE — the modal's job, done at the moment of the choice.
+ * The handler used to be `state.mapping[role] = value || null` with no check that another role
+ * already owned that marker, and the reader then resolved the marker to whichever role was written
+ * last. Reproduced: a file with \tx \mb \ge where "Word glosses" is pointed at \mb while
+ * "Morphemes" still holds it — 0 of 2 words glossed, no message, no warning. */
+test('a marker cannot serve two roles: the newest choice wins and the other role is emptied', () => {
+  const before = { baseline: 'tx', gloss: 'ge', morphemes: 'mb' };
+  const { mapping, freed } = claimMarker(before, 'gloss', 'mb');
+  assert.deepEqual(freed, ['morphemes'], 'the role that held \\mb is named, so the user can be told');
+  assert.equal(mapping.gloss, 'mb');
+  assert.equal(mapping.morphemes, null, 'and it no longer holds the marker');
+  assert.equal(mapping.baseline, 'tx', 'roles that were not involved are untouched');
+  assert.notEqual(before.morphemes, null, 'the caller\'s mapping is not mutated under it');
+  // Case is the file's own, so the comparison cannot be case-sensitive.
+  assert.deepEqual(claimMarker({ speaker: 'ELANParticipant' }, 'note', 'elanparticipant').freed, ['speaker']);
+  // Clearing a role frees its marker and accuses nobody.
+  assert.deepEqual(claimMarker({ gloss: 'ge' }, 'gloss', '').freed, []);
+  assert.equal(claimMarker({ gloss: 'ge' }, 'gloss', '').mapping.gloss, null);
+  // And the whole point: the resulting mapping actually glosses the words.
+  const f = parseSfm('\\ref r\n\\tx Todn  lyfch\n\\mb tod -n  lyfch\n\\ge frog-Nom  lily.pad\n');
+  const { texts } = sfmToTexts(f, { ...claimMarker({ ref: 'ref', baseline: 'tx', gloss: 'ge', morphemes: 'mb' }, 'gloss', 'mb').mapping });
+  assert.deepEqual(texts[0].lines[0].words.map((w) => w.gls), ['tod-n', 'lyfch'],
+    'the marker the user chose is what glosses the words');
+  // The modal itself is DOM-only, so its half of the fix is checked at the source: go through
+  // claimMarker, put the emptied roles' SELECTS back to none, and say what changed hands.
+  assert.match(CONV, /const \{ mapping, freed \} = claimMarker\(state\.mapping, role, s\.value\);/);
+  assert.match(CONV, /for \(const r of freed\) \{ const el = box\.querySelector\(`\[data-role="\$\{r\}"\]`\); if \(el\) el\.value = ''; \}/,
+    'a role that lost its marker must not still show it');
+  assert.match(CONV, /recount\(freed\.length \? t\('sfm\.roleTaken'/, 'and the user is told, in the one message line');
+  assert.doesNotMatch(CONV, /state\.mapping\[s\.dataset\.role\] = s\.value/, 'never the old blind write');
+});
+
+/* ⚠ A REMEMBERED MAPPING MUST NOT RE-CREATE THE COLLISION detectMapping REMOVES.
+ * \t is a candidate for both the title and the vernacular line. Session 1 on a file where \t is
+ * the title saves title:'t'; session 2 opens a file where \t IS the vernacular line, and the old
+ * restore ("keep any saved role whose marker this file has") put title:'t' back on top of
+ * baseline:'t' — which reported "No texts found" on a perfectly good file. */
+test('the remembered mapping is only restored onto markers nothing else claims', () => {
+  const fields = parseSfm(['\\t aaa   bbb', '\\gl one   two', '\\ft One two.'].join('\n'));
+  const detected = detectMapping(fields);
+  assert.equal(detected.baseline, 't', 'this file uses \\t for the vernacular line');
+  assert.equal(detected.title, undefined, 'so it has no title marker');
+  const markers = new Set(fields.map((f) => f.marker.toLowerCase()));
+  const restored = restoreMapping(detected, { title: 't', gloss: 'gl' }, markers);
+  assert.equal(restored.baseline, 't', 'the remembered title:\\t does not steal the baseline');
+  assert.equal(restored.title, undefined, 'and is dropped, not applied');
+  assert.equal(restored.gloss, 'gl', 'a remembered choice that still fits is kept');
+  assert.equal(sfmToTexts(fields, restored).texts.length, 1, 'so the file still reads as one text');
+  assert.equal(sfmToTexts(fields, restored).texts[0].lines[0].words.length, 2, 'with its words');
+  // A remembered marker the new file does not have is ignored, and nothing else is disturbed.
+  assert.equal(restoreMapping(detected, { free: 'fte' }, markers).free, 'ft');
+  assert.deepEqual(restoreMapping(detected, null, markers), detected, 'nothing remembered: unchanged');
+  assert.match(CONV, /state\.mapping = restoreMapping\(state\.mapping, saved, present\);/, 'and load\\(\\) goes through it');
 });
 
 test('a file with ELAN times keeps them, so the .flextext is time-aligned', () => {
@@ -58,8 +137,13 @@ test('a file with ELAN times keeps them, so the .flextext is time-aligned', () =
 });
 
 test('the reader is shared, never re-implemented, and the wrapper shape is unwrapped correctly', () => {
-  assert.match(CONV, /import \{ parseSfm, markerInventory, detectMapping, sfmToTexts, alignmentRisk, normalizePastedSfm \} from '\.\/sfm\.js';/);
+  const readerImport = (CONV.match(/^import \{([^}]*)\} from '\.\/sfm\.js';$/m) || [])[1] || '';
+  for (const name of ['parseSfm', 'markerInventory', 'detectMapping', 'sfmToTexts', 'alignmentRisk', 'normalizePastedSfm'])
+    assert.ok(readerImport.includes(name), `${name} comes from sfm.js, not from a copy in here`);
   assert.doesNotMatch(CONV, /function parseSfm|function alignBlock/, 'no second SFM reader in the suite');
+  // The guids come from the model constructors for the same reason: one minting point in the suite.
+  assert.match(CONV, /^import \{[^}]*\bmakeDoc\b[^}]*\} from '\.\/flextext\.js';$/m, 'makeDoc, not a doc literal');
+  assert.doesNotMatch(CONV, /guid: *['"`]/, 'no guid is ever written down in here');
   assert.match(CONV, /const r = sfmToTexts\(state\.fields, state\.mapping\); state\.texts = \(r && r\.texts\) \|\| \[\];/,
     'sfmToTexts returns { texts }, not an array — reading it as one yields nothing at all');
 });

@@ -5061,6 +5061,12 @@ async function buildBundle(withTimestamp) {
 
 // DOM-free bundle builder for ANY doc record — lets a remote-triggered upload bundle a
 // doc that isn't open. Pure: reads only the passed record + IndexedDB media.
+//
+// RETURNS { filename, mime, xmlBlob, xmlName, zipped, trimmed } plus ONE of:
+//   zipped: true  → `entries` (the files) and `zip()`, which builds the archive on demand;
+//   zipped: false → `blob`, the bare .flextext, which is the whole download.
+// A caller that wants the archive awaits `zip()`; a caller that keeps one entry never calls it and
+// never pays for it (see the note at the return).
 async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const name = docFilename(rec);                  // Title.flextext
   const base = name.replace(/\.flextext$/, '');
@@ -5091,7 +5097,16 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
    * gone since 2026-09-07: the engine lays the base64 in as Blob chunks and never holds the
    * recording as a string; see seg-exports.js.) The recording itself still rides as a FILE; only
    * the copies-inside-text are dropped, and `trimmed` says so, so a caller can tell the user
-   * rather than let the zip look complete. opts.wants lets a caller decide per output. */
+   * rather than let the zip look complete. opts.wants lets a caller decide per output.
+   *
+   * ⚠ THE TWO OUTPUTS DEGRADE DIFFERENTLY, AND conversionCaps IS WHERE THAT IS WRITTEN DOWN — which
+   * is exactly why it answers `fxpa` and `fxpaAudio` separately: ".fxpa never refuses — above the
+   * ceiling it is built WITHOUT audio, and says so", while the listening page is the one genuine
+   * refusal. This gated the whole .fxpa on the AUDIO flag, so the segmenter's "Paragraph Analysis
+   * file only" on a 25 MB .m4a (est 250 MB) produced no file at all and toasted "Could not build
+   * the Paragraph Analysis file for this text" — while the panel's own .fxpa row on the same
+   * document degraded to a text-only .fxpa. Two surfaces, one document, opposite answers (the v615
+   * review, 2026-09-07). The file is always built now; only its recording is trimmed. */
   const caps = media ? conversionCaps({
     bytes: (media.blob && media.blob.size) || 0,
     isWav: /\.wav$/i.test(String(media.name || '')) || /wav/i.test(String(media.mimeType || '')),
@@ -5100,10 +5115,13 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const wantEaf = w.eaf ?? settings.exportEaf ?? expDefault;
   const wantSaymore = w.saymore ?? settings.exportSaymore ?? expDefault;
   const wantPreview = (w.preview ?? settings.exportPreview ?? expDefault) && caps.preview;
-  const wantJson = (w.fxpa ?? settings.exportJson ?? expDefault) && caps.fxpaAudio;
+  const wantJson = w.fxpa ?? settings.exportJson ?? expDefault;      // the FILE, never size-gated
   const trimmed = [];
   if ((w.preview ?? settings.exportPreview ?? expDefault) && !caps.preview) trimmed.push('preview');
-  if ((w.fxpa ?? settings.exportJson ?? expDefault) && !caps.fxpaAudio) trimmed.push('fxpa');
+  // 'fxpaAudio', not 'fxpa': the .fxpa is in the bundle either way — what an oversized recording
+  // costs it is the audio inside it, and a caller that says otherwise is describing a refusal that
+  // no longer happens. (Nothing reads the codes but satExport and openShareMenu's toast.)
+  if (wantJson && !caps.fxpaAudio) trimmed.push('fxpaAudio');
   // The flextext's OWN media-files reference is part of the flextext, not an optional annotation
   // export — resolve the working-media name whenever alignment exists, regardless of checkboxes.
   let segMediaName = '';
@@ -5138,7 +5156,9 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const segEntries = await assembleSegEntries({
     doc: rec.doc, title: rec.title || base, base, media, segMedia,
     producedBy: producedBy(),
-    wants: { eaf: wantEaf, saymore: wantSaymore, preview: wantPreview, fxpa: wantJson },
+    // fxpaAudio is the DEGRADE switch, not a second want: it drops the recording from the .fxpa
+    // while the EAFs in this same call keep theirs (nulling segMedia would take them down too).
+    wants: { eaf: wantEaf, saymore: wantSaymore, preview: wantPreview, fxpa: wantJson, fxpaAudio: caps.fxpaAudio },
     vern: settings.vernLang || rec.doc.vernLang || 'und',
     anal: settings.analLang || rec.doc.analLang || 'en',
     full: !!opts.full,
@@ -5171,10 +5191,28 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
       entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
       entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
     }
-    const blob = await makeZip(entries);
-    return { blob, filename: `${base}${stamp}.zip`, mime: 'application/zip',
+    /* ⚠ THE ARCHIVE IS BUILT WHEN SOMEBODY ASKS FOR IT, NEVER JUST IN CASE — `zip()`, not `blob`,
+     * on this path (v615 review, 2026-09-07). Every caller here USED to get a finished zip,
+     * including the ones that then keep a single entry out of `entries` and drop the rest: the
+     * segmenter's Download ▸ "Listening page only" / ".fxpa only" / ".flextext only", and the share
+     * menu when the user closes it again without saving. makeZip is not free — it materialises
+     * every entry (`new Uint8Array(await entry.data.arrayBuffer())`) and CRC32s it byte by byte in
+     * JS. MEASURED (node 22, this module's own functions, a 100 MB WAV, "Listening page only"):
+     * assembleSegEntries produced the 133.4 MB page the user actually wanted at RSS 627 MB, and
+     * makeZip then built a 233.4 MB archive that was thrown away unread, taking RSS to 1078 MB. On
+     * the field phones this suite exists for that is the difference between a download and a
+     * killed tab.
+     * Memoised, so a caller that asks twice (save picker, then its blind-download fallback) pays
+     * once, and the ONE-FILE-vs-ZIP rule seg-exports states for the loose conversions holds here
+     * too: one file ⇒ hand over the file, more than one ⇒ a zip — see satExport, which keeps ONE
+     * entry for four of its five choices and packs only "Everything". */
+    let packed = null;
+    const zip = () => (packed ??= makeZip(entries));
+    return { zip, filename: `${base}${stamp}.zip`, mime: 'application/zip',
       xmlBlob, xmlName: name, zipped: true, trimmed, entries };
   }
+  // Nothing to pack: the .flextext IS the download, and `blob` is it. (`zipped` tells the two
+  // returns apart — a caller reads `blob` here and awaits `zip()` above.)
   return { blob: xmlBlob, filename: `${base}${stamp}.flextext`, mime: 'application/xml',
     xmlBlob, xmlName: name, zipped: false, trimmed };
 }
@@ -5398,12 +5436,49 @@ function leaveEditor() {
   if (player) { player.hide(); player.loadedFor = null; }
 }
 
+/* ⚠ SOMETHING MUST HAPPEN WITHIN A FRAME OF THE TAP (Seth, 2026-09-07: "we genuinely don't want a
+ * UI response time that looks like something is jammed or broken … it only takes about a half second
+ * for that to feel like the case. If there's no UI response or change."). Building a share bundle or
+ * saving a .fxpa base64s the whole recording, which is seconds on a real one, and until v616 the
+ * button simply sat there. This is the panel's own loading scrim (.rp-loading, shared stylesheet) put
+ * up before the work starts and taken down after it, whatever the outcome.
+ *
+ * ⚠ TWO FRAMES BEFORE THE WORK, DELIBERATELY. Appending an element does not paint it; the encode
+ * that follows is synchronous enough to block the frame, so without waiting for an actual paint the
+ * spinner would appear only after the wait it exists to cover. */
+function busyScrim(label) {
+  if (typeof document === 'undefined') return () => {};
+  const el = document.createElement('div');
+  el.className = 'rp-loading';
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  const card = document.createElement('div');
+  card.className = 'rp-loading-card';
+  const spin = document.createElement('div');
+  spin.className = 'rp-spinner';
+  spin.setAttribute('aria-hidden', 'true');
+  const p = document.createElement('p');
+  p.textContent = label;                       // textContent, never innerHTML: the label can be a title
+  card.appendChild(spin); card.appendChild(p); el.appendChild(card);
+  document.body.appendChild(el);
+  return () => { try { el.remove(); } catch { /* already gone */ } };
+}
+const painted = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
 async function openShareMenu() {
   persist();
-  const bundle = await buildBundle(false);
+  const doneBusy = busyScrim(t('share.preparing'));
+  let bundle;
+  try { await painted(); bundle = await buildBundle(false); } finally { doneBusy(); }
   // Said, not silently dropped: a bundle that quietly lacks the listening page is one the user
   // discovers on the tab that needed it.
   if (bundle.trimmed && bundle.trimmed.length) toast(t('share.trimmedBig'), 8000);
+  /* THE FILE THIS MENU WRITES, built at the moment it is written. buildBundleFor hands back the
+   * entries and a memoised zip() rather than a finished archive, so opening this menu and closing
+   * it again no longer CRC32s a 200 MB zip nobody asked for — and the two save paths below (picker,
+   * and the blind download that IS the save on Firefox/Safari) share the one build between them.
+   * Nothing about the file changes: same entries, same bytes, same name. */
+  const bundleBlob = async () => (bundle.zipped ? await bundle.zip() : bundle.blob);
   $('#share-filename').textContent = bundle.filename;
   // Chromium only lets navigator.share() send an allowlisted set of file
   // types (images, audio, pdf, .txt, ...) — neither XML nor ZIP qualifies —
@@ -5455,9 +5530,9 @@ async function openShareMenu() {
    * writes the file: a picker where there is one (choose folder and name), a plain download where
    * there is not (straight to Downloads). A researcher configuring a device is choosing WHETHER
    * this device may write files, never which browser API does it. */
-  const blindDownload = () => {
+  const blindDownload = async () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(bundle.blob);
+    a.href = URL.createObjectURL(await bundleBlob());
     a.download = bundle.filename;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
@@ -5465,7 +5540,7 @@ async function openShareMenu() {
     returnToLibraryAfterSend();
   };
   $('#share-saveas').onclick = async () => {
-    if (!window.showSaveFilePicker) { blindDownload(); return; }
+    if (!window.showSaveFilePicker) { await blindDownload(); return; }
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName: bundle.filename,
@@ -5473,8 +5548,9 @@ async function openShareMenu() {
           ? { description: 'Flextext + audio bundle', accept: { 'application/zip': ['.zip'] } }
           : { description: 'FLEx interlinear text', accept: { 'application/xml': ['.flextext'] } }],
       });
+      // The picker is answered FIRST, so a user who cancels it has cost nothing — then the archive.
       const w = await handle.createWritable();
-      await w.write(bundle.blob);
+      await w.write(await bundleBlob());
       await w.close();
       closeShareMenu();
       toast(t('toast.saved'));
@@ -5482,8 +5558,9 @@ async function openShareMenu() {
     } catch (e) {
       if (e.name === 'AbortError') return;                 // the user closed the picker: not a failure
       /* The picker EXISTED but refused — a cross-origin iframe, a locked-down policy, a quota. The
-       * work still has to leave the device, so fall back rather than report a dead end. */
-      blindDownload();
+       * work still has to leave the device, so fall back rather than report a dead end. (The zip is
+       * memoised, so this second route reuses the archive the first one built.) */
+      await blindDownload();
     }
   };
   $('#share-cancel').onclick = closeShareMenu;
@@ -7973,7 +8050,14 @@ async function satExport(id) {
   const wants = { eaf: kind === 'all' || kind === 'eaf', saymore: false, preview: kind === 'preview', fxpa: kind === 'fxpa' };
   try { bundle = await buildBundleFor(rec, true, { full: true, wants }); }
   catch (err) { toast(t('sat.exportFailed', { msg: err.message }), 8000); return; }
-  let blob = bundle.blob, filename = bundle.filename;
+  /* ⚠ AND ONLY "EVERYTHING" IS AN ARCHIVE. Four of these five choices keep ONE entry and drop the
+   * rest, and buildBundleFor used to hand back a finished zip either way: picking "Listening page
+   * only" on a 100 MB WAV built the 133.4 MB page the user wanted AND a 233.4 MB zip that was
+   * thrown away unread — measured RSS 627 MB → 1078 MB, on the field phones this app exists for.
+   * The archive is `bundle.zip()` now, so the branches below simply never ask for one; it is the
+   * ONE-FILE-vs-ZIP rule seg-exports already states for the loose conversions ("if there's more
+   * than one file, build a ZIP", Seth, 2026-08-15), applied where the choice is made. */
+  let blob = null, filename = bundle.filename;
   if (kind === 'flextext') { blob = bundle.xmlBlob; filename = bundle.xmlName; }
   else if (kind === 'eaf') {
     const e = (bundle.entries || []).find((x) => /\.eaf$/i.test(x.name));
@@ -7987,6 +8071,13 @@ async function satExport(id) {
     const e = (bundle.entries || []).find((x) => /\.fxpa$/i.test(x.name));
     if (!e) { toast(t('sat.exportNoFxpa'), 8000); return; }
     blob = e.data; filename = e.name;
+    /* ⚠ A RECORDING PAST THE CEILING COSTS THE .fxpa ITS AUDIO, NOT ITS EXISTENCE — conversionCaps'
+     * ladder, and now this row obeys it: a matched text whose 25 MB .m4a estimates at 250 MB used
+     * to produce NO FILE here and toast "Could not build the Paragraph Analysis file for this
+     * text", while the researcher panel's .fxpa row on the same document handed over a text-only
+     * one. It ships either way now, and SAYS which it is — an analysis file that silently lost its
+     * sound is the kind of thing a user only discovers in the other app. */
+    if ((bundle.trimmed || []).includes('fxpaAudio')) toast(t('sat.exportFxpaNoAudio'), 9000);
   } else if (kind === 'preview') {
     /* Seth, 2026-09-07: "I'd like preview HTML export from audio segmenter as well." The page for
      * the speaker's own phone — the recording inside it, line by line, offline. Two ways to have
@@ -7994,7 +8085,11 @@ async function satExport(id) {
     const e = (bundle.entries || []).find((x) => /\.preview\.html$/i.test(x.name));
     if (!e) { toast(t((bundle.trimmed || []).includes('preview') ? 'sat.exportPreviewTooBig' : 'sat.exportNoPreview'), 8000); return; }
     blob = e.data; filename = e.name;
-  } else if (!bundle.zipped) toast(t('sat.exportNoAudio'), 6000);
+  } else {
+    // "Everything" — the one choice that IS the bundle, and the only one that pays to pack it.
+    blob = bundle.zipped ? await bundle.zip() : bundle.blob;
+    if (!bundle.zipped) toast(t('sat.exportNoAudio'), 6000);
+  }
   // The editor's own blind-download idiom (openShareMenu): a synthetic <a download>, revoked late.
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

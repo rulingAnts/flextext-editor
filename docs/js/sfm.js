@@ -85,6 +85,44 @@ const DEFAULTS = {
   newtext: ['name'],
 };
 
+/* ⚠ ONE MARKER, ONE ROLE — and when two roles claim it, the answer is FIXED, not "whichever was
+ * written last".
+ *
+ * The failure this exists to stop, reproduced in the converter's modal: a file with \tx \mb \ge,
+ * the user points "Word glosses" at \mb while "Morphemes" still holds \mb, and sfmToTexts resolved
+ * \mb to whichever role the mapping object happened to list last. Result: 0 of 2 words glossed, no
+ * message, and a gloss-free .flextext that looks like a successful conversion. Object key order is
+ * not a decision anybody made — detectMapping writes its keys in DEFAULTS order, and a select the
+ * user changes keeps its ORIGINAL position — so the winner depended on nothing a reader could see.
+ *
+ * The list below IS the decision, ordered by what is lost when a role is dropped: with no baseline
+ * there is no text at all, without the gloss the interlinear is empty, `morphemes` is read for
+ * nothing (sfmToTexts ignores it) so it gives way to everything.
+ *
+ * ⚠ THIS IS THE BACKSTOP, NOT THE ANSWER TO THE USER. A mapping that reaches the reader with a
+ * collision has already lost information — which role the person meant. The converter's modal
+ * resolves it AT THE MOMENT OF THE CHOICE (the newest choice wins, the older role is emptied and
+ * said out loud); this rule is for the mappings that arrive with no user event behind them: one
+ * remembered from a previous file, one built by another app's wizard, one written in a test. */
+export const ROLE_PRIORITY = ['baseline', 'gloss', 'ref', 'newtext', 'title', 'free', 'literal',
+                              'speaker', 'start', 'end', 'note', 'morphemes'];
+
+// The same mapping with every marker serving at most one role. Roles not in ROLE_PRIORITY (a role
+// added to DEFAULTS and forgotten here) still take part, ranked last — never silently exempt.
+export function dedupeMapping(mapping = {}) {
+  const out = { ...mapping };
+  const order = ROLE_PRIORITY.filter((r) => r in out)
+    .concat(Object.keys(out).filter((r) => !ROLE_PRIORITY.includes(r)));
+  const owner = new Map();
+  for (const role of order) {
+    const marker = String(out[role] || '').toLowerCase();
+    if (!marker) continue;
+    if (owner.has(marker)) delete out[role];
+    else owner.set(marker, role);
+  }
+  return out;
+}
+
 export function detectMapping(fields) {
   const present = new Set(fields.map((f) => f.marker.toLowerCase()));
   /* ⚠ A TITLE THAT OCCURS ONCE IN A FILE OF MANY RECORDS IS THE FILE'S ID, NOT A TEXT'S TITLE.
@@ -105,10 +143,10 @@ export function detectMapping(fields) {
     }
   }
   /* `t` is a candidate for BOTH the vernacular line and the title. When a file uses it for the
-   * baseline it cannot also be the title, and a marker carrying two roles resolves to whichever
-   * the role map happens to write last — so the title is dropped rather than left ambiguous. */
-  if (m.title && m.baseline && m.title.toLowerCase() === m.baseline.toLowerCase()) delete m.title;
-  return m;
+   * baseline it cannot also be the title, so the title is dropped rather than left ambiguous —
+   * `baseline` outranks `title` in ROLE_PRIORITY, which is the general form of that same rule and
+   * covers any other overlap the candidate lists grow later. */
+  return dedupeMapping(m);
 }
 
 /* ---------------- column alignment ---------------- */
@@ -180,13 +218,19 @@ export function parseSfmTime(v) {
  * record, EACH baseline field starts a new TEXT BLOCK whose aligned gloss field follows it; all of
  * a record's blocks make ONE line, because the freeform block (\ft) applies to the whole record. */
 export function sfmToTexts(fields, mapping = {}) {
+  /* ⚠ dedupeMapping FIRST, and do not "simplify" it away: building roleOf straight from the
+   * mapping made a marker claimed by two roles resolve to whichever Object.entries yielded LAST,
+   * silently dropping the other role (see ROLE_PRIORITY). A mapping remembered from an earlier
+   * file is the everyday way one arrives here — \t as a title in one file, as the vernacular line
+   * in the next — and the symptom was "No texts found" on a perfectly good file. */
+  const resolved = dedupeMapping(mapping);
   const roleOf = new Map();
-  for (const [role, marker] of Object.entries(mapping)) {
+  for (const [role, marker] of Object.entries(resolved)) {
     if (marker) roleOf.set(String(marker).toLowerCase(), role);
   }
   const role = (f) => roleOf.get(f.marker.toLowerCase()) || null;
 
-  const hasRef = !!mapping.ref;
+  const hasRef = !!resolved.ref;
   const texts = [];
   let text = null;                 // { title, lines }
   let line = null;                 // the record being built
@@ -217,7 +261,7 @@ export function sfmToTexts(fields, mapping = {}) {
      * holds its actual title, so taking the marker's value gave every text the name "1", "2", "3"
      * and threw the real titles away — the later \t found a title already set and left it alone.
      * The value is now only a FALLBACK, used when nothing else is mapped to hold the title. */
-    if (r === 'newtext') { flushLine(); newText(roleOf.has(String(mapping.title || '').toLowerCase()) ? '' : v.trim()); continue; }
+    if (r === 'newtext') { flushLine(); newText(roleOf.has(String(resolved.title || '').toLowerCase()) ? '' : v.trim()); continue; }
     if (r === 'title') {
       // A title after body content means the previous text ended and another begins.
       if (sawBody) { flushLine(); newText(v.trim()); }
@@ -289,17 +333,63 @@ export const looksLikeSfm = (text) => /^\\\S+/m.test(String(text || ''));
 /* ⚠ CAN THE GLOSS COLUMNS BE TRUSTED?
  *
  * Column alignment survives a copy only if the source really used spaces or tabs to line the gloss
- * up under its word. Two things defeat it, and BOTH are common in a Word document:
+ * up under its word. Three things defeat it, and all three are common in a Word document:
  *   - the gloss line is single-spaced, so nothing lines up with anything (there is no geometry to
  *     read, and every gloss lands on the first word it happens to start under);
  *   - the source was displayed in a PROPORTIONAL font, so it looked aligned on screen while the
- *     character columns never matched.
- * We cannot detect the font. We CAN detect the first case, and we can detect a pairing that comes
+ *     character columns never matched;
+ *   - the geometry is only PARTLY damaged — the runs of spaces are squeezed rather than removed,
+ *     or some lines lose them and others do not — so the glosses slide LEFT onto their neighbours
+ *     while the file still looks aligned.
+ * We cannot detect the font. We can detect the other two, and we can detect a pairing that comes
  * out lopsided — far fewer glossed words than gloss tokens means the tokens bunched onto one word,
  * which is exactly what a mis-aligned paste produces.
  *
  * Returns null when it looks fine, else { reason, sample } for the wizard to show. Never blocks:
- * the user may know better, and the fix (editing words and glosses) is available in the app. */
+ * the user may know better, and the fix (editing words and glosses) is available in the app.
+ *
+ * ⚠ WHY A SECOND CHECK, WHEN 'lopsided' ALREADY EXISTS: 'lopsided' measures gloss COVERAGE, so it
+ * only fires on a TOTAL collapse. Measured on a real Toolbox file (Das Iau narratives,
+ * InterlinTxNarA.txt, 2026-09-07) with only the \gl lines' space runs collapsed — exactly what a
+ * copy out of the .doc and .rtf files one of Seth's colleagues keeps her texts in does — 86.4% of
+ * words still received a gloss, so nothing fired, yet only 55.2% of the word/gloss pairs matched
+ * the clean file. Forty-five per cent of the corpus mis-glossed, silently. That is the case this
+ * function exists for; a check that misses it is not doing its job. */
+
+/* THE SIGNATURE OF GLOSSES THAT SLID LEFT: a STARVED TAIL. When the gloss line's space runs shrink,
+ * its tokens pack toward column 0, so the words at the END of the line run out of gloss to catch
+ * and the last word gets nothing — while the line still has plenty of gloss tokens.
+ *
+ * ⚠ AND WHY IT DOES NOT CRY WOLF ON A SPARSE GLOSS LINE, which is the thing that would make this
+ * check worse than useless. A line is only JUDGED when it has at least as many gloss tokens as
+ * words: if there are fewer glosses than words then some words must go unglossed and a starved
+ * tail proves nothing. Measured over both real files, as a share of judged lines whose last word
+ * came out unglossed:
+ *
+ *      clean file                    1.0%  /  0.9%      ← must never fire
+ *      every gap nudged ±1 column    2.4%  /  3.6%      ← hand alignment, must never fire
+ *      a quarter of \gl collapsed   12.5%  / 16.1%      ← must fire
+ *      half of \gl collapsed        25.3%  / 30.8%      ← must fire
+ *      all of \gl collapsed         45.9%  / 62.5%      ← the measured 45%-mis-glossed case
+ *
+ * The threshold sits at 12% of judged lines, which is ~3× the worst clean reading and ~10× the
+ * real files', and it wants at least two starved lines out of at least six judged so that one odd
+ * line in a short paste cannot raise the alarm on its own. A file with NO column geometry at all
+ * lands in 'single-spaced' above and never reaches here.
+ *
+ * What the minimum costs, measured story by story on the same two files with every \gl line
+ * collapsed (the realistic case, since a person pastes ONE story): 22 of the 24 stories warn, and
+ * 0 of the 24 clean ones do. Both misses are 8-and-9-line stories whose glosses are so sparse that
+ * fewer than six lines can be judged at all — too little to tell damage from an author who left a
+ * line's last word unglossed. That is the side of the trade this check is deliberately on. */
+const STARVED_TAIL_SHARE = 0.12, MIN_JUDGED_LINES = 6, MIN_STARVED_LINES = 2;
+/* ⚠ SAMPLE THE FILE, NOT ITS FIRST PAGE. This was 12 pairs, which on a corpus file judged the
+ * opening story and nothing else: with half of InterlinTxNarA.txt's gloss lines collapsed the
+ * whole file starves 25.3% of its lines, while its first 60 pairs starve under the threshold — the
+ * damage was real and the sample was too small to see it. 400 pairs is ~1 ms of work (measured on
+ * that file, and it runs once per change of the mapping) and still bounds a pathological corpus. */
+const RISK_SAMPLE = 400;
+
 export function alignmentRisk(fields, mapping = {}) {
   const bMark = String(mapping.baseline || '').toLowerCase();
   const gMark = String(mapping.gloss || '').toLowerCase();
@@ -314,7 +404,7 @@ export function alignmentRisk(fields, mapping = {}) {
   }
   if (!pairs.length) return null;
 
-  const sample = pairs.slice(0, 12);
+  const sample = pairs.slice(0, RISK_SAMPLE);
   const hasGeometry = sample.some(([b, g]) => /\t/.test(b) || /\t/.test(g) || /\s{2,}/.test(b) || /\s{2,}/.test(g));
   if (!hasGeometry) {
     return { reason: 'single-spaced', sample: sample[0] };
@@ -322,14 +412,24 @@ export function alignmentRisk(fields, mapping = {}) {
 
   // Pairing sanity: how many words actually received a gloss?
   let words = 0, glossed = 0;
+  let judged = 0, starved = 0, firstStarved = null;
   for (const [b, g] of sample) {
     const tabs = /\t/.test(b) || /\t/.test(g);
     const out = alignBlock(b, g, { tabs });
     words += out.length;
     glossed += out.filter((w) => w.gls).length;
+    // Tab-aligned blocks pair positionally, so column geometry says nothing about them.
+    if (tabs) continue;
+    const glossTokens = tokensWithColumns(g).length;
+    if (out.length < 3 || glossTokens < out.length) continue;
+    judged++;
+    if (!out[out.length - 1].gls) { starved++; if (!firstStarved) firstStarved = [b, g]; }
   }
   if (words >= 6 && glossed / words < 0.5) {
     return { reason: 'lopsided', sample: sample[0], words, glossed };
+  }
+  if (judged >= MIN_JUDGED_LINES && starved >= MIN_STARVED_LINES && starved / judged >= STARVED_TAIL_SHARE) {
+    return { reason: 'shifted', sample: firstStarved, judged, starved };
   }
   return null;
 }

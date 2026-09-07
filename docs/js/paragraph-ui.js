@@ -19,11 +19,12 @@ import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
-         normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm } from './sfm.js';
+         normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm, dedupeMapping } from './sfm.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, rasterizeSsa, fxpaBlobOf, paragraphPreviewBlob } from './paragraph-export.js';
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
-  validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
+  validateFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
+  newWorkingStamp, workingTextRecord, workingAudioRecord, readWorkingCopy, workingWritePlan,   // the autosaved working copy
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById, parentOf, isAsym,
   canExtend, extendGroup, releaseEdge, willDissolve, checkInvariants, repairDocument,
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
@@ -39,7 +40,24 @@ const WORKING_KEY = 'fxpa:working';
  * whole-recording JSON.stringify per edit — the very call Firefox refuses above ~134 MB, and it
  * threw BEFORE the render, so the tool appeared to stop responding. */
 const WORKING_AUDIO_KEY = 'fxpa:working-audio';
-let persistedAudio = null;   // the state.audio object the audio record was last written for
+/* ⚠ THE TWO RECORDS ARE TIED TOGETHER BY A STAMP, and everything below exists because they were
+ * not. The format side of the pair — the stamp, the envelope, the join, and the rule for what may
+ * be written when — is in paragraph-model.js (workingTextRecord / workingAudioRecord /
+ * readWorkingCopy / workingWritePlan), where node tests it; this is only the bookkeeping the UI
+ * needs to drive it. See that module's header for the three failures it is answering. */
+let workingStamp = '';       // the marker the two records share for the recording now open
+let persistedAudio = null;   // the state.audio the audio record is KNOWN to hold — set by a write that LANDED
+let audioBusy = false;       // an audio-record write is in flight; do not start a second one
+let audioGaveUp = false;     // that write failed and we stopped retrying (never set while migrating)
+let audioMigrating = false;  // a pre-split copy whose recording is still ONLY in the old text record
+let textHeld = false;        // an edit arrived while the text write was held back for the recording
+let audioWarned = false;     // the "could not store the recording" warning is said once, not per keystroke
+/* ⚠ WHICH DOCUMENT A WRITE BELONGS TO. An audio write can still be in flight when the analyst opens
+ * a different document, and its answer arrives about the document they just left. Applied blindly
+ * it would stamp the NEW text with the OLD recording's marker — the two records agreeing on a lie,
+ * which is the whole class of bug this stamp exists to prevent. Every write carries the generation
+ * it was started in and a late answer is dropped. */
+let workingGen = 0;
 const EAF_MAP_KEY = 'fxpa:eaf-mapping';   // the last tier mapping, so a repeated file shape is one click
 const SFM_MAP_KEY = 'fxpa:sfm-mapping';
 
@@ -86,26 +104,9 @@ export function initParagraphApp() {
     paPlace(l.id, 'audio', tNow);
   });
   // A reload must not lose the session: restore the working copy if one exists.
-  Promise.all([db.getMedia(WORKING_KEY), db.getMedia(WORKING_AUDIO_KEY).catch(() => null)]).then(([rec, aud]) => {
-    if (rec && rec.text) {
-      try {
-        const raw = JSON.parse(rec.text);
-        // The recording rides in its own record (see WORKING_AUDIO_KEY); a working copy written
-        // before that split still carries its audio inline and restores exactly as it did.
-        if (aud && aud.audio && aud.audio.b64 && !(raw.audio && raw.audio.b64)) {
-          raw.audio = aud.audio;
-          if (raw.view && raw.view.audio === false) delete raw.view.audio;
-        }
-        const v = validateFxpa(raw);
-        if (v.ok) {
-          load(checkAndOfferRepair(v.data), { persist: false });
-          persistedAudio = state ? state.audio : null;   // already on disk — do not write it again
-          return;
-        }
-      } catch { /* fall through to the open screen */ }
-    }
-    renderOpen();
-  }).catch(() => renderOpen());
+  Promise.all([db.getMedia(WORKING_KEY).catch(() => null), db.getMedia(WORKING_AUDIO_KEY).catch(() => null)])
+    .then(([rec, aud]) => restoreWorking(rec, aud))
+    .catch(() => renderOpen());
 }
 
 /* ---------------- open screen (opens OR generates) ---------------- */
@@ -467,6 +468,11 @@ function rememberedSfmMapping(proposed, fields) {
   return proposed;
 }
 
+/* ⚠ ONE MARKER, ONE ROLE — HERE TOO. The converter modal enforces this at the point of choice
+ * (claimMarker); this wizard used to build its mapping straight from the selects, so naming \mb as
+ * both the gloss and the morpheme line left sfmToTexts to resolve the clash by key order and the
+ * glosses silently vanished. dedupeMapping applies the same documented ranking, and the losing
+ * select is put back to "none" so the screen shows what was actually used. */
 function currentSfmMapping() {
   const m = {};
   for (const r of SFM_ROLES) m[r] = ($('#pa-sfm-' + r) || {}).value || null;
@@ -477,7 +483,12 @@ function currentSfmMapping() {
   const mor = pendingSfm.mapping.morphemes;
   if (mor && !SFM_ROLES.some((r) => m[r] === mor)) m.morphemes = mor;
   if (pendingSfm.mapping.newtext) m.newtext = pendingSfm.mapping.newtext;
-  return m;
+  const resolved = dedupeMapping(m);
+  for (const r of SFM_ROLES) {
+    const sel = $('#pa-sfm-' + r);
+    if (sel && m[r] && !resolved[r]) sel.value = '';   // it lost the marker: say so on screen
+  }
+  return resolved;
 }
 
 /* ---------------- SFM by paste ----------------
@@ -569,7 +580,8 @@ function renderSfmMapping(errors) {
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <div class="banner warn-banner"><span>${esc(t('para.sfmNew'))}
         <button class="link-btn" id="pa-sfm-report2">${esc(t('para.reportBtn'))}</button></span></div>
-      ${P.risk ? `<div class="banner warn-banner"><span>${esc(t(P.risk.reason === 'single-spaced' ? 'para.sfmRiskFlat' : 'para.sfmRiskLopsided'))}
+      ${P.risk ? `<div class="banner warn-banner"><span>${esc(t(P.risk.reason === 'single-spaced' ? 'para.sfmRiskFlat'
+        : P.risk.reason === 'shifted' ? 'para.sfmRiskShifted' : 'para.sfmRiskLopsided'))}
         ${P.risk.sample ? `<code class="pa-risksample">${esc(String(P.risk.sample[0]).slice(0, 60))}</code>` : ''}</span></div>` : ''}
       ${many ? `<div class="banner"><span>${esc(t('para.sfmManyTexts', { n: P.texts.length }))}</span></div>
       <label class="pa-maprow"><span>${esc(t('para.sfmWhichText'))}</span>
@@ -1179,6 +1191,13 @@ function load(data, { persist = true } = {}) {
   state = data;
   selection = new Set();
   history = []; future = [];   // a different document — undoing across two is meaningless
+  /* ⚠ AND A DIFFERENT DOCUMENT MEANS A DIFFERENT RECORDING: everything we believed about the audio
+   * record belonged to the document we just closed. Carrying that belief across is how one text's
+   * recording ended up merged onto the next. `audioBusy` is NOT reset — a write really is still in
+   * flight, and starting a second one over the top of it is the race, not the fix. */
+  workingGen++;
+  workingStamp = ''; persistedAudio = null; audioGaveUp = false; audioMigrating = false;
+  textHeld = false; audioWarned = false;
   if (persist) persistWorking();
   setupAudio();
   renderWork();
@@ -1250,15 +1269,98 @@ function commit(next) {
   renderWork();
 }
 
+/* ── THE AUTOSAVED WORKING COPY ─────────────────────────────────────────────────────────────────
+ * The format of the two records, and the rules for joining and writing them, are in
+ * paragraph-model.js; this is the I/O and the bookkeeping around it. Read that module's
+ * "autosaved working copy" header first — it says which real failure each rule is answering. */
+
+/* Put the session back. ⚠ A COPY WRITTEN BEFORE THE SPLIT IS MIGRATED FIRST, and the migration is
+ * the reason `audioMigrating` exists: such a copy holds its recording INLINE and there is no audio
+ * record at all, so until the recording has been hoisted into its own record the old text record is
+ * the only place that recording exists. Believing it was already on disk — which the first cut did,
+ * unconditionally — meant the next keystroke rewrote the text without it and skipped the audio
+ * record because "nothing changed": one keystroke after upgrading, the recording was gone from both
+ * records, the player and every play button with it, and there is no way to re-attach audio to an
+ * open document. Everything since the last manual save went with it. */
+function restoreWorking(rec, aud) {
+  const { raw, audio: how } = readWorkingCopy(rec, aud);
+  if (!raw) return renderOpen();
+  let v;
+  try { v = validateFxpa(raw); } catch { return renderOpen(); }
+  if (!v.ok) return renderOpen();
+  load(checkAndOfferRepair(v.data), { persist: false });
+  /* A recording sitting in the audio record that this text does not claim belongs to some earlier
+   * document: pretending it is not there is what merged one text's audio and timings onto the
+   * next. `persistedAudio = null` makes the next write clear it out. */
+  const orphan = !!(aud && aud.audio && aud.audio.b64) && how !== 'joined';
+  workingStamp = how === 'joined' ? String(rec.audioStamp || '') : '';
+  audioMigrating = how === 'inline';
+  persistedAudio = (how === 'inline' || orphan) ? null : state.audio;
+  // Hoist the inline recording NOW, before an edit can trigger a stripped write of the text half.
+  if (how === 'inline') writeWorkingAudio(state.audio);
+  /* ⚠ SAID OUT LOUD, not swallowed. A document whose recording cannot be found still opens — the
+   * analysis and its timings are intact — but it opens mute, and an analyst who is not told simply
+   * finds the sound gone and no reason for it. */
+  if (how === 'lost') alert(t('para.audioWorkingLost'));
+}
+
 function persistWorking() {
   if (!state) return;
-  db.putMedia(WORKING_KEY, { text: serializeFxpa(state, { audio: false }) }).catch(() => {});
-  if (state.audio !== persistedAudio) {
-    persistedAudio = state.audio;
-    (state.audio && state.audio.b64
-      ? db.putMedia(WORKING_AUDIO_KEY, { audio: state.audio })
-      : db.deleteMedia(WORKING_AUDIO_KEY)).catch(() => {});
-  }
+  const plan = workingWritePlan({ audio: state.audio, persisted: persistedAudio, busy: audioBusy, gaveUp: audioGaveUp });
+  if (plan.writeAudio) writeWorkingAudio(state.audio);
+  if (plan.writeText) writeWorkingText(); else textHeld = true;
+}
+
+/* ⚠ THE TEXT IS WRITTEN WITHOUT THE RECORDING — `serializeFxpa(state, { audio: false })` — and that
+ * is the whole point of the split (see WORKING_AUDIO_KEY): a whole-recording JSON.stringify on
+ * every keystroke is the call Firefox refuses above ~134 MB. Never fold the audio back in here.
+ * The stamp and the analyst's `view.audio` ride alongside because the stripped copy cannot say
+ * which recording is its own, nor whether the Audio tier was hidden on purpose. */
+function writeWorkingText() {
+  textHeld = false;
+  // A text with no recording names NO stamp, so a marker left behind by the document before it can
+  // never resolve and hand this one somebody else's sound.
+  db.putMedia(WORKING_KEY, workingTextRecord(state, state.audio && state.audio.b64 ? workingStamp : '')).catch(() => {});
+}
+
+/* ⚠ THE WRITE LANDING — NOT THE INTENTION TO WRITE — IS WHAT WE REMEMBER. The first cut set
+ * `persistedAudio` before the put and swallowed the rejection with `.catch(() => {})`, so a write
+ * that failed (quota, an interrupted tab) left the app certain the recording was safe; it was never
+ * retried and never verified, and the working copy quietly had no sound in it.
+ *
+ * ⚠ EVERY WRITE MINTS A FRESH STAMP, adopted whether the write succeeds or fails. On failure the
+ * text half names a recording that is not on disk, which readWorkingCopy reports as 'lost' — an
+ * honest "the sound is missing" beats a silent join with whatever recording happens to be there.
+ *
+ * ⚠ THE DELETE IS BEST-EFFORT AND NOTHING DEPENDS ON IT ANY MORE. It used to: a delete that failed
+ * left a recording behind that the next text-only document adopted as its own. The stamp is what
+ * prevents that now, so the delete only has to reclaim space. It is also why two tabs sharing these
+ * two keys can no longer corrupt each other — the tab whose recording was cleared away reloads mute
+ * and is told so, instead of silently losing it. */
+function writeWorkingAudio(aud) {
+  const has = !!(aud && aud.b64);
+  const stamp = has ? newWorkingStamp() : '';
+  const migrating = audioMigrating, gen = workingGen;
+  audioBusy = true;
+  (has ? db.putMedia(WORKING_AUDIO_KEY, workingAudioRecord({ audio: aud }, stamp)) : db.deleteMedia(WORKING_AUDIO_KEY))
+    .then(() => { if (gen === workingGen) { persistedAudio = aud; audioMigrating = false; } })
+    .catch(() => {
+      /* While migrating we never give up: the old text record still holds this recording, so the
+       * text half stays held back and the next edit tries again. */
+      if (gen !== workingGen || migrating) return;
+      audioGaveUp = true;
+      if (!audioWarned) { audioWarned = true; alert(t('para.audioNotStored')); }
+    })
+    .then(() => {
+      audioBusy = false;                  // the write is over whichever document it was for
+      if (gen !== workingGen) return;     // ...and this one's document is no longer open
+      workingStamp = stamp;
+      /* Only the held-back TEXT is flushed here. Retrying the audio from this handler would spin a
+       * failing write against itself; the retry rides on the next edit instead. */
+      if (textHeld && state && workingWritePlan({ audio: state.audio, persisted: persistedAudio, busy: audioBusy, gaveUp: audioGaveUp }).writeText) {
+        writeWorkingText();
+      }
+    });
 }
 
 /* ---------------- audio (preview-v2 machinery, app-module form) ---------------- */
@@ -1878,7 +1980,9 @@ function renderWorkInner() {
     if (!confirm(t('para.closeConfirm'))) return;
     db.deleteMedia(WORKING_KEY).catch(() => {});
     db.deleteMedia(WORKING_AUDIO_KEY).catch(() => {});
-    persistedAudio = null;
+    workingGen++;
+    workingStamp = ''; persistedAudio = null; audioGaveUp = false; audioMigrating = false;
+    textHeld = false; audioWarned = false;
     state = null; stopAudio(); renderOpen();
   };
   on('#pa-close', doClose); on('#pa-close-x', doClose);
@@ -2489,6 +2593,16 @@ function renderLineRow(id, nodeLabel = '', header = false) {
      * span, and scrubbing here moves the audio, which moves the big one. So there is one playhead
      * position in the document, shown wherever it is currently visible. */
     body.push(`<div class="pa-wavewrap"><canvas class="pa-wave ${wavesMode === 'compact' ? 'pa-wave-sm' : ''}" data-s="${l.start}" data-e="${l.end}"></canvas><div class="pa-rowcur"></div></div>`);
+  } else if (timed && joinSplitOn) {
+    /* ⚠ NO WAVEFORM, BUT STILL A PLAYHEAD TO CUT AT (Seth, 2026-09-07: "if we have join/split
+     * enabled AND 'no waveform', we might have a problem — the possibility of the user making
+     * splits that don't include specifically choosing the split location"). A timed line's split
+     * needs all three tiers, and the AUDIO one is placed by the ✂ that rides the playhead inside
+     * .pa-wavewrap. With waveforms off that wrapper did not exist, so a split placed on the words
+     * stayed pending forever with no visible way to finish it. This is the same lane WITHOUT the
+     * canvas: the setting says "no waveform", not "no playhead", and it appears only while the
+     * join/split switch is on, so a reader who turned waveforms off still sees a plain row. */
+    body.push('<div class="pa-wavewrap pa-nowave"><div class="pa-rowcur"></div></div>');
   }
   if (state.authored) {
     /* ⚠ TEXT FIRST, EDITOR ON REQUEST (Seth, 2026-08-05: "with the blank/new chart editor, it's not
@@ -3949,7 +4063,9 @@ async function runExport() {
     dlg.hidden = true; dlg.innerHTML = '';
     return;
   }
-  const html = await paragraphPreviewBlob(state, {
+  const doneBusy = paBusy(t('para.building'));
+  let html;
+  try { await paPainted(); html = await paragraphPreviewBlob(state, {
     title: state.title,
     audioB64: withAudio ? state.audio.b64 : '',
     audioMime: withAudio ? (state.audio.mime || 'audio/wav') : '',
@@ -3959,7 +4075,7 @@ async function runExport() {
     layer: state.view.layer,
     free: state.view.free !== false,
     lang: getLangForExport(),
-  });
+  }); } finally { doneBusy(); }
   saveFile(html, safeName(state.title) + '.preview.html', 'text/html', t('para.previewFile'));
   dlg.hidden = true; dlg.innerHTML = '';
 }
@@ -3986,6 +4102,25 @@ const safeName = (s) => String(s || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice
  * conjure a save dialog, so those fall back to a download with the name as a SUGGESTION, and
  * Firefox's own "Always ask where to save files" setting gives the same effect.
  * A cancelled dialog must save nothing and say nothing: AbortError is the user's decision. */
+/* ⚠ SOMETHING MUST HAPPEN WITHIN A FRAME OF THE TAP (Seth, 2026-09-07: half a second of no visible
+ * response already reads as jammed). Saving or exporting base64s the whole recording, seconds on a
+ * real one. Same scrim as the editor's busyScrim, same two-frame wait before the work starts —
+ * appending an element does not paint it, and the encode that follows blocks the frame. */
+function paBusy(label) {
+  if (typeof document === 'undefined') return () => {};
+  const el = document.createElement('div');
+  el.className = 'rp-loading';
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  const card = document.createElement('div'); card.className = 'rp-loading-card';
+  const spin = document.createElement('div'); spin.className = 'rp-spinner'; spin.setAttribute('aria-hidden', 'true');
+  const p = document.createElement('p'); p.textContent = label;
+  card.appendChild(spin); card.appendChild(p); el.appendChild(card);
+  document.body.appendChild(el);
+  return () => { try { el.remove(); } catch { /* already gone */ } };
+}
+const paPainted = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
 async function saveFile(text, suggestedName, mime, description) {
   const ext = '.' + suggestedName.split('.').slice(1).join('.');
   if (window.showSaveFilePicker) {
@@ -4026,6 +4161,8 @@ function downloadFile(text, name, mime) {
 
 /* ---------------- save ---------------- */
 
+/* The same rule as the editor's share menu (busyScrim there): encoding a real recording is seconds,
+ * and a Save button that does nothing visible for that long reads as broken. */
 async function saveFxpa(withAudio = true) {
   const base = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
   /* ⚠ A DIFFERENT FILENAME when the audio is left out, so the two cannot be confused in a folder a
@@ -4033,5 +4170,8 @@ async function saveFxpa(withAudio = true) {
   const name = base + (withAudio ? '' : '.no-audio') + '.fxpa';
   /* Through fxpaBlobOf, never JSON.stringify of the base64: Firefox refuses to quote a string past
    * ~179M characters (measured 2026-09-07), which a real recording's base64 is. */
-  saveFile(await fxpaBlobOf(state, { audio: withAudio }), name, 'application/json', t('para.fxpaFile'));
+  const doneBusy = paBusy(t('para.building'));
+  let blob;
+  try { await paPainted(); blob = await fxpaBlobOf(state, { audio: withAudio }); } finally { doneBusy(); }
+  saveFile(blob, name, 'application/json', t('para.fxpaFile'));
 }

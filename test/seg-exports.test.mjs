@@ -1,7 +1,8 @@
 /* Segmentation export formats: EAF (both profiles), flextext timestamps, preview page, bext.
  * Pure-module tests — seg-exports.js and flextext.js must run under plain node (the format-module
  * rule); any DOM dependency creeping in fails here first. */
-import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa, peakPlan } from '../docs/js/seg-exports.js';
+import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa, peakPlan,
+         loosePlan, buildLooseConversion } from '../docs/js/seg-exports.js';
 import { serializeFlextext, reconcileBaseline, makeDoc, segmentsFromOffsets } from '../docs/js/flextext.js';
 
 let failures = 0;
@@ -268,6 +269,48 @@ console.log('interlinear page (the preview with NO audio — v380, the fxpa trea
   ok(!/https?:\/\//.test(html.replace(/xmlns[^"]*"[^"]*"/g, '')), 'still fully self-contained');
   // Times are DATA, not controls: an aligned doc keeps its clock labels even with no audio.
   ok(html.includes(fmtClock(0)), 'aligned rows keep their time labels');
+}
+
+/* ⚠ AN EMPTY RECORDING IS NOT A RECORDING, AND EVERY PATH THAT ASKS MUST ANSWER THE SAME (the v615
+ * review, 2026-09-07). previewBlob decided from `audioBlob || audioB64` — an object test, true for a
+ * 0-byte Blob — and produced a listening page with a player, a dead play button and 0:00.0 / 0:00.0
+ * on the transport. The planner asked its own version of the question (`hasAudio`, the caller's
+ * `!!file`) and answered it the same wrong way, so the row the user clicked and the file they got
+ * would have disagreed the moment only one was fixed. Both now judge BYTES. */
+console.log('an empty recording: the plan and the build agree, and neither invents sound');
+{
+  const empty = loosePlan({ doc: segDoc(), hasAudio: true, audioBytes: 0, isWav: true });
+  const real = loosePlan({ doc: segDoc(), hasAudio: true, audioBytes: 9001, isWav: true });
+  ok(empty.previewEmbed === false, 'a 0-byte file plans NO embed — the text-only flavor');
+  ok(empty.preview.ok === true, '…and the row is still offered (a text page has no audio to be too big)');
+  ok(empty.saymore.ok === false && empty.saymore.reason === 'noAudio',
+     'SayMore, whose convention IS the audio file, says noAudio rather than promising one');
+  ok(empty.fxpaAudio === false, 'and the .fxpa plans no audio block');
+  ok(real.previewEmbed === true && real.saymore.ok === true && real.fxpaAudio === true,
+     'a real recording is untouched by the guard');
+  // The EAF asks a different question (times, not sound) and must be unaffected either way.
+  ok(empty.elan.ok === true && empty.flextext.ok === true && empty.fxpa.ok === true,
+     'the text-cost outputs never depended on the recording');
+
+  const audio = { blob: new Blob([]), name: 'a.wav', mimeType: 'audio/wav' };
+  const built = await buildLooseConversion({ kind: 'preview', doc: segDoc(), base: 'T', title: 'T', audio, plan: empty });
+  ok(built.entries[0].name === 'T.interlinear.html', 'the build follows the plan: the interlinear page, named as one');
+  const page = await built.entries[0].data.text();
+  ok(!page.includes('<script>') && !page.includes('id="ov"'), 'no player, nothing to run');
+  ok(!built.notes.includes('previewNoAudio'),
+     'and it does NOT blame the alignment — that note reads "this flextext has no audio alignment"');
+  // The note it was written for still fires: a real recording the text cannot cut.
+  const un = makeDoc({ vernLang: 'fau', analLang: 'id' });
+  reconcileBaseline(un, ['satu dua'], { flatSegments: true });
+  const unPlan = loosePlan({ doc: un, hasAudio: true, audioBytes: 9001, isWav: true });
+  const unBuilt = await buildLooseConversion({ kind: 'preview', doc: un, base: 'T', title: 'T',
+    audio: { blob: new Blob([new Uint8Array(9001)]), name: 'a.wav', mimeType: 'audio/wav' }, plan: unPlan });
+  ok(unPlan.audioUnaligned === true && unBuilt.notes.includes('previewNoAudio'),
+     'an unaligned text with a real recording still says so loudly');
+  // No plan in hand (bare calls): the old "a recording was handed in" test stands, but on BYTES.
+  const bare = await buildLooseConversion({ kind: 'preview', doc: segDoc(), base: 'T', title: 'T', audio });
+  ok(bare.entries[0].name === 'T.interlinear.html' && bare.notes.includes('previewNoAudio'),
+     'with no plan the fallback judges bytes too, and still reports the unused file');
 }
 
 console.log('bext (derived-WAV provenance in the bytes)');

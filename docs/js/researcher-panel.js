@@ -1229,6 +1229,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v616', date: '2026-09-07', items: [
+    { k: 'panel.rel.new.reviewPass' },
+    { k: 'panel.rel.new.slowSaid' },
+    { k: 'panel.rel.new.waveOffCut' },
+  ] },
   { v: 'v615', date: '2026-09-07', items: [
     { k: 'panel.rel.new.pageWaves' },
   ] },
@@ -2997,14 +3002,36 @@ function jobSet(id, msg) {
 }
 /* Finish: show the outcome briefly, THEN drop it. The pause matters — a job that vanished the
  * instant it completed would leave the researcher unsure whether it finished or was lost, which is
- * the same doubt the tray exists to remove. */
+ * the same doubt the tray exists to remove.
+ *
+ * ⚠ THE FIRST OUTCOME WINS, AND THAT GUARD IS LOAD-BEARING (Seth's review, 2026-09-07). A cancelled
+ * Download-all ended by saying "done — check your downloads": downloadAllZip ends the job in its
+ * catch with "cancelled" and then unwinds through a `finally` that ends it AGAIN with the saved
+ * message, and the second call simply overwrote the first. A researcher who cancelled was told the
+ * zip was waiting for them in their downloads folder — the tray lying about an outcome, which is
+ * the one thing this box exists not to do. A second ending is always the unwinding path talking,
+ * never news, so it is ignored here rather than left for every caller to remember which of its
+ * exits already spoke. */
 function jobEnd(id, finalMsg) {
   const j = jobs.get(id);
-  if (!j) return;
+  if (!j || j.done) return;
   j.done = true;
+  j.paused = false;   // an ended job is not paused: the row would keep the dimmed paused styling
   j.msg = finalMsg || '';
   paintJobs();
   setTimeout(() => { jobs.delete(id); paintJobs(); }, finalMsg ? 5000 : 1200);
+}
+/* Take a row away because it is being REPLACED, not because it ended (Seth's review, 2026-09-07).
+ * Resuming a paused upload mints a fresh row with jobStart, and nothing ever ended the parked one:
+ * jobPaused deliberately keeps a paused job in the map (it is the only handle on a half-done
+ * transfer) and jobEnd's timeout is the only thing that removes a row, so the tray kept a
+ * "paused at 41%" ghost that outlived the transfer it described — still offering Resume for an
+ * upload that was already running, and still there after it had finished.
+ * ⚠ NOT jobEnd: a tick and a five-second "done" for a transfer that did not finish would be the
+ * tray reporting an outcome that never happened. The row is superseded, so it just goes. */
+function jobDrop(id) {
+  if (!jobs.delete(id)) return;
+  paintJobs();
 }
 
 /* ---------------- WHAT A FILE IS: the Drive ROLE TAG, never its name ----------------
@@ -3481,6 +3508,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
   const kindLabel = t('panel.dl.' + ({ elan: 'elanZip', saymore: 'saymoreZip', preview: 'preview',
     fxpa: 'fxpa', package: 'package', flextext: 'flextext' }[kind] || 'title'));
   const job = jobStart(`${wrap.dataset.title || 'text'} — ${kindLabel}`, t('panel.dl.starting'));
+  let saved = false;   // set only where a blob actually reached the disk — see the finally below
   const paint = (msg) => { if (sub) sub.textContent = msg; dlStatus(wrap, msg); jobSet(job, msg); };
   try {
     const title = wrap.dataset.title || 'text';
@@ -3531,6 +3559,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
         entries.push({ name: src.media.name, data: src.media.blob });
       }
       saveBlobAs(await makeZip(entries), `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`);
+      saved = true;
       // The file is already saved — these say what the researcher is holding, not that it failed.
       if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);
     } else {
@@ -3538,6 +3567,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
       const one = entries.find((x) => pick.test(x.name));
       if (!one) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
       saveBlobAs(one.data, one.name);
+      saved = true;
       if (dropAudio) deps.toast(t('panel.dl.fxpaNoAudio', { size: fmtSize(src.caps.est) }), 9000);
     }
   } catch (e) {
@@ -3547,7 +3577,13 @@ async function runMenuConversion(wrap, kind, itemEl) {
     convBusy = false;
     if (sub) sub.textContent = subWas;   // the row goes back to its description…
     dlStatus(wrap, '');                  // …and the status line clears rather than freezing mid-word
-    jobEnd(job, t('panel.dl.savedShort'));
+    /* ⚠ THE TRAY SAYS WHAT HAPPENED, NOT WHAT WAS ATTEMPTED. This `finally` used to end EVERY exit
+     * with "done — check your downloads", so a refused conversion (no alignment, an unparseable
+     * flextext, an oversized listening page, a thrown build) told the researcher their file was
+     * waiting in a folder where nothing had been written. `saved` is set only where a blob actually
+     * reached saveBlobAs. Same class of defect as the cancelled Download-all that also read "done"
+     * (2026-09-07). */
+    jobEnd(job, saved ? t('panel.dl.savedShort') : t('panel.dl.failedShort'));
   }
 }
 
@@ -4891,6 +4927,11 @@ const aqActive = new Map();   // docId -> live view { state: 'uploading'|'sendin
  * A flag rather than an abort: the chunk in flight is allowed to land, so the bytes Drive already
  * counted are not thrown away, and Resume continues from them. */
 const aqStop = new Map();
+/* docId -> its tray row, so the row can be reached from OUTSIDE the run that made it. The id used
+ * to live only in runAssignUpload's closure, which is why a paused row could be neither replaced on
+ * Resume nor ended by a cancel from the queue card: the two surfaces that manage a stopped upload
+ * had no way to name the row describing it. A pause KEEPS its entry here — that row is the handle. */
+const aqJobs = new Map();
 /* ⚠ ONLY WHILE THE BYTES ARE STILL MOVING. Once the view says 'sending', the upload is done and
  * the assign command is being minted — there is nothing left to pause, and a flag set here would
  * outlive the transfer and stop the NEXT one before it started. */
@@ -4907,10 +4948,92 @@ async function aqResume(docId) {
   paintAssignQueue();
   runAssignUpload(docId);
 }
+
+/* ---- cancelling an assignment upload: ONE cleanup, whichever control the researcher reached for ----
+ *
+ * ⚠ THE HALF-MADE TEXT ON DRIVE IS THE WHOLE POINT (issue #55; Seth's review, 2026-09-07). v613
+ * taught the RUNNING upload to take its leftovers with it and left the queue card's Cancel deleting
+ * only the IndexedDB record — but the card is the route a researcher actually uses, because it is
+ * the one offered for a PAUSED or queued transfer, which is exactly the state in which the folder,
+ * originals/ and the manifest already exist and rec.createdFolder is set. So the reported bug — a
+ * cancelled upload sitting in the estate as a real text with no recording and no way to resume,
+ * because the queue record it needed had just been thrown away — survived its own fix on the
+ * commoner path. Both routes now come here; a second copy of the rule would drift from this one the
+ * day either is corrected.
+ *
+ * WHAT is removed is deliberately narrow: the text FOLDER only when this run created it, otherwise
+ * just the files this run uploaded. A re-upload into a folder that already held the researcher's
+ * work must not take that work with it. */
+function aqCancelIds(rec) {
+  if (!rec) return [];
+  return rec.createdFolder && rec.folderId
+    ? [rec.folderId]
+    : [rec.manifestFileId, rec.audioFileId, rec.flextextFileId].filter(Boolean);
+}
+/* The confirmation NAMES WHAT GOES. "Remove this queued assignment? Nothing has been sent to the
+ * device" stopped being the whole truth at v613: a cancel is now a Drive delete too, and the loss
+ * differs — a folder this upload created, or only the files it managed to send into a folder that
+ * was already there. Only the researcher knows which of those they can afford, so the sentence has
+ * to say which one they are about to accept. */
+function aqCancelPrompt(rec) {
+  const ids = aqCancelIds(rec);
+  if (!ids.length) return t('panel.aq.cancelConfirm');   // nothing reached Drive — the old wording is still exact
+  const title = (rec && rec.title) || t('panel.hist.untitled');
+  return (rec.createdFolder && rec.folderId)
+    ? t('panel.aq.cancelConfirmFolder', { title })
+    : t('panel.aq.cancelConfirmFiles', { title });
+}
+/* Drive TRASH, never a permanent delete — recoverable for 30 days, the same promise the panel's own
+ * delete makes. Best-effort: a cleanup that fails must not turn a cancel into an error, so the
+ * queue record goes either way and the researcher is told where the orphan is instead. */
+async function aqCancelCleanup(docId, rec) {
+  const ids = aqCancelIds(rec);
+  if (ids.length) {
+    try { await Researcher.trashFiles(ids, 'cancelled assignment upload'); }
+    catch { deps.toast(t('panel.aq.cancelLeftovers', { title: (rec && rec.title) || '?' }), 8000); }
+  }
+  await db.deleteMedia(AQ_PREFIX + docId).catch(() => {});
+  const job = aqJobs.get(docId);
+  if (job != null) { aqJobs.delete(docId); jobEnd(job, t('panel.jobs.cancelledShort')); }
+  aqActive.delete(docId);
+  aqStop.delete(docId);
+  renderDashboard();   // the half-made text is gone from Drive; take it off the screen too
+  paintAssignQueue();
+}
+/* The tray's ✕, for an upload that is running OR parked at a pause.
+ * ⚠ IT ASKS FIRST (Seth's review, 2026-09-07). It is a 26x24px icon button sitting 4px from Pause,
+ * and since v613 one mis-tap ends the transfer AND sends the created text folder to Drive's trash —
+ * after which the assignment has to be set up again. The MILDER control (the queue card's Cancel,
+ * which used to throw away only the local record) was the one gated behind a confirmation. Same
+ * question, same words, both routes. A download's ✕ stays one tap: it destroys nothing. */
 async function aqCancelRunning(docId) {
   const view = aqActive.get(docId);
-  if (!view || view.state !== 'uploading') return;   // see aqPause: too late once it is 'sending'
-  aqStop.set(docId, 'cancel');
+  if (view && view.state !== 'uploading') return;   // see aqPause: too late once it is 'sending'
+  const rec = await db.getMedia(AQ_PREFIX + docId).catch(() => null);
+  if (!rec) {                                       // already gone — clear the row it left behind
+    const orphan = aqJobs.get(docId);
+    if (orphan != null) { aqJobs.delete(docId); jobDrop(orphan); }
+    return;
+  }
+  if (!await confirmModal(aqCancelPrompt(rec))) return;
+  /* The dialog was open while the bytes kept moving, so the state is re-read rather than assumed.
+   * A confirmation that is silently dropped is the very defect this release fixes on the stalled
+   * link: if the upload finished or moved on to the assign command while the question was on
+   * screen, say so rather than leave the researcher believing it was stopped. */
+  const now = aqActive.get(docId);
+  if (now && now.state !== 'uploading') { deps.toast(t('panel.aq.cancelTooLate'), 6000); return; }
+  if (now) {
+    /* Still streaming: the loop owns the record and the open session, so IT does the cleanup when it
+     * unwinds (runAssignUpload's catch) — cleaning up under a live upload would race its own writes.
+     * The flag is read between chunks, and now also out of the back-off. */
+    aqStop.set(docId, 'cancel');
+    const job = aqJobs.get(docId);
+    if (job != null) jobSet(job, t('panel.jobs.cancelling'));
+    return;
+  }
+  // Paused, or queued behind another upload: no loop is going to notice a flag, so the cancel
+  // happens here — through the same cleanup, so the two routes cannot drift.
+  await aqCancelCleanup(docId, rec);
 }
 
 /* Researcher-configurable delivery TTL (default 90; the worker's clampTtlDays is the authority).
@@ -5005,12 +5128,24 @@ async function runAssignUpload(docId) {
     : '';
   const dest = rec.projectFolderId ? `${projName} · ${t('panel.store.unassignedGroup')}` : (nick || '?');
   /* Pause / resume / cancel on the row (issue #21, "village bandwidth"): an upload is the transfer
-   * most worth stopping, and the one that can genuinely continue mid-file afterwards. */
+   * most worth stopping, and the one that can genuinely continue mid-file afterwards.
+   *
+   * ⚠ A RESUME REPLACES THE PAUSED ROW, it does not add to it (Seth's review, 2026-09-07). Resume
+   * re-enters here and mints a NEW row, while the parked one was kept in the jobs map by jobPaused
+   * and had nothing left to end it — so the tray grew a permanent "paused at 41%" row that outlived
+   * the transfer it described. The old row is not an outcome, it is this same transfer, so it is
+   * dropped rather than ticked (see jobDrop). */
+  const stale = aqJobs.get(docId);
+  if (stale != null) { aqJobs.delete(docId); jobDrop(stale); }
   const job = jobStart(`${rec.title || t('panel.hist.untitled')} → ${dest}`, t('panel.dl.starting'), 'up', {
     pause: () => { aqPause(docId); jobSet(job, t('panel.jobs.pausing')); },
     resume: () => aqResume(docId),
     cancel: () => aqCancelRunning(docId),
   });
+  aqJobs.set(docId, job);
+  // Every ending but a pause takes the row's entry with it; a PAUSE keeps it, because that row is
+  // the handle the next Resume (or a cancel from the queue card) has to find.
+  const endJob = (msg) => { aqJobs.delete(docId); jobEnd(job, msg); };
   /* The chunked trio is addressed by a BASE PATH, so the project lane needs no second copy of the
    * upload loop — `base` is the same opt-in the crowd consent prompt already uses. Absent for a
    * device, where the default instance path is right. */
@@ -5100,7 +5235,7 @@ async function runAssignUpload(docId) {
      * The estate is a Drive SEARCH and lags by seconds, so the dashboard is refreshed rather than
      * merely repainted — otherwise the text the researcher just uploaded is briefly nowhere. */
     if (rec.projectFolderId) {
-      jobEnd(job, t('panel.aq.doneProject'));
+      endJob(t('panel.aq.doneProject'));
       await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
       aqActive.delete(docId); aqStop.delete(docId);
       deps.toast(t('panel.assign.projQueuedDone', { title: rec.title || '' }), 6000);
@@ -5143,7 +5278,7 @@ async function runAssignUpload(docId) {
     })]);
     await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
     aqActive.delete(docId); aqStop.delete(docId);
-    jobEnd(job, t('panel.aq.sentShort'));
+    endJob(t('panel.aq.sentShort'));
     paintAssignQueue();
     deps.toast(t('panel.assign.sent'), 4000);
   } catch (e) {
@@ -5162,21 +5297,12 @@ async function runAssignUpload(docId) {
          * estate as a real text missing its audio, and one that could never be resumed because the
          * queue record it needed had just been thrown away.
          *
-         * WHAT is removed is deliberately narrow: the text FOLDER only when this run created it,
-         * otherwise just the files this run uploaded. A re-upload into a folder that already held
-         * the researcher's work must not take that work with it. Drive TRASH, never a permanent
-         * delete — recoverable for 30 days, the same promise the panel's own delete makes.
-         * Best-effort: a cleanup that fails must not turn a cancel into an error. */
-        const ids = rec.createdFolder && rec.folderId
-          ? [rec.folderId]
-          : [rec.manifestFileId, rec.audioFileId, rec.flextextFileId].filter(Boolean);
-        if (ids.length) {
-          try { await Researcher.trashFiles(ids, 'cancelled assignment upload'); }
-          catch { deps.toast(t('panel.aq.cancelLeftovers', { title: rec.title || '?' }), 8000); }
-        }
-        await db.deleteMedia(key).catch(() => {});
-        jobEnd(job, t('panel.jobs.cancelledShort'));
-        renderDashboard();   // the half-made text is gone from Drive; take it off the screen too
+         * The rule itself lives in aqCancelCleanup, because the queue CARD's Cancel has to obey the
+         * same one and a hand-copied second version of it drifted the day it was written: the card
+         * deleted only the IndexedDB record and left the folder standing, which is the reported bug,
+         * un-fixed, on the route a researcher is likelier to use. It also ends this row and takes
+         * the half-made text off the screen. */
+        await aqCancelCleanup(docId, rec);
       } else {
         rec.state = 'paused'; rec.error = '';
         await save();
@@ -5196,7 +5322,7 @@ async function runAssignUpload(docId) {
     aqActive.delete(docId); aqStop.delete(docId);
     // The tray tells the truth about how it ended: re-queued (the sweeps will resume it) or
     // failed (the queue card holds the Retry).
-    jobEnd(job, definitive ? t('panel.dl.failedShort') : t('panel.aq.queued'));
+    endJob(definitive ? t('panel.dl.failedShort') : t('panel.aq.queued'));
     paintAssignQueue();
     if (definitive) deps.toast(t('panel.aq.failed', { title: rec.title || '?', msg: rec.error }), 8000);
   }
@@ -5261,10 +5387,17 @@ async function paintAssignQueue() {
   // A pause survives a reload, so the queue card is where a paused upload is picked up again
   // when its tray row is long gone (issue #21).
   host.querySelectorAll('[data-aqresume]').forEach((b) => b.addEventListener('click', () => aqResume(b.dataset.aqresume)));
+  /* ⚠ THE CARD'S CANCEL IS A DRIVE DELETE TOO (issue #55; Seth's review, 2026-09-07). It used to
+   * throw away the IndexedDB record and stop — which was the whole of a cancel until v613, and then
+   * silently became half of one. This card is the ONLY cancel offered for a paused or queued
+   * transfer, i.e. precisely the state in which the folder, originals/ and the manifest are already
+   * on Drive, so the leftovers it left behind were the reported bug itself. The record is read
+   * BEFORE the question, because the record is what says which leftovers the question must name. */
   host.querySelectorAll('[data-aqcancel]').forEach((b) => b.addEventListener('click', async () => {
-    if (!await confirmModal(t('panel.aq.cancelConfirm'))) return;
-    await db.deleteMedia(AQ_PREFIX + b.dataset.aqcancel).catch(() => {});
-    paintAssignQueue();
+    const id = b.dataset.aqcancel;
+    const rec = await db.getMedia(AQ_PREFIX + id).catch(() => null);
+    if (!await confirmModal(aqCancelPrompt(rec))) return;
+    await aqCancelCleanup(id, rec);
   }));
 }
 

@@ -6,7 +6,7 @@
  *
  * Run: node test/sfm.test.mjs
  */
-import { normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm, parseSfm, markerInventory, detectMapping, tokensWithColumns, alignBlock, parseSfmTime, sfmToTexts } from '../docs/js/sfm.js';
+import { normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm, parseSfm, markerInventory, detectMapping, tokensWithColumns, alignBlock, parseSfmTime, sfmToTexts, dedupeMapping, ROLE_PRIORITY } from '../docs/js/sfm.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -174,6 +174,34 @@ console.log('\nan EXPLICIT role beats the implicit morpheme line (caught in the 
      'mapping the morpheme marker AS the gloss works instead of silently producing nothing');
 }
 
+/* ⚠ ONE MARKER, ONE ROLE. Two roles naming the same marker used to resolve to whichever role the
+ * mapping object listed LAST — nothing a reader could see, and nothing anybody decided. The
+ * converter's modal now prevents the collision and says so; this is the backstop for the mappings
+ * that arrive with no user event behind them (remembered from another file, built by another app's
+ * wizard, written in a test). */
+console.log('\na marker claimed by two roles resolves the SAME way whichever order it is written in');
+{
+  const f = parseSfm('\\ref r\n\\tx Todn  lyfch\n\\mb tod -n  lily\n');
+  const glossFirst = { ref: 'ref', baseline: 'tx', gloss: 'mb', morphemes: 'mb' };
+  const morphFirst = { ref: 'ref', baseline: 'tx', morphemes: 'mb', gloss: 'mb' };
+  const gls = (m) => sfmToTexts(f, m).texts[0].lines[0].words.map((w) => w.gls || null);
+  eq(gls(glossFirst), gls(morphFirst), 'key order is not a decision anybody made, so it decides nothing');
+  eq(gls(glossFirst), ['tod-n', 'lily'], '…and the gloss keeps the marker: `morphemes` is read for nothing');
+  eq(dedupeMapping(morphFirst), { ref: 'ref', baseline: 'tx', gloss: 'mb' }, 'the losing role is dropped, not the winner');
+  // The real collision from the field: \t is a candidate for BOTH the vernacular line and the title.
+  eq(dedupeMapping({ baseline: 't', gloss: 'gl', title: 't' }), { baseline: 't', gloss: 'gl' },
+     'a mapping remembered from a file where \\t was the TITLE cannot steal this file\'s baseline');
+  const collide = sfmToTexts(parseSfm('\\t aaa  bbb\n\\gl one  two\n'), { baseline: 't', gloss: 'gl', title: 't' });
+  ok(collide.texts.length === 1 && collide.texts[0].lines.length === 1,
+     '…which is what made a good file report "No texts found"');
+  for (const r of ['baseline', 'gloss', 'ref', 'newtext', 'title', 'free', 'literal', 'note', 'speaker', 'start', 'end', 'morphemes'])
+    ok(ROLE_PRIORITY.includes(r), `every role has a rank: ${r}`);
+  ok(ROLE_PRIORITY.indexOf('baseline') < ROLE_PRIORITY.indexOf('title'), 'baseline outranks title');
+  ok(ROLE_PRIORITY.indexOf('gloss') < ROLE_PRIORITY.indexOf('morphemes'), 'and the gloss outranks the morpheme line');
+  // An unmapped/blank role is not a claim on anything.
+  eq(dedupeMapping({ baseline: 'tx', title: null, gloss: '' }), { baseline: 'tx', title: null, gloss: '' }, 'blanks collide with nothing');
+}
+
 console.log('\nhostile / sloppy input degrades instead of throwing');
 {
   eq(sfmToTexts(parseSfm(''), {}).texts, [], 'empty file → no texts');
@@ -226,6 +254,84 @@ console.log('\npasted SFM — normalization, detection, and whether the columns 
      'an explicitly mapped title marker beats the \\id convention');
 }
 
+/* ⚠ THE MANGLE THAT MATTERS IS THE PARTIAL ONE, and it used to pass unremarked.
+ *
+ * Seth asked for this check because a colleague keeps her Toolbox texts in .doc and .rtf files,
+ * where copying collapses the runs of spaces that carry the columns. When the collapse is TOTAL
+ * the 'single-spaced' branch catches it. When it is partial — some lines squeezed, or only the
+ * gloss line — the glosses slide LEFT onto their neighbours, coverage stays high, and the old
+ * 'lopsided' test (glossed/words < 0.5) never fired: measured on InterlinTxNarA.txt with only the
+ * \gl lines collapsed, 86.4% of words were still glossed and NO warning appeared, while only 55.2%
+ * of the word/gloss pairs matched the clean file. */
+console.log('\na PARTLY mangled paste warns — and a clean or sparse one does not');
+{
+  // Toolbox pads every column to its widest cell; that padding IS the alignment.
+  const block = (row) => {
+    let tx = '', gl = '';
+    for (const [w, g] of row) { const n = Math.max(w.length, g.length) + 1; tx += w.padEnd(n); gl += g.padEnd(n); }
+    return ['\\tx ' + tx.trimEnd(), '\\gl ' + gl.trimEnd()];
+  };
+  // Cells where the VERNACULAR is wider than its gloss are where the gloss line carries padding —
+  // and they are why collapsing it shifts everything after them to the left.
+  const ROWS = [
+    [['dy4da8dv9', 'then'], ['y8', 'we_two'], ['bo4', 'the_two'], ['a7se9', 'SeqMkr;'], ['o -2', 'go -Tot']],
+    [['Be7fae7', '***'], ['bui2', 'upstream'], ['i -7', 'go -Tot'], ['se -5', 'want -Assert']],
+    [['fa6', 'shore'], ['a9', 'other'], ['dav2', 'far_side'], ['baui -8-4', 'arrive -Res-Tel']],
+    [['dav2', 'crocodile'], ['e8', 'footprint'], ['a7se9', 'SeqMkr;'], ['doe -9', 'see -Tot']],
+    [['dy4da8dv9', 'so'], ['y8', 'we'], ['bo4', 'two'], ['ba9', 'word'], ['bi8fa -9', 'speak -Tot']],
+    [['fv7', 'canoe'], ['ai6', 'not'], ['e9', 'be'], ['ba9', 'word'], ['taui9', 'story']],
+    [['u6dy4e9', 'long_ago'], ['te7', 'NMkr'], ['yo8si9a3', '***'], ['bo4', 'the_two']],
+    [['ka3av9', 'pig'], ['ba9', 'word'], ['du8', 'hunt'], ['be7', 'Loc'], ['o -9', 'take -Tot']],
+  ];
+  const M = { baseline: 'tx', gloss: 'gl' };
+  const clean = ROWS.flatMap(block).join('\n') + '\n';
+  const squash = (s) => s.split('\n').map((l) => (l.startsWith('\\gl ') ? l.replace(/ {2,}/g, ' ').trimEnd() : l)).join('\n');
+  const mangled = squash(clean);
+
+  eq(alignmentRisk(parseSfm(clean), M), null, 'the aligned original raises nothing');
+  const risk = alignmentRisk(parseSfm(mangled), M);
+  ok(risk && risk.reason === 'shifted', 'the same text with its gloss lines collapsed is reported');
+  ok(risk && risk.starved >= 2 && risk.judged >= 6, 'and says what it counted, not just that it is unhappy');
+
+  // ⚠ Coverage is NOT what gives it away — this is the exact case 'lopsided' cannot see.
+  const pairs = (src) => parseSfm(src).reduce((acc, f, i, all) => (f.marker !== 'tx' ? acc
+    : acc.concat(alignBlock(f.value, all[i + 1].value, {}).map((w) => w.txt + '=' + (w.gls || '')))), []);
+  const a = pairs(clean), b = pairs(mangled);
+  const glossed = b.filter((x) => !x.endsWith('=')).length;
+  ok(glossed / b.length > 0.5, `${Math.round(100 * glossed / b.length)}% of words still have A gloss — 'lopsided' stays silent`);
+  ok(a.filter((x, i) => x === b[i]).length / a.length < 0.6,
+     `…yet only ${Math.round(100 * a.filter((x, i) => x === b[i]).length / a.length)}% of them are the RIGHT gloss`);
+
+  // ⚠ AND IT MUST NOT CRY WOLF. A gloss line with fewer tokens than words is SPARSE, not shifted:
+  // some words must go unglossed, so a starved tail proves nothing. A false alarm on every honest
+  // file would be worse than no check at all.
+  const sparse = ROWS.map((row) => row.map(([w, g], i) => [w, i >= row.length - 1 ? '' : g])).flatMap(block).join('\n') + '\n';
+  eq(alignmentRisk(parseSfm(sparse), M), null, 'a line whose last word is deliberately left unglossed is not damage');
+  // Nor a short paste, even a damaged one: two odd lines out of three are noise, not evidence.
+  eq(alignmentRisk(parseSfm(squash(ROWS.slice(0, 3).flatMap(block).join('\n'))), M), null,
+     'too few lines to judge → no alarm, which is the side of the trade this check is on');
+  // Nor a HANDFUL of starved tails in a long text: the author glossed a morpheme and left the last
+  // word bare, twice in twenty-four lines. Starved lines exist here; the RATE is what keeps quiet.
+  const HONEST = [['fa6', 'shore'], ['a9', 'other'], ['dav2', 'far_side -Loc -Emph'], ['baui', '']];
+  const long = ROWS.concat(ROWS).concat(ROWS).map((r, i) => (i === 5 || i === 17 ? HONEST : r)).flatMap(block).join('\n');
+  const starvedIn = (src) => parseSfm(src).filter((f, i, all) => f.marker === 'tx'
+    && !alignBlock(f.value, all[i + 1].value, {}).slice(-1)[0].gls).length;
+  ok(starvedIn(long) >= 2, `${starvedIn(long)} lines really do end unglossed — the alarm is not suppressed for want of them`);
+  eq(alignmentRisk(parseSfm(long), M), null, '…and two in twenty-four is under the threshold, so nothing is said');
+  // ONE odd line is over the rate in a short text and still says nothing: one line is not evidence.
+  const oneOdd = ROWS.map((r, i) => (i === 5 ? HONEST : r)).flatMap(block).join('\n');
+  eq(starvedIn(oneOdd), 1, 'one line in eight ends unglossed (12.5%, over the rate)');
+  eq(alignmentRisk(parseSfm(oneOdd), M), null, '…and one line on its own never raises the alarm');
+
+  /* ⚠ AND IT LOOKS PAST THE FIRST PAGE. The sample was 12 pairs, which on a corpus file judges the
+   * opening story and nothing else — with half of InterlinTxNarA.txt's gloss lines collapsed the
+   * whole file starves 25.3% of its lines while its first pairs stay under the threshold. */
+  const late = ROWS.concat(ROWS).flatMap(block);
+  const halfMangled = late.slice(0, 24).concat(late.slice(24).map(squash)).join('\n');
+  ok(alignmentRisk(parseSfm(halfMangled), M)?.reason === 'shifted',
+     'damage that starts after the first dozen lines is still found');
+}
+
 /* ── REAL TOOLBOX FILES (Das Iau narratives, from Seth 2026-09-07: two .txt exports and the same
  * corpus as a Word .doc) ──────────────────────────────────────────────────────────────────────
  * What they taught, which no invented fixture had: a real file's markers are not the ones a
@@ -233,9 +339,14 @@ console.log('\npasted SFM — normalization, detection, and whether the columns 
  * text. Before this, InterlinTxNarA.txt imported as 1 text of 407 lines instead of 11 stories. */
 console.log('\nreal Toolbox files: the corpus must not collapse into one text');
 {
+  /* ⚠ THE \te LINES ARE THE POINT OF THIS FIXTURE, not decoration. Both real files head every
+   * story with `\t <vernacular title>` and `\te <its English translation>`, and put the free
+   * translation on `\fte`. Without a \te here the ORDER inside DEFAULTS.free was never exercised:
+   * the fixture had only one candidate, so `free: ['ft','te','fte',…]` — the bug that ate nearly
+   * every free translation in the real file — passed this block unchanged. */
   const lines = ['\\_sh v3.0  400  iatx', '\\no 0', '\\id txnara.txt'];
   for (let i = 1; i <= 3; i++) {
-    lines.push('\\no ' + i, '\\t Title ' + i, '\\a Author', '\\genre Nar',
+    lines.push('\\no ' + i, '\\t Title ' + i, '\\te English title ' + i, '\\a Author', '\\genre Nar',
                '\\tx aa  bb', '\\gl one two', '\\fte A sentence.');
   }
   const fields = parseSfm(lines.join('\n'));
@@ -245,6 +356,13 @@ console.log('\nreal Toolbox files: the corpus must not collapse into one text');
   const { texts } = sfmToTexts(fields, m);
   ok(texts.length === 3, '…and so the corpus splits, instead of collapsing into a single text');
   eq(texts.map((t) => t.title), ['Title 1', 'Title 2', 'Title 3'], 'each story keeps its own title');
+  // What the wrong marker COSTS, which is the thing worth asserting: \te holds a title, so mapping
+  // `free` to it drops every real free translation on the floor and glosses nothing in its place.
+  eq(texts.map((t) => t.lines.map((l) => l.free)), [['A sentence.'], ['A sentence.'], ['A sentence.']],
+     'every line keeps the \\fte translation it was written with');
+  const wrong = sfmToTexts(fields, { ...m, free: 'te' }).texts;
+  eq(wrong.map((t) => t.lines.map((l) => l.free)), [[undefined], [undefined], [undefined]],
+     '…and pointing `free` at \\te instead would lose all of them, silently');
 }
 {
   const m = detectMapping(parseSfm(['\\t aaa bbb', '\\gl one two', '\\ft One two.'].join('\n')));

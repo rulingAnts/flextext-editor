@@ -472,3 +472,37 @@ built 150, 200 and 300 MB recordings in both Firefox and Chromium on the rig.
       while the audio played — the decoder had the last chunk only. At v615 the overview and every
       line's wave draw within a few seconds of opening. Re-export the page; a v614 page keeps its bug.
 - [ ] Same for the tool's own exported page (Export → Listening page).
+
+## v616 — the review pass: what a reviewer found in v603..v615, and what it means for testing
+
+All of the below are FIXED and unit-tested; these lines are the by-hand confirmations.
+
+A structured review of everything between production (v602) and v615 turned up defects that the
+release's own tests did not: several were introduced by the v614/v615 embedding rewrite itself.
+These are the ones a tester can see.
+
+- [ ] **Android, [real device], the one thing only Seth can check.** v609 switched all seven shells
+      to `interactive-widget=overlays-content` and added a guard to reveal a focused box and lift the
+      bottom furniture. That guard measured `visualViewport`, which that very setting is DEFINED not
+      to shrink — so it did nothing, and typing near the bottom was worse than v602. v616 reads the
+      keyboard's own geometry (Virtual Keyboard API) with visualViewport kept as the iOS fallback.
+      Tap a gloss box at the bottom of the screen: the box must come into view, and the toast, the
+      upload bar and the version badge must sit above the keyboard, not behind it.
+- [ ] **Paragraph Analysis Tool, upgrading with a document open.** The v615 autosave split could
+      lose the recording: open a document with audio, make one edit, reload — the recording must
+      still be there. Also untick Audio in the View menu, reload: it must stay unticked.
+- [ ] **The tool with waveforms off AND join/split on.** A split needs a position on the sound too,
+      and the ✂ that places it rides the waveform lane. With waveforms off that lane did not exist,
+      so a split could be started and never finished. There is now a thin playhead lane, no wave
+      drawn. Start a split, place the words, then the sound: it must complete.
+- [ ] **"Done — send" in the editor.** The modal must respond immediately, not after the bundle is
+      built. (The bundle was also encoding the recording twice; that is fixed.)
+- [ ] **Any listening page.** While the waveform decodes there must be a visible "loading" sheen,
+      and it must disappear — including on a recording the browser cannot decode.
+- [ ] **Researcher panel, cancelling a transfer.** Cancel from the queue CARD (not just the tray ✕):
+      the half-made text must leave Drive, as the tray route already did. Both routes now ask first
+      and name what will be removed. Pause or cancel while the connection is dead: it must take
+      effect within a second, not after a minute of retries. Resume a paused upload: the old paused
+      row must not linger. Cancel a Download-all: the tray must say cancelled, not "done".
+- [ ] **Researcher panel, a conversion that cannot be built** (a text with no alignment): the tray
+      must say it failed, not "done — check your downloads".

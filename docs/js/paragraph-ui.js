@@ -14,7 +14,7 @@ import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { splitTiers, splitPlan, isAligned } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
-import { splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag } from './segment-strips.js';   // its pending state, the ✂ under a caret, and the editor's grips
+import { splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag, installKeyboardOverlayGuard } from './segment-strips.js';   // its pending state, the ✂ under a caret, and the editor's grips
 import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
@@ -63,6 +63,7 @@ export function initParagraphApp() {
   if (!root) return;
   applyI18n();
   installSplitCancel();   // Escape and a tap away cancel a pending split (plans/split-tiers.md)
+  installKeyboardOverlayGuard();   // the Android keyboard covers the page; keep the focused box visible (#43)
   /* Enter with no box focused places the AUDIO tier of a split at the playhead, on the line the
    * playhead is in — the same gesture as the editor's Baseline and Gloss tabs. */
   document.addEventListener('keydown', (e) => {

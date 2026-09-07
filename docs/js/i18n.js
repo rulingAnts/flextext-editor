@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v608';
+export const ENGINE_VERSION = 'v609';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -113,7 +113,7 @@ en: {
   'sat.open': 'Open .flextext file\u2026',
   'sat.openPair': 'Open text + recording together\u2026',
   'sat.openAny': 'Open text and/or recording\u2026',
-  'sat.export': 'Download this text (.flextext with times, ELAN .eaf, and the recording)',
+  'sat.export': 'Download this text (.flextext with times, ELAN .eaf, Paragraph Analysis .fxpa, or the recording)',
   'sat.exporting': 'Building the download\u2026',
   'sat.exportDraft': 'Unfinished matching is not in this file yet \u2014 press Done first if you want it included.',
   'sat.exportNoAudio': 'No recording attached \u2014 the download carries the text only.',
@@ -122,7 +122,9 @@ en: {
   'sat.exportAll': 'Everything \u2014 the .flextext with its times, the ELAN .eaf and the recording, in one zip',
   'sat.exportEaf': 'ELAN only (.eaf)',
   'sat.exportFlextext': '.flextext only (with its times)',
+  'sat.exportFxpa': 'Paragraph Analysis file only (.fxpa, with the recording inside)',
   'sat.exportNoEaf': 'No ELAN file yet: this text has no timed lines. Match it first.',
+  'sat.exportNoFxpa': 'Could not build the Paragraph Analysis file for this text.',
   'sg.sent': 'sent to your researcher',
   'sg.fromResearcher': 'from your researcher',
   'share.trimmedBig': 'The recording is too big to embed inside the listening page or the .fxpa, so those were left out of this bundle. The recording itself is included as a file.',
@@ -1441,6 +1443,8 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.androidKeyboard': 'On Android the on-screen keyboard and its word suggestions now cover the bottom of the page instead of shoving everything upwards: the player and the buttons along the top stay exactly where they are, and you simply see fewer lines while typing. A box you are typing in is still never left behind the keyboard, and the toast, the upload tray and the activity tray ride above it.'
+    ,'panel.rel.new.segFxpa': 'The Audio Segmenter can now export a Paragraph Analysis file (.fxpa), with the recording inside it, so a matched text can go straight into the Paragraph Analysis Tool.'
     ,'panel.rel.new.closeupBlank': 'Fixed: on a recording of any real length the close-up on the top player showed nothing but white. It worked by stretching the waveform picture, and on an eight-minute recording that asked for a picture wider than a browser will draw, so it drew none. The close-up now redraws a few seconds of the recording at the ordinary size, which costs the same however long the file is, and there is a little either side to scroll into. In the Paragraph Analysis Tool and on the exported listening page.'
     ,'panel.rel.new.patThinWaves': 'In the Paragraph Analysis Tool the waveform on each line is now a hairline \u2014 enough to see where the speech is and to scrub along it, without a full waveform on every row. Placing a boundary precisely is what the close-up on the top player is for. The drag grips keep a full-size area to grab.'
     ,'panel.rel.new.segFocus': 'Fixed in the Audio Segmenter: dragging a segment\u2019s edge handle now zooms the top player in on that boundary for the length of the drag, and marks it in blue, the same close-up the editor\u2019s tabs give. Dragging the mark on the top player itself still does not zoom \u2014 that gesture is measured against the player\u2019s own width, so moving it mid-drag would make the boundary jump.'
@@ -2500,7 +2504,7 @@ id: {
   'sat.open': 'Buka berkas .flextext\u2026',
   'sat.openPair': 'Buka teks + rekaman sekaligus\u2026',
   'sat.openAny': 'Buka teks dan/atau rekaman\u2026',
-  'sat.export': 'Unduh teks ini (.flextext dengan waktu, .eaf ELAN, dan rekamannya)',
+  'sat.export': 'Unduh teks ini (.flextext dengan waktu, .eaf ELAN, .fxpa Analisis Paragraf, atau rekamannya)',
   'sat.exporting': 'Menyiapkan unduhan\u2026',
   'sat.exportDraft': 'Pencocokan yang belum selesai belum masuk ke berkas ini \u2014 tekan Selesai dulu jika ingin disertakan.',
   'sat.exportNoAudio': 'Tidak ada rekaman terlampir \u2014 unduhan hanya berisi teksnya.',
@@ -2509,7 +2513,9 @@ id: {
   'sat.exportAll': 'Semuanya \u2014 .flextext dengan waktunya, .eaf ELAN, dan rekamannya, dalam satu zip',
   'sat.exportEaf': 'ELAN saja (.eaf)',
   'sat.exportFlextext': '.flextext saja (dengan waktunya)',
+  'sat.exportFxpa': 'Berkas Analisis Paragraf saja (.fxpa, dengan rekaman di dalamnya)',
   'sat.exportNoEaf': 'Belum ada berkas ELAN: teks ini belum punya baris berwaktu. Cocokkan dulu.',
+  'sat.exportNoFxpa': 'Tidak dapat membuat berkas Analisis Paragraf untuk teks ini.',
   'sg.sent': 'terkirim ke peneliti Anda',
   'sg.fromResearcher': 'dari peneliti Anda',
   'share.trimmedBig': 'Rekamannya terlalu besar untuk disematkan di halaman dengar atau .fxpa, jadi keduanya tidak disertakan dalam paket ini. Rekamannya sendiri tetap disertakan sebagai berkas.',
@@ -3667,6 +3673,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.androidKeyboard': 'Di Android, papan ketik layar dan saran katanya kini menutupi bagian bawah halaman alih-alih mendorong semuanya ke atas: pemutar dan tombol-tombol di bagian atas tetap di tempatnya, dan Anda hanya melihat lebih sedikit baris saat mengetik. Kotak yang sedang Anda ketik tetap tidak pernah tertutup papan ketik, dan pesan sekilas, baki unggahan serta baki aktivitas berada di atasnya.'
+    ,'panel.rel.new.segFxpa': 'Pemotong Audio kini dapat mengekspor berkas Analisis Paragraf (.fxpa), lengkap dengan rekamannya, sehingga teks yang sudah dicocokkan bisa langsung masuk ke Alat Analisis Paragraf.'
     ,'panel.rel.new.closeupBlank': 'Diperbaiki: pada rekaman dengan durasi nyata, tampilan dekat pada pemutar atas hanya menampilkan warna putih. Cara kerjanya adalah merentangkan gambar gelombang, dan pada rekaman delapan menit itu meminta gambar yang lebih lebar daripada yang mampu digambar peramban, sehingga tidak ada yang tergambar. Kini tampilan dekat menggambar ulang beberapa detik rekaman pada ukuran biasa, yang biayanya sama berapa pun panjang berkasnya, dengan sedikit ruang di kiri dan kanan untuk digeser. Di Alat Analisis Paragraf dan di halaman dengar yang diekspor.'
     ,'panel.rel.new.patThinWaves': 'Di Alat Analisis Paragraf, gelombang suara pada tiap baris kini setipis rambut \u2014 cukup untuk melihat di mana ada ucapan dan menggesernya, tanpa gelombang penuh di setiap baris. Menempatkan batas dengan tepat adalah tugas tampilan dekat pada pemutar atas. Pegangan seret tetap punya area penuh untuk dipegang.'
     ,'panel.rel.new.segFocus': 'Diperbaiki di Pemotong Audio: menyeret pegangan tepi sebuah segmen kini memperbesar pemutar atas pada batas itu selama seretan, dan menandainya biru, tampilan dekat yang sama seperti di tab editor. Menyeret tanda pada pemutar atas itu sendiri tetap tidak memperbesar \u2014 gerakan itu diukur terhadap lebar pemutar, sehingga memindahkannya di tengah seretan akan membuat batas melompat.'

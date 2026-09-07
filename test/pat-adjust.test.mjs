@@ -8,7 +8,7 @@ const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const UI = rd('../docs/js/paragraph-ui.js'), CSS = rd('../docs/css/app.css'), I18N = rd('../docs/js/i18n.js'), PANEL = rd('../docs/js/researcher-panel.js');
 
 test('the grips are the editor\'s, with the Join/split switch on; the drag is the editor\'s consumer on a working copy, committed once', () => {
-  assert.match(UI, /import \{ splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag \} from '\.\/segment-strips\.js';/);
+  assert.match(UI, /import \{ splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, attachEdgeHandles, makeBoundaryDrag, installKeyboardOverlayGuard \} from '\.\/segment-strips\.js';/);
   assert.match(UI, /if \(wave && joinSplitOn\) \{\s*\n\s*const k = state\.lines\.findIndex\(\(x\) => x\.id === id\);\s*\n\s*attachEdgeHandles\(row\.querySelector\('\.pa-wavewrap'\), wave, k, \{/, 'grips only with the switch on');
   assert.match(UI, /allowed: \(\) => joinSplitOn, count: \(\) => state\.lines\.length, segAt: \(j\) => state\.lines\[j\], t,/);
   assert.match(UI, /capture: \(\) => \{ dragBase = state; dragMoved = false; state = \{ \.\.\.state, lines: state\.lines\.map\(\(l\) => \(\{ \.\.\.l \}\)\) \}; \},/, 'the drag works on a copy');

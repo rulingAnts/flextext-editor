@@ -274,7 +274,10 @@ console.log('\nboth surfaces defer to the shared planner rather than re-deciding
     ok(/durationVerdict\(\{ spanEndMs:/.test(src), `…and durationVerdict whether the pair matches (${name})`);
     /* No local wants/full table: that is the one thing that must never be re-typed, because a copy
      * of it looks right in review and silently drops a file from a package. */
-    ok(!/const wants = \{ (eaf|elan):/.test(src.slice(src.indexOf(name === 'editor' ? 'wireFileExporter' : 'fileExporterModal'))),
+    /* ⚠ Scoped to the exporter's own body. satExport (the satellites' download) DOES name a wants
+     * table, and must: it builds only the one output the user picked, rather than every kind. */
+    const body = src.slice(src.indexOf(name === 'editor' ? 'wireFileExporter' : 'fileExporterModal'));
+    ok(!/const wants = \{ (eaf|elan):/.test(body.slice(0, body.indexOf('async function satExport') + 1 || undefined)),
        `…and the ${name}'s exporter carries no wants table of its own`);
     ok(/\['elan', 'saymore', 'preview', 'fxpa', 'flextext'\]/.test(src), `the same five rows, in the same order (${name})`);
   }

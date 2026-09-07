@@ -64,6 +64,15 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
 - **The tool's Join/split switch (v601).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
+- **The Android keyboard covers instead of shoving (v609, #43).** The shells ask for
+  `interactive-widget=overlays-content`, so nothing reflows when the suggestion strip or the
+  keyboard opens. v579 had set `resizes-content` deliberately, for the first half of the same issue,
+  and it was buying two things: a focused box never behind the keyboard, and the bottom-fixed
+  furniture above it. Both are kept — a visual-viewport guard reveals the focused box, and the
+  covered height is published as `--kb-inset`, which the toast, upload tray, activity tray, update
+  banner and version badge add to their offset.
+- **The segmenter exports .fxpa (v609).** A matched text goes straight into the Paragraph Analysis
+  Tool, recording included.
 - **The close-up drew nothing on a real recording (v608).** It zoomed by stretching the waveform
   element, which on an eight-minute file asks for a canvas ~150,000 device pixels wide — past every
   browser's maximum, where a canvas draws nothing at all. It now redraws a bounded window (three

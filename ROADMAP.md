@@ -64,6 +64,10 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
 - **The tool's Join/split switch (v601).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
+- **Hairline waveforms in the tool (v607).** Each line's waveform is a hairline that thickens where
+  the speech is, not a full waveform per row: the close-up on the top player is where a boundary is
+  actually placed. The drag grips keep a full-size hit area (`ctx.minH`). The tool's exported page
+  never had per-line waveforms, so it needed no change.
 - **The close-up holds the lines still (v604).** The tool's player and the listening page's grow for a
   close-up without moving a line: the same height comes off the player's bottom margin, so the rows
   stay where the finger found them, and the pointer is captured so the drag survives. A seek during

@@ -368,3 +368,13 @@ prints the same one-time secret on a third base URL; the app reports itself as `
 - [ ] Segmenter: drag a segment's edge handle — the top player zooms in on that boundary for the
       drag and shows it as a blue dashed line, then goes back. Dragging the mark on the top player
       itself moves the boundary WITHOUT zooming, and does not jump. [real device] Both with a finger.
+
+## The tool's hairline waveforms (v607)
+
+- [ ] Open a timed text in the Paragraph Analysis Tool: each line's waveform is a hairline (6px on
+      "Hairline waves", 12px on "Thin waves"), thicker where the speech is and a thin line through
+      silence, inside a band tall enough for the playhead and the ✂.
+- [ ] Scrubbing that hairline still opens the close-up on the top player, and the lines do not move.
+- [ ] Join/split on: the drag grips are still a full-size target (26px tall) and still move the
+      boundary. [real device] The same with a finger.
+- [ ] The exported PAT page is unchanged — it never had per-line waveforms.

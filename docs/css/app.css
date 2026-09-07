@@ -2117,7 +2117,9 @@ body.rp-standalone main { padding-top: 0; }
   padding: 3px 12px; display: flex; align-items: center; gap: 10px; }
 /* A segment's waveform gets the same treatment as the overview: a positioned wrapper so its own
    playhead can sit over it (Seth, 2026-08-05). */
-.pa-wavewrap { position: relative; }
+/* The strip is a hairline, but the playhead, the ✂ and the drag grips still need a band to live in
+   — so the WRAPPER keeps its height and the canvas is centred inside it. */
+.pa-wavewrap { position: relative; min-height: 26px; display: flex; align-items: center; }
 .pa-rowcur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; display: none; }
 /* ⚠ The wave FLEXES and is shorter than it was. It is an overview for seeking, not something to read
    detail off — the per-line waveforms do that job. 48px bought nothing the header could afford. */
@@ -2166,8 +2168,13 @@ body.rp-standalone main { padding-top: 0; }
    so anything after it sits just past the words. It still SHRINKS (min-width: 0) so long lines wrap
    inside the cell rather than overflowing the row. */
 .pa-cell { flex: 0 1 auto; min-width: 0; }
-.pa-wave { width: 100%; height: 44px; display: block; touch-action: pan-y; cursor: pointer; }
-.pa-wave-sm { height: 14px; }
+/* ⚠ HAIRLINES, NOT WAVEFORMS (Seth, 2026-09-07: "we actually don't really need audio segment
+   waveforms in the PAT app itself, just a thin scrubbable player with thicker lines in places where
+   speech is likely … just a really thin waveform, REALLY thin would work"). The row strip is for
+   finding speech and scrubbing along it; the close-up on the top player is where a boundary is
+   actually placed, which is what makes this affordable. */
+.pa-wave { width: 100%; height: 12px; display: block; touch-action: pan-y; cursor: pointer; }
+.pa-wave-sm { height: 6px; }
 .pa-baseline { font-size: 17px; color: var(--vern); }
 .pa-words { display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .pa-words .w { display: inline-flex; flex-direction: column; }

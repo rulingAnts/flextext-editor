@@ -1359,8 +1359,14 @@ function placeEdge(h) {
   const half = (h.offsetWidth || 14) / 2;
   const x = h.__side === 'l' ? w.offsetLeft : w.offsetLeft + w.offsetWidth;
   h.style.left = (x - half) + 'px';
-  h.style.top = w.offsetTop + 'px';
-  h.style.height = w.offsetHeight + 'px';
+  /* ⚠ A GRIP IS AS TALL AS ITS WAVE, UNLESS THE WAVE IS TOO THIN TO GRAB (ctx.minH). The Paragraph
+   * Analysis Tool draws a hairline waveform on purpose (Seth, 2026-09-07: "just a really thin
+   * waveform, REALLY thin would work"), and a 6px-tall hit area is not a target for a finger or a
+   * mouse. The taller grip is CENTRED on the wave, so the line it draws still sits on the seam. */
+  const wh = w.offsetHeight;
+  const hh = Math.max(wh, h.__minH || 0);
+  h.style.top = (w.offsetTop - (hh - wh) / 2) + 'px';
+  h.style.height = hh + 'px';
 }
 function placeEdgeHandles(host) { host.querySelectorAll('.seg-edge').forEach(placeEdge); }
 function watchEdges(host) {
@@ -1383,7 +1389,7 @@ export function attachEdgeHandles(row, wave, i, ctx) {
     h.className = 'seg-edge seg-edge-' + side;
     h.title = ctx.t('seg.dragEdge');
     h.setAttribute('aria-label', ctx.t('seg.dragEdge'));
-    h.__wave = wave; h.__side = side;
+    h.__wave = wave; h.__side = side; h.__minH = ctx.minH || 0;
     h.addEventListener('pointerdown', (ev) => {
       ev.preventDefault(); ev.stopPropagation();       // not a seek, not a row select, not a scroll
       try { h.setPointerCapture(ev.pointerId); } catch { /* capture is comfort, not required */ }

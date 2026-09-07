@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v606';
+export const ENGINE_VERSION = 'v607';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1441,6 +1441,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.patThinWaves': 'In the Paragraph Analysis Tool the waveform on each line is now a hairline \u2014 enough to see where the speech is and to scrub along it, without a full waveform on every row. Placing a boundary precisely is what the close-up on the top player is for. The drag grips keep a full-size area to grab.'
     ,'panel.rel.new.segFocus': 'Fixed in the Audio Segmenter: dragging a segment\u2019s edge handle now zooms the top player in on that boundary for the length of the drag, and marks it in blue, the same close-up the editor\u2019s tabs give. Dragging the mark on the top player itself still does not zoom \u2014 that gesture is measured against the player\u2019s own width, so moving it mid-drag would make the boundary jump.'
     ,'panel.rel.new.transferCtl': 'Transfers in the \u201cIn progress\u201d box can now be paused, resumed and cancelled. An upload to a device pauses between chunks and resumes from where it stopped, even after closing the panel and coming back; a paused upload waits in the Assignment uploads list with a Resume button. Downloads from Drive can be cancelled. Made for slow village connections, where a transfer that had to restart from zero might never finish.'
     ,'panel.rel.new.scrubJump': 'Fixed: while the top player grew for a close-up it pushed the line being scrubbed downwards, and the drag stopped responding until the pointer was moved back onto the line. The close-up now opens over the lines instead of pushing them, so nothing moves, and the drag keeps following the pointer wherever it goes. In the Paragraph Analysis Tool and on the exported listening page.'
@@ -2158,8 +2159,8 @@ internet after the first time.</p>
   'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
   'para.showAudio': 'Audio',
   'para.wavesTip': 'Waveform size on each line',
-  'para.wavesCompact': 'Compact waves',
-  'para.wavesNormal': 'Full waves',
+  'para.wavesCompact': 'Hairline waves',
+  'para.wavesNormal': 'Thin waves',
   'para.wavesOff': 'No waves',
   'para.group': 'Group',
   'para.editGroup': 'Edit group',
@@ -3665,6 +3666,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.patThinWaves': 'Di Alat Analisis Paragraf, gelombang suara pada tiap baris kini setipis rambut \u2014 cukup untuk melihat di mana ada ucapan dan menggesernya, tanpa gelombang penuh di setiap baris. Menempatkan batas dengan tepat adalah tugas tampilan dekat pada pemutar atas. Pegangan seret tetap punya area penuh untuk dipegang.'
     ,'panel.rel.new.segFocus': 'Diperbaiki di Pemotong Audio: menyeret pegangan tepi sebuah segmen kini memperbesar pemutar atas pada batas itu selama seretan, dan menandainya biru, tampilan dekat yang sama seperti di tab editor. Menyeret tanda pada pemutar atas itu sendiri tetap tidak memperbesar \u2014 gerakan itu diukur terhadap lebar pemutar, sehingga memindahkannya di tengah seretan akan membuat batas melompat.'
     ,'panel.rel.new.transferCtl': 'Transfer di kotak \u201cSedang berjalan\u201d kini dapat dijeda, dilanjutkan dan dibatalkan. Unggahan ke perangkat dijeda di antara potongan dan dilanjutkan dari tempatnya berhenti, bahkan setelah panel ditutup dan dibuka lagi; unggahan yang dijeda menunggu di daftar Unggahan penugasan dengan tombol Lanjutkan. Unduhan dari Drive dapat dibatalkan. Dibuat untuk koneksi desa yang lambat, di mana transfer yang harus mulai dari nol mungkin tidak pernah selesai.'
     ,'panel.rel.new.scrubJump': 'Diperbaiki: saat pemutar atas meninggi untuk tampilan dekat, baris yang sedang digeser terdorong ke bawah dan seretan berhenti merespons sampai penunjuk dikembalikan ke baris itu. Kini tampilan dekat terbuka di atas baris, bukan mendorongnya, sehingga tidak ada yang bergerak, dan seretan terus mengikuti penunjuk ke mana pun. Di Alat Analisis Paragraf dan di halaman dengar yang diekspor.'
@@ -4298,8 +4300,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.hideBlankTip': 'Baris kosong biasanya adalah keheningan antar ujaran. Menyembunyikannya hanya memengaruhi tampilan ini — barisnya tetap ada di file beserta waktunya, dan kelompok yang melintasinya tetap mencakupnya.',
   'para.showAudio': 'Audio',
   'para.wavesTip': 'Ukuran gelombang suara pada tiap baris',
-  'para.wavesCompact': 'Gelombang kecil',
-  'para.wavesNormal': 'Gelombang penuh',
+  'para.wavesCompact': 'Gelombang sangat tipis',
+  'para.wavesNormal': 'Gelombang tipis',
   'para.wavesOff': 'Tanpa gelombang',
   'para.group': 'Kelompokkan',
   'para.editGroup': 'Ubah kelompok',

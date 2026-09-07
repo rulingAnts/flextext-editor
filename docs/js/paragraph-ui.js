@@ -1400,8 +1400,13 @@ function drawWave(canvas, sMs, eMs) {
   const g = canvas.getContext('2d');
   g.clearRect(0, 0, W, H);
   if (!peaks || !mpb || !(eMs > sMs)) {
-    g.fillStyle = 'rgba(120,130,150,.45)'; g.fillRect(0, H / 2 - 1, W, 2); return;
+    g.fillStyle = 'rgba(120,130,150,.45)'; g.fillRect(0, H / 2 - 1, W, Math.max(1, Math.round(dpr))); return;
   }
+  /* ⚠ THE PADDING SCALES WITH THE HEIGHT, so a hairline row fills instead of drawing a faint smudge
+   * in the middle of it (Seth, 2026-09-07: the rows want "just a really thin waveform"). A tall
+   * canvas — the overview — keeps the 4px breathing room it always had. */
+  const cssH = canvas.clientHeight || 20;
+  const pad = (cssH >= 30 ? 4 : 1) * dpr;
   const B = peaks.length;
   const b0 = Math.min(B - 1, Math.max(0, Math.floor(sMs / mpb)));
   const b1 = Math.min(B, Math.max(b0 + 1, Math.ceil(eMs / mpb)));
@@ -1418,7 +1423,9 @@ function drawWave(canvas, sMs, eMs) {
     } else {
       for (let i = i0; i < i1; i++) { const v = peaks[i] || 0; if (v > m) m = v; }
     }
-    const h = Math.max(2, Math.pow(m, 0.6) * (H - 4));
+    // A minimum of one device pixel: silence still draws a line, so there is always something to
+    // scrub along and the row never looks broken.
+    const h = Math.max(Math.max(1, Math.round(dpr)), Math.pow(m, 0.6) * (H - pad));
     g.fillRect(x, (H - h) / 2, 1, h);
   }
 }
@@ -2517,6 +2524,7 @@ function renderLineRow(id, nodeLabel = '', header = false) {
     attachEdgeHandles(row.querySelector('.pa-wavewrap'), wave, k, {
       allowed: () => joinSplitOn, count: () => state.lines.length, segAt: (j) => state.lines[j], t,
       onDrag: (bi, ms, phase) => paDrag()(bi, ms, phase),
+      minH: 26,   // the waves are hairlines here; the grip still needs something to grab
     });
   }
   /* ⚠ SELECT FIRST, EDIT SECOND (Seth, 2026-08-05): "make sure it doesn't automatically open the

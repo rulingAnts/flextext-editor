@@ -49,7 +49,12 @@ test('listening page: the audio is an ARRAY of chunk literals, each decodable, r
   assert.equal(arr.join(''), await blobToBase64(audio));
   for (const p of arr) assert.doesNotThrow(() => Buffer.from(p, 'base64'));
   assert.match(html, /for \(var k = 0; k < b64\.length; k\+\+\)/, 'and decodes chunk by chunk');
-  assert.match(html, /new Blob\(parts, \{ type: "audio\/wav" \}\)/);
+  assert.match(html, /new Blob\(\[u8\], \{ type: "audio\/wav" \}\)/);
+  // ⚠ v614 regression (Seth, "Birds vs Snakes"): the waveform decoder was left holding the LAST chunk
+  // only, so the overview and line waves stayed blank while the audio played. The decoder must get
+  // the whole recording, assembled from the parts, header first.
+  assert.match(html, /var u8 = new Uint8Array\(total\), off = 0;\s*\n\s*for \(k = 0; k < parts\.length; k\+\+\) \{ u8\.set\(parts\[k\], off\); off \+= parts\[k\]\.length; \}/);
+  assert.match(html, /decodeAudioData\(u8\.buffer\.slice\(0\)\)/, 'and the waveform is decoded from that whole array');
   // many parts when the chunk is small: the joins are correct
   const many = await (await previewBlob(doc, { title: 'T', audioMime: 'audio/wav', mediaName: 'a.wav',
     audioB64: (await b64PartsOf(await blobToBase64(audio), 300)).join('') })).text();

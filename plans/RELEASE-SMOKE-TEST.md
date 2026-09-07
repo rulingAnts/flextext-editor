@@ -468,3 +468,7 @@ built 150, 200 and 300 MB recordings in both Firefox and Chromium on the rig.
       open screen. The message names it as ELAN's settings sidecar and points to the .fxpa/.eaf,
       instead of the spreadsheet wizard.
 - [x] Engine: 150/200/300 MB in Firefox 155 and Chromium, old vs new, on the rig (harness) — DONE.
+- [ ] v615: a listening page exported at v614 showed NO waveforms (overview blank, line waves blank)
+      while the audio played — the decoder had the last chunk only. At v615 the overview and every
+      line's wave draw within a few seconds of opening. Re-export the page; a v614 page keeps its bug.
+- [ ] Same for the tool's own exported page (Export → Listening page).

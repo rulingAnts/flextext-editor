@@ -28,9 +28,11 @@ test('the tool saves a .fxpa byte-for-byte as JSON.stringify would, without stri
 
 test('the tool\'s own listening page carries the audio as chunk literals', async () => {
   const html = await (await paragraphPreviewBlob(data, { title: 'T', audioB64: b64, audioMime: 'audio/wav' })).text();
-  const arr = JSON.parse('[' + html.match(/var b64 = \[(.*?)\], parts = \[\];/s)[1] + ']');
+  const arr = JSON.parse('[' + html.match(/var b64 = \[(.*?)\], parts = \[\], total = 0;/s)[1] + ']');
   assert.equal(arr.join(''), b64);
-  assert.match(html, /new Blob\(parts, \{ type: "audio\/wav" \}\)/);
+  assert.match(html, /new Blob\(\[u\], \{ type: "audio\/wav" \}\)/);
+  assert.match(html, /var u = new Uint8Array\(total\), off = 0;/, 'the whole recording, for the waveform decoder (v614 regression)');
+  assert.match(html, /decodeAudioData\(u\.buffer\.slice\(0\)\)/);
   // a page built the plain way says the same thing with one element
   assert.match(buildParagraphPreviewHtml(data, { audioB64: 'QUJD', audioMime: 'audio/wav' }), /var b64 = \["QUJD"\]/);
   const many = (await b64PartsOf(b64, 300)).length; assert.ok(many > 5, 'the chunker was exercised');

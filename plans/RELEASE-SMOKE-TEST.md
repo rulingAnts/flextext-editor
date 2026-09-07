@@ -417,3 +417,15 @@ asked for a picture wider than a browser will draw.
 - [ ] A file whose word and gloss lines are single-spaced shows the alignment warning BEFORE saving.
 - [ ] A file exported from ELAN as Toolbox keeps its times and speakers, so the .flextext is
       time-aligned.
+
+## The converter against REAL Toolbox files (v611)
+
+Checked with Seth's samples (Das Iau narratives: two .txt exports and the same corpus as a .doc).
+
+- [ ] Paste a real Toolbox file: the marker list matches the file, the mapping fills itself in
+      (title, vernacular, glosses, free translation), and "Texts found" is the number of stories —
+      not 1, and not the number of lines.
+- [ ] The chooser lists the stories by their own titles, not by record numbers.
+- [ ] Text copied out of a Word document behaves the same, with no alignment warning; a file whose
+      gloss line is single-spaced DOES warn.
+- [ ] Save all: one .flextext per story, and FLEx opens them.

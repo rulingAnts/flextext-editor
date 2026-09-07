@@ -457,8 +457,8 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   .player { position: sticky; top: 0; background: Canvas; padding: 6px 0 4px; z-index: 5;
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
-  .player .wwrap { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }   /* the overview scrolls once zoomed */
-  #ov { width: 100%; height: 72px; display: block; cursor: crosshair; touch-action: pan-y; }
+  .player .wwrap { height: 72px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }   /* the overview scrolls once zoomed */
+  #ov { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: pan-y; }
   .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
   @media (pointer: coarse) {
@@ -574,8 +574,17 @@ ${withAudio ? `<script>
       g.fillRect(x, (H - h) / 2, 1, h);
     }
   }
+  /* ⚠ THE CLOSE-UP DRAWS A TIME WINDOW, IT DOES NOT WIDEN THE CANVAS (Seth, 2026-09-07: the
+   * close-up "just displays white"). Widening was the original mechanism and it cannot work on a
+   * real recording: eight minutes at four seconds across asks for a canvas ~150,000 device pixels
+   * wide, past every browser's maximum dimension, and a canvas over that limit draws NOTHING — the
+   * blank box in the report. Redrawing the same canvas over a four-second slice of the peaks costs
+   * nothing at any recording length, and is what a close-up actually means. */
+  var ovWin = null;                       // {s,e} while the close-up is open; null = the whole file
+  function ovSpan() { var T = totalMs(); return ovWin || { s: 0, e: T || 1 }; }
+  function ovDraw() { var w = ovSpan(); draw(ov, w.s, w.e); }
   function drawAll() {
-    draw(ov, 0, totalMs());
+    ovDraw();
     rows.forEach(function (row) {
       var c = row.querySelector('.rw');
       if (c) draw(c, +row.dataset.s, +row.dataset.e);
@@ -655,6 +664,13 @@ ${withAudio ? `<script>
    * swipe scrolls natively (overflow-x on the wrapper). Vertical drags still scroll the page. */
   var ovWrap = ov.parentNode, ovZoom = 1, focusPrev = null;
   var OV_FOCUS_H = 112;   // the overview's height while a line is scrubbed (the tool's OV_FOCUS_H)
+  var OV_FOCUS_MS = 4000;    // the slice of time actually VISIBLE (the editor's FOCUS_WINDOW_S)
+  var OV_FOCUS_PAGES = 3;    /* and how many of those the canvas holds, so there is room to scroll a
+                              * little either side (Seth, 2026-09-07: "wide enough that the user can
+                              * scroll a bit, but not a whole lot wider than that"). THREE is also
+                              * what keeps this safe: the canvas is three wrapper-widths, whatever
+                              * the recording's length, so it can never reach the size at which a
+                              * browser silently draws nothing. */
   /* The close-up: about four seconds across the overview around the playhead (the editor's
    * FOCUS_WINDOW_S), the overview grown taller so the shape can be read while the playhead is
    * placed (Seth, 2026-09-07, of the tool: "the big preview player gets taller as well"), the
@@ -673,36 +689,50 @@ ${withAudio ? `<script>
     var T = totalMs(); if (!(T > 0)) return;
     if (phase === 'start') {
       if (!focusPrev) {
-        focusPrev = { z: ovZoom, scroll: ovWrap.scrollLeft, h: ov.style.height,
-                      playerMargin: player ? player.style.marginBottom : '', shadow: player ? player.style.boxShadow : '' };
+        focusPrev = { h: ovWrap.style.height, w: ov.style.width, scroll: ovWrap.scrollLeft,
+                      playerMargin: player ? player.style.marginBottom : '',
+                      shadow: player ? player.style.boxShadow : '' };
         var h0 = player ? player.getBoundingClientRect().height : 0;
-        ov.style.height = OV_FOCUS_H + 'px';
+        ovWrap.style.height = OV_FOCUS_H + 'px';
         if (player) {
           var base = parseFloat(getComputedStyle(player).marginBottom) || 0;
           player.style.marginBottom = (base - (player.getBoundingClientRect().height - h0)) + 'px';
           player.style.boxShadow = '0 6px 12px rgba(0,0,0,.12)';
         }
       }
-      setOvZoom(Math.max(ovZoom, T / 4000), ms, ovWrap.getBoundingClientRect().left + ovWrap.clientWidth / 2);
-      draw(ov, 0, T);   // setOvZoom returns early when the zoom is already there; the height changed regardless
     }
-    if (phase === 'start' || phase === 'move') ovWrap.scrollLeft = (ms / T) * ov.clientWidth - ovWrap.clientWidth / 2;
+    if (phase === 'start' || phase === 'move') {
+      var span = Math.min(OV_FOCUS_MS * OV_FOCUS_PAGES, T);
+      var half = span / 2;
+      var c = Math.min(T - half, Math.max(half, ms));
+      ovWin = { s: c - half, e: c + half };
+      ov.style.width = (OV_FOCUS_PAGES * 100) + '%';
+      ovDraw();
+      // the visible middle follows the playhead; the rest is there to scroll into
+      ovWrap.scrollLeft = ((ms - ovWin.s) / span) * ov.clientWidth - ovWrap.clientWidth / 2;
+    }
     if (phase === 'end' && focusPrev) {
       var p = focusPrev; focusPrev = null;
-      ov.style.height = p.h;
+      ovWin = null;
+      ov.style.width = p.w;
+      ovWrap.style.height = p.h;
       if (player) { player.style.marginBottom = p.playerMargin; player.style.boxShadow = p.shadow; }
-      setOvZoom(p.z, 0, ovWrap.getBoundingClientRect().left);
-      draw(ov, 0, T);
+      ovDraw();
       ovWrap.scrollLeft = p.scroll;
     }
   }
-  function ovMs(clientX) { var r = ov.getBoundingClientRect(), T = totalMs(); return r.width > 0 ? Math.min(T, Math.max(0, (clientX - r.left) / r.width * T)) : 0; }
+  function ovMs(clientX) { var r = ov.getBoundingClientRect(), w = ovSpan(); return r.width > 0 ? Math.min(w.e, Math.max(w.s, w.s + (clientX - r.left) / r.width * (w.e - w.s))) : 0; }
   function setOvZoom(z, anchorMs, clientX) {
-    z = Math.min(40, Math.max(1, z));
+    /* ⚠ AND THE PINCH ZOOM IS CAPPED BY WHAT A CANVAS CAN ACTUALLY BE. This mechanism widens the
+     * element, and past ~65,535 device pixels a canvas draws nothing at all — which on a long
+     * recording the old 40x cap sailed straight past. */
+    var dpr = window.devicePixelRatio || 1, wrapW = ovWrap.clientWidth || 1;
+    var zMax = Math.max(1, Math.min(40, 32000 / (wrapW * dpr)));
+    z = Math.max(1, Math.min(z, zMax));
     if (Math.abs(z - ovZoom) < 0.001) return;
     ovZoom = z;
     ov.style.width = (z * 100) + '%';
-    draw(ov, 0, totalMs());
+    ovDraw();
     var T = totalMs();
     if (T > 0) ovWrap.scrollLeft = (anchorMs / T) * ov.clientWidth - (clientX - ovWrap.getBoundingClientRect().left);
   }
@@ -842,7 +872,7 @@ ${withAudio ? `<script>
   (function tick() {
     var t = audio.currentTime * 1000, T = totalMs();
     if (stopAt && t >= stopAt - 20) audio.pause();
-    if (T > 0) { ovcur.style.left = (Math.min(1, t / T) * ov.clientWidth) + 'px'; }
+    if (T > 0) { var ow = ovSpan(); ovcur.style.left = (Math.min(1, Math.max(0, (t - ow.s) / Math.max(1, ow.e - ow.s))) * ov.clientWidth) + 'px'; }
     mtime.textContent = fmt(t) + ' / ' + fmt(T);
     mplay.innerHTML = (!audio.paused && !stopAt) ? '&#9208;' : '&#9654;';
     var onRow = null;

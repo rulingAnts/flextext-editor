@@ -53,12 +53,12 @@ test('the marks show on every tab, follow a grip drag, and the player zooms in o
 });
 
 test('the exported listening page has the same overview grammar', () => {
-  assert.match(EXPORTS, /\.player \.wwrap \{ overflow-x: auto; overflow-y: hidden;/, 'the overview scrolls once zoomed');
+  assert.match(EXPORTS, /\.player \.wwrap \{ height: 72px; overflow-x: auto; overflow-y: hidden;/, 'the overview scrolls once zoomed (the wrapper owns the height since v608)');
   assert.match(EXPORTS, /if \(el === ov\) return;\s*\/\/ the overview has its own touch grammar/, 'wireScrub steps aside for fingers on the overview');
   const ov = EXPORTS.slice(EXPORTS.indexOf("var ovWrap = ov.parentNode, ovZoom = 1, focusPrev = null;"), EXPORTS.indexOf('/* ── SPACE = PLAY/PAUSE'));
   assert.match(ov, /function setOvZoom\(z, anchorMs, clientX\)/);
-  assert.match(ov, /z = Math\.min\(40, Math\.max\(1, z\)\);/, 'never narrower than the whole file');
-  assert.match(ov, /ov\.style\.width = \(z \* 100\) \+ '%';\s*\n\s*draw\(ov, 0, totalMs\(\)\);/, 'redrawn at the new width');
+  assert.match(ov, /var zMax = Math\.max\(1, Math\.min\(40, 32000 \/ \(wrapW \* dpr\)\)\);\s*\n\s*z = Math\.max\(1, Math\.min\(z, zMax\)\);/, 'never narrower than the whole file, and never wider than a canvas can be drawn (v608)');
+  assert.match(ov, /ov\.style\.width = \(z \* 100\) \+ '%';\s*\n\s*ovDraw\(\);/, 'redrawn at the new width');
   assert.match(ov, /if \(mode === 'tap' && Math\.sqrt\(dx \* dx \+ dy \* dy\) > 10\) mode = 'scroll';/);
   assert.match(ov, /if \(mode === 'scroll'\) \{ ovWrap\.scrollLeft = scroll0 - dx; ev\.preventDefault\(\); \}/);
   assert.match(ov, /if \(mode === 'tap' && ev\.type === 'pointerup'\) \{ audio\.pause\(\); audio\.currentTime = ovMs\(ev\.clientX\) \/ 1000; \}/, 'a tap parks');

@@ -42,15 +42,16 @@ test('the listening page keeps parity: a row scrub opens the overview\'s close-u
   assert.match(scrub, /window\.addEventListener\('pointerup', function \(\) \{ if \(down\) release\(\); down = false; \}\);/);
   assert.match(scrub, /var move = function \(e2\) \{ drag\(e2\); \};/, 'the knob too');
   const focus = SEGX.slice(SEGX.indexOf('function ovFocus(phase, ms)'), SEGX.indexOf('(function () {\n    var touches'));
-  assert.match(focus, /setOvZoom\(Math\.max\(ovZoom, T \/ 4000\), ms,/, 'about four seconds across, as the editor\'s FOCUS_WINDOW_S');
-  assert.match(focus, /ov\.style\.height = OV_FOCUS_H \+ 'px';/, 'and taller for the length of the drag (v603)');
-  assert.match(focus, /ov\.style\.height = p\.h;/, 'the height put back with the zoom and scroll');
+  assert.match(SEGX, /var OV_FOCUS_MS = 4000;/, 'about four seconds visible, as the editor\'s FOCUS_WINDOW_S');
+  assert.match(focus, /ovWrap\.style\.height = OV_FOCUS_H \+ 'px';/, 'and taller for the length of the drag (v603; the wrapper owns it since v608)');
+  assert.match(focus, /ovWrap\.style\.height = p\.h;/, 'the height put back with the window');
   assert.match(SEGX, /var OV_FOCUS_H = 112;/);
   assert.doesNotMatch(SEGX, /#ov \{[^}]*transition: height/, 'instant, so the page shift that keeps the lines still is exact (v604)');
   assert.doesNotMatch(SEGX, /seg-edge|attachEdgeHandles|makeBoundaryDrag/, 'the listening page never adjusts a boundary (Seth, 2026-09-07)');
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.listenZoom': '/g) || []).length, 2);
-  assert.match(focus, /ovWrap\.scrollLeft = \(ms \/ T\) \* ov\.clientWidth - ovWrap\.clientWidth \/ 2;/, 'the playhead centred');
-  assert.match(focus, /setOvZoom\(p\.z, 0, ovWrap\.getBoundingClientRect\(\)\.left\);[\s\S]{0,80}ovWrap\.scrollLeft = p\.scroll;/, 'zoom and scroll put back');
+  assert.match(focus, /var span = Math\.min\(OV_FOCUS_MS \* OV_FOCUS_PAGES, T\);/, 'a bounded window: three screens drawn, the middle one visible');
+  assert.match(focus, /ovWin = \{ s: c - half, e: c \+ half \};/, 'the playhead centred in it');
+  assert.match(focus, /ovWin = null;[\s\S]{0,200}ovDraw\(\);/, 'the window dropped and the whole file drawn again on release');
 });
 
 test('the seam being dragged is a thick dashed blue mark on the dock, distinct from the red playhead; at rest the thin dotted one (Seth, 2026-09-07)', () => {

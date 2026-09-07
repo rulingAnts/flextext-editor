@@ -19,15 +19,18 @@ test('the grips are the editor\'s, with the Join/split switch on; the drag is th
 });
 
 test('the overview close-up: about four seconds across, taller, centred; back on release; marks with the dragged seam blue', () => {
-  assert.match(UI, /const OV_FOCUS_S = 4;\s*\nconst OV_FOCUS_H = 96;/);
+  assert.match(UI, /const OV_FOCUS_S = 4;/);
+  assert.match(UI, /const OV_FOCUS_PAGES = 3;/, 'three screens drawn, the middle one visible (v608)');
+  assert.match(UI, /const OV_FOCUS_H = 96;/);
   const focus = UI.slice(UI.indexOf('function ovFocus(phase, ms)'), UI.indexOf('function ovSeams()'));
   assert.match(focus, /e\.wrap\.style\.height = OV_FOCUS_H \+ 'px';/, 'taller while adjusting or scrubbing');
-  assert.match(focus, /e\.ov\.style\.width = \(Math\.max\(1, T \/ \(OV_FOCUS_S \* 1000\)\) \* 100\) \+ '%';/, 'zoomed');
+  assert.match(focus, /ovWin = ovWindowAt\(ms\);\s*\n\s*e\.ov\.style\.width = \(OV_FOCUS_PAGES \* 100\) \+ '%';/, 'zoomed by drawing a bounded window, never a canvas sized by the recording (v608)');
+  assert.match(focus, /ovDrawWave\(\); renderOvMarks\(\); ovCenter\(ms\);/, 'the visible middle follows the playhead');
   assert.match(focus, /e\.wrap\.style\.height = p\.height; e\.ov\.style\.width = p\.width;/, 'put back');
-  assert.match(focus, /e\.wrap\.scrollLeft = p\.scroll;/);
+  assert.match(focus, /ovWin = null;/, 'and the window is dropped, so the whole recording is drawn again');
   assert.match(UI, /m\.classList\.toggle\('live', ovLiveSeam === s\.j\);/, 'the dragged seam');
-  assert.match(UI, /if \(ov\) \{ drawWave\(ov, 0, durMs \|\| 1\); renderOvMarks\(\); \}/, 'marks drawn with the overview');
-  assert.match(CSS, /\.pa-ovwrap \{ position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow: hidden; \}/, 'no height transition since v604: ovFocus compensates the rows by the exact height gained');
+  assert.match(UI, /if \(ov\) \{ ovDrawWave\(\); renderOvMarks\(\); \}/, 'marks drawn with the overview, through the window (v608)');
+  assert.match(CSS, /\.pa-ovwrap \{ position: relative; height: 34px; flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden;/, 'scrollable, so the close-up\'s extra context can be reached (v608); still no height transition');
   assert.match(CSS, /\.pa-ovmark \{ position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dotted rgba\(108,118,133,\.7\); \}/);
   assert.match(CSS, /\.pa-ovmark\.live \{ border-left: 2px dashed #2f7cf6; margin-left: -1px; z-index: 1; \}/);
 });

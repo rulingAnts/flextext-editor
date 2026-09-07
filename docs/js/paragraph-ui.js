@@ -1277,17 +1277,37 @@ function setupAudio() {
  * blue line (the editor's styleMark). The grips are the editor's own (attachEdgeHandles) and the
  * drag goes through its consumer (makeBoundaryDrag), which moves the LIVE line objects — so the
  * drag works on a working copy of the document and the copy is committed once, on release. */
-const OV_FOCUS_S = 4;
+const OV_FOCUS_S = 4;       // seconds actually VISIBLE in the close-up
+const OV_FOCUS_PAGES = 3;   /* and how many of those the canvas holds, so there is room to scroll a
+                             * little either side (Seth, 2026-09-07: "wide enough that the user can
+                             * scroll a bit, but not a whole lot wider than that"). Three wrapper
+                             * widths whatever the recording's length, which is also what keeps the
+                             * canvas far below the size at which a browser draws nothing. */
 const OV_FOCUS_H = 96;
+/* ⚠ THE CLOSE-UP DRAWS A TIME WINDOW; IT DOES NOT WIDEN THE CANVAS (Seth, 2026-09-07, of the
+ * exported page: the close-up "just displays white" — the same mechanism, the same fault). Widening
+ * cannot work on a real recording: eight minutes at four seconds across asks for a canvas a quarter
+ * of a million device pixels wide, far past every browser's maximum, and an oversized canvas draws
+ * NOTHING. Redrawing the same canvas over a four-second slice costs the same at any length. */
+let ovWin = null;   // {s,e} while the close-up is open; null = the whole recording
 let ovFocusPrev = null;
 let ovLiveSeam = null;
 let ovMarksKey = '';   // width:duration the marks were last placed for — the ticker re-places them when it changes
 function ovEls() { const ov = $('#pa-ov'); return ov ? { ov, wrap: ov.parentElement } : null; }
 function ovTotal() { return durMs || (audio && isFinite(audio.duration) ? audio.duration * 1000 : 0); }
+function ovSpan() { const T = ovTotal(); return ovWin || { s: 0, e: T || 1 }; }
+function ovDrawWave() { const e = ovEls(); if (!e) return; const w = ovSpan(); drawWave(e.ov, w.s, w.e); }
+function ovWindowAt(ms) {
+  const T = ovTotal();
+  const half = Math.min(OV_FOCUS_S * 1000 * OV_FOCUS_PAGES, T) / 2;
+  const c = Math.min(T - half, Math.max(half, ms));
+  return { s: c - half, e: c + half };
+}
+// The visible middle follows the playhead; the rest of the drawn window is there to scroll into.
 function ovCenter(ms) {
-  const e = ovEls(), T = ovTotal();
-  if (!e || !(T > 0)) return;
-  e.wrap.scrollLeft = (ms / T) * e.ov.clientWidth - e.wrap.clientWidth / 2;
+  const e = ovEls();
+  if (!e || !ovWin) return;
+  e.wrap.scrollLeft = ((ms - ovWin.s) / Math.max(1, ovWin.e - ovWin.s)) * e.ov.clientWidth - e.wrap.clientWidth / 2;
 }
 /* ⚠ GROWING THE PLAYER MUST NOT MOVE THE ROW OUT FROM UNDER THE FINGER (Seth, 2026-09-07: "when
  * it expands, the currently focused segment waveform jumps down and then dragging right or left is
@@ -1318,17 +1338,18 @@ function ovFocus(phase, ms) {
         player.style.marginBottom = (base - (player.getBoundingClientRect().height - h0)) + 'px';
       }
     }
-    e.ov.style.width = (Math.max(1, T / (OV_FOCUS_S * 1000)) * 100) + '%';
-    drawWave(e.ov, 0, T); renderOvMarks();
-    ovCenter(ms);
+    ovWin = ovWindowAt(ms);
+    e.ov.style.width = (OV_FOCUS_PAGES * 100) + '%';
+    ovDrawWave(); renderOvMarks(); ovCenter(ms);
   } else if (phase === 'move') {
-    if (ovFocusPrev) ovCenter(ms);
+    if (ovFocusPrev) { ovWin = ovWindowAt(ms); ovDrawWave(); renderOvMarks(); ovCenter(ms); }
   } else if (phase === 'end' && ovFocusPrev) {
     const p = ovFocusPrev; ovFocusPrev = null;
+    ovWin = null;
     if (p.player) p.player.classList.remove('pa-ovfocus');
     e.wrap.style.height = p.height; e.ov.style.width = p.width;
     if (p.player) p.player.style.marginBottom = p.playerMargin;
-    drawWave(e.ov, 0, T); renderOvMarks();
+    ovDrawWave(); renderOvMarks();
     e.wrap.scrollLeft = p.scroll;
   }
 }
@@ -1343,16 +1364,18 @@ function renderOvMarks() {
   const T = ovTotal();
   let layer = e.wrap.querySelector('.pa-ovmarks');
   if (!layer) { layer = document.createElement('div'); layer.className = 'pa-ovmarks'; e.wrap.appendChild(layer); }
-  const seams = T > 0 ? ovSeams().filter((s) => s.ms > 0 && s.ms < T) : [];
+  const win = ovSpan();
+  const span = Math.max(1, win.e - win.s);
+  const seams = T > 0 ? ovSeams().filter((s) => s.ms > win.s && s.ms < win.e) : [];
   // Reuse the nodes when the count is unchanged (a drag calls this on every move).
   if (layer.children.length !== seams.length) layer.replaceChildren(...seams.map(() => { const m = document.createElement('span'); m.className = 'pa-ovmark'; return m; }));
   seams.forEach((s, i) => {
     const m = layer.children[i];
     m.dataset.j = String(s.j);
-    m.style.left = ((s.ms / T) * e.ov.clientWidth) + 'px';
+    m.style.left = (((s.ms - win.s) / span) * e.ov.clientWidth) + 'px';
     m.classList.toggle('live', ovLiveSeam === s.j);
   });
-  ovMarksKey = e.ov.clientWidth + ':' + T;
+  ovMarksKey = e.ov.clientWidth + ':' + T + ':' + Math.round(win.s) + ':' + Math.round(win.e);
 }
 // The slice of the editor's Player that makeBoundaryDrag talks to, on the tool's own overview.
 const ovPlayer = {
@@ -1434,7 +1457,7 @@ function drawAllWaves() {
   if (!root) return;
   root.querySelectorAll('canvas[data-s]').forEach((c) => drawWave(c, +c.dataset.s, +c.dataset.e));
   const ov = $('#pa-ov');
-  if (ov) { drawWave(ov, 0, durMs || 1); renderOvMarks(); }
+  if (ov) { ovDrawWave(); renderOvMarks(); }
 }
 
 function wireScrub(el, s, e) {
@@ -1501,10 +1524,11 @@ function startTicker() {
       const tNow = audio.currentTime * 1000;
       const T = durMs || (isFinite(audio.duration) ? audio.duration * 1000 : 0);
       const cur = $('#pa-ovcur'), ov = $('#pa-ov');
-      if (cur && ov && T > 0) cur.style.left = (Math.min(1, tNow / T) * ov.clientWidth) + 'px';
+      const ow = ovSpan();
+      if (cur && ov && T > 0) cur.style.left = (Math.min(1, Math.max(0, (tNow - ow.s) / Math.max(1, ow.e - ow.s))) * ov.clientWidth) + 'px';
       // The marks were placed at whatever width the overview had when drawn — 0 before its first
-      // layout — so re-place them whenever the width or the duration they were placed for changes.
-      if (ov && T > 0 && ovMarksKey !== ov.clientWidth + ':' + T) renderOvMarks();
+      // layout — so re-place them whenever the width, the duration or the window changes.
+      if (ov && T > 0 && ovMarksKey !== ov.clientWidth + ':' + T + ':' + Math.round(ow.s) + ':' + Math.round(ow.e)) renderOvMarks();
       const time = $('#pa-time');
       if (time) time.textContent = clock(tNow) + ' / ' + clock(T);
       const mp = $('#pa-play');

@@ -64,6 +64,12 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
 - **The tool's Join/split switch (v601).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
+- **The close-up drew nothing on a real recording (v608).** It zoomed by stretching the waveform
+  element, which on an eight-minute file asks for a canvas ~150,000 device pixels wide — past every
+  browser's maximum, where a canvas draws nothing at all. It now redraws a bounded window (three
+  screens, the middle one visible) at the canvas's natural size, which costs the same at any length.
+  The pinch zoom on the listening page was capped for the same reason. A short fixture could never
+  have caught this; the smoke test now says to use a long recording.
 - **Hairline waveforms in the tool (v607).** Each line's waveform is a hairline that thickens where
   the speech is, not a full waveform per row: the close-up on the top player is where a boundary is
   actually placed. The drag grips keep a full-size hit area (`ctx.minH`). The tool's exported page

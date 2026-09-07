@@ -73,6 +73,11 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **Next: one converter for every interlinear source (#53).** The v610 converter reads Toolbox/SFM;
+  ELAN `.eaf` joins it as a second source behind the same surface, and only then does the title
+  become "Convert other interlinear to .flextext (Toolbox, ELAN, etc)" — naming a format it cannot
+  yet read would promise what it refuses to do. `eaf-read.js` already parses ELAN and has a tier
+  wizard in the tool, so this is a second source, not a second converter (Seth, 2026-09-07).
 - **The Android keyboard covers instead of shoving (v609, #43).** The shells ask for
   `interactive-widget=overlays-content`, so nothing reflows when the suggestion strip or the
   keyboard opens. v579 had set `resizes-content` deliberately, for the first half of the same issue,

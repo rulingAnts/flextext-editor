@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v604';
+export const ENGINE_VERSION = 'v606';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1441,6 +1441,8 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.segFocus': 'Fixed in the Audio Segmenter: dragging a segment\u2019s edge handle now zooms the top player in on that boundary for the length of the drag, and marks it in blue, the same close-up the editor\u2019s tabs give. Dragging the mark on the top player itself still does not zoom \u2014 that gesture is measured against the player\u2019s own width, so moving it mid-drag would make the boundary jump.'
+    ,'panel.rel.new.transferCtl': 'Transfers in the \u201cIn progress\u201d box can now be paused, resumed and cancelled. An upload to a device pauses between chunks and resumes from where it stopped, even after closing the panel and coming back; a paused upload waits in the Assignment uploads list with a Resume button. Downloads from Drive can be cancelled. Made for slow village connections, where a transfer that had to restart from zero might never finish.'
     ,'panel.rel.new.scrubJump': 'Fixed: while the top player grew for a close-up it pushed the line being scrubbed downwards, and the drag stopped responding until the pointer was moved back onto the line. The close-up now opens over the lines instead of pushing them, so nothing moves, and the drag keeps following the pointer wherever it goes. In the Paragraph Analysis Tool and on the exported listening page.'
     ,'panel.rel.new.listenZoom': 'On the exported listening page, dragging the playhead across a line\u2019s waveform zooms the top player in around it and makes it taller for the length of the drag, then puts it back \u2014 the same close-up the editor and the Paragraph Analysis Tool give. The page stays read-only: nothing on it adjusts a boundary.'
     ,'panel.rel.new.patAdjust': 'The Paragraph Analysis Tool has the editor\u2019s segment grips (with the Join/split switch on): drag the pill at either end of a line\u2019s waveform to move the boundary with its neighbour. The top player shows the seams between lines, zooms in and grows taller while a grip is dragged or a line\u2019s waveform is scrubbed, with the dragged seam a blue dashed line, and goes back on release.'
@@ -1539,6 +1541,12 @@ internet after the first time.</p>
   'panel.jobs.download': 'Downloading from Drive',
   'panel.jobs.collapse': 'Hide the details',
   'panel.jobs.expand': 'Show the details',
+  'panel.jobs.pause': 'Pause this transfer',
+  'panel.jobs.resume': 'Resume',
+  'panel.jobs.cancel': 'Cancel this transfer',
+  'panel.jobs.pausing': 'pausing…',
+  'panel.jobs.cancelling': 'cancelling…',
+  'panel.jobs.cancelledShort': 'cancelled',
   'panel.dl.oneAtATime': 'One conversion at a time — the current one is still working.',
   /* v3: the Files menu reads flextext-manifest.json. No manifest -> ONE item, a folder link. */
   'panel.dl.openFolder': 'Open the Drive folder \u2197',
@@ -1849,6 +1857,8 @@ internet after the first time.</p>
   'panel.aq.failedRow': 'failed — {msg}',
   'panel.aq.failed': 'Assignment "{title}" failed: {msg}',
   'panel.aq.retry': 'Retry',
+  'panel.aq.pausedRow': 'paused — resume when you are ready',
+  'panel.aq.pausedPct': 'paused at {pct}% of {size}',
   'panel.aq.cancelConfirm': 'Remove this queued assignment? Nothing has been sent to the device.',
   'panel.util.ttl': 'Assignment download window (days)',
   'panel.util.ttlNote': 'How long a device has to fetch newly assigned files (7–400 days; the server enforces the bounds). Files already fetched stay on the device.',
@@ -3655,6 +3665,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.segFocus': 'Diperbaiki di Pemotong Audio: menyeret pegangan tepi sebuah segmen kini memperbesar pemutar atas pada batas itu selama seretan, dan menandainya biru, tampilan dekat yang sama seperti di tab editor. Menyeret tanda pada pemutar atas itu sendiri tetap tidak memperbesar \u2014 gerakan itu diukur terhadap lebar pemutar, sehingga memindahkannya di tengah seretan akan membuat batas melompat.'
+    ,'panel.rel.new.transferCtl': 'Transfer di kotak \u201cSedang berjalan\u201d kini dapat dijeda, dilanjutkan dan dibatalkan. Unggahan ke perangkat dijeda di antara potongan dan dilanjutkan dari tempatnya berhenti, bahkan setelah panel ditutup dan dibuka lagi; unggahan yang dijeda menunggu di daftar Unggahan penugasan dengan tombol Lanjutkan. Unduhan dari Drive dapat dibatalkan. Dibuat untuk koneksi desa yang lambat, di mana transfer yang harus mulai dari nol mungkin tidak pernah selesai.'
     ,'panel.rel.new.scrubJump': 'Diperbaiki: saat pemutar atas meninggi untuk tampilan dekat, baris yang sedang digeser terdorong ke bawah dan seretan berhenti merespons sampai penunjuk dikembalikan ke baris itu. Kini tampilan dekat terbuka di atas baris, bukan mendorongnya, sehingga tidak ada yang bergerak, dan seretan terus mengikuti penunjuk ke mana pun. Di Alat Analisis Paragraf dan di halaman dengar yang diekspor.'
     ,'panel.rel.new.listenZoom': 'Pada halaman dengar yang diekspor, menggeser kepala putar pada gelombang sebuah baris memperbesar pemutar atas di sekitarnya dan meninggikannya selama seretan, lalu mengembalikannya \u2014 tampilan dekat yang sama seperti di editor dan Alat Analisis Paragraf. Halaman itu tetap hanya-baca: tidak ada yang mengubah batas di sana.'
     ,'panel.rel.new.patAdjust': 'Alat Analisis Paragraf punya pegangan segmen seperti editor (saat sakelar Gabung/bagi menyala): seret pil di kedua ujung gelombang sebuah baris untuk memindahkan batas dengan tetangganya. Pemutar atas menampilkan batas antar baris, memperbesar dan meninggi saat pegangan diseret atau gelombang baris digeser, dengan batas yang diseret berupa garis putus-putus biru, lalu kembali saat dilepas.'
@@ -3750,6 +3762,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.jobs.download': 'Mengunduh dari Drive',
   'panel.jobs.collapse': 'Sembunyikan detail',
   'panel.jobs.expand': 'Tampilkan detail',
+  'panel.jobs.pause': 'Jeda transfer ini',
+  'panel.jobs.resume': 'Lanjutkan',
+  'panel.jobs.cancel': 'Batalkan transfer ini',
+  'panel.jobs.pausing': 'menjeda…',
+  'panel.jobs.cancelling': 'membatalkan…',
+  'panel.jobs.cancelledShort': 'dibatalkan',
   'panel.dl.oneAtATime': 'Satu konversi pada satu waktu — yang sekarang masih berjalan.',
   'panel.dl.openFolder': 'Buka folder Drive \u2197',
   'panel.dl.openFolderSub': 'lihat semua berkas teks ini di Google Drive',
@@ -3996,6 +4014,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.aq.failedRow': 'gagal — {msg}',
   'panel.aq.failed': 'Penugasan "{title}" gagal: {msg}',
   'panel.aq.retry': 'Coba lagi',
+  'panel.aq.pausedRow': 'dijeda — lanjutkan saat Anda siap',
+  'panel.aq.pausedPct': 'dijeda pada {pct}% dari {size}',
   'panel.aq.cancelConfirm': 'Hapus penugasan yang antre ini? Belum ada yang dikirim ke perangkat.',
   'panel.util.ttl': 'Jendela unduh penugasan (hari)',
   'panel.util.ttlNote': 'Berapa lama perangkat punya waktu mengambil berkas yang baru ditugaskan (7–400 hari; server menegakkan batasnya). Berkas yang sudah diambil tetap tersimpan di perangkat.',

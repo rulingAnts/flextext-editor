@@ -8402,11 +8402,32 @@ function mgLiveBoundary(i) {
 
 /* The gesture, shared by the overview marks and the span edges: capture once at the start (so a
  * whole drag is ONE undo, not forty), move live, and settle with a full redraw. */
-function mgBoundaryDrag(i, ms, phase) {
+/* ⚠ `src === 'row'` IS WHY THE CLOSE-UP IS NOT ALWAYS ON (Seth, 2026-09-07: "the auto close-up on
+ * the preview player in the audio segmenter app isn't working for boundary adjustments using the
+ * audio segment drag handles"). This one consumer serves two gestures: a ROW's edge handle, and
+ * the dock's own draggable mark — the matcher is the only screen that arms those. Dragging a row
+ * handle zooms the dock in on the seam, exactly as the editor's grips do. Dragging the mark ON the
+ * dock must NOT, because that drag reads its position from the dock's own width: zooming it
+ * mid-gesture would move the ruler the finger is being measured against, and the boundary would
+ * jump. The blue seam mark is safe either way and is shown for both. */
+function mgBoundaryDrag(i, ms, phase, src) {
   if (!MG) return;
-  if (phase === 'start') { mgCapture(); player?.pause?.(); return; }
-  if (phase === 'end') { mgDraw(); return; }
-  if (mgMoveBoundary(i, ms)) mgLiveBoundary(i);
+  if (phase === 'start') {
+    mgCapture(); player?.pause?.();
+    if (src === 'row') { try { const s = MG.spans[i]; if (s && !s.timePending) player?.boundaryFocus?.('start', s.end); } catch { /* cosmetic */ } }
+    try { player?.boundaryLive?.(i); } catch { /* cosmetic */ }
+    return;
+  }
+  if (phase === 'end') {
+    mgDraw();
+    if (src === 'row') { try { player?.boundaryFocus?.('end'); } catch { /* cosmetic */ } }
+    try { player?.boundaryLive?.(null); } catch { /* cosmetic */ }
+    return;
+  }
+  if (mgMoveBoundary(i, ms)) {
+    mgLiveBoundary(i);
+    if (src === 'row') { try { const s = MG.spans[i]; if (s) player?.boundaryFocus?.('move', s.end); } catch { /* cosmetic */ } }
+  }
 }
 
 // ── independent editing, left side ────────────────────────────────────────────────────────────
@@ -8914,13 +8935,13 @@ function mgDraw() {
         const perPx = Math.max(1, sp.end - sp.start) / w;
         const x0 = ev.clientX;
         const t0 = bi === i ? sp.end : sp.start;
-        mgBoundaryDrag(bi, null, 'start');
-        const move = (e2) => mgBoundaryDrag(bi, t0 + (e2.clientX - x0) * perPx, 'move');
+        mgBoundaryDrag(bi, null, 'start', 'row');
+        const move = (e2) => mgBoundaryDrag(bi, t0 + (e2.clientX - x0) * perPx, 'move', 'row');
         const up = () => {
           h.removeEventListener('pointermove', move);
           h.removeEventListener('pointerup', up);
           h.removeEventListener('pointercancel', up);
-          mgBoundaryDrag(bi, null, 'end');
+          mgBoundaryDrag(bi, null, 'end', 'row');
         };
         h.addEventListener('pointermove', move);
         h.addEventListener('pointerup', up);

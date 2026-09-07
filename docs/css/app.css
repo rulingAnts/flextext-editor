@@ -1552,6 +1552,18 @@ body.rp-standalone main { padding-top: 0; }
 @keyframes rp-job-spin { to { transform: rotate(360deg); } }
 /* A spinner is decoration, not information — respect a user who has asked for less motion. */
 @media (prefers-reduced-motion: reduce) { .rp-job-spin { animation: none; } }
+/* Pause / resume / cancel on a transfer (issue #21). The buttons sit at the end of the row, out of
+   the label's way; the body flexes so they stay put however long the filename is. A paused row
+   swaps the spinner for a still ❚❚ and dims, because a spinner on a stopped transfer would be a
+   lie about motion. */
+.rp-job-body { flex: 1 1 auto; }
+.rp-job-acts { flex: none; display: flex; align-items: center; gap: 4px; }
+.rp-job-btn { appearance: none; border: 1px solid var(--border); background: var(--card, #fff);
+              color: var(--muted); border-radius: 6px; min-width: 26px; height: 24px;
+              font-size: 11px; line-height: 1; cursor: pointer; padding: 0 5px; }
+.rp-job-btn:hover { background: var(--panel); color: var(--text); border-color: var(--blue); }
+.rp-job-pausemark { color: var(--muted); font-size: 9px; letter-spacing: -1px; }
+.rp-job.is-paused .rp-job-label, .rp-job.is-paused .rp-job-dir { opacity: .65; }
 
 /* Centered loading state (Seth, 2026-08-31: "spinning circle-thing, Loading… text underneath").
    The panel is un-cached and network-first now, so the wait this dresses is the real one — D1 and

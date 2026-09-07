@@ -740,7 +740,12 @@ export async function previewUrl(fileId, via) {
   } catch { return null; }
 }
 
-export async function fetchDriveFile(fileId, onProgress, via) {
+/* `signal` is an AbortSignal for Cancel in the panel's activity tray (issue #21). Pause and resume
+ * are deliberately NOT offered for a download: this is one long response body, and resuming it
+ * would need a ranged re-request the worker's file route does not serve. Cancel is honest; a
+ * "pause" that silently discarded the bytes would not be. */
+const abortErr = () => { const e = new Error('cancelled'); e.cancelled = true; return e; };
+export async function fetchDriveFile(fileId, onProgress, via, signal) {
   const a = (() => { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } })();
   if (!a) throw new Error('not_signed_up');
   const base = (workerBaseFn() || '').replace(/\/+$/, '');
@@ -749,6 +754,7 @@ export async function fetchDriveFile(fileId, onProgress, via) {
     : `${base}/v1/researcher/drive-file/${encodeURIComponent(fileId)}`;
   const r = await fetch(path, {
     headers: { 'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret },
+    ...(signal ? { signal } : {}),
   });
   if (!r.ok) throw new Error('file_fetch_failed_' + r.status);
   if (typeof onProgress !== 'function' || !r.body || typeof r.body.getReader !== 'function') return r.blob();
@@ -756,6 +762,7 @@ export async function fetchDriveFile(fileId, onProgress, via) {
   const chunks = [];
   let received = 0;
   for (;;) {
+    if (signal && signal.aborted) { try { await reader.cancel(); } catch { /* already gone */ } throw abortErr(); }
     const { done, value } = await reader.read();
     if (done) break;
     chunks.push(value);
@@ -875,11 +882,20 @@ const roundUnit = (n) => Math.max(CHUNK_UNIT, Math.floor(n / CHUNK_UNIT) * CHUNK
 const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
 const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUnit(total / 8)));
 
-export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession, base } = {}) {
+/* ⚠ `shouldStop()` IS CHECKED BETWEEN CHUNKS, NEVER INSIDE ONE (Seth, 2026-09-07: pause / resume /
+ * cancel for panel transfers, issue #21 — "village bandwidth"). A chunk that is already in flight
+ * is allowed to land: Drive counts bytes it has received, so finishing the chunk makes the resume
+ * start further along, and tearing it down mid-flight would only re-send those bytes later. The
+ * thrown error carries `.stopped` so the caller can tell a deliberate stop from a failure, and the
+ * session id is left persisted, which is what makes Resume continue MID-FILE rather than restart. */
+export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession, base, shouldStop } = {}) {
+  const stopped = () => { try { return !!(shouldStop && shouldStop()); } catch { return false; } };
+  const bail = () => { const e = new Error('assign_upload_stopped'); e.stopped = true; return e; };
   const total = part.blob.size;
   let chunkBytes = openingChunk(total);
   let streamId = part.streamId || null;
   for (let session = 0; session < 2; session++) {          // at most one session_gone restart per call
+    if (stopped()) throw bail();
     if (!streamId) {
       const s = await assignUploadStart(instanceId, docId, {
         name: part.name, mime: part.mime, size: total,
@@ -898,6 +914,7 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
       let pushed = true;
       if (onProgress) onProgress(offset, total);      // paint the resumed position, not a stale 0%
       while (offset < total) {
+        if (stopped()) throw bail();
         const size = Math.min(chunkBytes, total - offset);
         const t0 = Date.now();
         const res = await assignUploadChunk(instanceId, docId, streamId,
@@ -918,6 +935,7 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
         offset = res.received != null ? res.received : offset + size;
         if (onProgress) onProgress(offset, total);
       }
+      if (stopped()) throw bail();
       if (!streamId) break;                                // dead session → outer loop opens a fresh one
       if (pushed && offset >= total) strikes++;            // all bytes sent, no done yet — the next probe resolves it
     }

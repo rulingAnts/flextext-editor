@@ -1228,6 +1228,12 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v606', date: '2026-09-07', items: [
+    { k: 'panel.rel.new.segFocus' },
+  ] },
+  { v: 'v605', date: '2026-09-07', items: [
+    { k: 'panel.rel.new.transferCtl' },
+  ] },
   { v: 'v604', date: '2026-09-07', items: [
     { k: 'panel.rel.new.scrubJump' },
   ] },
@@ -2877,14 +2883,31 @@ function jobsEl() {
  * collapsed it is one line: the title, how many jobs, and a spinner while anything still runs, so
  * "is it still working" stays answerable without expanding. */
 let jobsCollapsed = false;
+/* ⚠ ONE DELEGATED LISTENER, ATTACHED ONCE. The tray repaints on every progress tick, so a handler
+ * bound per button would be re-bound about once a second and the button under the pointer would be
+ * replaced mid-click. The controls are data attributes and the click is caught on the tray. */
+let jobsWired = false;
+function wireJobs(el) {
+  if (jobsWired) return;
+  jobsWired = true;
+  el.addEventListener('click', (ev) => {
+    const b = ev.target.closest && ev.target.closest('[data-jobact]');
+    if (!b) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const j = jobs.get(+b.dataset.jobid);
+    if (!j || !j.ctl) return;
+    const act = b.dataset.jobact;
+    try { j.ctl[act] && j.ctl[act](); } catch { /* the transfer reports its own failures */ }
+  });
+}
 function paintJobs() {
   const el = jobsEl();
   if (!jobs.size) { el.hidden = true; el.replaceChildren(); return; }
   el.hidden = false;
   el.classList.toggle('rp-jobs-min', jobsCollapsed);
   const running = [...jobs.values()].filter((j) => !j.done).length;
-  const rows = jobsCollapsed ? [] : [...jobs.values()].map((j) => {
-    const cls = 'rp-job' + (j.done ? ' is-done' : '');
+  const rows = jobsCollapsed ? [] : [...jobs.entries()].map(([id, j]) => {
+    const cls = 'rp-job' + (j.done ? ' is-done' : '') + (j.paused ? ' is-paused' : '');
     /* Which WAY the bytes are going, now that both directions share this box (Seth, 2026-08-31).
      * The arrow is the identity and stays put when the job finishes — a row that swapped its
      * arrow for a tick at the end would lose the one thing distinguishing it from its neighbour,
@@ -2892,11 +2915,23 @@ function paintJobs() {
      * the job runs, so the tray still shows motion. Title text, not just a glyph. */
     const dir = j.dir === 'up' ? '↑' : '↓';
     const dirTip = esc(t(j.dir === 'up' ? 'panel.jobs.upload' : 'panel.jobs.download'));
-    const state = j.done ? '<span class="rp-job-tick">✓</span>' : '<span class="rp-job-spin" aria-hidden="true"></span>';
+    /* Paused replaces the spinner with a still mark: a spinner on a paused transfer would be the
+     * tray lying about motion, which is the one thing this box exists not to do. */
+    const state = j.done ? '<span class="rp-job-tick">✓</span>'
+      : j.paused ? '<span class="rp-job-pausemark" aria-hidden="true">❚❚</span>'
+      : '<span class="rp-job-spin" aria-hidden="true"></span>';
+    /* The controls (issue #21). Only while the job runs, only where the transfer offered them: an
+     * upload can pause mid-file because its session is resumable; a download can only be cancelled
+     * (see fetchDriveFile). A verb that could not really be honoured is not shown. */
+    const btn = (act, key) => `<button type="button" class="rp-job-btn" data-jobact="${act}" data-jobid="${id}"
+        title="${esc(t(key))}" aria-label="${esc(t(key))}">${act === 'pause' ? '❚❚' : act === 'resume' ? '▶' : '✕'}</button>`;
+    const acts = (j.done || !j.ctl) ? '' : `<span class="rp-job-acts">${
+      (j.ctl.pause || j.ctl.resume) ? (j.paused ? btn('resume', 'panel.jobs.resume') : btn('pause', 'panel.jobs.pause')) : ''
+    }${j.ctl.cancel ? btn('cancel', 'panel.jobs.cancel') : ''}</span>`;
     return `<div class="${cls}"><span class="rp-job-mark">
         <span class="rp-job-dir" title="${dirTip}" aria-label="${dirTip}" role="img">${dir}</span>${state}</span>
       <span class="rp-job-body"><span class="rp-job-label">${esc(j.label)}</span>
-      ${j.msg ? `<span class="rp-job-msg">${esc(j.msg)}</span>` : ''}</span></div>`;
+      ${j.msg ? `<span class="rp-job-msg">${esc(j.msg)}</span>` : ''}</span>${acts}</div>`;
   });
   el.innerHTML = `<button type="button" class="rp-jobs-head" data-jobs-toggle aria-expanded="${!jobsCollapsed}"
       title="${esc(t(jobsCollapsed ? 'panel.jobs.expand' : 'panel.jobs.collapse'))}">
@@ -2905,15 +2940,25 @@ function paintJobs() {
       <span class="rp-jobs-chev" aria-hidden="true">${jobsCollapsed ? '▴' : '▾'}</span>
     </button>${rows.join('')}`;
   el.querySelector('[data-jobs-toggle]').onclick = () => { jobsCollapsed = !jobsCollapsed; paintJobs(); };
+  wireJobs(el);
 }
 
 /* dir: 'down' (fetching FROM Drive — the original job kind) or 'up' (an assignment streaming TO
  * it). Defaults to 'down' so every existing caller keeps its meaning without being touched. */
-function jobStart(label, msg, dir) {
+function jobStart(label, msg, dir, ctl) {
   const id = ++jobSeq;
-  jobs.set(id, { label, msg: msg || '', done: false, dir: dir === 'up' ? 'up' : 'down' });
+  jobs.set(id, { label, msg: msg || '', done: false, paused: false, dir: dir === 'up' ? 'up' : 'down', ctl: ctl || null });
   paintJobs();
   return id;
+}
+/* A paused row STAYS in the tray — it is the only handle on a transfer that is half done, and a
+ * row that vanished would leave the researcher with no way to resume it. */
+function jobPaused(id, paused, msg) {
+  const j = jobs.get(id);
+  if (!j || j.done) return;
+  j.paused = !!paused;
+  if (msg != null) j.msg = msg;
+  paintJobs();
 }
 function jobSet(id, msg) {
   const j = jobs.get(id);
@@ -3522,7 +3567,13 @@ async function downloadAllZip(btn) {
   const nameEl = btn.querySelector('.rp-dl-name');
   const orig = nameEl.textContent;
   const wrapForStatus = btn.closest ? btn.closest('[data-fmenu]') : null;
-  const job = jobStart(`${btn.dataset.title || title} — ${t('panel.dl.all')}`, t('panel.dl.starting'));
+  /* Cancel on the row (issue #21): a folder zip is many files and can be minutes of village
+   * bandwidth. Pause/resume is not offered — see fetchDriveFile: one response body, no ranged
+   * re-request to resume from. */
+  const dlCtl = new AbortController();
+  let dlCancelled = false;
+  const job = jobStart(`${btn.dataset.title || title} — ${t('panel.dl.all')}`, t('panel.dl.starting'), 'down',
+    { cancel: () => { dlCancelled = true; jobSet(job, t('panel.jobs.cancelling')); dlCtl.abort(); } });
   try {
     btn.disabled = true; nameEl.textContent = t('panel.dl.zipBuilding');
     /* Same complaint as the single-file download: every byte of the folder streams through the
@@ -3555,7 +3606,8 @@ async function downloadAllZip(btn) {
       add(f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
         const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
         dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
-      }, memberDlVia(wrapForStatus)));
+      }, memberDlVia(wrapForStatus), dlCtl.signal));
+      if (dlCancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
     }
 
     /* GENERATED FILES RIDE ALONG (Seth, 2026-08-12: "can our Download All zip also generate and
@@ -3627,6 +3679,12 @@ async function downloadAllZip(btn) {
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
     nameEl.textContent = orig;
   } catch (e) {
+    if (dlCancelled || (e && (e.cancelled || e.name === 'AbortError'))) {
+      jobEnd(job, t('panel.jobs.cancelledShort'));
+      dlStatus(wrapForStatus, '');
+      btn.disabled = false; nameEl.textContent = orig;
+      return;
+    }
     nameEl.textContent = t('panel.dl.zipFailed');
     // A ZIP32 overflow is a different fact from "it failed" — say which one it was.
     if (e && e.code === 'ZIP_TOO_LARGE') deps.toast(t('panel.dl.zipTooLarge'), 8000);
@@ -3729,7 +3787,10 @@ function wireDownloadMenus(scope) {
         const fname = df.dataset.fname || 'file';
         /* The TRAY is what survives closing this modal — and closing it is the normal thing to do
          * while a 217 MB original streams. The modal status line is a bonus while it is open. */
-        const job = jobStart(fname, t('panel.dl.starting'));
+        const fileCtl = new AbortController();
+        let fileCancelled = false;
+        const job = jobStart(fname, t('panel.dl.starting'), 'down',
+          { cancel: () => { fileCancelled = true; jobSet(job, t('panel.jobs.cancelling')); fileCtl.abort(); } });
         dlStatus(wrap2, t('panel.dl.fetching', { name: fname }));
         deps.toast(t('panel.dl.started'), 4000);
         const known = ((wrap2 && wrap2._allFiles) || []).find((f) => f && f.id === df.dataset.drivefile);
@@ -3740,15 +3801,16 @@ function wireDownloadMenus(scope) {
             : fmtSize(got);
           jobSet(job, msg);
           dlStatus(wrap2, t('panel.dl.fetching', { name: fname }) + ' ' + msg);
-        }, memberDlVia(wrap2)).then((blob) => {
+        }, memberDlVia(wrap2), fileCtl.signal).then((blob) => {
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob); a.download = fname;
           document.body.appendChild(a); a.click(); a.remove();
           setTimeout(() => URL.revokeObjectURL(a.href), 60000);
           dlStatus(wrap2, t('panel.dl.saved', { name: fname }));
           jobEnd(job, t('panel.dl.savedShort'));
-        }).catch(() => {
+        }).catch((err) => {
           dlStatus(wrap2, '');
+          if (fileCancelled || (err && (err.cancelled || err.name === 'AbortError'))) { jobEnd(job, t('panel.jobs.cancelledShort')); return; }
           jobEnd(job, t('panel.dl.failedShort'));
           deps.toast(t('panel.dl.zipFailed'), 5000);
         });
@@ -4796,6 +4858,31 @@ function wsMismatchConfirm(mm) {
 
 const AQ_PREFIX = 'assign-upload:';
 const aqActive = new Map();   // docId -> live view { state: 'uploading'|'sending', sent, total }
+/* docId -> 'pause' | 'cancel', read by the upload loop's shouldStop between chunks (issue #21).
+ * A flag rather than an abort: the chunk in flight is allowed to land, so the bytes Drive already
+ * counted are not thrown away, and Resume continues from them. */
+const aqStop = new Map();
+/* ⚠ ONLY WHILE THE BYTES ARE STILL MOVING. Once the view says 'sending', the upload is done and
+ * the assign command is being minted — there is nothing left to pause, and a flag set here would
+ * outlive the transfer and stop the NEXT one before it started. */
+async function aqPause(docId) {
+  const view = aqActive.get(docId);
+  if (!view || view.state !== 'uploading') return;
+  aqStop.set(docId, 'pause');
+}
+async function aqResume(docId) {
+  aqStop.delete(docId);
+  const key = AQ_PREFIX + docId;
+  const rec = await db.getMedia(key).catch(() => null);
+  if (rec && rec.state === 'paused') { rec.state = 'queued'; rec.error = ''; await db.putMedia(key, rec).catch(() => {}); }
+  paintAssignQueue();
+  runAssignUpload(docId);
+}
+async function aqCancelRunning(docId) {
+  const view = aqActive.get(docId);
+  if (!view || view.state !== 'uploading') return;   // see aqPause: too late once it is 'sending'
+  aqStop.set(docId, 'cancel');
+}
 
 /* Researcher-configurable delivery TTL (default 90; the worker's clampTtlDays is the authority).
  * ⚠ IT IS PER-ACCOUNT, AND IT USED TO BE STORED PER-BROWSER — the old comment here already said
@@ -4888,7 +4975,13 @@ async function runAssignUpload(docId) {
     ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === rec.projectFolderId) || {}).name || t('panel.proj.defaultName'))
     : '';
   const dest = rec.projectFolderId ? `${projName} · ${t('panel.store.unassignedGroup')}` : (nick || '?');
-  const job = jobStart(`${rec.title || t('panel.hist.untitled')} → ${dest}`, t('panel.dl.starting'), 'up');
+  /* Pause / resume / cancel on the row (issue #21, "village bandwidth"): an upload is the transfer
+   * most worth stopping, and the one that can genuinely continue mid-file afterwards. */
+  const job = jobStart(`${rec.title || t('panel.hist.untitled')} → ${dest}`, t('panel.dl.starting'), 'up', {
+    pause: () => { aqPause(docId); jobSet(job, t('panel.jobs.pausing')); },
+    resume: () => aqResume(docId),
+    cancel: () => aqCancelRunning(docId),
+  });
   /* The chunked trio is addressed by a BASE PATH, so the project lane needs no second copy of the
    * upload loop — `base` is the same opt-in the crowd consent prompt already uses. Absent for a
    * device, where the default instance path is right. */
@@ -4955,6 +5048,7 @@ async function runAssignUpload(docId) {
           onProgress: (sent) => { view.sent = done + sent; jobPct(); },
           // The session token persists in the queue record, so a panel restart resumes MID-FILE.
           onSession: (id) => { rec[part + 'StreamId'] = id || ''; return save(); },
+          shouldStop: () => aqStop.has(docId),
         });
         delete rec[part + 'StreamId'];
         await save();
@@ -4973,7 +5067,7 @@ async function runAssignUpload(docId) {
     if (rec.projectFolderId) {
       jobEnd(job, t('panel.aq.doneProject'));
       await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
-      aqActive.delete(docId);
+      aqActive.delete(docId); aqStop.delete(docId);
       deps.toast(t('panel.assign.projQueuedDone', { title: rec.title || '' }), 6000);
       renderDashboard();
       paintAssignQueue();
@@ -5013,11 +5107,31 @@ async function runAssignUpload(docId) {
       audioUrl: fields.audioUrl || '', flextextUrl: fields.flextextUrl || '',
     })]);
     await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
-    aqActive.delete(docId);
+    aqActive.delete(docId); aqStop.delete(docId);
     jobEnd(job, t('panel.aq.sentShort'));
     paintAssignQueue();
     deps.toast(t('panel.assign.sent'), 4000);
   } catch (e) {
+    /* A DELIBERATE STOP is not a failure. Pause keeps everything — the uploaded fileIds and the
+     * open session — and parks the record in 'paused' so no sweep picks it up; the tray row stays,
+     * showing Resume. Cancel throws the queue record away, exactly as cancelling a queued one does;
+     * nothing was sent to the device, since the assign command is only minted after the bytes. */
+    const stop = e && e.stopped ? aqStop.get(docId) : null;
+    if (stop) {
+      aqStop.delete(docId);
+      aqActive.delete(docId);
+      if (stop === 'cancel') {
+        await db.deleteMedia(key).catch(() => {});
+        jobEnd(job, t('panel.jobs.cancelledShort'));
+      } else {
+        rec.state = 'paused'; rec.error = '';
+        await save();
+        jobPaused(job, true, t('panel.aq.pausedPct', {
+          pct: total ? Math.min(99, Math.round((view.sent / total) * 100)) : 0, size: fmtSize(total) }));
+      }
+      paintAssignQueue();
+      return;
+    }
     // TRANSIENT (network, stalled chunks, 5xx) → back to 'queued'; the online/restart sweeps
     // re-enter with every fileId + session already persisted. DEFINITIVE (4xx — bad auth, revoked
     // instance) → 'error', loud, with a manual Retry: silent infinite retry on a 403 helps no one.
@@ -5025,7 +5139,7 @@ async function runAssignUpload(docId) {
     rec.state = definitive ? 'error' : 'queued';
     rec.error = String((e && e.message) || e);
     await save();
-    aqActive.delete(docId);
+    aqActive.delete(docId); aqStop.delete(docId);
     // The tray tells the truth about how it ended: re-queued (the sweeps will resume it) or
     // failed (the queue card holds the Retry).
     jobEnd(job, definitive ? t('panel.dl.failedShort') : t('panel.aq.queued'));
@@ -5042,6 +5156,7 @@ async function sweepAssignUploads() {
     for (const { docId, rec } of await listAssignQueue()) {
       if (aqActive.has(docId)) continue;
       if (rec.state === 'error') continue;              // definitive failures wait for the Retry button
+      if (rec.state === 'paused') continue;             // a deliberate pause waits for Resume, and survives a restart
       await runAssignUpload(docId);                     // sequential — gentle on weak connections
     }
   } finally { aqSweeping = false; }
@@ -5058,12 +5173,14 @@ function assignQueueHtml(queue) {
   const nick = (iid) => (((lastData && lastData.instances) || []).find((x) => x.instance_id === iid) || {}).nickname || '?';
   return `<div class="rp-card rp-aq-card"><div class="rp-inst-name">${esc(t('panel.aq.title'))}</div>
     ${rows.map(({ docId, rec }) => {
-      const status = rec.state === 'error' ? t('panel.aq.failedRow', { msg: rec.error || '?' }) : t('panel.aq.queued');
+      const status = rec.state === 'error' ? t('panel.aq.failedRow', { msg: rec.error || '?' })
+        : rec.state === 'paused' ? t('panel.aq.pausedRow') : t('panel.aq.queued');
       return `<div class="rp-install rp-aq-row">
         <div><div class="invite-name">${esc(rec.title || t('panel.hist.untitled'))}</div>
         <div class="note">${esc(nick(rec.instanceId))} · ${esc(status)}</div></div>
         <div class="rp-inst-actions">
           ${rec.state === 'error' ? `<button class="secondary-btn" data-aqretry="${esc(docId)}">${esc(t('panel.aq.retry'))}</button>` : ''}
+          ${rec.state === 'paused' ? `<button class="secondary-btn" data-aqresume="${esc(docId)}">${esc(t('panel.jobs.resume'))}</button>` : ''}
           <button class="link-btn rp-revoke" data-aqcancel="${esc(docId)}">${esc(t('panel.assign.cancel'))}</button>
         </div>
       </div>`;
@@ -5080,6 +5197,9 @@ async function paintAssignQueue() {
     if (rec) { rec.state = 'queued'; rec.error = ''; await db.putMedia(AQ_PREFIX + id, rec).catch(() => {}); }
     runAssignUpload(id);
   }));
+  // A pause survives a reload, so the queue card is where a paused upload is picked up again
+  // when its tray row is long gone (issue #21).
+  host.querySelectorAll('[data-aqresume]').forEach((b) => b.addEventListener('click', () => aqResume(b.dataset.aqresume)));
   host.querySelectorAll('[data-aqcancel]').forEach((b) => b.addEventListener('click', async () => {
     if (!await confirmModal(t('panel.aq.cancelConfirm'))) return;
     await db.deleteMedia(AQ_PREFIX + b.dataset.aqcancel).catch(() => {});

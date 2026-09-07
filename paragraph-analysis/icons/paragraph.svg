@@ -1,31 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#5b3a9b"/>
-  <!-- interlinear line bars grouped by left-margin brackets (the paragraph-analysis mark:
-       recolored editor rows + the grouping brackets that ARE this app) -->
+  <!-- The paragraph analysis mark (Seth, 2026-09-07): "a paragraph character with horizontal
+       right-branching, square, SSA-ish tree diagram lines behind it". The three sister apps used to
+       differ by COLOUR ALONE — the same interlinear rows in blue, teal and purple — which is no
+       difference at all on a home screen or a tab strip. The pilcrow says "this app is about
+       paragraphs"; the square right-branching spine behind it is the SSA diagram this tool draws. -->
+  <g fill="#ffffff" opacity="0.5">
+    <!-- the spine, and three branches off it -->
+    <rect x="84"  y="150" width="13" height="228" rx="6"/>
+    <rect x="84"  y="150" width="86" height="13"  rx="6"/>
+    <rect x="84"  y="258" width="86" height="13"  rx="6"/>
+    <rect x="84"  y="365" width="86" height="13"  rx="6"/>
+    <!-- the middle branch carries a node of its own, which is what makes it a tree and not a comb -->
+    <rect x="157" y="206" width="13" height="118" rx="6"/>
+    <rect x="157" y="206" width="72" height="13"  rx="6"/>
+    <rect x="157" y="311" width="72" height="13"  rx="6"/>
+  </g>
+  <!-- The pilcrow, drawn as vectors so it needs no font. The bowl is a HALF disc whose flat side is
+       the left descender — a full circle floating beside the stems reads as a lollipop, not a ¶. -->
   <g fill="#ffffff">
-    <!-- level-2 bracket spanning everything -->
-    <rect x="72" y="108" width="14" height="296" rx="7" opacity="0.55"/>
-    <!-- level-1 bracket: group 1 (rows 1-2) -->
-    <rect x="118" y="108" width="14" height="128" rx="7"/>
-    <!-- level-1 bracket: group 2 (rows 3-4) -->
-    <rect x="118" y="276" width="14" height="128" rx="7"/>
-    <!-- group 1 rows -->
-    <rect x="164" y="112" width="150" height="34" rx="10"/>
-    <rect x="338" y="112" width="96"  height="34" rx="10"/>
-    <g opacity="0.62">
-      <rect x="164" y="158" width="118" height="20" rx="8"/>
-      <rect x="338" y="158" width="74"  height="20" rx="8"/>
-    </g>
-    <rect x="164" y="196" width="104" height="34" rx="10"/>
-    <rect x="292" y="196" width="142" height="34" rx="10"/>
-    <!-- group 2 rows -->
-    <rect x="164" y="280" width="122" height="34" rx="10"/>
-    <rect x="310" y="280" width="124" height="34" rx="10"/>
-    <g opacity="0.62">
-      <rect x="164" y="326" width="96"  height="20" rx="8"/>
-      <rect x="310" y="326" width="98"  height="20" rx="8"/>
-    </g>
-    <rect x="164" y="364" width="164" height="34" rx="10"/>
-    <rect x="352" y="364" width="82"  height="34" rx="10"/>
+    <path d="M332 139 A63 63 0 0 0 332 265 Z"/>
+    <rect x="332" y="139" width="31" height="264" rx="6"/>
+    <rect x="386" y="139" width="31" height="264" rx="6"/>
   </g>
 </svg>

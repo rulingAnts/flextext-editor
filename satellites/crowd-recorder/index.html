@@ -8,6 +8,8 @@
 <!-- Public but not searchable: links are handed out / embedded deliberately. -->
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#1f8f5f">
+<!-- The in-app header bar wears the same colour as the window chrome above it (app.css, #topbar). Kept beside the meta so the two are changed together. -->
+<style>:root{--topbar:#1f8f5f;--topbar-ink:#17714b;}</style>
 <link rel="icon" href="icons/recorder.svg" type="image/svg+xml">
 <!-- Deliberately NO manifest, NO apple-touch/apple-mobile meta, NO service worker:
      this page must NOT install as a PWA. Anonymous members of the public open it

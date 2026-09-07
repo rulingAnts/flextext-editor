@@ -38,8 +38,17 @@ main {
 
 /* ---------- Top bar ---------- */
 
+/* ⚠ THE BAR IS THE APP'S OWN COLOUR, NOT ALWAYS BLUE (Seth, 2026-09-07, with the Consent Collector
+   and the Audio Segmenter installed: "let's make sure our top heading bars match the title bar theme
+   color"). Each shell declares a theme-color, which is what paints the PWA's window chrome — so a
+   hard-coded blue bar sat directly beneath a violet or amber title bar. Each shell now also sets
+   --topbar to that same colour, right beside the meta tag so the two are read together; the default
+   keeps the editor's blue for anything that sets neither.
+   This is the same fix .rp-head already carries for the researcher panel (2026-08-28) — generalised
+   rather than repeated, so the next app cannot get it wrong.
+   ⚠ theme-color, the manifest's theme_color and --topbar must agree; topbar-theme.test.mjs asserts it. */
 #topbar {
-  background: var(--blue);
+  background: var(--topbar, var(--blue));
   color: #fff;
   padding-top: env(safe-area-inset-top);
   flex: none;
@@ -80,7 +89,10 @@ main {
 
 .top-tab[aria-selected="true"] {
   background: var(--bg);
-  color: var(--blue-dark);
+  /* The selected tab is the bar's colour on white, so it belongs to the app too. --topbar-ink lets a
+     shell darken it where the theme itself is too light to read as text (the crowd recorder's green
+     is 4.08:1 on white, under the 4.5 this 15px semibold needs). */
+  color: var(--topbar-ink, var(--topbar, var(--blue-dark)));
   font-weight: 600;
 }
 

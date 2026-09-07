@@ -91,13 +91,13 @@ console.log('\nthe activity tray reports work the browser cannot show');
    * That is exactly right and it is the whole design constraint: fetchDriveFile streams into a Blob
    * and only the COMPLETED Blob is handed to the browser, so for the entire slow part the browser's
    * download list is empty and the app is the only thing that can say the work exists. */
-  ok(/function jobStart\(label, msg, dir\)/.test(panel) && /function jobEnd\(id, finalMsg\)/.test(panel),
+  ok(/function jobStart\(label, msg, dir, ctl\)/.test(panel) && /function jobEnd\(id, finalMsg\)/.test(panel),
      'there is a job registry');
   /* UPLOADS SHARE THE TRAY (Seth, 2026-08-31: "let's have currently uploading assignments use the
    * same 'in progress' modal that is used by downloads"). Two directions in one box need to be
    * told apart, hence the arrow — and the queue card must stop narrating a RUNNING upload, or the
    * same transfer is reported in two places with two different vocabularies. */
-  ok(/const job = jobStart\([\s\S]{0,160}?, 'up'\);/.test(panel), 'a running assignment upload opens a tray job');
+  ok(/const job = jobStart\([\s\S]{0,200}?, 'up', \{/.test(panel), 'a running assignment upload opens a tray job (with its controls, v605)');
   ok(/const rows = queue\.filter\(\(\{ docId \}\) => !aqActive\.has\(docId\)\);/.test(panel),
      '...and the queue card drops rows that are in flight, so nothing is narrated twice');
   ok(/j\.dir === 'up' \? '↑' : '↓'/.test(panel), 'each row shows which way the bytes are going');
@@ -107,7 +107,7 @@ console.log('\nthe activity tray reports work the browser cannot show');
    * tick, so DOM-held state would pop it back open about once a second. */
   ok(/let jobsCollapsed = false;/.test(panel), 'the collapsed state is module-level, not read from the DOM');
   ok(/jobsCollapsed = !jobsCollapsed; paintJobs\(\);/.test(panel), 'and the header toggles it both ways');
-  ok(/jobsCollapsed \? \[\] : \[\.\.\.jobs\.values\(\)\]/.test(panel), 'collapsed renders no rows');
+  ok(/jobsCollapsed \? \[\] : \[\.\.\.jobs\.entries\(\)\]/.test(panel), 'collapsed renders no rows');
   ok(/\$\{jobsCollapsed \? ` \(\$\{jobs\.size\}\)` : ''\}/.test(panel),
      '...but still says how many jobs are running, so collapsing never hides that work exists');
   ok(/document\.body\.appendChild\(el\)/.test((panel.match(/function jobsEl\(\)[\s\S]*?\n\}/) || [''])[0]),
@@ -115,7 +115,7 @@ console.log('\nthe activity tray reports work the browser cannot show');
   ok(/\.rp-jobs \{[\s\S]{0,200}?position: fixed/.test(css), 'and is pinned to the viewport');
 
   // All three slow paths register, or the tray would be honest only sometimes.
-  ok(/const job = jobStart\(fname, t\('panel\.dl\.starting'\)\)/.test(panel), 'a single-file download registers');
+  ok(/const job = jobStart\(fname, t\('panel\.dl\.starting'\), 'down',/.test(panel), 'a single-file download registers (cancellable, v605)');
   ok(/const job = jobStart\(`\$\{wrap\.dataset\.title \|\| 'text'\} — \$\{kindLabel\}`/.test(panel),
      'a conversion registers, named for the text and the output');
   ok(/const job = jobStart\(`\$\{btn\.dataset\.title \|\| title\} — \$\{t\('panel\.dl\.all'\)\}`/.test(panel),
@@ -134,7 +134,7 @@ console.log('\n...and the progress is real bytes, with the denominator we alread
   // `via` added in v468: it selects the member download LANE (project-scoped, under the owner's
   // Drive token) instead of the caller's own account route. Pinned so the parameter cannot be
   // dropped back to the two-arg form, which is what a member's 404s would look like.
-  ok(/export async function fetchDriveFile\(fileId, onProgress, via\)/.test(rp), 'the fetch can report progress');
+  ok(/export async function fetchDriveFile\(fileId, onProgress, via, signal\)/.test(rp), 'the fetch can report progress (and be cancelled, v605)');
   ok(/r\.body\.getReader\(\)/.test(rp), 'by streaming the body rather than awaiting .blob()');
   ok(/if \(typeof onProgress !== 'function' \|\| !r\.body/.test(rp),
      'and callers that do not want progress keep the old fast path untouched');

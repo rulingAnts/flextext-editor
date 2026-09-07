@@ -891,6 +891,25 @@ const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUni
 export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession, base, shouldStop } = {}) {
   const stopped = () => { try { return !!(shouldStop && shouldStop()); } catch { return false; } };
   const bail = () => { const e = new Error('assign_upload_stopped'); e.stopped = true; return e; };
+  /* ⚠ THE BACK-OFF IS WHERE PAUSE AND CANCEL USED TO GO TO DIE (Seth's review, 2026-09-07). The
+   * stop flag was read at the session, before each chunk and after the chunk loop — but the
+   * probe-retry path slept up to 60s per strike and `continue`d straight past every one of those
+   * checks. On a dead link the loop therefore sat through five strikes (~62s) consulting the flag
+   * ONCE, and then ended as `assign_upload_stalled` — a TRANSIENT failure, which the panel's sweep
+   * dutifully resumed, against the researcher's explicit Pause or Cancel. Pressing a control
+   * exactly when the link stalls is not a rare case; it is the normal one, because a stall is why
+   * you reach for Pause.
+   * So the wait is served in slices and the flag is what ends it: a stop shortens the WAIT without
+   * shortening the BACK-OFF (waitMs still doubles), which is the part weak links need. Slices
+   * rather than an abortable timer because there is nothing to abort — no request is in flight
+   * here, only a rest between them. */
+  const STOP_SLICE_MS = 250;
+  const restfulSleep = async (ms) => {
+    for (let left = ms; left > 0; left -= STOP_SLICE_MS) {
+      if (stopped()) return;                               // the caller checks and bails; see below
+      await sleep(Math.min(STOP_SLICE_MS, left));
+    }
+  };
   const total = part.blob.size;
   let chunkBytes = openingChunk(total);
   let streamId = part.streamId || null;
@@ -909,7 +928,13 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
       const probe = await assignUploadChunk(instanceId, docId, streamId, `bytes */${total}`, null, base);
       if (probe.done) return probe.fileId;
       if (probe.gone) { streamId = null; if (onSession) await onSession(null); break; }
-      if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); continue; }
+      if (probe.fail) {
+        strikes++;
+        await restfulSleep(waitMs);
+        waitMs = Math.min(waitMs * 2, 60000);
+        if (stopped()) throw bail();                       // a stall is exactly when Pause is pressed
+        continue;
+      }
       let offset = probe.received || 0;
       let pushed = true;
       if (onProgress) onProgress(offset, total);      // paint the resumed position, not a stale 0%
@@ -924,7 +949,9 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
         if (res.fail) {
           chunkBytes = shrinkChunk(chunkBytes);       // halve, so the retry risks less than the attempt did
           strikes++; pushed = false;
-          await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
+          // A stop during this rest is caught by the check below the chunk loop, which this break
+          // falls straight into — so here the slices only need to cut the waiting short.
+          await restfulSleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
           break;                                       // re-probe: Drive's own byte count is the truth
         }
         strikes = 0; waitMs = 2000;

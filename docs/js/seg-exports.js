@@ -457,6 +457,22 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   .player { position: sticky; top: 0; background: Canvas; padding: 6px 0 4px; z-index: 5;
             border-bottom: 1px solid rgba(127,127,127,.35); margin-bottom: 8px; }
   .wwrap { position: relative; }
+  /* ⚠ THE WAIT IS SHOWN, NOT GUESSED AT (Seth, 2026-09-07: "please make sure there's some kind of
+     'loading' status and animation" — "we genuinely don't want a UI response time that looks like
+     something is jammed or broken … it only takes about a half second for that to feel like the
+     case"). Decoding a real recording for its waveform takes a second or two, and an empty lane for
+     that long reads as a broken page. A moving sheen over the lane says "working"; it is removed the
+     moment the peaks land, and also when the decode FAILS — a permanent "loading" is a worse lie
+     than no waveform. Reduced motion keeps the label and drops the movement. */
+  .wload { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    gap: 8px; font-size: 12px; color: #5b6470; pointer-events: none; z-index: 2; }
+  .wload::before { content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, rgba(31,79,143,0) 0%, rgba(31,79,143,.13) 50%, rgba(31,79,143,0) 100%);
+    background-size: 220% 100%; animation: wload-sheen 1.25s linear infinite; }
+  .wload span { position: relative; background: rgba(255,255,255,.82); padding: 2px 8px; border-radius: 10px; }
+  @keyframes wload-sheen { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  @media (prefers-reduced-motion: reduce) { .wload::before { animation: none; } }
+
   .player .wwrap { height: 72px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }   /* the overview scrolls once zoomed */
   #ov { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: pan-y; }
   .rw { width: 100%; height: 26px; display: block; cursor: crosshair; touch-action: pan-y; }
@@ -488,7 +504,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
 ${mediaName ? `<div class="src">${esc(mediaName)}</div>` : ''}
 ${wsBar}
 ${withAudio ? `<div class="player">
-  <div class="wwrap"><canvas id="ov"></canvas><div class="cur" id="ovcur"></div></div>
+  <div class="wwrap"><canvas id="ov"></canvas><div class="cur" id="ovcur"></div><div class="wload" id="wload" role="status" aria-live="polite"><span>Loading the sound…</span></div></div>
   <div class="bar"><button id="mplay">&#9654;</button><select id="mspeed" title="Playback speed"><option value="0.5">Very slow</option><option value="0.75">Slow</option><option value="1" selected>Normal</option></select><span id="mtime"></span></div>
 </div>` : ''}
 ${body}
@@ -556,10 +572,16 @@ ${withAudio ? `<script>
         mpb = per / buf.sampleRate * 1000;
         durMs = Math.round(buf.duration * 1000);
         try { actx.close(); } catch (e) {}
+        doneLoading();
         drawAll();
-      }).catch(function () { /* undecodable → page still plays, no waves */ });
-    }
-  } catch (e) {}
+      }).catch(function () { doneLoading(); /* undecodable → page still plays, no waves */ });
+    } else { doneLoading(); }   // no AudioContext at all: nothing will ever draw, so stop saying "loading"
+  } catch (e) { doneLoading(); }
+
+  function doneLoading() {
+    var el = document.getElementById('wload');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
 
   function draw(canvas, sMs, eMs) {
     var dpr = window.devicePixelRatio || 1;
@@ -1100,10 +1122,23 @@ export async function blobToBase64(blob) {
  * THE FIX IS STRUCTURAL, NOT A LOWER NUMBER: the document is stringified with a short placeholder
  * where the base64 belongs, split at the placeholder, and the audio is laid between the halves as
  * Blob parts — base64 in self-contained chunks, encoded one chunk at a time from `blob.slice()`.
- * No string ever holds the recording; the Blob may live on disk; the peak is one chunk. The bytes
+ * NO SINGLE STRING EVER HOLDS THE RECORDING, and the assembled Blob may live on disk. The bytes
  * are identical to JSON.stringify of the whole document (fxpa-blob.test.mjs proves it), so nothing
  * downstream changes. The listening page gets its audio as an ARRAY of chunk literals for the same
  * reason at play time: a phone decodes 4 MB at a time instead of building a 200 MB binary string.
+ *
+ * ⚠ WHAT THIS DOES NOT DO IS LOWER THE MEMORY — and an earlier version of this note said "the peak
+ * is one chunk", which is false and is exactly the sentence that would talk a future maintainer into
+ * raising CONV_DECODED_MAX. b64PartsOf returns the COMPLETE array of parts and spliceB64 runs only
+ * once every part exists, so the heap holds the WHOLE base64 at once — merely split across ~4 MiB
+ * strings, none of which is near any engine's ceiling. MEASURED (node 22, this module's own
+ * blobToBase64Parts, 2026-09-07): a 24 MB recording → 8 parts, 33,554,432 characters (1.333× the
+ * bytes), heapUsed +49.0 MB. At the 200 MB ceiling that is ~267M characters of live JS string on a
+ * field phone, on top of the source blob and the Blob being assembled. The ceiling is therefore
+ * still doing real work, and what this fix bought is the ENGINE limit, not the memory bill.
+ * Making the peak actually one chunk means streaming each part into the Blob as it is encoded —
+ * a change to b64PartsOf/spliceB64 (they would have to hand parts over as they come), never a
+ * change to a number here.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 export const ENGINE_STRING_MAX = Object.freeze({
   v8: 536870888,            // (1 << 29) - 24: Chrome, Edge, Android WebView, node — "RangeError: Invalid string length"
@@ -1145,6 +1180,7 @@ export async function blobToBase64Parts(blob, chunkBytes = B64_CHUNK) {
  * slice of a string shares its buffer in every engine). String parts are cut at multiples of FOUR
  * characters so that each decodes on its own, which the listening page relies on. */
 export async function b64PartsOf(src, chunkBytes = B64_CHUNK) {
+  if (Array.isArray(src)) return src;      // already encoded — see the memo in assembleSegEntries
   if (typeof src === 'string') {
     const step = Math.max(4, Math.floor((chunkBytes * 4) / 3 / 4) * 4);
     const parts = [];
@@ -1174,16 +1210,37 @@ export function spliceB64(text, parts, { type = 'text/plain', join = '' } = {}) 
   return new Blob(out, { type });
 }
 
-const wholeB64 = async (src) => (typeof src === 'string' ? src : blobToBase64(src));
+const wholeB64 = async (src) => (Array.isArray(src) ? src.join('')
+  : typeof src === 'string' ? src : blobToBase64(src));
+
+/* ⚠ "IS THERE A RECORDING?" IS A QUESTION ABOUT BYTES, NEVER ABOUT OBJECTS (the v615 review,
+ * 2026-09-07). previewBlob and fxpaBlob asked `audioBlob || audioB64`, and an EMPTY Blob is truthy — so a
+ * 0-byte recording produced a page titled "— segments" with a player on it, a play button that
+ * does nothing, a transport reading 0:00.0 / 0:00.0, and a footer promising "Audio is embedded in
+ * this file". v602 asked the ENCODED string ('' → falsy) and so fell through to the text-only
+ * flavour, which is the honest answer; this asks the same question of every shape the audio now
+ * arrives in (Blob, base64 string, base64 parts) so no two callers can answer it differently.
+ * The rule is buildLooseConversion's, one screen down: a page that quietly lacks the sound someone
+ * handed us reads as "it worked".
+ * A blob-like with NO `size` — the arrayBuffer()-only stand-ins tests hand in — counts as real
+ * audio: an unknown size is permissive here, exactly as it is in conversionCaps. */
+export function hasAudioBytes(src) {
+  if (!src) return false;                                          // null, undefined, ''
+  if (Array.isArray(src)) return src.some((p) => !!p && p.length > 0);   // encoded parts: [] and [''] are empty
+  if (typeof src === 'string') return src.length > 0;
+  return typeof src.size === 'number' ? src.size > 0 : true;
+}
 
 /* A .fxpa as a Blob, assembled around its audio. opts: buildFxpa's own (title, vernLang, analLang,
  * speakers) plus `audio` (the {mime, name, derived, srcName} metadata, WITHOUT b64) and the audio
  * itself as `audioBlob` or `audioB64`. No audio → the plain stringify, which is small. */
 export async function fxpaBlob(doc, opts = {}) {
-  const { audioBlob = null, audioB64 = '', audio: meta = null, ...rest } = opts;
-  const src = audioBlob || audioB64;
+  const { audioBlob = null, audioB64 = '', audioParts = null, audio: meta = null, ...rest } = opts;
+  const src = audioParts || audioBlob || audioB64;
   const type = 'application/json';
-  if (!src) return new Blob([JSON.stringify(buildFxpa(doc, { ...rest, audio: null }))], { type });
+  // An empty recording IS no recording (hasAudioBytes) — a .fxpa carrying `b64: ""` would open in
+  // the Paragraph Analysis Tool with a player and nothing to play.
+  if (!hasAudioBytes(src)) return new Blob([JSON.stringify(buildFxpa(doc, { ...rest, audio: null }))], { type });
   const m = meta || {};
   const json = JSON.stringify(buildFxpa(doc, { ...rest, audio: { ...m, b64: B64_MARK } }));
   return spliceB64(json, await b64PartsOf(src), { type })
@@ -1193,10 +1250,11 @@ export async function fxpaBlob(doc, opts = {}) {
 /* The listening page as a Blob, the same way. opts: buildSegPreviewHtml's own (title, audioMime,
  * mediaName) plus the audio as `audioBlob` or `audioB64`. */
 export async function previewBlob(doc, opts = {}) {
-  const { audioBlob = null, audioB64 = '', ...rest } = opts;
-  const src = audioBlob || audioB64;
+  const { audioBlob = null, audioB64 = '', audioParts = null, ...rest } = opts;
+  const src = audioParts || audioBlob || audioB64;
   const type = 'text/html';
-  if (!src) return new Blob([buildSegPreviewHtml(doc, { ...rest, audioB64: '' })], { type });
+  // Nothing in it ⇒ the INTERLINEAR flavour, not a player with silence behind it (hasAudioBytes).
+  if (!hasAudioBytes(src)) return new Blob([buildSegPreviewHtml(doc, { ...rest, audioB64: '' })], { type });
   const html = buildSegPreviewHtml(doc, { ...rest, audioB64: B64_MARK });
   return spliceB64(html, await b64PartsOf(src), { type, join: '","' })
     || new Blob([buildSegPreviewHtml(doc, { ...rest, audioB64: await wholeB64(src) })], { type });
@@ -1206,7 +1264,7 @@ export async function previewBlob(doc, opts = {}) {
 // naming this bundle's ACTUAL files — the reader is a researcher (or their student) with the
 // unzipped folder open, not someone who knows our terminology.
 export function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName, json,
-                                lossyUnconverted = false }) {
+                                jsonAudio = true, lossyUnconverted = false }) {
   const L = [];
   L.push('HOW TO OPEN THESE FILES');
   L.push('=======================');
@@ -1248,7 +1306,14 @@ export function howToOpenText({ base, segMediaName, derived, eaf, saymore, previ
     L.push('  In the Flextext Paragraph Analysis app:');
     L.push('  https://pat.flextext.app/');
     L.push('  Drop the .fxpa file on the open screen to group the lines into phrases,');
-    L.push('  clauses, sentences, and paragraphs. Text and audio are inside the file.');
+    /* ⚠ ONLY SAY THE AUDIO IS IN THERE WHEN IT IS. Above the size ceiling the .fxpa is built
+     * text-only (conversionCaps' ladder) and still rides this bundle — the instructions must not
+     * promise a recording the reader will then go looking for inside the file. */
+    L.push('  clauses, sentences, and paragraphs.' + (jsonAudio ? ' Text and audio are inside the file.' : ''));
+    if (!jsonAudio) {
+      L.push('  The recording was too large to fit inside it, so this .fxpa carries the TEXT');
+      L.push(`  and its timings only — open "${segMediaName}" yourself to listen along.`);
+    }
     L.push('');
   }
   if (derived) {
@@ -1342,7 +1407,9 @@ export function conversionCaps({ bytes = 0, isWav = false, max = CONV_DECODED_MA
  * - segMedia: the timeline the segment times live on — the WAV working copy when one exists,
  *   else `media` itself; null when there is no real alignment. The caller's aligned-media
  *   resolution IS the gate: no segMedia → no annotation entries.
- * - wants: { eaf, saymore, preview, fxpa } — researcher-selected export switches;
+ * - wants: { eaf, saymore, preview, fxpa } — researcher-selected export switches, plus the one
+ *   DEGRADE switch `fxpaAudio` (default true; false builds the .fxpa without its recording, which
+ *   is what conversionCaps' ladder asks for above the size ceiling — see the note at the .fxpa);
  * - full: local-save bundle (preview + fxpa ride ONLY these — upload bandwidth never pays
  *   for embedded audio).
  * Returns [{ name, data: Blob }] in bundle order. */
@@ -1352,7 +1419,16 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
   const entries = [];
   /* ⚠ NEITHER EMBEDDING OUTPUT EVER HOLDS THE RECORDING AS ONE STRING — previewBlob and fxpaBlob
    * (see their note) lay base64 chunks into the Blob around the stringified document. The old
-   * one-string assembly failed on real recordings ("allocation size overflow", 2026-09-07). */
+   * one-string assembly failed on real recordings ("allocation size overflow", 2026-09-07).
+   *
+   * ⚠ AND THE RECORDING IS ENCODED AT MOST ONCE PER BUILD. The listening page and the .fxpa embed
+   * the same working blob; the local share bundle (buildBundle → full: true) can want BOTH, and
+   * encoding twice back to back is twice the work for no benefit. v602 memoised the whole base64
+   * here, v614 replaced that with two independent chunked encodes, and Seth felt it immediately:
+   * "There is now a pretty long response time between clicking Done — Send and when the modal comes
+   * up." Lazy, so a build wanting neither pays nothing. */
+  let partsMemo = null;
+  const partsOnce = async (blob) => (partsMemo ??= await blobToBase64Parts(blob));
   /* ⚠ NAMES COME FROM `base` (the story title), NEVER from the stored media name — the v3 rule.
    * A caller may pass a segMedia whose `name` is a pre-fix delivery token; deriving here means the
    * EAF's media reference, the WAV entry that ships beside it, and the SayMore `.annotations.eaf`
@@ -1399,7 +1475,7 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
       const previewBase = sanitizeBase(base) || 'audio';
       entries.push({ name: previewBase + '.preview.html', data: await previewBlob(doc, {
         title: title || base, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
-        audioBlob: segMedia.blob,
+        audioParts: await partsOnce(segMedia.blob),
       }) });
     }
     // The instructions travel WITH the files (Seth: whatever the user must do, clearly
@@ -1411,6 +1487,8 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
       eaf: wants.eaf, saymore: wants.saymore, preview: !!(full && wants.preview),
       previewName: (sanitizeBase(base) || 'audio') + '.preview.html',
       json: !!(full && wants.fxpa),
+      // …and whether THAT .fxpa has the recording in it — see the note at the .fxpa entry below.
+      jsonAudio: wants.fxpaAudio !== false,
     })], { type: 'text/plain' }) });
   }
   // The .fxpa export for the Paragraph Analysis satellite (Seth, 2026-08-05): LOCAL bundles only
@@ -1420,13 +1498,24 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
   if (full && wants.fxpa) {
     /* ⚠ THROUGH fxpaBlob, never JSON.stringify of an embedded base64 — see its note. A real
      * recording made the old path throw "allocation size overflow" and produce no file at all. */
-    const meta = segMedia && segMedia.blob
+    /* ⚠ ABOVE THE CEILING THE .fxpa LOSES ITS AUDIO, NOT ITS EXISTENCE — conversionCaps' ladder says
+     * exactly that (".fxpa never refuses — above the ceiling it is built WITHOUT audio, and says
+     * so"), which is why it reports `fxpa` and `fxpaAudio` as two separate answers. `wants.fxpaAudio
+     * === false` is how a caller asks for that split in ONE pass. The other way to drop the audio is
+     * to null out segMedia — the panel's mechanism for its single-output menu rows — but that takes
+     * the EAFs down with it, and they DO need the recording; the panel's Download-all runs a whole
+     * SECOND pass to work around exactly that. Unset ⇒ embed, so every existing caller is unchanged.
+     * The device's buildBundleFor used to gate the whole file on the audio flag instead, so
+     * "Paragraph Analysis file only" on an oversized recording produced no file at all while the
+     * panel's own .fxpa row on the same document degraded correctly (v615 review, 2026-09-07). */
+    const meta = wants.fxpaAudio !== false && segMedia && hasAudioBytes(segMedia.blob)
       ? { mime: segMedia.mimeType || 'audio/wav', name: segMediaName,
           derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
       : null;
     entries.push({ name: base + '.fxpa',
                    data: await fxpaBlob(doc, { title: title || base, vernLang: vern, analLang: anal,
-                                               audio: meta, audioBlob: meta ? segMedia.blob : null }) });
+                                               audio: meta,
+                                               audioParts: meta ? await partsOnce(segMedia.blob) : null }) });
   }
   return entries;
 }
@@ -1632,8 +1721,16 @@ export function loosePlan({ doc = null, audioBytes = 0, isWav = false, hasAudio 
    * INTERLINEAR flavor rather than refusing (Seth, 2026-08-16: the same treatment the .fxpa has
    * always had). Size still refuses the EMBED flavor (the pinned v346 rule: an audio-less page
    * offered where sound was possible is a worse .flextext) — but a text-only page has no audio to
-   * be too big, so the text flavor never meets that ceiling. */
-  const previewEmbed = !annWhy && hasAudio && caps.preview;
+   * be too big, so the text flavor never meets that ceiling.
+   *
+   * ⚠ AND AN EMPTY RECORDING IS NOT A RECORDING (the v615 review, 2026-09-07). `hasAudio` is the
+   * caller's "did the user hand us a file" (`!!file`), and a 0-byte file answers yes — which planned an
+   * EMBED whose page then had a player, a dead play button and 0:00.0 / 0:00.0 on the transport.
+   * previewBlob now decides the same question from the bytes (hasAudioBytes), so this must too or
+   * the row the user clicked and the file they get disagree. A File/Blob always knows its own
+   * size, so 0 here means empty, never unknown. */
+  const audioReal = hasAudio && (Number(audioBytes) || 0) > 0;
+  const previewEmbed = !annWhy && audioReal && caps.preview;
   return {
     rows: rows.length,
     alignedRows: alignedRows.length,
@@ -1651,20 +1748,23 @@ export function loosePlan({ doc = null, audioBytes = 0, isWav = false, hasAudio 
      * than O(audio) — the one artifact a cheap phone can always deliver. */
     elan: r(!annWhy, annWhy),
     // SayMore's convention IS the audio filename, so this one genuinely needs the recording.
-    saymore: r(!annWhy && hasAudio, annWhy || 'noAudio'),
+    saymore: r(!annWhy && audioReal, annWhy || 'noAudio'),
     /* Refused only when there is no text at all, or when the recording COULD be embedded but is
      * over the decode ceiling — silently downgrading that case to text-only would hand someone a
      * page with no sound and no explanation of where it went. */
-    preview: r(!empty && (previewEmbed || annWhy !== '' || !hasAudio), empty ? 'noText' : 'tooBig'),
+    preview: r(!empty && (previewEmbed || annWhy !== '' || !audioReal), empty ? 'noText' : 'tooBig'),
     previewEmbed,
     /* ⚠ A recording was supplied that NOTHING here can use — the text has no (ordered) alignment to
      * cut it by. The UIs surface this loudly (Seth: "warn/complain if the user supplied an audio
      * file in this case"): the commonest cause is picking the wrong flextext for the recording, and
-     * silence would read as "it worked". */
+     * silence would read as "it worked". THE RAW `hasAudio` ON PURPOSE, unlike every row above: the
+     * question here is not "was there sound to use" but "did the user hand us a file we then did
+     * nothing with", and an empty file is still a file they picked. (An empty file with an ALIGNED
+     * text is caught on the other side instead — buildLooseConversion's 'previewNoAudio'.) */
     audioUnaligned: !empty && hasAudio && annWhy !== '',
     // Never refused for size — above the ceiling it is simply built text-only.
     fxpa: r(!empty, 'noText'),
-    fxpaAudio: !empty && hasAudio && caps.fxpaAudio,
+    fxpaAudio: !empty && audioReal && caps.fxpaAudio,
   };
 }
 
@@ -1734,10 +1834,17 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
    * will not contain is minutes of decode on a phone for nothing. And when a recording WAS supplied
    * but the text has no alignment to cut it by, the build says so ('previewNoAudio') — a page that
    * quietly lacks the sound someone handed us reads as "it worked". */
-  const previewEmbed = plan ? !!plan.previewEmbed : !!(audio && audio.blob);
+  // hasAudioBytes, not `!!audio.blob`: an empty recording answers "yes" to the object and "no" to
+  // the sound, and this fallback must give the same answer previewBlob will (v615 review).
+  const previewEmbed = plan ? !!plan.previewEmbed : hasAudioBytes(audio && audio.blob);
   if (kind === 'preview' && !previewEmbed) {
     say('annotations');
-    if (audio && audio.blob) notes.push('previewNoAudio');
+    /* ⚠ AND THE NOTE MUST NAME THE RIGHT REASON. Both surfaces render 'previewNoAudio' as "this
+     * flextext has no audio alignment", so it belongs to the unaligned case — which is precisely
+     * what the plan's own audioUnaligned reports. A 0-byte recording now lands here too, and
+     * blaming its alignment would send the user checking the wrong file. Without a plan (bare test
+     * calls) the old "a recording was handed in" test stands. */
+    if (plan ? plan.audioUnaligned : !!(audio && audio.blob)) notes.push('previewNoAudio');
     return pack([{
       name: (sanitizeBase(base) || 'text') + '.interlinear.html',
       data: new Blob([buildSegPreviewHtml(doc, { title: title || base })], { type: 'text/html' }),
@@ -1796,9 +1903,14 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
   const full = kind === 'preview' || kind === 'fxpa';
 
   // An oversized .fxpa is built WITHOUT audio rather than refused — dropping the media IS the
-  // mechanism, exactly as the menu does it (researcher-panel.js:1847).
+  // mechanism, exactly as the menu does it (researcher-panel.js:1847). (A single-kind build, so
+  // nulling the media here costs no EAF; assembleSegEntries takes `wants.fxpaAudio` for the mixed
+  // case, where the EAFs in the same call still need the recording.)
   const dropAudio = kind === 'fxpa' && plan && !plan.fxpaAudio;
-  if (dropAudio && media) notes.push('fxpaNoAudio');
+  // Both surfaces render 'fxpaNoAudio' as "the recording is too large to embed", so the note is
+  // pushed only when SIZE is what dropped it — a 0-byte recording also plans no embeddable audio,
+  // and telling that user their file was too large sends them hunting a problem they do not have.
+  if (dropAudio && media && plan.caps && !plan.caps.fxpaAudio) notes.push('fxpaNoAudio');
 
   // `full` IS "preview or fxpa" — the embedded-audio outputs, which are the slow ones worth naming.
   say(full ? 'embedding' : 'annotations');

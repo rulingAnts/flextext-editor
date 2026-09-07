@@ -140,13 +140,109 @@ export function validateFxpa(obj) {
  *
  * ⚠ `view.audio` is forced off in the written copy too. Leaving it true would produce a file that
  * opens asking for a player it has no sound for — validateFxpa already corrects that on load, but a
- * file should not need correcting to be right. */
+ * file should not need correcting to be right.
+ *
+ * ⚠ WHICH IS WHY THE AUTOSAVED WORKING COPY CANNOT USE THIS FLAG ALONE: it strips the recording for
+ * storage, not because the analyst hid the Audio tier, and the stripped copy can no longer tell the
+ * two apart. The working-copy envelope below carries the analyst's own `view.audio` beside the
+ * text; do not "simplify" it away by reading `view.audio` back out of the stripped copy. */
 export function serializeFxpa(data, opts = {}) {
   if (opts.audio === false && data && data.audio) {
     const { audio, ...rest } = data;
     return JSON.stringify({ ...rest, view: { ...(data.view || {}), audio: false } });
   }
   return JSON.stringify(data);
+}
+
+/* ---------------- the autosaved working copy: TWO records, one document ----------------
+ *
+ * The tool autosaves the open document into IndexedDB so a reload never costs a session. It writes
+ * TWO records — the text, and the recording — and this is the format of that pair. The UI owns the
+ * I/O (IndexedDB is not allowed in here); the shape, and the rules for putting the halves back
+ * together, live here where node can test them.
+ *
+ * ⚠ WHY IT IS TWO RECORDS AT ALL (2026-09-07). The working text is a few KB and is rewritten on
+ * every keystroke; the recording is hundreds of MB and never changes. Serialising them together
+ * meant a whole-recording JSON.stringify per edit — the very call Firefox refuses above ~134 MB,
+ * and it threw BEFORE the render, so the tool appeared to stop responding. NOTHING here may put the
+ * recording back into the per-edit write.
+ *
+ * ⚠ BUT TWO RECORDS CAN DISAGREE, and the first cut of the split let them do it silently. Three
+ * ways it went wrong, all reproduced:
+ *   - a working copy written BEFORE the split has its recording inline and no audio record at all.
+ *     The restore treated it as if the recording were already on disk, so the next edit rewrote the
+ *     text without it and never wrote the audio record: the recording existed in neither.
+ *   - two tabs share these two keys. A tab that opens a text-only document clears the audio record;
+ *     the other tab's document then reloads mute.
+ *   - a recording left behind by a previous document was merged onto the NEXT text-only document,
+ *     carrying another text's audio and timings into it.
+ * So the TEXT half NAMES the audio record it belongs to (`audioStamp`), the audio half carries the
+ * same stamp, and readWorkingCopy joins them only when the two agree. A recording that does not
+ * match is not this document's and is never merged; a recording that is missing is reported as
+ * missing rather than passed off as "this text has no audio". */
+
+// A marker for one document's recording, shared by the two halves. Only identity matters.
+export function newWorkingStamp() {
+  return 'w' + Date.now().toString(36) + Math.random().toString(36).slice(1, 9);
+}
+
+/* The text half: the document WITHOUT its recording, plus the two facts the stripped copy cannot
+ * carry — which audio record belongs to it, and whether the analyst wanted the Audio tier shown. */
+export function workingTextRecord(data, stamp) {
+  return {
+    text: serializeFxpa(data, { audio: false }),
+    audioStamp: String(stamp || ''),
+    viewAudio: !!(data && data.view && data.view.audio),
+  };
+}
+
+// The audio half: the recording, stamped with the marker its text half names.
+export function workingAudioRecord(data, stamp) {
+  return { audio: data ? data.audio : null, stamp: String(stamp || '') };
+}
+
+/* Put the halves back together. Returns { raw, audio } where `raw` is the object to validate (null
+ * if there is no usable working copy) and `audio` says what became of the recording:
+ *   'inline' — written before the split, recording still in the text half. ⚠ THE CALLER MUST MOVE
+ *              IT INTO THE AUDIO RECORD BEFORE ANYTHING REWRITES THE TEXT HALF WITHOUT IT.
+ *   'joined' — the audio record belongs to this text and was merged back in.
+ *   'none'   — this text never had a recording.
+ *   'lost'   — this text names a recording that is not on disk, or one that belongs to another
+ *              document. The analysis and its timings are intact; the sound is not. Say so. */
+export function readWorkingCopy(rec, aud) {
+  if (!rec || typeof rec.text !== 'string') return { raw: null, audio: 'none' };
+  let raw;
+  try { raw = JSON.parse(rec.text); } catch { return { raw: null, audio: 'none' }; }
+  if (!raw || typeof raw !== 'object') return { raw: null, audio: 'none' };
+  if (raw.audio && raw.audio.b64) return { raw, audio: 'inline' };
+  const want = String(rec.audioStamp || '');
+  const have = aud && aud.audio && aud.audio.b64 ? String(aud.stamp || '') : '';
+  if (!want) return { raw, audio: 'none' };
+  if (!have || have !== want) return { raw, audio: 'lost' };
+  raw.audio = aud.audio;
+  // The stripped copy always says view.audio:false (see serializeFxpa) — the analyst's own choice
+  // is the one in the envelope, so unhiding the Audio tier is not done for them on every reload.
+  if (typeof rec.viewAudio === 'boolean') raw.view = { ...(raw.view || {}), audio: rec.viewAudio };
+  return { raw, audio: 'joined' };
+}
+
+/* WHAT THE AUTOSAVE MAY WRITE RIGHT NOW, given what is KNOWN to be on disk.
+ *
+ * ⚠ `persisted` is the recording the audio record is known to hold — set by a write that LANDED,
+ * never by one that was merely started. The first cut set it before the put and swallowed the
+ * rejection, so a failed write left the app believing the recording was safe and it was never
+ * written again.
+ *
+ * ⚠ AND THE TEXT IS HELD BACK WHILE THE RECORDING IS NOT KNOWN TO BE ON DISK. The text half is
+ * written STRIPPED; writing it while the recording is still only in the OLD text record destroys
+ * the only copy there is. The previous record — text a few edits stale, recording complete — stays
+ * on disk until the recording is safe. The one exception is `gaveUp`: once we have stopped trying,
+ * holding the text back would cost the analyst their work as well as their sound, so the text is
+ * written and the stamp it names simply will not resolve (readWorkingCopy reports 'lost'). */
+export function workingWritePlan({ audio, persisted, busy, gaveUp } = {}) {
+  const has = !!(audio && audio.b64);
+  const stale = audio !== persisted;
+  return { writeAudio: stale && !busy && !gaveUp, writeText: !(has && stale && !gaveUp) };
 }
 
 /* ---------------- authored documents (built in the app, not imported) ----------------

@@ -103,8 +103,19 @@ let caretMirror = null;
  * problem — a box near the bottom can end up UNDER the keyboard, because the page no longer
  * shrinks to make room. This puts it back in view, and only when it is actually covered.
  *
- * Deliberately measured against visualViewport, not innerHeight: with this setting innerHeight does
- * not change when the keyboard opens, so it cannot tell us what is visible.
+ * ⚠ AND THE SIGNAL IS THE VIRTUAL KEYBOARD API, NOT visualViewport — because of the very setting
+ * above. `interactive-widget=overlays-content` is DEFINED as resizing neither the layout viewport
+ * NOR the visual one (the same behaviour as navigator.virtualKeyboard.overlaysContent = true), so
+ * on Android Chrome `visualViewport.height` does NOT shrink when the keyboard opens. v609 measured
+ * exactly that and nothing else, which made this whole guard inert under the meta it was written
+ * for: --kb-inset stayed 0 and a box under the keyboard was never revealed — worse than the
+ * `resizes-content` it replaced, where the browser at least scrolled the box into view.
+ *
+ * So the keyboard's own geometry is the primary signal (navigator.virtualKeyboard: opt in, then
+ * `geometrychange` and `boundingRect`), and visualViewport is kept as the FALLBACK for the engines
+ * where the keyboard really does shrink the visual viewport — iOS Safari, and any Android browser
+ * that does not honour the meta. Whichever reports more coverage wins, so neither can hide the
+ * other, and a browser with neither API is simply left alone.
  *
  * ⚠ THE PREVIOUS SETTING WAS NOT AN ACCIDENT, so do not flip it back without reading this. v579 set
  * `resizes-content` ON PURPOSE, as the fix for the first half of issue #43: "the soft keyboard and
@@ -116,9 +127,22 @@ let caretMirror = null;
  * function now provides instead. Reverting the meta without removing this would give you both
  * problems at once. */
 export function installKeyboardOverlayGuard() {
-  if (typeof window === 'undefined' || !window.visualViewport || window.__fxKbGuard) return;
+  if (typeof window === 'undefined' || window.__fxKbGuard) return;
+  const vv = window.visualViewport || null;
+  const vk = (typeof navigator !== 'undefined' && navigator.virtualKeyboard) || null;
+  if (!vv && !vk) return;
   window.__fxKbGuard = true;
-  const vv = window.visualViewport;
+  /* Opting in is what makes the keyboard report its geometry at all — and it is also what
+   * populates the env(keyboard-inset-*) CSS variables the stylesheet falls back on. */
+  if (vk) { try { vk.overlaysContent = true; } catch { /* not settable here: the fallback covers us */ } }
+  /* How much of the page the keyboard hides, from whichever API can see it. */
+  const coveredPx = () => {
+    let c = 0;
+    const r = vk && vk.boundingRect;
+    if (r && r.height) c = Math.max(c, Math.round(r.height));
+    if (vv) c = Math.max(c, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+    return Math.max(0, c);
+  };
   const typing = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   /* ⚠ AND THE BOTTOM-FIXED FURNITURE RIDES ABOVE THE KEYBOARD. This is the OTHER thing
    * `resizes-content` was quietly buying: when the layout shrank, the toast, the upload tray, the
@@ -127,20 +151,27 @@ export function installKeyboardOverlayGuard() {
    * an upload tray or a transfer's pause button you cannot see is worse than a shifted layout. So
    * the covered height is published as --kb-inset and those rules add it to their offset. */
   const setInset = () => {
-    const covered = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
-    document.documentElement.style.setProperty('--kb-inset', covered + 'px');
+    document.documentElement.style.setProperty('--kb-inset', coveredPx() + 'px');
   };
   const reveal = () => {
     const el = document.activeElement;
     if (!typing(el)) return;
-    const visibleBottom = vv.offsetTop + vv.height;
+    const covered = coveredPx();
+    if (!covered) return;                           // no keyboard in the way: nothing to reveal
+    // The bottom of what the reader can still see: the visual viewport where it moves, the window
+    // otherwise, less whatever the keyboard covers.
+    const visibleBottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - (vv ? 0 : covered);
     const r = el.getBoundingClientRect();
     if (r.bottom <= visibleBottom - 8) return;      // already visible: never scroll for nothing
     try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
   };
   const onChange = () => { setInset(); reveal(); };
-  vv.addEventListener('resize', onChange);          // the keyboard opening or the strip appearing
-  vv.addEventListener('scroll', setInset);          // and the visual viewport panning under it
+  // The keyboard's own geometry — the only signal that moves under `overlays-content`.
+  if (vk && vk.addEventListener) vk.addEventListener('geometrychange', onChange);
+  if (vv) {
+    vv.addEventListener('resize', onChange);        // the keyboard opening or the strip appearing
+    vv.addEventListener('scroll', setInset);        // and the visual viewport panning under it
+  }
   // A tap into a box near the bottom: the keyboard arrives a moment after the focus does.
   document.addEventListener('focusin', () => setTimeout(onChange, 350));
   document.addEventListener('focusout', () => setTimeout(setInset, 350));

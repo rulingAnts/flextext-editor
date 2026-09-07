@@ -230,6 +230,15 @@ h1 { font-size:19px; margin:0 0 4px; }
 .meta { margin:0; font-size:12px; color:var(--muted); }
 .player { display:flex; align-items:center; gap:10px; margin-top:6px; }
 #speed { border:1px solid var(--border); background:#fff; border-radius:6px; height:26px; font-size:12px; }
+/* ⚠ THE WAIT IS SHOWN, NOT GUESSED AT (Seth, 2026-09-07: "please make sure there's some kind of
+   'loading' status and animation" — half a second of no response already reads as jammed). Decoding
+   a real recording for its waveform takes a second or two; a sheen over the lane says "working" and
+   goes the moment the peaks land, or the decode fails. Reduced motion keeps the label, drops the movement. */
+.wload { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:#5b6470; pointer-events:none; z-index:2; }
+.wload::before { content:''; position:absolute; inset:0; background:linear-gradient(90deg, rgba(31,79,143,0) 0%, rgba(31,79,143,.13) 50%, rgba(31,79,143,0) 100%); background-size:220% 100%; animation:wload-sheen 1.25s linear infinite; }
+.wload span { position:relative; background:rgba(255,255,255,.82); padding:2px 8px; border-radius:10px; }
+@keyframes wload-sheen { from { background-position:120% 0; } to { background-position:-120% 0; } }
+@media (prefers-reduced-motion: reduce) { .wload::before { animation:none; } }
 .ovwrap { position:relative; flex:1; height:40px; }
 canvas.ov { width:100%; height:100%; display:block; cursor:pointer; }
 .cur { position:absolute; top:0; bottom:0; width:2px; background:#c33; pointer-events:none; }
@@ -277,7 +286,7 @@ footer { padding:10px 14px; color:var(--muted); font-size:12px; border-top:1px s
   ${speakers}
   ${audioB64 ? `<div class="player">
     <button class="play" id="master">▶</button>
-    <div class="ovwrap"><canvas class="ov" id="ov"></canvas><div class="cur" id="cur"></div></div>
+    <div class="ovwrap"><canvas class="ov" id="ov"></canvas><div class="cur" id="cur"></div><div class="wload" id="wload" role="status" aria-live="polite"><span>Loading the sound…</span></div></div>
     <select id="speed" title="Playback speed"><option value="0.5">Very slow</option><option value="0.75">Slow</option><option value="1" selected>Normal</option></select>
     <span id="time" class="meta"></span>
   </div>` : ''}
@@ -322,8 +331,13 @@ ${audioB64 ? `<script>
       }
       mpb = (per / buf.sampleRate) * 1000; dur = Math.round(buf.duration * 1000);
       try { ctx.close(); } catch (e) {}
+      doneLoading();
       drawOv();
-    }).catch(function () {});
+    }).catch(function () { doneLoading(); });
+  } else { doneLoading(); }
+  function doneLoading() {
+    var el = document.getElementById("wload");
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
   function drawOv() {
     var c = document.getElementById("ov"); if (!c || !peaks) return;

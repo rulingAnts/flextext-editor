@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v615';
+export const ENGINE_VERSION = 'v616';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -115,6 +115,8 @@ en: {
   'sat.openAny': 'Open text and/or recording\u2026',
   'sat.export': 'Download this text (.flextext with times, ELAN .eaf, Paragraph Analysis .fxpa, or the recording)',
   'sat.exporting': 'Building the download\u2026',
+  'share.preparing': 'Preparing the download\u2026',
+  'para.building': 'Building the file\u2026',
   'sat.exportDraft': 'Unfinished matching is not in this file yet \u2014 press Done first if you want it included.',
   'sat.exportNoAudio': 'No recording attached \u2014 the download carries the text only.',
   'sat.exportFailed': 'Could not build the download: {msg}',
@@ -125,12 +127,13 @@ en: {
   'sat.exportFxpa': 'Paragraph Analysis file only (.fxpa, with the recording inside)',
   'sat.exportNoEaf': 'No ELAN file yet: this text has no timed lines. Match it first.',
   'sat.exportNoFxpa': 'Could not build the Paragraph Analysis file for this text.',
+  'sat.exportFxpaNoAudio': 'Built without the recording \u2014 it was too large to embed. The text and its timings are all there; to get the recording too, choose \u201cEverything\u201d.',
   'sat.exportPreview': 'Listening page only (.html, with the recording inside \u2014 plays line by line, works offline)',
   'sat.exportNoPreview': 'No listening page yet: this text has no timed lines. Match it first.',
-  'sat.exportPreviewTooBig': 'The recording is too large to embed in a listening page \u2014 download the ELAN zip instead; the recording rides beside it as a file.',
+  'sat.exportPreviewTooBig': 'The recording is too large to embed in a listening page \u2014 choose \u201cEverything\u201d instead: the .flextext with its times, the ELAN .eaf and the recording all ride in one zip.',
   'sg.sent': 'sent to your researcher',
   'sg.fromResearcher': 'from your researcher',
-  'share.trimmedBig': 'The recording is too big to embed inside the listening page or the .fxpa, so those were left out of this bundle. The recording itself is included as a file.',
+  'share.trimmedBig': 'The recording is too big to embed inside a listening page, so this bundle has none; the .fxpa was still built, but without the recording inside it. The recording itself is included as a file.',
   'sat.needText': 'Pick a .flextext file too \u2014 a recording on its own has no text to work with.',
   'sat.noTexts': 'no texts found in the file',
   'sat.importedOne': 'Opened 1 text.',
@@ -1446,6 +1449,9 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.reviewPass': 'A structured review of everything since the last production release found defects its own tests had missed, and this release is those fixes. The Paragraph Analysis Tool could lose a recording when it updated with a document open. Cancelling a transfer from the queue card left the half-made text on Google Drive, and pause or cancel pressed on a dead connection was ignored for up to a minute. The Toolbox converter wrote empty identifiers, let one marker take two jobs, and only warned about column damage when it was total. And the Android keyboard fix from last release was measuring something that setting is defined never to change, so it did nothing at all.'
+    ,'panel.rel.new.slowSaid': 'Anything slow now says so. Building a download, saving an analysis or exporting a listening page puts a spinner up before the work starts, and a listening page shows a moving “loading the sound” band until its waveform is ready. Building a download was also encoding the recording twice over, which is why “Done — send” had become slow to answer.'
+    ,'panel.rel.new.waveOffCut': 'With waveforms turned off, a split in the Paragraph Analysis Tool could be started and never finished: the scissors that chooses where the sound is cut rides on the waveform lane, which was not there. A thin playhead lane now appears in its place whenever the join/split switch is on.'
     ,'panel.rel.new.pageWaves': 'Listening-page waveforms are back. v614 chunked the embedded audio but left the waveform decoder with only the last chunk, so the recording played while the overview and line waves stayed blank.'
     ,'panel.rel.new.embedChunks': 'Listening pages and .fxpa files are now assembled around the recording in chunks, so a real-length recording no longer fails with “allocation size overflow” (Firefox) or quietly produces nothing (Chrome). Both were one shared engine path — editor, Audio Segmenter, researcher panel and the Paragraph Analysis Tool, which now saves and autosaves the same way. The Audio Segmenter can download a listening page, and dropping ELAN’s .pfsx sidecar on the tool now says what it is.'
     ,'panel.rel.new.cancelTidy': 'Cancelling an upload now removes the half-made text it had started on Drive, instead of leaving it in the list without its recording. It goes to the Drive trash and stays recoverable for 30 days, and a re-upload into a text that already existed only removes what that upload itself added.'
@@ -1874,6 +1880,9 @@ internet after the first time.</p>
   'panel.aq.retry': 'Retry',
   'panel.aq.pausedRow': 'paused — resume when you are ready',
   'panel.aq.cancelLeftovers': 'Upload cancelled, but the part already on Drive for "{title}" could not be tidied up. You can delete it from the text list.',
+  'panel.aq.cancelConfirmFolder': 'Cancel the upload of \u201c{title}\u201d? The text folder this upload created goes to your Google Drive trash (you can restore it there for 30 days), and the assignment has to be set up again.',
+  'panel.aq.cancelConfirmFiles': 'Cancel the upload of \u201c{title}\u201d? The files this upload has already sent go to your Google Drive trash (you can restore them there for 30 days). Everything else in the text\u2019s folder stays, and the assignment has to be set up again.',
+  'panel.aq.cancelTooLate': 'Too late to cancel \u2014 the upload had already finished. You can remove the text from the text list instead.',
   'panel.aq.pausedPct': 'paused at {pct}% of {size}',
   'panel.aq.cancelConfirm': 'Remove this queued assignment? Nothing has been sent to the device.',
   'panel.util.ttl': 'Assignment download window (days)',
@@ -2078,6 +2087,8 @@ internet after the first time.</p>
   'para.chooseFiles': 'Choose files…',
   'para.textOnlyNote': 'A text without audio or time alignment works too — there are simply no waveforms or play buttons. ELAN files with several speakers are merged into one text, with every line labelled by speaker.',
   'para.errNoUsableFile': 'No usable file — drop a .fxpa, .flextext or ELAN .eaf file.',
+  'para.audioWorkingLost': 'The recording that goes with this document could not be found, so it has opened without sound. Your analysis and its line timings are unchanged. To get the recording back, open the original .fxpa file again.',
+  'para.audioNotStored': 'This browser could not store the recording for the automatic backup \u2014 most likely it is out of space. Your text is still being saved, but the sound will not come back after a reload. Save the document to a file to keep it.',
   'para.errPfsx': '“{name}” is ELAN’s settings sidecar (.pfsx) — tier order and colours, no text. Open the .fxpa or the .eaf that was made beside it.',
   'para.errXml': '“{name}” is an XML file this tool does not read. It opens .fxpa (Paragraph Analysis), .flextext and ELAN .eaf files.',
   'para.errNoTiers': 'That ELAN file has no tiers in it.',
@@ -2199,6 +2210,8 @@ internet after the first time.</p>
   'sfm.noneFound': 'No texts found with this mapping. Check which marker starts a new text.',
   'sfm.risk.single-spaced': 'Warning: the word and gloss lines are single-spaced, so they cannot be lined up by column. Glosses may land on the wrong words.',
   'sfm.risk.lopsided': 'Warning: fewer than half the words received a gloss. Check the word and gloss markers.',
+  'sfm.roleTaken': 'One marker can only do one job: \\{marker} is now \u201c{to}\u201d, so \u201c{from}\u201d is set to none.',
+  'sfm.risk.shifted': 'Warning: on many lines the last words received no gloss, which is what happens when the spacing that lines the columns up is lost in copying. Glosses may have shifted onto the words to their left.',
   'sfm.role.newtext': 'Starts a new text',
   'sfm.role.title': 'Title of the text',
   'sfm.role.ref': 'Reference (starts a line)',
@@ -2315,6 +2328,7 @@ internet after the first time.</p>
   'para.sfmPasteHowNote': 'Keep the lines exactly as they are. The spaces that line a gloss up under its word are what tells us which gloss belongs to which word, so do not tidy them.',
   'para.sfmRiskFlat': 'The gloss line does not line up in columns under the words, so we cannot tell which gloss belongs to which word. Check the preview carefully — if the glosses are wrong, the spacing was probably lost when the text was copied.',
   'para.sfmRiskLopsided': 'Most words did not get a gloss, which usually means the columns did not survive the copy. Check the preview carefully before opening.',
+  'para.sfmRiskShifted': 'On many lines the last words got no gloss, which usually means the column spacing was partly lost in the copy and the glosses have shifted onto the words to their left. Check the preview carefully before opening.',
   'para.collapseAll': 'Collapse all',
   'para.expandAll': 'Expand all',
   'para.collapseAllTip': 'Collapse every group in the text',
@@ -2555,6 +2569,8 @@ id: {
   'sat.openAny': 'Buka teks dan/atau rekaman\u2026',
   'sat.export': 'Unduh teks ini (.flextext dengan waktu, .eaf ELAN, .fxpa Analisis Paragraf, atau rekamannya)',
   'sat.exporting': 'Menyiapkan unduhan\u2026',
+  'share.preparing': 'Menyiapkan unduhan\u2026',
+  'para.building': 'Menyiapkan berkas\u2026',
   'sat.exportDraft': 'Pencocokan yang belum selesai belum masuk ke berkas ini \u2014 tekan Selesai dulu jika ingin disertakan.',
   'sat.exportNoAudio': 'Tidak ada rekaman terlampir \u2014 unduhan hanya berisi teksnya.',
   'sat.exportFailed': 'Tidak bisa menyiapkan unduhan: {msg}',
@@ -2565,12 +2581,13 @@ id: {
   'sat.exportFxpa': 'Berkas Analisis Paragraf saja (.fxpa, dengan rekaman di dalamnya)',
   'sat.exportNoEaf': 'Belum ada berkas ELAN: teks ini belum punya baris berwaktu. Cocokkan dulu.',
   'sat.exportNoFxpa': 'Tidak dapat membuat berkas Analisis Paragraf untuk teks ini.',
+  'sat.exportFxpaNoAudio': 'Dibuat tanpa rekaman \u2014 rekamannya terlalu besar untuk ditanam. Teks dan waktunya lengkap; untuk mendapatkan rekamannya juga, pilih \u201cSemuanya\u201d.',
   'sat.exportPreview': 'Halaman dengar saja (.html, dengan rekaman di dalamnya \u2014 memutar baris demi baris, bekerja offline)',
   'sat.exportNoPreview': 'Belum ada halaman dengar: teks ini belum punya baris berwaktu. Cocokkan dulu.',
-  'sat.exportPreviewTooBig': 'Rekaman terlalu besar untuk disematkan di halaman dengar \u2014 unduh zip ELAN saja; rekamannya ikut sebagai berkas.',
+  'sat.exportPreviewTooBig': 'Rekaman terlalu besar untuk disematkan di halaman dengar \u2014 pilih \u201cSemuanya\u201d: .flextext dengan waktunya, .eaf ELAN, dan rekamannya ikut dalam satu zip.',
   'sg.sent': 'terkirim ke peneliti Anda',
   'sg.fromResearcher': 'dari peneliti Anda',
-  'share.trimmedBig': 'Rekamannya terlalu besar untuk disematkan di halaman dengar atau .fxpa, jadi keduanya tidak disertakan dalam paket ini. Rekamannya sendiri tetap disertakan sebagai berkas.',
+  'share.trimmedBig': 'Rekaman terlalu besar untuk disematkan di halaman dengar, jadi paket ini tidak berisi halaman dengar; .fxpa-nya tetap dibuat, tetapi tanpa rekaman di dalamnya. Rekamannya sendiri tetap disertakan sebagai berkas.',
   'sat.needText': 'Pilih juga berkas .flextext \u2014 rekaman saja tidak ada teksnya.',
   'sat.noTexts': 'tidak ada teks di dalam berkas itu',
   'sat.importedOne': 'Satu teks dibuka.',
@@ -3725,6 +3742,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.reviewPass': 'Tinjauan menyeluruh atas semua perubahan sejak rilis produksi terakhir menemukan cacat yang lolos dari pengujiannya sendiri, dan rilis ini adalah perbaikannya. Alat Analisis Paragraf bisa kehilangan rekaman saat diperbarui dengan dokumen terbuka. Membatalkan transfer dari kartu antrean meninggalkan teks setengah jadi di Google Drive, dan jeda atau pembatalan saat koneksi mati diabaikan hingga satu menit. Pengonversi Toolbox menulis pengenal kosong, membiarkan satu penanda memegang dua peran, dan hanya memperingatkan kerusakan kolom bila kerusakannya total. Dan perbaikan papan ketik Android dari rilis lalu mengukur sesuatu yang menurut definisinya tidak pernah berubah, sehingga tidak berpengaruh sama sekali.'
+    ,'panel.rel.new.slowSaid': 'Apa pun yang lambat kini menyatakannya. Menyiapkan unduhan, menyimpan analisis, atau mengekspor halaman dengar memunculkan pemutar sebelum pekerjaan dimulai, dan halaman dengar menampilkan pita “memuat suara” yang bergerak sampai gelombangnya siap. Menyiapkan unduhan juga menyandikan rekaman dua kali, itulah sebabnya “Selesai — kirim” menjadi lambat menjawab.'
+    ,'panel.rel.new.waveOffCut': 'Dengan gelombang suara dimatikan, pemisahan di Alat Analisis Paragraf bisa dimulai tetapi tidak pernah selesai: gunting yang memilih titik potong suara berada di jalur gelombang, yang tidak ada. Kini jalur kepala-putar tipis muncul sebagai gantinya setiap kali sakelar gabung/pisah menyala.'
     ,'panel.rel.new.pageWaves': 'Gelombang suara di halaman dengar kembali tampil. v614 memotong audio yang disematkan tetapi menyisakan hanya potongan terakhir untuk pendekode gelombang, sehingga rekaman terputar sementara gelombang ringkasan dan per baris tetap kosong.'
     ,'panel.rel.new.embedChunks': 'Halaman dengar dan berkas .fxpa kini dirakit di sekitar rekaman per potongan, sehingga rekaman berdurasi nyata tidak lagi gagal dengan “allocation size overflow” (Firefox) atau diam-diam tidak menghasilkan apa-apa (Chrome). Keduanya satu jalur mesin yang sama — editor, Audio Segmenter, panel peneliti, dan Alat Analisis Paragraf, yang kini menyimpan dan menyimpan-otomatis dengan cara yang sama. Audio Segmenter dapat mengunduh halaman dengar, dan menjatuhkan berkas .pfsx ELAN ke alat kini menjelaskan apa itu.'
     ,'panel.rel.new.cancelTidy': 'Membatalkan unggahan kini menghapus teks setengah jadi yang sudah dimulainya di Drive, alih-alih meninggalkannya dalam daftar tanpa rekaman. Teks itu masuk ke tempat sampah Drive dan tetap dapat dipulihkan selama 30 hari, dan unggahan ulang ke teks yang sudah ada hanya menghapus apa yang ditambahkan unggahan itu sendiri.'
@@ -4086,6 +4106,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.aq.retry': 'Coba lagi',
   'panel.aq.pausedRow': 'dijeda — lanjutkan saat Anda siap',
   'panel.aq.cancelLeftovers': 'Unggahan dibatalkan, tetapi bagian yang sudah ada di Drive untuk "{title}" tidak dapat dibersihkan. Anda dapat menghapusnya dari daftar teks.',
+  'panel.aq.cancelConfirmFolder': 'Batalkan unggahan \u201c{title}\u201d? Folder teks yang dibuat oleh unggahan ini akan dipindahkan ke sampah Google Drive Anda (dapat dipulihkan di sana selama 30 hari), dan penugasan harus disiapkan ulang.',
+  'panel.aq.cancelConfirmFiles': 'Batalkan unggahan \u201c{title}\u201d? Berkas yang sudah terkirim oleh unggahan ini akan dipindahkan ke sampah Google Drive Anda (dapat dipulihkan di sana selama 30 hari). Isi folder teks yang lain tetap ada, dan penugasan harus disiapkan ulang.',
+  'panel.aq.cancelTooLate': 'Terlambat membatalkan \u2014 unggahan sudah selesai. Anda dapat menghapus teksnya dari daftar teks.',
   'panel.aq.pausedPct': 'dijeda pada {pct}% dari {size}',
   'panel.aq.cancelConfirm': 'Hapus penugasan yang antre ini? Belum ada yang dikirim ke perangkat.',
   'panel.util.ttl': 'Jendela unduh penugasan (hari)',
@@ -4279,6 +4302,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.chooseFiles': 'Pilih file…',
   'para.textOnlyNote': 'Teks tanpa audio atau penyelarasan waktu juga bisa — hanya saja tanpa gelombang suara dan tombol putar. File ELAN dengan beberapa penutur digabung menjadi satu teks, dengan tiap baris diberi label penutur.',
   'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa, .flextext, atau ELAN .eaf.',
+  'para.audioWorkingLost': 'Rekaman yang menyertai dokumen ini tidak ditemukan, jadi dokumen dibuka tanpa suara. Analisis Anda beserta waktu tiap barisnya tidak berubah. Untuk mendapatkan rekamannya kembali, buka lagi berkas .fxpa aslinya.',
+  'para.audioNotStored': 'Peramban ini tidak dapat menyimpan rekaman untuk cadangan otomatis \u2014 kemungkinan besar ruang penyimpanannya habis. Teks Anda tetap disimpan, tetapi suaranya tidak akan kembali setelah halaman dimuat ulang. Simpan dokumen ke berkas agar rekamannya tidak hilang.',
   'para.errPfsx': '“{name}” adalah berkas pengaturan ELAN (.pfsx) — urutan tier dan warna, tanpa teks. Buka .fxpa atau .eaf yang dibuat bersamanya.',
   'para.errXml': '“{name}” adalah berkas XML yang tidak dibaca alat ini. Alat ini membuka berkas .fxpa (Analisis Paragraf), .flextext, dan .eaf ELAN.',
   'para.errNoTiers': 'File ELAN itu tidak memiliki tier.',
@@ -4394,6 +4419,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'sfm.noneFound': 'Tidak ada teks yang ditemukan dengan pemetaan ini. Periksa penanda mana yang memulai teks baru.',
   'sfm.risk.single-spaced': 'Peringatan: baris kata dan glos hanya berjarak satu spasi, sehingga tidak dapat disejajarkan per kolom. Glos bisa jatuh pada kata yang salah.',
   'sfm.risk.lopsided': 'Peringatan: kurang dari separuh kata mendapat glos. Periksa penanda kata dan glos.',
+  'sfm.roleTaken': 'Satu penanda hanya bisa satu peran: \\{marker} kini menjadi \u201c{to}\u201d, sehingga \u201c{from}\u201d dikosongkan.',
+  'sfm.risk.shifted': 'Peringatan: pada banyak baris, kata terakhir tidak mendapat glos \u2014 hal ini terjadi bila spasi yang menyejajarkan kolom hilang saat penyalinan. Glos mungkin bergeser ke kata di sebelah kirinya.',
   'sfm.role.newtext': 'Memulai teks baru',
   'sfm.role.title': 'Judul teks',
   'sfm.role.ref': 'Rujukan (memulai satu baris)',
@@ -4508,6 +4535,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.sfmPasteHowNote': 'Biarkan barisnya persis seperti aslinya. Spasi yang menyejajarkan gloss di bawah katanya adalah penentu gloss milik kata yang mana, jadi jangan dirapikan.',
   'para.sfmRiskFlat': 'Baris gloss tidak sejajar berkolom di bawah kata-katanya, sehingga kami tidak dapat memastikan gloss milik kata yang mana. Periksa pratinjau dengan teliti — bila glossnya salah, spasinya kemungkinan hilang saat penyalinan.',
   'para.sfmRiskLopsided': 'Sebagian besar kata tidak mendapat gloss, biasanya berarti kolomnya tidak bertahan saat disalin. Periksa pratinjau dengan teliti sebelum membuka.',
+  'para.sfmRiskShifted': 'Pada banyak baris kata terakhir tidak mendapat gloss, biasanya berarti spasi kolomnya sebagian hilang saat disalin sehingga gloss bergeser ke kata di sebelah kirinya. Periksa pratinjau dengan teliti sebelum membuka.',
   'para.collapseAll': 'Tutup semua',
   'para.expandAll': 'Buka semua',
   'para.collapseAllTip': 'Tutup semua kelompok dalam teks',

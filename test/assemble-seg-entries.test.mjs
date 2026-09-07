@@ -114,6 +114,39 @@ console.log('\nno alignment (segMedia null): text-only fxpa is first-class, anno
   ok(up.length === 0, 'an upload with no alignment carries no seg entries at all');
 }
 
+/* ⚠ THE LADDER, IN ONE PASS. conversionCaps answers `fxpa` and `fxpaAudio` separately because they
+ * degrade differently — ".fxpa never refuses — above the ceiling it is built WITHOUT audio, and says
+ * so". A caller can always get that by nulling segMedia (the panel's mechanism for its one-output
+ * menu rows), but a bundle that ALSO wants the EAFs cannot: they need the recording, which is why
+ * the panel's Download-all runs a second pass. `wants.fxpaAudio: false` is that split in one call.
+ * The device's buildBundleFor gated the whole FILE on the audio flag instead, so the segmenter's
+ * ".fxpa only" on an oversized recording produced nothing while the panel's row on the same
+ * document handed over a text-only .fxpa (v615 review, 2026-09-07). */
+console.log('\nwants.fxpaAudio:false — the .fxpa loses its audio, the EAFs keep theirs');
+{
+  const es = await assembleSegEntries(args({ full: true, wants: { eaf: true, saymore: true, fxpa: true, fxpaAudio: false } }));
+  ok(names(es).includes('Kisah.fxpa'), 'the .fxpa is still built — the ladder never refuses it');
+  const fxpa = JSON.parse(await text(es, 'Kisah.fxpa'));
+  ok(!fxpa.audio, 'and it carries no audio block (not an empty one)');
+  ok(fxpa.lines.length === 2 && fxpa.vernLang === 'fau', 'the text, times and languages are all there');
+  ok(names(es).includes('Kisah.eaf') && names(es).includes('Kisah.converted-NOT-ARCHIVAL.wav'),
+     'the EAFs and their WAV are untouched — one segMedia, two different needs');
+  ok(/RELATIVE_MEDIA_URL="\.\/Kisah\.converted-NOT-ARCHIVAL\.wav"/.test(await text(es, 'Kisah.eaf')),
+     'the EAF still points at the recording it was timed against');
+  // …and the instructions in the same zip must not promise a recording that is not in the file.
+  const howto = await text(es, 'HOW-TO-OPEN.txt');
+  ok(!howto.includes('Text and audio are inside the file') && /TEXT\n\s+and its timings only/.test(howto),
+     'HOW-TO-OPEN says the .fxpa is text-only, and where the recording is instead');
+  const on = await assembleSegEntries(args({ full: true, wants: { fxpa: true } }));
+  ok(!!JSON.parse(await text(on, 'Kisah.fxpa')).audio, 'unset ⇒ embed: every existing caller is unchanged');
+  const explicit = await assembleSegEntries(args({ full: true, wants: { fxpa: true, fxpaAudio: true } }));
+  ok(!!JSON.parse(await text(explicit, 'Kisah.fxpa')).audio, 'and true means true');
+  // A 0-byte working copy is not audio either — the same question previewBlob/fxpaBlob now ask.
+  const emptyWav = await assembleSegEntries(args({ full: true, wants: { fxpa: true },
+    segMedia: { ...derivedWav, blob: new Blob([]) } }));
+  ok(!JSON.parse(await text(emptyWav, 'Kisah.fxpa')).audio, 'an EMPTY recording embeds nothing, rather than b64: ""');
+}
+
 console.log('\nsource-lift: buildBundleFor really calls the shared assembler');
 {
   const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
@@ -122,6 +155,39 @@ console.log('\nsource-lift: buildBundleFor really calls the shared assembler');
   ok(!!fn && /await assembleSegEntries\(\{/.test(fn[0]), 'buildBundleFor awaits assembleSegEntries');
   ok(!!fn && !/serializeEaf\(/.test(fn[0]), 'buildBundleFor no longer serializes EAFs itself');
   ok(/import \{[^}]*assembleSegEntries[^}]*\} from '\.\/seg-exports\.js'/.test(app), 'imported from seg-exports.js');
+  const body = fn ? fn[0] : '';
+
+  /* The device side of the ladder above: the FILE is wanted or not, the AUDIO is capped. Gating the
+   * file on caps.fxpaAudio is what made the segmenter and the panel disagree. */
+  ok(!/wantJson = \([^\n]*\) && caps\.fxpaAudio/.test(body), 'the .fxpa is not size-gated as a whole');
+  ok(/const wantJson = w\.fxpa \?\? settings\.exportJson \?\? expDefault;/.test(body), 'the want is just the want');
+  ok(/fxpa: wantJson, fxpaAudio: caps\.fxpaAudio/.test(body), 'and the cap rides as the degrade switch');
+  ok(/trimmed\.push\('fxpaAudio'\)/.test(body) && !/trimmed\.push\('fxpa'\)/.test(body),
+     "what was trimmed is the AUDIO, and `trimmed` says so — the file is in the bundle either way");
+  const ex = app.slice(app.indexOf('async function satExport(id)'), app.indexOf('function satImportBar('));
+  ok(/sat\.exportFxpaNoAudio/.test(ex), 'and the segmenter SAYS it, the way the panel says panel.dl.fxpaNoAudio');
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  ok(/const dropAudio = kind === 'fxpa' && !src\.caps\.fxpaAudio;/.test(panel),
+     'the panel still degrades the same document the same way (the two surfaces must agree)');
+
+  /* ⚠ NO ARCHIVE NOBODY READS (the v615 review, 2026-09-07). buildBundleFor awaited makeZip on
+   * every full
+   * bundle, including the four satExport choices that keep ONE entry and drop the rest. Measured
+   * under node — a 100 MB WAV, "Listening page only": the 133.4 MB page the user asked for at RSS
+   * 627 MB, then a 233.4 MB archive thrown away unread, RSS 1078 MB. makeZip materialises every
+   * entry (`new Uint8Array(await entry.data.arrayBuffer())`) and CRC32s it byte by byte in JS. */
+  ok(!/const blob = await makeZip\(entries\)/.test(body), 'the full path no longer packs eagerly');
+  ok(/const zip = \(\) => \(packed \?\?= makeZip\(entries\)\);/.test(body),
+     'it hands back a memoised zip() instead — asked for once, built once');
+  ok(/return \{ zip, filename: `\$\{base\}\$\{stamp\}\.zip`/.test(body), 'and the entries beside it');
+  const single = ex.slice(ex.indexOf('let blob = null'), ex.indexOf('} else {'));
+  ok(!/bundle\.zip\(/.test(single), 'none of the single-file choices asks for an archive');
+  ok((ex.match(/await bundle\.zip\(\)/g) || []).length === 1 && /"Everything"/.test(ex),
+     'exactly one does: "Everything", which IS the zip');
+  const share = app.slice(app.indexOf('async function openShareMenu()'), app.indexOf("$('#share-cancel').onclick"));
+  ok(/const bundleBlob = async \(\) => \(bundle\.zipped \? await bundle\.zip\(\) : bundle\.blob\);/.test(share)
+     && (share.match(/await bundleBlob\(\)/g) || []).length === 2,
+     'and the share menu builds it where it WRITES the file, not on the way in');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

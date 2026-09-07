@@ -73,6 +73,12 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
   nothing exposed), with the header-after-body fallback, and the count of texts shown live because
   FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
   every text as a zip.
+- **Next: the segmenter opens a .fxpa (#54).** The outbound leg shipped in v609 and blank audio
+  survives the format (measured: four segments in, four lines out, silences keeping their times).
+  What is missing is the return leg — the segmenter accepts `.flextext`/`.xml`/`.txt` only, and no
+  `.fxpa` → editor-doc reader exists. ⚠ Every line must come back as a segment, blank ones included:
+  the segmenter's job is the audio map, and the tool's `hideBlank` is a view setting that must not
+  leak into the conversion (Seth, 2026-09-07).
 - **Next: one converter for every interlinear source (#53).** The v610 converter reads Toolbox/SFM;
   ELAN `.eaf` joins it as a second source behind the same surface, and only then does the title
   become "Convert other interlinear to .flextext (Toolbox, ELAN, etc)" — naming a format it cannot

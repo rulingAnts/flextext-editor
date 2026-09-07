@@ -300,6 +300,103 @@ access-controlled place — **IMDI's `Anonyms` pattern**, which is the right mod
 
 ---
 
+### 3.5 The five-way constraint, and why it is not actually a conflict
+
+Seth, 2026-09-08: *"we want native speaking coworkers to be able to collect, record, and document
+consent, and we need researchers to be able to easily keep track of consent by speaker, we need both
+researchers to be able to see the names and consent and stories associated with them, we need it to
+be compatible with lameta, and we want to protect their identities in D1 data and client devices to
+minimize exposure."*
+
+**⚠ FIRST, WHAT THE THREAT ACTUALLY IS — because the wrong answer here makes the whole design
+theatre.** The coworker is not the threat. They are in the village, they know the speaker, they are
+holding the microphone. Hiding a name from the person conducting the interview protects nobody and
+breaks the work. **The threat is aggregation**: one place where every speaker, every story and every
+consent decision joins up in the clear, and one loss that hands over a whole community's register
+rather than one worker's fortnight.
+
+So the principle is not *hide names*. It is: **a name exists at the two ends of the pipeline and
+nowhere in the middle, and neither end holds more of them than its job requires.**
+
+| who | holds | why that is the minimum |
+|---|---|---|
+| **coworker's device** | the names of the speakers **that device itself recorded** | they cannot ask a person for consent without knowing who they are asking |
+| **transport (worker, D1)** | a random per-project UUID and nothing else | §3.4 |
+| **researcher's panel** | every name, decrypted under their own key | they are the ones keeping track by speaker |
+| **the lameta bundle** | names, as `People/<Name>/` | produced on the researcher's machine, at the end |
+
+Every constraint Seth listed is satisfied by that table, and none of them collide. The apparent
+conflict comes entirely from one assumption worth dropping — see below.
+
+#### The assumption to drop: pushing the project roster to devices
+
+The keeper plan says the collector offers *"a person chosen from a list the researcher pushed to the
+device"*. ⚠ **That is the single biggest exposure in the whole design, and it buys very little.** It
+puts every speaker in the project on every phone — so a phone lost in one village exposes the people
+of every other village the project works in, none of whom that coworker has ever met.
+
+Instead: **the device mints a person locally when the coworker types a new name, and uploads the
+UUID with the name E2EE.** The researcher's panel then sees *"Kologwoi Suhu — new person"* and either
+accepts it or merges it into an existing record. Reconciliation happens where the whole picture
+already is. A researcher may still push a **shortlist** for a specific assignment ("these four
+people, for this village"), which is the useful part of the pushed roster without the rest of it.
+
+Cost: duplicates until a researcher merges them. That is a chore for one person with the full view,
+not a corpus-wide standing exposure. It is the right trade.
+
+#### Device-side protection is scope, not encryption
+
+⚠ **Encrypting the name field on the device while the recording sits beside it in the clear would be
+theatre.** On a field phone the audio *is* the identity: anyone who knows the speaker recognises the
+voice, and the consent clip is literally a recording of them saying their name. Claiming "names are
+encrypted at rest" would be a security claim that is 90% false, which
+`drive-as-truth.md:539-541` already forbids in as many words.
+
+What actually reduces what a lost phone gives up, in order of effect:
+1. **Scope** — the device holds only its own speakers (above). This is the whole of the protection.
+2. **Remote wipe**, which already exists and must include the person store and the person-keyed
+   consent media from the first commit, not as a follow-up.
+3. **Getting `consentSpeaker` off the device-only island** (§6) so a wipe is recoverable rather than
+   a loss.
+
+#### Two researchers seeing the same names: already solved, no new plumbing
+
+`member_key.wrapped_ki` is the per-instance key Ki **RSA-wrapped to each grantee researcher's public
+key and opaque to the worker**. A second researcher on the project already receives Ki without the
+server ever holding it, and already decrypts the inventory that carries titles. Person names ride in
+that same envelope. ⚠ **Do not invent a second sharing mechanism for people** — the caps model in
+`project_member` (`see: all | [instanceId…]`) is also already the right place to say which researcher
+may see which devices' speakers.
+
+#### The in-house precedent that settles §3.4's rule one
+
+The schema already distinguishes the two cases, and got it right:
+
+- `researcher.email_sha256` — **`HMAC(SERVER_HMAC_KEY, email)`**, commented *"enumeration-safe"*.
+- `titleHash` — a **plain, unsalted** SHA-256.
+
+An email is enumerable, so it gets an HMAC under a server-held key; a title is not, so a plain hash
+is fine. **A person's name is enumerable** — more so than an email, since the candidate list is one
+village. It therefore falls on the `email_sha256` side of a line this codebase already drew. §3.4's
+rule stands on the project's own reasoning, not on an outside argument: **random UUID, or nothing.**
+
+#### Merging two people is a rights-bearing operation
+
+Merging person records merges their consent records — scopes, exclusions and all. It must be
+explicit, researcher-side, logged with who did it and when, and **reversible**, for the same reason
+exclusions are added rather than deleted (§3.2): the history is the evidence. A silent
+de-duplication that quietly widens one person's consent to another person's texts is the worst bug
+this system could have.
+
+#### What this costs, honestly
+
+A dump of D1 still shows shape (§3.4). A lost phone still gives up the speakers that phone worked
+with, and their recordings. A researcher's laptop holds everything, because that is the job — and it
+is therefore the thing worth protecting with disk encryption and a screen lock, which is a policy
+sentence in the deployment notes, not a feature.
+
+---
+
 ---
 
 ## 4. The question bank
@@ -465,8 +562,10 @@ harvest `corpus-manager/PLAN.md` (838 lines specifying an *incompatible* audienc
 the only written treatment of researcher-side tiers, and corpus-keeper supersedes it on nearly every
 other point).
 
-**Phase 2 — the Person entity and the roster.** Person store, panel-pushable roster, offline typing,
-the device-side reconciliation screen. The D1 `person` table and the Indexed/Strict project setting
+**Phase 2 — the Person entity, minted on the device.** Person store scoped to that device's own
+speakers (§3.5 — *not* a pushed project roster), offline typing, the device-side reconciliation
+screen, and the researcher-side merge with its log. Remote wipe covers the person store from the
+first commit. The D1 `person` table and the Indexed/Strict project setting
 (§3.4); the name rides E2EE from the first commit, never as a column to be removed later. The Consent Collector's grouping key changes from a trimmed
 string to a person id — everything else in its group-ask flow is already right.
 
@@ -501,7 +600,10 @@ and the software's job is to make it possible and to record it faithfully when i
    for 97 texts.
 4. **Machine-learning use** as a question — nobody else asks it yet; do we?
 5. **Retire or harvest `corpus-manager/PLAN.md`.**
-6. **The default privacy mode** (§3.4): Indexed gives the panel a fast Consent card and lets a dump
+6. **Does the pushed roster go?** §3.5 argues the device should mint people locally and the
+   researcher should merge, rather than every phone holding every speaker in the project. That
+   contradicts one line of the keeper plan, so it is Seth's call to overrule or confirm.
+7. **The default privacy mode** (§3.4): Indexed gives the panel a fast Consent card and lets a dump
    show which texts share a speaker; Strict keeps D1 person-free and makes the panel decrypt
    client-side, which is fast enough at this corpus's size. Recommendation is Indexed by default,
    Strict available per project — but the default is a community-exposure call, not a technical one.

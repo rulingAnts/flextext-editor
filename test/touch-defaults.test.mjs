@@ -19,13 +19,17 @@ const SHELLS = [
   ...readdirSync(new URL('../satellites/', import.meta.url), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => `../satellites/${d.name}/index.html`),
 ];
 
-test('#43 every app shell asks the browser to resize the layout around the soft keyboard', () => {
+/* ⚠ v579 asked for `resizes-content` here; v609 reversed it. Seth, 2026-09-07: the resizing "bumps
+ * the whole app view window (including the preview player and top level UI controls) up … what we
+ * want is for Android keyboard and auto-complete to just cover up over the top of the bottom". What
+ * the old setting was buying is kept by installKeyboardOverlayGuard — see test/android-keyboard.test.mjs. */
+test('#43 every app shell asks the soft keyboard to overlay the page, not resize it', () => {
   assert.ok(SHELLS.length >= 7, 'seven shells: editor, paragraph analysis, five satellites');
   for (const rel of SHELLS) {
     const html = readFileSync(new URL(rel, import.meta.url), 'utf8');
     const metas = html.match(/<meta name="viewport"[^>]*>/g) || [];
     assert.equal(metas.length, 1, `${rel}: one viewport meta`);
-    assert.match(metas[0], /interactive-widget=resizes-content/, `${rel}: resizes-content`);
+    assert.match(metas[0], /interactive-widget=overlays-content/, `${rel}: overlays-content`);
   }
 });
 

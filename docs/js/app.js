@@ -22,7 +22,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
          stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -7927,6 +7927,7 @@ function satExportChoice() {
       <button class="primary-btn" data-x="all">${esc(t('sat.exportAll'))}</button>
       <button class="secondary-btn" data-x="eaf">${esc(t('sat.exportEaf'))}</button>
       <button class="secondary-btn" data-x="flextext">${esc(t('sat.exportFlextext'))}</button>
+      <button class="secondary-btn" data-x="fxpa">${esc(t('sat.exportFxpa'))}</button>
       <button class="link-btn" data-x="">${esc(t('share.cancel'))}</button>
     </div>`;
     document.body.appendChild(wrap);
@@ -7951,13 +7952,25 @@ async function satExport(id) {
    * a text file: the listening page and the .fxpa base64 the audio — see buildBundleFor — and on
    * the first six-minute WAV that was "allocation size overflow" in Firefox, with no download at
    * all. The recording rides as a file, which costs nothing to assemble. */
-  try { bundle = await buildBundleFor(rec, true, { full: true, wants: { eaf: true, saymore: false, preview: false, fxpa: false } }); }
+  /* ⚠ BUILD ONLY WHAT WAS ASKED FOR. The .fxpa embeds the recording as base64 (that is the point of
+   * the format — the Paragraph Analysis Tool opens one file and has its audio), so it is built when
+   * it is what the user chose, never as a by-product of asking for the ELAN file. */
+  const wants = { eaf: kind === 'all' || kind === 'eaf', saymore: false, preview: false, fxpa: kind === 'fxpa' };
+  try { bundle = await buildBundleFor(rec, true, { full: true, wants }); }
   catch (err) { toast(t('sat.exportFailed', { msg: err.message }), 8000); return; }
   let blob = bundle.blob, filename = bundle.filename;
   if (kind === 'flextext') { blob = bundle.xmlBlob; filename = bundle.xmlName; }
   else if (kind === 'eaf') {
     const e = (bundle.entries || []).find((x) => /\.eaf$/i.test(x.name));
     if (!e) { toast(t('sat.exportNoEaf'), 8000); return; }
+    blob = e.data; filename = e.name;
+  } else if (kind === 'fxpa') {
+    /* Seth, 2026-09-07: "Does our audio segmenter app offer an .fxpa export? If not, it should."
+     * It is the file the Paragraph Analysis Tool opens — text, times and the recording in one — so
+     * a segmenter user can hand their matched text straight to discourse analysis. Not gated on
+     * alignment: buildSegEntries writes a text-only .fxpa when there is nothing to embed. */
+    const e = (bundle.entries || []).find((x) => /\.fxpa$/i.test(x.name));
+    if (!e) { toast(t('sat.exportNoFxpa'), 8000); return; }
     blob = e.data; filename = e.name;
   } else if (!bundle.zipped) toast(t('sat.exportNoAudio'), 6000);
   // The editor's own blind-download idiom (openShareMenu): a synthetic <a download>, revoked late.
@@ -10948,6 +10961,7 @@ function setup() {
   applyI18n();
   applyGlossIcon();
   installSplitCancel();   // Escape and a tap away cancel a pending split (plans/split-tiers.md)
+  installKeyboardOverlayGuard();   // the Android keyboard covers the page; keep the focused box visible (#43)
 
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render
   // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.

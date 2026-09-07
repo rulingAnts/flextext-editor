@@ -391,3 +391,16 @@ asked for a picture wider than a browser will draw.
 - [ ] The same on a listening page exported from a recording that long.
 - [ ] The playhead line and the seam marks sit at the right place while zoomed in, not squashed at
       the left edge.
+
+## Android keyboard, and the segmenter's .fxpa (v609)
+
+- [real device] The editor on Android: tap into a baseline box. The word-suggestion strip and the
+      keyboard COVER the bottom of the list — fewer lines visible — and the player and the buttons
+      along the top do not move at all. Type: the box you are typing in is never behind the
+      keyboard. Dismiss the keyboard: the lines come back, nothing has shifted.
+- [real device] With an upload running, its tray sits ABOVE the keyboard, not behind it. Same for a
+      toast and for the "New version ready" banner.
+- [ ] Desktop: nothing changes — no keyboard, so the inset stays 0.
+- [ ] Segmenter: Download this text ▸ offers "Paragraph Analysis file only (.fxpa…)"; the file
+      opens in the Paragraph Analysis Tool with its audio. A text with no recording still exports a
+      text-only .fxpa.

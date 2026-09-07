@@ -149,8 +149,9 @@ console.log('\nan unpaired device can get a text OUT — the first real text had
   ok(/sat-export/.test(ctl) && /satExport\(d\.id\)/.test(ctl), 'the row carries a download control');
   ok(/if \(SEGMENTER_MODE \|\| CONSENT_MODE\)/.test(ctl), 'in both satellites');
   const ex = asyncFn(app, 'satExport');
-  ok(/buildBundleFor\(rec, true, \{ full: true, wants: \{ eaf: true, saymore: false, preview: false, fxpa: false \} \}\)/.test(ex),
-     'built by the SAME bundle a paired device uploads — minus every output that embeds the recording as base64');
+  ok(/const wants = \{ eaf: kind === 'all' \|\| kind === 'eaf', saymore: false, preview: false, fxpa: kind === 'fxpa' \};/.test(ex)
+     && /buildBundleFor\(rec, true, \{ full: true, wants \}\)/.test(ex),
+     'built by the SAME bundle a paired device uploads, and only the outputs actually chosen (v609 added .fxpa)');
   /* "allocation size overflow" (Firefox, a six-minute WAV): the listening page and the .fxpa each
    * hold the recording as base64, several copies of a ~100 MB string alive at once. */
   ok(/const caps = media \? conversionCaps\(/.test(asyncFn(app, 'buildBundleFor')) && /trimmed\.push\('preview'\)/.test(asyncFn(app, 'buildBundleFor')),

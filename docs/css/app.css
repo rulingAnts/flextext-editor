@@ -715,10 +715,13 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 
 /* ---------- Toast & modal ---------- */
 
+/* ⚠ --kb-inset IS HOW MUCH OF THE PAGE THE ANDROID KEYBOARD COVERS (installKeyboardOverlayGuard).
+   The shells ask for interactive-widget=overlays-content so nothing reflows when it opens; these
+   bottom-fixed pieces add the inset instead, so they ride above it rather than behind it. */
 #toast {
   position: fixed;
   left: 50%;
-  bottom: calc(20px + env(safe-area-inset-bottom));
+  bottom: calc(20px + env(safe-area-inset-bottom) + var(--kb-inset, 0px));
   transform: translateX(-50%);
   background: #2b2f36;
   color: #fff;
@@ -834,7 +837,7 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 #upload-bar {
   position: fixed;
   left: 0; right: 0;
-  bottom: 0;
+  bottom: var(--kb-inset, 0px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1284,7 +1287,7 @@ body.rp-standalone main { padding-top: 0; }
      Both are fixed to the bottom and the tray wins on z-index — raising the badge instead would only
      put grey 10px text on the tray's dark blue. --upload-bar-h is set by renderUploadQueue from the
      tray's MEASURED height, so the badge also moves when the item list is expanded. */
-  bottom: calc(4px + env(safe-area-inset-bottom) + var(--upload-bar-h, 0px));
+  bottom: calc(4px + env(safe-area-inset-bottom) + var(--upload-bar-h, 0px) + var(--kb-inset, 0px));
   transition: bottom .15s ease;
   font-size: 10px; line-height: 1; letter-spacing: .02em;
   color: var(--muted); opacity: .5;
@@ -1306,7 +1309,7 @@ body.rp-standalone main { padding-top: 0; }
 /* "New version ready — exit your open text to finish updating" — shown while editing, tappable to go to
    Texts. Fixed at the BOTTOM so it never covers the top nav; below modals, above page content. */
 .update-ready-banner {
-  position: fixed; left: 0; right: 0; bottom: 0; width: 100%;
+  position: fixed; left: 0; right: 0; bottom: var(--kb-inset, 0px); width: 100%;
   z-index: 38; border: none; cursor: pointer;
   background: #b26a00; color: #fff; font-size: 14px; font-weight: 600;
   padding: 11px 14px; padding-bottom: calc(11px + env(safe-area-inset-bottom));
@@ -1513,7 +1516,7 @@ body.rp-standalone main { padding-top: 0; }
    a large original streams. Nothing appears in the BROWSER's download list until the whole Blob is
    handed over at the end, so while the work is slow this box is the only evidence it exists. */
 .rp-jobs {
-  position: fixed; z-index: 120; left: 12px; bottom: 12px;
+  position: fixed; z-index: 120; left: 12px; bottom: calc(12px + var(--kb-inset, 0px));
   width: min(360px, calc(100vw - 24px));
   background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,.22); padding: 8px 10px;

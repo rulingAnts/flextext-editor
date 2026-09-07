@@ -92,6 +92,61 @@ export function installSplitCancel() {
  * ⚠ RTL (#48): the mirror measures from the left edge; a right-to-left box will need the mirror
  * anchored at the right. This helper is the one place to change. */
 let caretMirror = null;
+/* ⚠ THE ANDROID KEYBOARD COVERS THE PAGE; IT NO LONGER PUSHES IT (Seth, 2026-09-07: "when the
+ * auto-complete choices come up, it bumps the whole app view window (including the preview player
+ * and top level UI controls) up … I think what we want is for Android keyboard and auto-complete to
+ * just cover up over the top of the bottom, rather than shifting everything up" — issue #43).
+ *
+ * The shells now say `interactive-widget=overlays-content`, so the suggestion strip and the
+ * keyboard draw OVER the bottom of the page and nothing reflows: the player and the top controls
+ * stay exactly where they were. The one cost of that setting is the mirror image of the old
+ * problem — a box near the bottom can end up UNDER the keyboard, because the page no longer
+ * shrinks to make room. This puts it back in view, and only when it is actually covered.
+ *
+ * Deliberately measured against visualViewport, not innerHeight: with this setting innerHeight does
+ * not change when the keyboard opens, so it cannot tell us what is visible.
+ *
+ * ⚠ THE PREVIOUS SETTING WAS NOT AN ACCIDENT, so do not flip it back without reading this. v579 set
+ * `resizes-content` ON PURPOSE, as the fix for the first half of issue #43: "the soft keyboard and
+ * the bottom bar buried the player". Shrinking the layout did stop the burying — at the price of
+ * moving everything, which is the complaint that came back. `overlays-content` answers both,
+ * because the player is pinned at the TOP and the keyboard covers the BOTTOM: the player cannot be
+ * buried by something drawn below it, and nothing reflows. What `resizes-content` also bought was
+ * the guarantee that a focused box is never behind the keyboard, and that guarantee is what this
+ * function now provides instead. Reverting the meta without removing this would give you both
+ * problems at once. */
+export function installKeyboardOverlayGuard() {
+  if (typeof window === 'undefined' || !window.visualViewport || window.__fxKbGuard) return;
+  window.__fxKbGuard = true;
+  const vv = window.visualViewport;
+  const typing = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  /* ⚠ AND THE BOTTOM-FIXED FURNITURE RIDES ABOVE THE KEYBOARD. This is the OTHER thing
+   * `resizes-content` was quietly buying: when the layout shrank, the toast, the upload tray, the
+   * activity tray, the update banner and the version badge all sat above the keyboard because the
+   * page itself had got shorter. With the keyboard overlaying instead, they would be behind it —
+   * an upload tray or a transfer's pause button you cannot see is worse than a shifted layout. So
+   * the covered height is published as --kb-inset and those rules add it to their offset. */
+  const setInset = () => {
+    const covered = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+    document.documentElement.style.setProperty('--kb-inset', covered + 'px');
+  };
+  const reveal = () => {
+    const el = document.activeElement;
+    if (!typing(el)) return;
+    const visibleBottom = vv.offsetTop + vv.height;
+    const r = el.getBoundingClientRect();
+    if (r.bottom <= visibleBottom - 8) return;      // already visible: never scroll for nothing
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
+  };
+  const onChange = () => { setInset(); reveal(); };
+  vv.addEventListener('resize', onChange);          // the keyboard opening or the strip appearing
+  vv.addEventListener('scroll', setInset);          // and the visual viewport panning under it
+  // A tap into a box near the bottom: the keyboard arrives a moment after the focus does.
+  document.addEventListener('focusin', () => setTimeout(onChange, 350));
+  document.addEventListener('focusout', () => setTimeout(setInset, 350));
+  setInset();
+}
+
 export function caretX(input) {
   const cs = getComputedStyle(input);
   if (!caretMirror) {

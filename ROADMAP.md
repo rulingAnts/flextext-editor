@@ -201,6 +201,10 @@ file it did not.
 - the `media-files` block and per-phrase `media-file` reference in the timed FLExText so FLEx's
   import fills `Text.MediaFiles` and `Segment.MediaURI` itself;
 - morpheme tiers in the ELAN export, in FLEx's own tier naming, from the item values only;
+- later (Seth, 2026-09-07, recorded not scheduled): a mode in which the ELAN paragraph tier mirrors
+  FLEx's real paragraph grouping instead of one annotation per phrase. The writer already emits both
+  structural tiers; the split-per-phrase form is right for the app, where the structure is built by
+  joining in ELAN, and wrong for a file the keeper generates from FLEx, where it is already known;
 - panel entries for *Assign from FLEx* (Outbox, later the localhost list) and *Receive* (download
   into the Inbox).
 

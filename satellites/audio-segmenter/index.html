@@ -45,6 +45,7 @@
          the editor's does — a managed device is managed from the panel. -->
     <nav class="top-tabs" role="tablist">
       <button class="top-tab" data-view="segmenter" data-i18n="tabs.texts" aria-selected="true">Texts</button>
+      <button class="top-tab" data-view="utilities" data-i18n="tabs.utilities" aria-selected="false">Utilities</button>
       <button class="top-tab" data-view="research" data-i18n="tabs.research" aria-selected="false">Settings</button>
     </nav>
   </div>
@@ -130,6 +131,14 @@
 
 <!-- The Settings tab, lifted from the editor: the same ids, because renderDeviceSetup, fillDeviceSetup
      and applyResearchVisibility look them up by id. What the form CONTAINS is decided in app.js. -->
+<!-- Seth, 2026-09-07: "Please also add that utilities link (or tab) to audio segmenter as well."
+     The converter is the same modal the editor and the panel open — one wizard, four doors. -->
+<section id="view-utilities" class="view" hidden>
+  <h2 data-i18n="sfm.title">Toolbox / SFM converter</h2>
+  <p class="note" data-i18n="sfm.intro"></p>
+  <div class="ws-form"><button type="button" id="usfm-open" class="primary-btn" data-i18n="sfm.utilBtn">Convert a Toolbox / SFM file…</button></div>
+</section>
+
 <section id="view-research" class="view" hidden>
   <h2 data-i18n="setup.h1">Set up this device</h2>
   <p class="note" data-i18n-html="setup.intro"></p>

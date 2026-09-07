@@ -64,6 +64,15 @@ All seven sites and the GitHub Pages editor are at v602 in production; staging m
 - **The tool's Join/split switch (v601).** The scissors and chain links in the Paragraph
   Analysis Tool are behind a toolbar switch, off by default and remembered per device; off, a line
   shows a plain playhead. Undo/Redo (buttons, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) cover splits and joins.
+- **Toolbox / SFM converter (v610, #29).** A standard-format interlinear file becomes .flextext,
+  from the Utilities tab in the editor and the segmenter, Utilities in the panel, and the tool's File
+  menu — one modal, four doors. The reader was already there (`sfm.js`, which the Paragraph Analysis
+  Tool imports with); this is the surface over it, so the two importers can never disagree about
+  what a file means. Where one text ends and the next begins follows FLEx's own rules: an explicit
+  "starts a new text" marker (FLEx's *New Text* destination, which `sfm.js` has always supported and
+  nothing exposed), with the header-after-body fallback, and the count of texts shown live because
+  FLEx's own documentation warns the split only works with consistent markers. Saves one text, or
+  every text as a zip.
 - **The Android keyboard covers instead of shoving (v609, #43).** The shells ask for
   `interactive-widget=overlays-content`, so nothing reflows when the suggestion strip or the
   keyboard opens. v579 had set `resizes-content` deliberately, for the first half of the same issue,

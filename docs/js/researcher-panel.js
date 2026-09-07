@@ -17,6 +17,7 @@ import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
+import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -1228,6 +1229,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v610', date: '2026-09-07', items: [
+    { k: 'panel.rel.new.sfmConvert' },
+  ] },
   { v: 'v609', date: '2026-09-07', items: [
     { k: 'panel.rel.new.androidKeyboard' },
     { k: 'panel.rel.new.segFxpa' },
@@ -7689,6 +7693,7 @@ function utilitiesModal() {
     <button class="primary-btn" data-m="audio">${esc(t('panel.util.audio'))}</button>
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
     <button class="primary-btn" data-m="export">${esc(t('exp.h'))}</button>
+    <button class="primary-btn" data-m="sfm">${esc(t('sfm.utilBtn'))}</button>
     <hr class="rp-sep">
     <p class="note"><b>${esc(t('panel.util.apps'))}</b> — ${esc(t('panel.util.appsNote'))}</p>
     ${companionApps().map((a) => `<a class="secondary-btn rp-app-link" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t(a.label))} ↗</a>`).join('')}
@@ -7703,6 +7708,10 @@ function utilitiesModal() {
   m.el.querySelector('[data-m="audio"]').onclick = () => { m.close(); audioConverterModal(); };
   m.el.querySelector('[data-m="ws"]').onclick = () => { m.close(); wsCheckModal(); };
   m.el.querySelector('[data-m="export"]').onclick = () => { m.close(); fileExporterModal(); };
+  /* Toolbox/SFM → .flextext (#29): the same converter the editor's Utilities tab opens. No settings
+   * passed — a panel has no device writing systems of its own, and serializeFlextext falls back to
+   * und/en, which is what an SFM file carrying no language codes honestly is. */
+  m.el.querySelector('[data-m="sfm"]').onclick = () => { m.close(); openSfmConverter(); };
   m.el.querySelector('[data-m="erase"]').onclick = () => { m.close(); eraseDataModal(); };
   // Delivery-TTL preference: stored per account; the WORKER's clamp (7–400) is authoritative, this
   // input's min/max is only a courtesy mirror of it.

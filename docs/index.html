@@ -232,6 +232,13 @@
      with Settings now being the device-setup form they had no business sharing it. Own tab, per the
      "Tools" grouping in notes/audiotoolsandsettingsplan §B. -->
 <section id="view-utilities" class="view" hidden>
+  <!-- Toolbox/SFM → .flextext (issue #29). A button, not an inline form: the converter is a
+       several-step wizard (markers → mapping → which text) and it is shared verbatim with the
+       researcher panel, the segmenter and the Paragraph Analysis Tool. -->
+  <h2 data-i18n="sfm.title">Toolbox / SFM converter</h2>
+  <p class="note" data-i18n="sfm.intro"></p>
+  <div class="ws-form"><button type="button" id="usfm-open" class="primary-btn" data-i18n="sfm.utilBtn">Convert a Toolbox / SFM file…</button></div>
+  <hr>
   <h2 data-i18n="convert.h">Audio converter</h2>
   <p class="note" data-i18n="convert.note2"></p>
   <!-- ⚠ MIRRORS the researcher panel's audioConverterModal() feature for feature: source

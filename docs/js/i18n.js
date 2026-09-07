@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v609';
+export const ENGINE_VERSION = 'v610';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1443,6 +1443,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.sfmConvert': 'A Toolbox / SFM converter turns a standard-format interlinear file into .flextext, which FLEx and every app here can open. It shows which markers the file uses, lets you say what each one means \u2014 including which marker starts a new text, the thing that decides where one text ends and the next begins \u2014 and then saves one text, or every text in the file as a zip. It is on the Utilities tab in the editor and the Audio Segmenter, in Utilities in the researcher panel, and in the File menu of the Paragraph Analysis Tool. Nothing is uploaded.'
     ,'panel.rel.new.androidKeyboard': 'On Android the on-screen keyboard and its word suggestions now cover the bottom of the page instead of shoving everything upwards: the player and the buttons along the top stay exactly where they are, and you simply see fewer lines while typing. A box you are typing in is still never left behind the keyboard, and the toast, the upload tray and the activity tray ride above it.'
     ,'panel.rel.new.segFxpa': 'The Audio Segmenter can now export a Paragraph Analysis file (.fxpa), with the recording inside it, so a matched text can go straight into the Paragraph Analysis Tool.'
     ,'panel.rel.new.closeupBlank': 'Fixed: on a recording of any real length the close-up on the top player showed nothing but white. It worked by stretching the waveform picture, and on an eight-minute recording that asked for a picture wider than a browser will draw, so it drew none. The close-up now redraws a few seconds of the recording at the ordinary size, which costs the same however long the file is, and there is a little either side to scroll into. In the Paragraph Analysis Tool and on the exported listening page.'
@@ -2163,6 +2164,43 @@ internet after the first time.</p>
   'para.hideBlank': 'Hide blank lines',
   'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
   'para.showAudio': 'Audio',
+  'sfm.title': 'Toolbox / SFM converter',
+  'sfm.intro': 'Turns a Toolbox or other standard-format interlinear file into .flextext, which FLEx and every app in this suite can open. Nothing is uploaded: the file is read here on this device.',
+  'sfm.pick': 'Choose a Toolbox / SFM file\u2026',
+  'sfm.orPaste': 'Or paste the text of one:',
+  'sfm.usePaste': 'Use the pasted text',
+  'sfm.pasteEmpty': 'Nothing pasted yet.',
+  'sfm.pastedName': 'pasted text',
+  'sfm.noMarkers': 'No \\markers found \u2014 this does not look like a standard-format file.',
+  'sfm.close': 'Close',
+  'sfm.none': '\u2014 none \u2014',
+  'sfm.untitled': 'Untitled',
+  'sfm.markersFound': '{n} different markers',
+  'sfm.found': 'Texts found: {n}',
+  'sfm.nLines': '{n} lines',
+  'sfm.which': 'Text to save',
+  'sfm.saveOne': 'Save this text as .flextext',
+  'sfm.saveAll': 'Save all {n} as a zip of .flextext files',
+  'sfm.savedOne': 'Saved {name}.flextext',
+  'sfm.savedAll': 'Saved {n} files in a zip.',
+  'sfm.zipFailed': 'Could not build the zip: {msg}',
+  'sfm.needBaseline': 'Choose which marker holds the vernacular line before saving.',
+  'sfm.noneFound': 'No texts found with this mapping. Check which marker starts a new text.',
+  'sfm.risk.single-spaced': 'Warning: the word and gloss lines are single-spaced, so they cannot be lined up by column. Glosses may land on the wrong words.',
+  'sfm.risk.lopsided': 'Warning: fewer than half the words received a gloss. Check the word and gloss markers.',
+  'sfm.role.newtext': 'Starts a new text',
+  'sfm.role.title': 'Title of the text',
+  'sfm.role.ref': 'Reference (starts a line)',
+  'sfm.role.baseline': 'Vernacular line',
+  'sfm.role.gloss': 'Word glosses',
+  'sfm.role.morphemes': 'Morphemes',
+  'sfm.role.free': 'Free translation',
+  'sfm.role.literal': 'Literal translation',
+  'sfm.role.note': 'Notes',
+  'sfm.role.speaker': 'Speaker',
+  'sfm.role.start': 'Start time',
+  'sfm.role.end': 'End time',
+  'sfm.utilBtn': 'Convert a Toolbox / SFM file to .flextext\u2026',
   'para.wavesTip': 'Waveform size on each line',
   'para.wavesCompact': 'Hairline waves',
   'para.wavesNormal': 'Thin waves',
@@ -3673,6 +3711,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.sfmConvert': 'Pengubah Toolbox / SFM mengubah berkas interlinear format standar menjadi .flextext, yang dapat dibuka FLEx dan semua aplikasi di sini. Ia menampilkan penanda yang dipakai berkas itu, membiarkan Anda menentukan arti tiap penanda \u2014 termasuk penanda mana yang memulai teks baru, hal yang menentukan di mana satu teks berakhir dan berikutnya dimulai \u2014 lalu menyimpan satu teks, atau semua teks dalam berkas sebagai zip. Tersedia di tab Utilitas pada editor dan Pemotong Audio, di Utilitas pada panel peneliti, dan di menu Berkas pada Alat Analisis Paragraf. Tidak ada yang diunggah.'
     ,'panel.rel.new.androidKeyboard': 'Di Android, papan ketik layar dan saran katanya kini menutupi bagian bawah halaman alih-alih mendorong semuanya ke atas: pemutar dan tombol-tombol di bagian atas tetap di tempatnya, dan Anda hanya melihat lebih sedikit baris saat mengetik. Kotak yang sedang Anda ketik tetap tidak pernah tertutup papan ketik, dan pesan sekilas, baki unggahan serta baki aktivitas berada di atasnya.'
     ,'panel.rel.new.segFxpa': 'Pemotong Audio kini dapat mengekspor berkas Analisis Paragraf (.fxpa), lengkap dengan rekamannya, sehingga teks yang sudah dicocokkan bisa langsung masuk ke Alat Analisis Paragraf.'
     ,'panel.rel.new.closeupBlank': 'Diperbaiki: pada rekaman dengan durasi nyata, tampilan dekat pada pemutar atas hanya menampilkan warna putih. Cara kerjanya adalah merentangkan gambar gelombang, dan pada rekaman delapan menit itu meminta gambar yang lebih lebar daripada yang mampu digambar peramban, sehingga tidak ada yang tergambar. Kini tampilan dekat menggambar ulang beberapa detik rekaman pada ukuran biasa, yang biayanya sama berapa pun panjang berkasnya, dengan sedikit ruang di kiri dan kanan untuk digeser. Di Alat Analisis Paragraf dan di halaman dengar yang diekspor.'
@@ -4309,6 +4348,43 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.hideBlank': 'Sembunyikan baris kosong',
   'para.hideBlankTip': 'Baris kosong biasanya adalah keheningan antar ujaran. Menyembunyikannya hanya memengaruhi tampilan ini — barisnya tetap ada di file beserta waktunya, dan kelompok yang melintasinya tetap mencakupnya.',
   'para.showAudio': 'Audio',
+  'sfm.title': 'Pengubah Toolbox / SFM',
+  'sfm.intro': 'Mengubah berkas interlinear Toolbox atau format standar lain menjadi .flextext, yang dapat dibuka FLEx dan semua aplikasi dalam rangkaian ini. Tidak ada yang diunggah: berkas dibaca di perangkat ini.',
+  'sfm.pick': 'Pilih berkas Toolbox / SFM\u2026',
+  'sfm.orPaste': 'Atau tempel teksnya:',
+  'sfm.usePaste': 'Gunakan teks yang ditempel',
+  'sfm.pasteEmpty': 'Belum ada yang ditempel.',
+  'sfm.pastedName': 'teks tempelan',
+  'sfm.noMarkers': 'Tidak ada penanda \\ yang ditemukan \u2014 ini sepertinya bukan berkas format standar.',
+  'sfm.close': 'Tutup',
+  'sfm.none': '\u2014 tidak ada \u2014',
+  'sfm.untitled': 'Tanpa judul',
+  'sfm.markersFound': '{n} penanda berbeda',
+  'sfm.found': 'Teks ditemukan: {n}',
+  'sfm.nLines': '{n} baris',
+  'sfm.which': 'Teks yang disimpan',
+  'sfm.saveOne': 'Simpan teks ini sebagai .flextext',
+  'sfm.saveAll': 'Simpan semua {n} sebagai zip berisi berkas .flextext',
+  'sfm.savedOne': 'Tersimpan {name}.flextext',
+  'sfm.savedAll': 'Tersimpan {n} berkas dalam satu zip.',
+  'sfm.zipFailed': 'Tidak dapat membuat zip: {msg}',
+  'sfm.needBaseline': 'Pilih penanda yang memuat baris bahasa daerah sebelum menyimpan.',
+  'sfm.noneFound': 'Tidak ada teks yang ditemukan dengan pemetaan ini. Periksa penanda mana yang memulai teks baru.',
+  'sfm.risk.single-spaced': 'Peringatan: baris kata dan glos hanya berjarak satu spasi, sehingga tidak dapat disejajarkan per kolom. Glos bisa jatuh pada kata yang salah.',
+  'sfm.risk.lopsided': 'Peringatan: kurang dari separuh kata mendapat glos. Periksa penanda kata dan glos.',
+  'sfm.role.newtext': 'Memulai teks baru',
+  'sfm.role.title': 'Judul teks',
+  'sfm.role.ref': 'Rujukan (memulai satu baris)',
+  'sfm.role.baseline': 'Baris bahasa daerah',
+  'sfm.role.gloss': 'Glos kata',
+  'sfm.role.morphemes': 'Morfem',
+  'sfm.role.free': 'Terjemahan bebas',
+  'sfm.role.literal': 'Terjemahan harfiah',
+  'sfm.role.note': 'Catatan',
+  'sfm.role.speaker': 'Pembicara',
+  'sfm.role.start': 'Waktu mulai',
+  'sfm.role.end': 'Waktu selesai',
+  'sfm.utilBtn': 'Ubah berkas Toolbox / SFM menjadi .flextext\u2026',
   'para.wavesTip': 'Ukuran gelombang suara pada tiap baris',
   'para.wavesCompact': 'Gelombang sangat tipis',
   'para.wavesNormal': 'Gelombang tipis',

@@ -681,6 +681,8 @@ const GROUPS = [
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
+    { k: 'baselineTab', type: 'checkbox', note: 'panel.f.editorTabsNote' },
+    { k: 'glossTab', type: 'checkbox' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
@@ -9045,6 +9047,8 @@ function toFormValues(s) {
     else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
+    else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
+    else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     /* ⚠ A NEW PROJECT GETS THE NEW BEHAVIOUR; an existing one keeps whatever it had (Seth,

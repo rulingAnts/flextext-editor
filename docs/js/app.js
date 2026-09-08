@@ -925,8 +925,12 @@ function applyCutHint() {
 /* Show or hide the Cut tab button. Called on entry and whenever settings change live, so a
  * researcher push adds or removes the tab without a reload. */
 function applyCutTabVisibility() {
-  const btn = $('#tab-cut');
-  if (btn) btn.hidden = !cutTabEnabled();
+  const set = (sel, on) => { const b = $(sel); if (b) b.hidden = !on; };
+  set('#tab-cut', cutTabEnabled());
+  set('#topbar-editor .top-tab[data-tab="baseline"]', baselineTabEnabled());
+  set('#topbar-editor .top-tab[data-tab="gloss"]', glossTabEnabled());
+  // A live push can switch off the tab currently being looked at — leave it rather than strand them.
+  if (activeTab && !editorTabEnabled(activeTab) && !$('#topbar-editor').hidden) switchTab(firstEnabledTab(), true);
 }
 
 // Segmentation mode: researcher-pushed setting, with a URL escape (?segmentation=1) so the
@@ -993,7 +997,31 @@ function enterAtEndAdvances(s) {
  * ⚠ Every one of them is also gated on segmentationEnabled(), because none of them means anything
  * in the classic textarea workflow. A researcher who turns segmentation off should not find five
  * orphaned controls still acting on a UI that no longer exists. */
-function cutTabEnabled() { return segmentationEnabled() && settings.cutTab !== false; }
+/* ⚠ EACH EDITOR TAB IS THE RESEARCHER'S TO GRANT (Seth, 2026-09-08: "all three tabs in the editor
+ * should be enableable/disablable for a paired device. This enables the researcher to delegate
+ * different steps to different users. Or at least to do that while they're learning to use the
+ * app"). One coworker cuts the audio, another transcribes, a third glosses — or a beginner is given
+ * one tab and grows into the rest. Same shape as every other device permission: absent means ON, so
+ * nothing changes for an existing device until the researcher decides otherwise.
+ *
+ * ⚠ AND NEVER ALL THREE OFF. A device with no editor tab is a coworker who cannot work and cannot
+ * put it right themselves — in a village that is days from help. If the settings would leave
+ * nothing, Baseline comes back: it is the one tab that needs neither audio nor prior analysis. */
+function tabWanted(tab) {
+  if (tab === 'cut') return segmentationEnabled() && settings.cutTab !== false;
+  if (tab === 'gloss') return settings.glossTab !== false;
+  return settings.baselineTab !== false;
+}
+function editorTabEnabled(tab) {
+  if (tabWanted(tab)) return true;
+  return tab === 'baseline' && !tabWanted('cut') && !tabWanted('gloss');
+}
+function firstEnabledTab() {
+  return ['baseline', 'cut', 'gloss'].find(editorTabEnabled) || 'baseline';
+}
+function cutTabEnabled() { return editorTabEnabled('cut'); }
+function baselineTabEnabled() { return editorTabEnabled('baseline'); }
+function glossTabEnabled() { return editorTabEnabled('gloss'); }
 function landOnCutEnabled() { return cutTabEnabled() && settings.landOnCut !== false; }
 function joinSplitAllowed(tab) {
   if (!segmentationEnabled()) return true;   // classic mode has its own rules; this is not its gate
@@ -1809,6 +1837,10 @@ async function prepareCutAudio() {
 
 function switchTab(tab, landing) {
   splitCancel();   // a split half-placed on another tab is dropped, with nothing written
+  /* ⚠ ONE GATE FOR EVERY PATH IN. Landing, a remembered tab, a live researcher push and a click all
+   * arrive here, so refusing a switched-off tab once is enough — see editorTabEnabled. AFTER the
+   * cancel deliberately: leaving a tab drops a half-placed split whether or not we then redirect. */
+  if (!editorTabEnabled(tab)) tab = firstEnabledTab();
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
     applyBaseline();
@@ -4736,7 +4768,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -6216,6 +6248,10 @@ const SETUP_GROUPS = [
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
+    // ⚠ The other two tabs, so steps can be handed to different coworkers. Never all three off —
+    // editorTabEnabled brings Baseline back rather than leave a device with nothing.
+    { k: 'baselineTab', type: 'checkbox', note: 'panel.f.editorTabsNote' },
+    { k: 'glossTab', type: 'checkbox' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
@@ -6483,6 +6519,8 @@ function deviceSetupValues() {
     else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
+    else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
+    else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     // Same rule as the panel's twin: an explicit value wins, otherwise a device that has stored

@@ -1186,6 +1186,9 @@ function glossDrag() {
 function decorateGlossSegments() {
   if (!segmentationEnabled() || !current) return;
   const segs = docSegments(current.doc);
+  /* The ✂ lane under each wave, only when this tab actually offers splitting — see .gseg-cutlane.
+   * Paying the space when nobody can split would be a straight loss of screen on a phone. */
+  if ($('#gloss-body')) $('#gloss-body').classList.toggle('gseg-cutlane', joinSplitAllowed('gloss'));
   const groups = $('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment') : [];
   const entries = [];
   groups.forEach((g, i) => {

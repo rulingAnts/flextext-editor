@@ -42,7 +42,7 @@ test('the researcher can reach it, in both languages', () => {
     assert.match(src, /\{ k: 'wordGloss', type: 'checkbox', note: 'panel\.f\.wordGlossNote' \}/, name);
     assert.match(src, /else if \(f\.k === 'wordGloss'\) v\.wordGloss = s\.wordGloss !== false;/, `${name}: unset shows ticked`);
   }
-  assert.match(APP, /'glossTab', 'wordGloss', 'landOnCut'/, 'travels with a setup link');
+  assert.match(APP, /'glossTab', 'wordGloss', 'glossLanding', 'landOnCut'/, 'travels with a setup link');
   for (const k of ['panel.f.wordGloss', 'panel.f.wordGlossNote']) {
     assert.equal((I18N.match(new RegExp("'" + k.replace(/\./g, '\\.') + "':", 'g')) || []).length, 2, `${k}: EN + ID`);
   }
@@ -76,4 +76,38 @@ test('the rule reaches stored snapshots too, not just the live form', () => {
     'settingsToRaw carries them, so a merged push is held to the same rule');
   assert.match(PANEL, /out\.push\(\{ group: 'segmentation', field: 'baselineTab', msg: t\('panel\.val\.tabsNone'\) \}\)/);
   assert.equal((I18N.match(/'panel\.val\.tabsNone':/g) || []).length, 2, 'EN + ID');
+});
+
+/* ── where the caret lands on the Gloss tab, which is now the researcher's call ─────────────── */
+
+/* Seth, 2026-09-08: "Gloss default landing box as free translation is where I want to go now. But
+ * let's have that be a device setting in the researcher and unpaired device settings… let's start
+ * with free translation as the default for now."
+ *
+ * ⚠ This only decides where a user lands when the remembered caret is STALE — part-way through a
+ * box on the same line, they simply carry on (see restoreTypingFocus). The two answers suit
+ * different jobs, which is what makes it a setting rather than a rule: the free line for somebody
+ * translating, the next unfilled gloss for somebody glossing. Issue #58 asked the question first. */
+test('the Gloss landing box is a setting, defaulting to the free translation', () => {
+  const target = APP.slice(APP.indexOf('function typingTargetForLastPlayed'), APP.indexOf('function spaceToggles'));
+  assert.match(target, /if \(settings\.glossLanding === 'gloss'\) \{/, "only 'gloss' opts out");
+  assert.match(target, /return g\.querySelector\('\.free-input'\) \|\| glosses\[glosses\.length - 1\] \|\| null;/,
+    'absent ⇒ the free translation, so the default needs no seeding');
+  // ⚠ each option falls back to the OTHER kind of box: a line may have no translation field, and
+  // with word glossing off it has no gloss boxes at all.
+  assert.match(target, /glosses\.find\(\(el\) => !el\.value\.trim\(\)\) \|\| glosses\[glosses\.length - 1\] \|\| g\.querySelector\('\.free-input'\)/,
+    "'gloss' still lands somewhere on a line with no gloss boxes");
+});
+
+test('both settings surfaces carry it, in both languages', () => {
+  const field = /\{ k: 'glossLanding', type: 'select', opts: \['free', 'gloss'\], optPrefix: 'panel\.opt\.glossLanding\.', note: 'panel\.f\.glossLandingNote' \}/;
+  assert.match(PANEL, field, 'the researcher panel');
+  assert.match(APP, field, 'and the unpaired device Settings tab');
+  assert.match(APP, /else if \(f\.k === 'glossLanding'\) v\.glossLanding = s\.glossLanding === 'gloss' \? 'gloss' : 'free';/,
+    'an unset value shows as the free translation, matching the engine default');
+  assert.match(APP, /'wordGloss', 'glossLanding', 'landOnCut'/, 'and it travels with a setup link');
+  for (const k of ['panel.f.glossLanding', 'panel.f.glossLandingNote',
+                   'panel.opt.glossLanding.free', 'panel.opt.glossLanding.gloss']) {
+    assert.equal((I18N.match(new RegExp("'" + k.replace(/\./g, '\\.') + "':", 'g')) || []).length, 2, `${k}: EN + ID`);
+  }
 });

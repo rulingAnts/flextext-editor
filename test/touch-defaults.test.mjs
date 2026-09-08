@@ -187,12 +187,15 @@ test('2026-09-06: with Space off, a plain keystroke goes to the last played line
   assert.doesNotMatch(focus, /getBoundingClientRect|clientWidth|left|right/, 'no visual-edge arithmetic, so right-to-left needs nothing here');
   const target = APP.slice(APP.indexOf('function typingTargetForLastPlayed()'), APP.indexOf('function spaceToggles()'));
   assert.match(target, /if \(activeTab === 'baseline'\) return \$\('#segment-strips'\)\?\.querySelectorAll\('\.seg-text'\)\[i\]/, 'Baseline: that line\'s text box');
-  /* ⚠ CHANGED 2026-09-08. This used to guess the next box worth filling — the first EMPTY gloss.
-   * Seth asked for a fixed, predictable landing place instead: "default to cursor at the end of the
-   * baseline or free translation box, depending on which tab you're on". Predictability is the
-   * point, because this is the place the user lands whenever the remembered caret is stale. The
-   * gloss boxes stay as the fallback for a line with no translation field. */
-  assert.match(target, /return g\.querySelector\('\.free-input'\) \|\| \[\.\.\.g\.querySelectorAll\('\.gloss-input'\)\]\.pop\(\)/,
-    'Gloss: the free translation, falling back to a gloss box');
+  /* ⚠ CHANGED TWICE ON 2026-09-08, and it is a SETTING now. It used to guess the next box worth
+   * filling (the first EMPTY gloss). Seth wanted a predictable landing place instead — "default to
+   * cursor at the end of the baseline or free translation box" — and then, on reflection, wanted
+   * the choice itself handed over: "let's have that be a device setting… but let's start with free
+   * translation as the default for now." The two answers suit different jobs, which is what makes
+   * it a setting rather than a rule. See issue #58, which asked the question before it had one. */
+  assert.match(target, /if \(settings\.glossLanding === 'gloss'\) \{/, 'the researcher can pick the gloss box');
+  assert.match(target, /glosses\.find\(\(el\) => !el\.value\.trim\(\)\)/, "…and 'gloss' means the first EMPTY one");
+  assert.match(target, /return g\.querySelector\('\.free-input'\) \|\| glosses\[glosses\.length - 1\] \|\| null;/,
+    'the default (absent) is the free translation, falling back to a gloss box');
   assert.match(target, /if \(!allowTextEditOn\(\)\) return null;/, 'matcher: only when the researcher allowed text editing');
 });

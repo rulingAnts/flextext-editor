@@ -4788,7 +4788,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -6273,6 +6273,7 @@ const SETUP_GROUPS = [
     { k: 'baselineTab', type: 'checkbox', note: 'panel.f.editorTabsNote' },
     { k: 'glossTab', type: 'checkbox' },
     { k: 'wordGloss', type: 'checkbox', note: 'panel.f.wordGlossNote' },
+    { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
@@ -6543,6 +6544,7 @@ function deviceSetupValues() {
     else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
     else if (f.k === 'wordGloss') v.wordGloss = s.wordGloss !== false;
+    else if (f.k === 'glossLanding') v.glossLanding = s.glossLanding === 'gloss' ? 'gloss' : 'free';
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     // Same rule as the panel's twin: an explicit value wins, otherwise a device that has stored
@@ -11171,12 +11173,22 @@ function typingTargetForLastPlayed() {
   if (activeTab === 'gloss') {
     const g = $('#gloss-body')?.querySelectorAll('.segment')[i];
     if (!g) return null;
-    /* ⚠ THE FREE TRANSLATION IS THE DEFAULT HERE, not the first empty gloss box (Seth, 2026-09-08:
-     * "default to cursor at the end of the baseline or free translation box, depending on which tab
-     * you're on"). It used to guess the next box worth filling; a fixed, predictable landing place
-     * is what he asked for instead. The gloss boxes remain the fallback for a line that has no
-     * translation field — with word glossing switched off there are none, and vice versa. */
-    return g.querySelector('.free-input') || [...g.querySelectorAll('.gloss-input')].pop() || null;
+    /* ⚠ WHERE THE CARET LANDS HERE IS THE RESEARCHER'S CALL (Seth, 2026-09-08: "Gloss default
+     * landing box as free translation is where I want to go now. But let's have that be a device
+     * setting"). The two answers suit different jobs: somebody translating wants the free line,
+     * somebody glossing wants the next box still to fill. Which is right depends on the task that
+     * device has been given — the same reasoning as wordGloss and the per-tab gates.
+     *
+     * Default is the free translation (absent ⇒ 'free'), which is the predictable landing place
+     * Seth asked for and what shipped in v636. `gloss` restores the older behaviour: the first
+     * EMPTY gloss box, falling back to the last. Either way the other kind of box is the fallback,
+     * so a line with no translation field — or none with word glossing off — still lands somewhere.
+     * See issue #58, which asked this question before it became a setting. */
+    const glosses = [...g.querySelectorAll('.gloss-input')];
+    if (settings.glossLanding === 'gloss') {
+      return glosses.find((el) => !el.value.trim()) || glosses[glosses.length - 1] || g.querySelector('.free-input') || null;
+    }
+    return g.querySelector('.free-input') || glosses[glosses.length - 1] || null;
   }
   return null;
 }

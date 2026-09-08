@@ -183,7 +183,7 @@ every caller knows the setting it wants, never which tab happens to hold it.
 
 | Marker | Meaning |
 |---|---|
-| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Ten fields; six whose engine gate reads `!Sync.hasSession() || settings.X === true`, four that wait on an upload that cannot happen. |
+| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Ten fields; six whose engine gate reads `!Sync.hasSession() \|\| settings.X === true`, four that wait on an upload that cannot happen. |
 | `only: 'segmenter'` | the field appears in that mode's Settings tab only (`setupGroupsFor`) |
 | `standalone: true` | exists on the unlinked surface alone — `consentAudioFile`, the picked file where the panel pushes a Drive URL |
 | `type: 'action'` | a **button**, not a setting (`archivalDefaults`) — excluded from collect/fill |

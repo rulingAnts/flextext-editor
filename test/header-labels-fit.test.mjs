@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const APP = rd('../docs/js/app.js'), CSS = rd('../docs/css/app.css');
+const HTML_EDITOR = rd('../docs/index.html'), HTML_SEG = rd('../satellites/audio-segmenter/index.html');
 const fits = APP.slice(APP.indexOf('function headerRowFits'), APP.indexOf('function scheduleHeaderLabels'));
 
 test('auto asks whether the row fits, rather than how wide the screen is', () => {
@@ -25,8 +26,6 @@ test('auto asks whether the row fits, rather than how wide the screen is', () =>
 test('the title is measured at its comfortable width, not its real one', () => {
   assert.match(APP, /TITLE_COMFORT_PX = 120;/);
   assert.match(fits, /el\.classList\.contains\('doc-title'\) \? TITLE_COMFORT_PX : el\.getBoundingClientRect\(\)\.width/);
-  // and that is deliberately larger than the CSS floor, which is only the last-resort squeeze
-  assert.match(CSS, /#topbar-editor \.doc-title \{ min-width: 56px; \}/);
 });
 
 test('a portrait tablet is narrow by decree, fit or no fit', () => {
@@ -47,10 +46,29 @@ test('an unmeasurable row keeps the last answer and re-measures when shown', () 
   assert.match(APP, /window\.addEventListener\('resize', scheduleHeaderLabels/, 'as does a resize');
 });
 
-/* Seth: "we want our title textbox to auto resize to make sure all the UI controls stay on one
- * line." The row used to wrap, so the CONTROLS moved and the title kept its width — backwards. */
-test('the row never wraps and only the title gives', () => {
-  assert.match(CSS, /#topbar-editor \{ flex-wrap: nowrap; \}/);
+/* THREE STAGES, IN ORDER (Seth, 2026-09-08): the title gives up its slack, then the words become
+ * icons, then — only then — the row wraps. The row used to wrap first and wherever it liked, which
+ * moved the CONTROLS while the title kept its width, exactly backwards. */
+test('the title gives first: every control holds its size', () => {
   assert.match(CSS, /#topbar-editor > \*:not\(\.doc-title\) \{ flex: none; \}/,
-    'every control holds its size; the title absorbs what is left');
+    'only the title flexes, so it is the slack that goes');
+  assert.match(CSS, /\.doc-title \{\s*\n\s*flex: 1 1 140px;\s*\n\s*min-width: 120px;/,
+    '⚠ and it keeps a COMFORTABLE floor — wrapping is a better escape valve than an unusable title');
+});
+
+/* ⚠ AND WHEN IT MUST WRAP, IT WRAPS IN ONE PLACE. Seth: "IF wrapping happens (which it may have
+ * to), wrapping should happen between the question mark and the tabs so that the tabs end up on the
+ * bottom row of the upper UI area with the save and send buttons." A flex row otherwise breaks
+ * wherever it runs out of room; one grouped child makes that one predictable place. */
+test('wrapping is allowed, and breaks between the ? and the tabs', () => {
+  assert.match(CSS, /#topbar-editor \{ flex-wrap: wrap; \}/, 'wrapping is possible again');
+  assert.match(CSS, /\.topbar-tail \{ display: flex;[^}]*\}/, 'the tail is its own flex row');
+  for (const [name, html] of [['editor', HTML_EDITOR], ['segmenter', HTML_SEG]]) {
+    const tail = html.slice(html.indexOf('<div class="topbar-tail">'), html.indexOf('</div>', html.indexOf('<div class="topbar-tail">')));
+    assert.ok(tail.includes('class="top-tabs"'), `${name}: the tabs are in the tail`);
+    assert.ok(tail.includes('id="btn-save"'), `${name}: Save with them`);
+    assert.ok(tail.includes('id="btn-share"'), `${name}: and Done`);
+    // the help ? must stay OUTSIDE, since the break belongs between it and the tabs
+    assert.ok(!tail.includes('help-btn'), `${name}: the ? stays on the first row`);
+  }
 });

@@ -68,12 +68,14 @@ test('the researcher chooses words, icons, both, or auto; auto is icons only bel
   assert.match(body, /matchMedia\(`\(max-width: \$\{ICONS_BELOW_PX - 1\}px\)`\)/, 'still the fallback query');
   assert.match(body, /m\.addEventListener\('change', \(\) => applyHeaderLabels\(\)\)/, 'and re-decides live');
   /* ⚠ ASK WHAT THE DEVICE CAN DO, NOT WHAT IT CLAIMS TO BE — and note WHY, because the reason is
-   * not the one it looks like. This is not a privacy or security rule (Seth, 2026-09-08: "UA device
-   * sniffing is not a privacy/security issue for us"). It is here because on the original problem a
-   * first attempt DID sniff the device and simply did not fix it: what the layout needed to know
-   * was a capability, and a name for the device does not answer that question. The portrait rule
-   * ("a tablet that is held vertically should then be treated as a screen smaller than 1000px") is
-   * a capability query for the same reason — it asks about the pointer, not the brand. */
+   * not the one it looks like, and it is NOT a blanket ban. This is not a privacy or security rule
+   * (Seth, 2026-09-08: "UA device sniffing is not a privacy/security issue for us"), and sniffing is
+   * sometimes the right tool — "especially if it's a capability that really is Android/mobile
+   * specific." The test is what you are actually asking about. Here it is touch and width, and
+   * "touch screens and screen width are not device specific, so" a device's NAME cannot answer it:
+   * the first attempt at this problem sniffed, and did not fix it. The portrait rule asks about the
+   * pointer for the same reason. Somewhere else, about something genuinely platform-bound, the UA
+   * may well be the honest question — don't read this line as forbidding it there. */
   assert.doesNotMatch(APP.slice(APP.indexOf('function applyHeaderLabels()'), APP.indexOf('function applyUiScale()')),
     /userAgent|maxTouchPoints/, 'a device name cannot answer a capability question');
   assert.match(body, /matchMedia\('\(orientation: portrait\) and \(pointer: coarse\)'\)/,

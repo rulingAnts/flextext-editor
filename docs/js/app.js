@@ -2084,7 +2084,9 @@ function getPlayer() {
       // key in mediaKey; an original has none and keeps the old behaviour.
       onPeaks: (media) => { db.putMedia(media.mediaKey || playerDocId, media).catch(() => {}); },
       onRemove: async () => {
-        if (!current || isAudioLocked(current)) return;
+        // ⚠ Re-checked here, not just when the dock was drawn: changeSettings can land mid-session,
+        // and the button may already be on screen when the permission goes away.
+        if (!current || isAudioLocked(current) || !allowAudioRemoveOn()) return;
         if (!await confirmDialog(t('player.confirmRemove'))) return;
         await db.deleteMedia(current.id);
         playerReadyFor = null;   // the decoded buffer no longer corresponds to ANY stored audio
@@ -2166,7 +2168,7 @@ async function refreshPlayer() {
   let media = await db.getMedia(current.id).catch(() => null);
   media = await segWorkingMedia(current.id, media, current.title);   // WAV working copy in segmentation mode
   if (current.id !== playerDocId || !isEditorTab(activeTab)) return;
-  p.el.remove.hidden = isAudioLocked(current);
+  p.el.remove.hidden = isAudioLocked(current) || !allowAudioRemoveOn();
   if (media) {
     updateDlControls('done');
     // Re-load only when switching docs (avoid resetting playback position) — or when the waveform
@@ -4235,6 +4237,14 @@ function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete ===
 // Researcher-controlled: may this device add a blank text line in the matcher? Same shape and
 // default as the two below — on when there is no researcher session.
 function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankLines === true; }
+/* Researcher-controlled: may this device REMOVE a text's recording (the ✕ on the player dock)?
+ * Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on, and a
+ * PAIRED device has it off unless the researcher says otherwise (Seth, 2026-09-08: "we don't want
+ * or need this… enabled by default on unpaired devices but disabled by default on all paired
+ * devices starting now"). Note the default is computed from the pairing, not seeded once: unlike
+ * enterAtEnd there is no grandfathering here, so already-paired devices lose the button too, which
+ * is what "starting now" asked for. One switch covers every tab, because there is one player dock. */
+function allowAudioRemoveOn() { return !Sync.hasSession() || settings.allowAudioRemove === true; }
 // Researcher-controlled: may this device swap a text's recording for a different file?
 // Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on.
 function allowAudioSwapOn() { return !Sync.hasSession() || settings.allowAudioSwap === true; }
@@ -4722,7 +4732,7 @@ async function syncGatherInventory() {
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
-                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled', 'sortAlpha',
+                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
                    'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
@@ -6274,6 +6284,9 @@ const SETUP_GROUPS = [
     // switch off on a device they manage.
     { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
     { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
+    // The player dock's ✕. No `only`: the dock is in the editor AND the segmenter, and Seth asked
+    // for "one setting" across the tabs rather than one per app.
+    { k: 'allowAudioRemove', type: 'checkbox', off: 'setup.off.allowAudioRemove' },
     // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and whether the plain
     // Space bar plays (automatic = off on a touch screen, where Space is for typing).
     { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
@@ -6761,7 +6774,7 @@ function updateSetupConditionals(box) {
  * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
  * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
 const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
-  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels', 'adjustBoundaries']);
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowAudioRemove', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels', 'adjustBoundaries']);
 function setupGroupsFor() {
   const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
   return SETUP_GROUPS

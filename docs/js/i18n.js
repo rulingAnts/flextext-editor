@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v629';
+export const ENGINE_VERSION = 'v630';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -426,6 +426,7 @@ en: {
   'setup.off.autoBackup': 'Auto-backup sends changed texts to a researcher\u2019s Google Drive. A standalone app has no Drive account to send them to.',
   'setup.off.deleteAllEnabled': 'A standalone app always has Delete All \u2014 it is your own app, so it is never withheld. A researcher can switch it off on a device they manage.',
   'setup.off.allowDelete': 'A standalone app always lets you delete texts. A researcher can switch that off on a device they manage, so a coworker cannot lose work by accident.',
+  'setup.off.allowAudioRemove': 'A standalone app always lets you remove a recording. A researcher can switch that off on a device they manage, so a coworker cannot lose a recording by accident.',
   'setup.off.allowBlankLines': 'A standalone app always lets you add blank lines. A researcher can switch that off on a device they manage.',
   'setup.off.allowTextEdit': 'A standalone app always lets you edit words, glosses and translations in place. A researcher can switch that off on a device they manage.',
   'setup.off.doneEnabled': 'The Finished button reports to a researcher and sends the text to their Drive. A standalone app has neither, so the button would have nothing to do.',
@@ -1449,6 +1450,8 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.cutModeReadOnly': 'While a line is switched into cutting, its text can no longer be typed into by accident. You can still tap to put the cursor where the cut should go — that is what the cut needs — but the letters themselves stay as they are until you switch cutting off again. On a phone this also keeps the keyboard down, so the sound picture you are cutting against stays in view.'
+    ,'panel.rel.new.allowAudioRemove': 'The button that removes a recording from a text is now yours to grant. A device working on its own still has it, as before; a device you manage does not, unless you switch it on for them.'
     ,'panel.rel.new.armNoJump': 'Turning cutting on for a line no longer shifts that line down the screen. The line stays exactly where it was and the scissors simply appear — which is what switching cutting on and off was for in the first place, since while you are choosing where to cut, a button resting over a word does not matter.'
     ,'panel.rel.new.glossBesideCut': 'On the Gloss tab the words and glosses now begin to the right of the cut button and sit level with it, instead of starting on a line of their own below it, so each line takes less room on the screen. When a line is switched into cutting, it makes space again so the scissors never come down over the words.'
     ,'panel.rel.fix.edgeCutNudge': 'Cutting very close to the beginning or end of a line used to leave that line holding all of its sound, including the part that belonged to the new line, while the new line got none of it — quietly, and it added up over a long text. Such a cut is now moved the smallest possible distance inwards and the sound really is divided, with both lines marked as having a time we adjusted.'
@@ -2006,6 +2009,7 @@ internet after the first time.</p>
   'panel.f.segTimeNotesNote': 'Off = attributes only. The times still round-trip either way; FLEx just shows no note line for them.',
   'panel.f.allowBlankLines': 'Audio Segmenter: let the coworker add blank text lines (for audio with no words yet)',
   'panel.f.allowTextEdit': 'Audio Segmenter: let the coworker edit and add words, glosses and free translations in place',
+  'panel.f.allowAudioRemove': 'Let the coworker remove a text\u2019s recording (the \u2715 on the player)',
   'panel.f.uiScale': 'Text size (whole app)',
   'panel.f.headerLabels': 'Top-row buttons and tabs',
   'panel.f.headerLabelsNote': 'Automatic goes by the width of the screen alone: icons only when the screen is narrower than 1000 px (a small tablet, a phone, a narrowed window), icons with words on anything wider. The words stay available to screen readers and on hover in every choice.',
@@ -2873,6 +2877,7 @@ id: {
   'setup.off.autoBackup': 'Cadangan otomatis mengirim teks yang berubah ke Google Drive peneliti. Aplikasi mandiri tidak punya akun Drive tujuan.',
   'setup.off.deleteAllEnabled': 'Aplikasi mandiri selalu punya Hapus Semua \u2014 ini aplikasi Anda sendiri, jadi tidak pernah ditahan. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowDelete': 'Aplikasi mandiri selalu mengizinkan penghapusan teks. Peneliti dapat mematikannya di perangkat yang mereka kelola, agar rekan kerja tidak kehilangan pekerjaan karena tidak sengaja.',
+  'setup.off.allowAudioRemove': 'Aplikasi mandiri selalu mengizinkan penghapusan rekaman. Peneliti dapat mematikannya di perangkat yang mereka kelola, agar rekan kerja tidak kehilangan rekaman karena tidak sengaja.',
   'setup.off.allowBlankLines': 'Aplikasi mandiri selalu mengizinkan penambahan baris kosong. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowTextEdit': 'Aplikasi mandiri selalu mengizinkan penyuntingan kata, glos, dan terjemahan di tempat. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.doneEnabled': 'Tombol Selesai melapor ke peneliti dan mengirim teks ke Drive mereka. Aplikasi mandiri tidak punya keduanya, jadi tombol itu tidak akan ada gunanya.',
@@ -3759,6 +3764,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.cutModeReadOnly': 'Selagi sebuah baris dialihkan ke mode potong, teksnya tidak lagi dapat terketik secara tidak sengaja. Anda tetap dapat mengetuk untuk menaruh kursor di tempat potongan seharusnya — itulah yang dibutuhkan pemotongan — tetapi hurufnya tetap seperti semula sampai mode potong dimatikan lagi. Di ponsel, ini juga menahan papan ketik agar gambar suara yang sedang Anda potong tetap terlihat.'
+    ,'panel.rel.new.allowAudioRemove': 'Tombol untuk menghapus rekaman dari sebuah teks kini menjadi izin yang Anda berikan. Perangkat yang bekerja sendiri tetap memilikinya seperti sebelumnya; perangkat yang Anda kelola tidak, kecuali Anda menyalakannya untuk mereka.'
     ,'panel.rel.new.armNoJump': 'Menyalakan mode potong pada sebuah baris tidak lagi menggeser baris itu ke bawah layar. Baris tetap di tempatnya dan gunting cukup muncul — memang itulah gunanya menyalakan dan mematikan mode potong, sebab ketika Anda sedang memilih tempat memotong, tombol yang menutupi sebuah kata tidaklah menjadi soal.'
     ,'panel.rel.new.glossBesideCut': 'Di tab Gloss, kata dan gloss kini dimulai di sebelah kanan tombol potong dan sejajar dengannya, bukan mulai pada baris tersendiri di bawahnya, sehingga setiap baris memakan lebih sedikit ruang layar. Saat sebuah baris dialihkan ke mode potong, ruang itu dikembalikan agar gunting tidak pernah menutupi kata-kata.'
     ,'panel.rel.fix.edgeCutNudge': 'Memotong sangat dekat dengan awal atau akhir baris dahulu membuat baris itu menyimpan seluruh suaranya, termasuk bagian milik baris baru, sedangkan baris baru tidak mendapat apa-apa — diam-diam, dan itu menumpuk pada teks yang panjang. Potongan seperti itu kini digeser sedikit mungkin ke dalam dan suaranya benar-benar dibagi, dengan kedua baris ditandai sebagai waktu yang kami sesuaikan.'
@@ -4244,6 +4251,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.segTimeNotesNote': 'Mati = atribut saja. Waktunya tetap ikut bolak-balik; FLEx hanya tidak menampilkan baris catatannya.',
   'panel.f.allowBlankLines': 'Pemotong Audio: izinkan rekan kerja menambah baris teks kosong (untuk audio yang belum ada katanya)',
   'panel.f.allowTextEdit': 'Pemotong Audio: izinkan rekan kerja menyunting dan menambah kata, glos, dan terjemahan bebas di tempat',
+  'panel.f.allowAudioRemove': 'Izinkan rekan kerja menghapus rekaman sebuah teks (tanda \u2715 pada pemutar)',
   'panel.f.uiScale': 'Ukuran teks (seluruh aplikasi)',
   'panel.f.headerLabels': 'Tombol dan tab baris atas',
   'panel.f.headerLabelsNote': 'Otomatis hanya melihat lebar layar: ikon saja bila lebar layar kurang dari 1000 px (tablet kecil, ponsel, jendela yang dipersempit), ikon beserta kata pada yang lebih lebar. Katanya tetap tersedia untuk pembaca layar dan saat disorot pada setiap pilihan.',

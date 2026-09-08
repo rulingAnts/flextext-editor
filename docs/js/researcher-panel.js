@@ -738,6 +738,9 @@ const GROUPS = [
     // for an unpaired device — somebody working alone — and are the researcher's to switch off.
     { k: 'allowBlankLines', type: 'checkbox' },
     { k: 'allowTextEdit', type: 'checkbox' },
+    // The ✕ on the player dock, in the editor and the segmenter alike. Same default as the two
+    // above — on when working alone, off on a device you manage until you say otherwise.
+    { k: 'allowAudioRemove', type: 'checkbox' },
     // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and whether the plain
     // Space bar plays (automatic = off on a touch screen). Both pushed like any other setting.
     { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
@@ -1230,6 +1233,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v630', date: '2026-09-08', items: [
+    { k: 'panel.rel.new.cutModeReadOnly' },
+    { k: 'panel.rel.new.allowAudioRemove' },
+  ] },
   { v: 'v629', date: '2026-09-08', items: [
     { k: 'panel.rel.new.armNoJump' },
   ] },

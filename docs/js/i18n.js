@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v639';
+export const ENGINE_VERSION = 'v641';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -433,6 +433,7 @@ en: {
   'setup.off.deleteAllEnabled': 'A standalone app always has Delete All \u2014 it is your own app, so it is never withheld. A researcher can switch it off on a device they manage.',
   'setup.off.allowDelete': 'A standalone app always lets you delete texts. A researcher can switch that off on a device they manage, so a coworker cannot lose work by accident.',
   'setup.off.allowAudioRemove': 'A standalone app always lets you remove a recording. A researcher can switch that off on a device they manage, so a coworker cannot lose a recording by accident.',
+  'setup.off.allowAudioSwap': 'A standalone app always lets you swap a recording for a different file. A researcher can switch that off on a device they manage.',
   'setup.off.allowBlankLines': 'A standalone app always lets you add blank lines. A researcher can switch that off on a device they manage.',
   'setup.off.allowTextEdit': 'A standalone app always lets you edit words, glosses and translations in place. A researcher can switch that off on a device they manage.',
   'setup.off.doneEnabled': 'The Finished button reports to a researcher and sends the text to their Drive. A standalone app has neither, so the button would have nothing to do.',
@@ -499,7 +500,7 @@ en: {
   'sync.removedAfterUpload': 'Uploaded to Drive, then removed from this device (researcher\'s request).',
   'panel.f.autoBackup': 'Auto-backup changed texts',
   'panel.f.maxRecordSeconds': 'Maximum recording length',
-  'panel.f.archivalDefaults': 'Archival defaults',
+  'panel.f.archivalDefaults': 'Use archival settings',
   'panel.f.archivalNote': 'Widely accepted for language archives: 24-bit WAV with auto-gain, noise reduction, echo cancellation, and normalization all OFF. This button sets exactly that — then Save.',
   'panel.f.archivalSet': 'Archival settings applied — Save to keep them.',
   'panel.f.maxRecUnlimited': 'no limit',
@@ -1456,6 +1457,9 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.fix.spaceOnPlayer': 'On a device where the space bar types rather than plays, pressing it while the player itself is selected now plays instead of putting a space in the text. Resting on the player can only mean one thing. A space typed in a text box is still a space.'
+    ,'panel.rel.new.settingsLayout': 'Device settings are reorganised. Forty-nine switches sat on six tabs, two of which held most of them under names that did not say what was inside — “Tasks” also held the export formats and the keyboard, and “Other” held permissions, appearance and workflow together. They are now nine named sections under four tabs (This device · The coworker’s job · Recording & consent · Sending), each section opening on its own with a line saying what is in it, and only one open at a time. Nothing changed about what any setting does, and no setting changed value. The same layout is used in three places: a device’s settings, a project’s default settings, and the Settings tab of an app that is not linked to a researcher — where the settings that need a researcher are shown greyed, with the reason, rather than hidden.'
+    ,'panel.rel.new.audioSwapSwitch': 'New switch: let a coworker swap a text’s recording for a different file, in the Audio Segmenter. The button was already there and already gated by this setting, but the setting had no switch anywhere — so on a linked device it could never be turned on. It is under “What the coworker may change”, off by default on linked devices and on for an app working alone, like the other permissions beside it.'
     ,'panel.rel.new.glossSpaceDot': 'In a word-gloss box the space bar now types a dot — am.talking.about. A word meaning must never hold a space: linguists join the parts of one meaning with a dot, and OneStory Editor lines interlinear words up by whitespace alone, so a space inside a gloss quietly pulls the line out of alignment. The space was already blocked here; typing the dot teaches the convention instead of just refusing the key. The free translation is prose and is unaffected. The on-screen help on the Baseline tab has been corrected too: where Enter moves on, it no longer tells you that Enter breaks the line.'
     ,'panel.rel.fix.shiftSpaceGloss': 'Shift+Space now plays the line from inside a word gloss too, instead of jumping to the next gloss box. It already behaved this way in the free translation; the word glosses were catching the key combination and moving the cursor rather than letting it reach the player.'
     ,'panel.rel.new.tasksGroup': 'The device settings group once called “Audio Segmentation” is now “Tasks”, since it decides which steps of the work a device does — not only the audio ones.'
@@ -1957,7 +1961,9 @@ internet after the first time.</p>
   'panel.set.pushed': 'Settings sent to the device.',
   'panel.set.encNote': 'Sent encrypted to the device.',
   'panel.val.bannerTitle': 'Can’t save yet — please fill in these required settings:',
-  'panel.val.fieldAtTab': '{field} — {tab} tab',
+  // {tab} is the SECTION now, not one of the four macro-tabs — the banner names the collapsible
+  // section a problem is in, because that is what the jump button expands.
+  'panel.val.fieldAtSec': '{field} — {tab} section',
   'panel.val.summaryOne': 'Can’t save — required: {field}.',
   'panel.val.summaryMany': 'Can’t save — required: {field}, and {more} more.',
   'panel.val.vernLang': 'Enter the vernacular language code.',
@@ -1969,14 +1975,34 @@ internet after the first time.</p>
   'panel.val.consentMsg': 'Text consent is on — enter the consent message.',
   'panel.val.sendNone': 'Tick “Upload” or “Save to file”. Share alone sends only the plain text — no audio and no annotation files — so the device could never deliver a recording.',
   'panel.val.tabsNone': 'A device needs at least one editor tab. Leave Baseline, Gloss, or Cut switched on — with every one of them off there is nothing for the coworker to work in.',
+  // FOUR MACRO-TABS over nine collapsible sections (v641). The old six flat tabs — of which
+  // "Tasks" held eighteen fields and "Other" twelve — are gone; see GROUPS in researcher-panel.js.
+  'panel.tab.device': 'This device',
+  'panel.tab.work': 'The coworker’s job',
+  'panel.tab.capture': 'Recording & consent',
+  'panel.tab.out': 'Sending',
+  // Section headings, and the one-line blurb each closed section shows beside its name — the blurb
+  // is what makes nine shut rows scannable, so a section without one is only a smaller tab.
   'panel.grp.languages': 'Languages',
+  'panel.grpNote.languages': 'Writing systems, and the language of the menus.',
   'panel.legend.languages': 'FLEx Writing System Codes',
   'panel.grp.moreInfo': 'more info…',
+  'panel.grp.appearance': 'Appearance',
+  'panel.grpNote.appearance': 'Text size, which buttons show, and how the texts are ordered.',
+  'panel.grp.tasks': 'Tasks',
+  'panel.grpNote.tasks': 'Which steps of the work this device does — cutting, transcribing, glossing.',
+  'panel.grp.permissions': 'What the coworker may change',
+  'panel.grpNote.permissions': 'How much they may alter once they are inside a task.',
+  'panel.grp.typing': 'Typing & keys',
+  'panel.grpNote.typing': 'What Enter and the Space bar do, and where the cursor lands.',
   'panel.grp.recording': 'Recording',
+  'panel.grpNote.recording': 'Format, length, the microphone chain, and the recorder’s welcome heading.',
   'panel.grp.consent': 'Consent',
-  'panel.grp.sending': 'Sending',
-  'panel.grp.segmentation': 'Tasks',
-  'panel.grp.other': 'Other',
+  'panel.grpNote.consent': 'What the speaker is asked, and how they answer.',
+  'panel.grp.leaving': 'How work leaves',
+  'panel.grpNote.leaving': 'Which send buttons exist, automatic backups, and finishing a text.',
+  'panel.grp.bundle': 'What goes in the bundle',
+  'panel.grpNote.bundle': 'Which extra files travel with the .flextext and the audio.',
   'panel.f.appLang': 'App language (this device’s menus)',
   'panel.opt.appLang.follow': 'Don’t change it (let the device choose)',
   'panel.opt.appLang.en': 'English',
@@ -2029,6 +2055,7 @@ internet after the first time.</p>
   'panel.f.allowBlankLines': 'Audio Segmenter: let the coworker add blank text lines (for audio with no words yet)',
   'panel.f.allowTextEdit': 'Audio Segmenter: let the coworker edit and add words, glosses and free translations in place',
   'panel.f.allowAudioRemove': 'Let the coworker remove a text\u2019s recording (the \u2715 on the player)',
+  'panel.f.allowAudioSwap': 'Audio Segmenter: let the coworker swap a text\u2019s recording for a different file',
   'panel.f.uiScale': 'Text size (whole app)',
   'panel.f.headerLabels': 'Top-row buttons and tabs',
   'panel.f.headerLabelsNote': 'Automatic uses words whenever they actually fit, and switches to icons when they do not — so it follows the length of the words in this language, not a fixed screen width. A tablet held upright counts as narrow. The words stay available to screen readers and on hover in every choice.',
@@ -2909,6 +2936,7 @@ id: {
   'setup.off.deleteAllEnabled': 'Aplikasi mandiri selalu punya Hapus Semua \u2014 ini aplikasi Anda sendiri, jadi tidak pernah ditahan. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowDelete': 'Aplikasi mandiri selalu mengizinkan penghapusan teks. Peneliti dapat mematikannya di perangkat yang mereka kelola, agar rekan kerja tidak kehilangan pekerjaan karena tidak sengaja.',
   'setup.off.allowAudioRemove': 'Aplikasi mandiri selalu mengizinkan penghapusan rekaman. Peneliti dapat mematikannya di perangkat yang mereka kelola, agar rekan kerja tidak kehilangan rekaman karena tidak sengaja.',
+  'setup.off.allowAudioSwap': 'Aplikasi mandiri selalu mengizinkan penggantian rekaman dengan berkas lain. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowBlankLines': 'Aplikasi mandiri selalu mengizinkan penambahan baris kosong. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowTextEdit': 'Aplikasi mandiri selalu mengizinkan penyuntingan kata, glos, dan terjemahan di tempat. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.doneEnabled': 'Tombol Selesai melapor ke peneliti dan mengirim teks ke Drive mereka. Aplikasi mandiri tidak punya keduanya, jadi tombol itu tidak akan ada gunanya.',
@@ -2968,7 +2996,7 @@ id: {
   'sync.removedAfterUpload': 'Sudah terunggah ke Drive, lalu dihapus dari perangkat ini (permintaan peneliti).',
   'panel.f.autoBackup': 'Cadangkan otomatis teks yang berubah',
   'panel.f.maxRecordSeconds': 'Durasi rekaman maksimum',
-  'panel.f.archivalDefaults': 'Setelan arsip',
+  'panel.f.archivalDefaults': 'Gunakan setelan arsip',
   'panel.f.archivalNote': 'Yang diterima luas untuk arsip bahasa: WAV 24-bit dengan auto-gain, reduksi derau, peredam gema, dan normalisasi semuanya MATI. Tombol ini mengatur persis itu — lalu Simpan.',
   'panel.f.archivalSet': 'Setelan arsip diterapkan — Simpan untuk menyimpannya.',
   'panel.f.maxRecUnlimited': 'tanpa batas',
@@ -3795,6 +3823,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.fix.spaceOnPlayer': 'Di perangkat yang tombol spasinya mengetik alih-alih memutar, menekannya saat pemutar itu sendiri sedang terpilih kini memutar, bukan menaruh spasi di dalam teks. Berada pada pemutar hanya bisa berarti satu hal. Spasi yang diketik di dalam kotak teks tetap berupa spasi.'
+    ,'panel.rel.new.settingsLayout': 'Pengaturan perangkat ditata ulang. Empat puluh sembilan sakelar berada di enam tab, dua di antaranya memuat sebagian besar sakelar dengan nama yang tidak menjelaskan isinya — “Tugas” juga memuat format ekspor dan pengaturan papan ketik, dan “Lainnya” memuat izin, tampilan, dan alur kerja sekaligus. Kini ada sembilan bagian bernama di bawah empat tab (Perangkat ini · Pekerjaan rekan kerja · Perekaman & izin · Pengiriman); setiap bagian dibuka sendiri dengan satu baris keterangan isinya, dan hanya satu yang terbuka pada satu waktu. Tidak ada fungsi pengaturan yang berubah, dan tidak ada nilai pengaturan yang berubah. Tata letak yang sama dipakai di tiga tempat: pengaturan sebuah perangkat, pengaturan bawaan sebuah proyek, dan tab Pengaturan pada aplikasi yang tidak tertaut ke peneliti — di sana pengaturan yang membutuhkan peneliti ditampilkan berwarna abu-abu beserta alasannya, bukan disembunyikan.'
+    ,'panel.rel.new.audioSwapSwitch': 'Sakelar baru: izinkan rekan kerja mengganti rekaman sebuah teks dengan berkas lain, di Pemotong Audio. Tombolnya sudah ada dan sudah dikendalikan oleh pengaturan ini, tetapi pengaturannya tidak punya sakelar di mana pun — sehingga di perangkat yang tertaut ia tidak pernah bisa dinyalakan. Letaknya di “Apa yang boleh diubah rekan kerja”, mati secara bawaan di perangkat tertaut dan menyala untuk aplikasi yang bekerja sendiri, seperti izin-izin lain di sebelahnya.'
     ,'panel.rel.new.glossSpaceDot': 'Di kotak arti kata, tombol spasi kini mengetik titik — saya.sedang.bicara. Arti satu kata tidak boleh memuat spasi: ahli bahasa menyatukan bagian-bagian satu arti dengan titik, dan OneStory Editor menyejajarkan kata antarbaris hanya berdasarkan spasi, sehingga spasi di dalam glos diam-diam merusak kesejajaran baris itu. Spasi memang sudah dihalangi di sini; mengetik titik mengajarkan kaidahnya, bukan sekadar menolak tombolnya. Terjemahan bebas berupa prosa dan tidak terpengaruh. Petunjuk di layar pada tab Ketik juga diperbaiki: bila Enter berpindah, ia tidak lagi menyatakan bahwa Enter memotong baris.'
     ,'panel.rel.fix.shiftSpaceGloss': 'Shift+Space kini memutar baris juga dari dalam glos kata, bukan melompat ke kotak glos berikutnya. Di terjemahan bebas hal ini sudah benar; kotak glos kata menangkap kombinasi tombol itu dan memindahkan kursor alih-alih membiarkannya sampai ke pemutar.'
     ,'panel.rel.new.tasksGroup': 'Kelompok pengaturan perangkat yang dahulu bernama “Segmentasi Audio” kini bernama “Tugas”, karena ia menentukan langkah kerja mana yang dilakukan sebuah perangkat — bukan hanya yang berkaitan dengan audio.'
@@ -4224,7 +4255,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.set.pushed': 'Pengaturan dikirim ke perangkat.',
   'panel.set.encNote': 'Dikirim terenkripsi ke perangkat.',
   'panel.val.bannerTitle': 'Belum bisa disimpan — lengkapi pengaturan wajib ini:',
-  'panel.val.fieldAtTab': '{field} — tab {tab}',
+  'panel.val.fieldAtSec': '{field} — bagian {tab}',
   'panel.val.summaryOne': 'Belum bisa disimpan — wajib: {field}.',
   'panel.val.summaryMany': 'Belum bisa disimpan — wajib: {field}, dan {more} lagi.',
   'panel.val.vernLang': 'Masukkan kode bahasa daerah.',
@@ -4236,14 +4267,30 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.val.consentMsg': 'Izin teks aktif — masukkan pesan izin.',
   'panel.val.sendNone': 'Centang “Unggah” atau “Simpan ke berkas”. “Bagikan” saja hanya mengirim teks biasa — tanpa audio dan tanpa berkas anotasi — sehingga perangkat tidak akan pernah bisa mengirimkan rekaman.',
   'panel.val.tabsNone': 'Perangkat memerlukan setidaknya satu tab editor. Biarkan Dasar, Glos, atau Potong tetap menyala — bila semuanya dimatikan, tidak ada tempat bagi rekan kerja untuk bekerja.',
+  'panel.tab.device': 'Perangkat ini',
+  'panel.tab.work': 'Pekerjaan rekan kerja',
+  'panel.tab.capture': 'Perekaman & izin',
+  'panel.tab.out': 'Pengiriman',
   'panel.grp.languages': 'Bahasa',
+  'panel.grpNote.languages': 'Sistem penulisan, dan bahasa menu.',
   'panel.legend.languages': 'Kode Sistem Penulisan FLEx',
   'panel.grp.moreInfo': 'info selengkapnya…',
+  'panel.grp.appearance': 'Tampilan',
+  'panel.grpNote.appearance': 'Ukuran teks, tombol mana yang tampil, dan urutan daftar teks.',
+  'panel.grp.tasks': 'Tugas',
+  'panel.grpNote.tasks': 'Langkah kerja mana yang dikerjakan perangkat ini — memotong, menyalin, memberi glos.',
+  'panel.grp.permissions': 'Apa yang boleh diubah rekan kerja',
+  'panel.grpNote.permissions': 'Seberapa banyak yang boleh mereka ubah setelah masuk ke sebuah tugas.',
+  'panel.grp.typing': 'Mengetik & tombol',
+  'panel.grpNote.typing': 'Fungsi tombol Enter dan spasi, serta tempat kursor mendarat.',
   'panel.grp.recording': 'Perekaman',
+  'panel.grpNote.recording': 'Format, durasi, rantai mikrofon, dan judul sambutan perekam.',
   'panel.grp.consent': 'Izin',
-  'panel.grp.sending': 'Pengiriman',
-  'panel.grp.segmentation': 'Tugas',
-  'panel.grp.other': 'Lainnya',
+  'panel.grpNote.consent': 'Apa yang ditanyakan kepada penutur, dan bagaimana mereka menjawab.',
+  'panel.grp.leaving': 'Cara pekerjaan dikirim',
+  'panel.grpNote.leaving': 'Tombol kirim mana yang tersedia, cadangan otomatis, dan menyelesaikan teks.',
+  'panel.grp.bundle': 'Isi paket kiriman',
+  'panel.grpNote.bundle': 'Berkas tambahan mana yang ikut bersama .flextext dan audio.',
   'panel.f.appLang': 'Bahasa aplikasi (menu perangkat ini)',
   'panel.opt.appLang.follow': 'Jangan ubah (biarkan perangkat memilih)',
   'panel.opt.appLang.en': 'Inggris',
@@ -4296,6 +4343,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.allowBlankLines': 'Pemotong Audio: izinkan rekan kerja menambah baris teks kosong (untuk audio yang belum ada katanya)',
   'panel.f.allowTextEdit': 'Pemotong Audio: izinkan rekan kerja menyunting dan menambah kata, glos, dan terjemahan bebas di tempat',
   'panel.f.allowAudioRemove': 'Izinkan rekan kerja menghapus rekaman sebuah teks (tanda \u2715 pada pemutar)',
+  'panel.f.allowAudioSwap': 'Pemotong Audio: izinkan rekan kerja mengganti rekaman sebuah teks dengan berkas lain',
   'panel.f.uiScale': 'Ukuran teks (seluruh aplikasi)',
   'panel.f.headerLabels': 'Tombol dan tab baris atas',
   'panel.f.headerLabelsNote': 'Otomatis memakai kata bila kata itu memang muat, dan beralih ke ikon bila tidak — jadi ia mengikuti panjang kata dalam bahasa ini, bukan lebar layar yang tetap. Tablet yang dipegang tegak dihitung sempit. Katanya tetap tersedia untuk pembaca layar dan saat disorot pada setiap pilihan.',

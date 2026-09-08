@@ -46,7 +46,7 @@ test('the researcher can reach it, on the panel and on the device setup page', (
 
 test('it travels with a setup link, and reaches the Segmenter', () => {
   assert.match(APP, /'allowDelete', 'allowAudioRemove', 'doneEnabled'/, 'in the pushed-settings allowlist');
-  assert.match(APP, /'allowDelete', 'allowAudioRemove', 'allowBlankLines'/, 'and in SEGMENTER_SETUP_KEYS');
+  assert.match(APP, /'allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines'/, 'and in SEGMENTER_SETUP_KEYS, beside the swap switch this audit added');
 });
 
 test('both languages carry the strings', () => {

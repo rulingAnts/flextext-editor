@@ -910,7 +910,12 @@ function rememberTab(tab) {
 function applyBaselineHint() {
   const hint = document.querySelector('#view-baseline .tab-hint [data-i18n-html]');
   if (!hint) return;
-  hint.dataset.i18nHtml = segmentationEnabled() ? 'baseline.hintSeg' : 'baseline.hint';
+  /* ⚠ THREE VARIANTS, because the hint states what the Enter key does and that is now a setting.
+   * hintSeg stays right for a device on `split`; hintSegMove is the truth where Enter moves on
+   * (v635, and the default for new devices). A coworker reads this — it must not describe a key
+   * behaving the way it used to. */
+  hint.dataset.i18nHtml = !segmentationEnabled() ? 'baseline.hint'
+    : enterAtEndAdvances() ? 'baseline.hintSegMove' : 'baseline.hintSeg';
   hint.innerHTML = t(hint.dataset.i18nHtml);
 }
 
@@ -4160,18 +4165,37 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
         e.preventDefault();
         focusNextWordGloss(g, e.shiftKey ? -1 : 1);
       } else if (e.key === ' ' && !e.shiftKey) {
-        /* Space advances to the next word's gloss; multi-word glosses use
-         * the FLEx dot convention (am.talking.about).
+        /* ⚠ SPACE TYPES A PERIOD IN A WORD GLOSS (Seth, 2026-09-08).
          *
-         * ⚠ PLAIN SPACE ONLY (Seth, 2026-09-08: "Shift+Space jumps to the next textbox if an
-         * interlinear gloss textbox is selected, which is not what we want. We want Shift+Space to
-         * JUST affect the player"). This caught the chord too and swallowed it, so the one key that
-         * is supposed to mean "audio" wherever the caret is did the opposite here — it moved the
-         * caret. The free-translation box never had the bug because it intercepts Tab and nothing
-         * else. Letting the chord through hands it to the global handler, which plays THIS box's
-         * own line and leaves focus and caret exactly where they are. */
+         * TWO reasons, and the second is the load-bearing one:
+         *   1. Leipzig joins the parts of a multi-word gloss with a period and never a space —
+         *      `am.talking.about`.
+         *   2. ⚠ OneStory Editor aligns interlinear data by WHITESPACE ALONE in its XML, so a space
+         *      inside a gloss silently misaligns the whole line downstream. That makes this a
+         *      data-integrity guard, not a house style — which is why blocking the space came first
+         *      and why it must stay blocked.
+         *
+         * A space was already blocked for that reason, and the key walked to the next gloss instead;
+         * typing the period is better than blocking it, because it "will help us teach that
+         * convention to our users by starting with what they already think by default": they reach
+         * for the space bar out of habit and the right character appears.
+         *
+         * Nothing is lost by giving the key up — Tab still steps to the next gloss, and in "move to
+         * next" mode so does Enter.
+         *
+         * ⚠ PLAIN SPACE ONLY. This branch used to catch the chord as well and swallow it, so
+         * Shift+Space — the one key that means "audio, wherever the caret is" — moved the caret
+         * instead, in the very boxes a transcriber lives in. The free-translation box never had the
+         * bug because it intercepts Tab and nothing else. The chord now falls through to the global
+         * handler, which plays THIS box's own line and leaves focus and caret untouched.
+         *
+         * ⚠ The `input` event is dispatched by hand: setRangeText fires none, and the listener on
+         * this input is what writes w.gls, re-sizes the box and schedules the save. */
         e.preventDefault();
-        focusNextWordGloss(g, 1);
+        const from = g.selectionStart ?? g.value.length;
+        const to = g.selectionEnd ?? from;
+        g.setRangeText('.', from, to, 'end');
+        g.dispatchEvent(new Event('input', { bubbles: true }));
       }
     });
     cell.appendChild(g);

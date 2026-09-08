@@ -1,0 +1,79 @@
+/* Seth, 2026-09-08: "on the baseline tab, enter/return at the end of a line not break a line, but
+ * rather the scissors break a line. What should happen instead is if the user presses enter at the
+ * end of the line it just advances to the next line. I think maybe something similar on the gloss
+ * tab." Then: "we can have that be a researcher configured behavior", and "Let's make this new
+ * behavior default though for new devices and projects (not existing ones). Especially for mobile
+ * devices/android."
+ *
+ * Finishing a line and pressing Enter is the most natural gesture there is, and it was starting a
+ * split at the very end of the text — a break that yields an empty line, which is almost never what
+ * the typist meant. Splitting stays where it is deliberate: mid-text, and the ✂ on the waveform.
+ *
+ * ⚠ The grandfathering is the point of most of these assertions. An existing device must not change
+ * behaviour under a coworker mid-project.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+const APP = rd('../docs/js/app.js'), STRIPS = rd('../docs/js/segment-strips.js');
+const PANEL = rd('../docs/js/researcher-panel.js'), I18N = rd('../docs/js/i18n.js');
+
+test('absent means the OLD behaviour, so an existing device is untouched', () => {
+  assert.match(APP, /function enterAtEndAdvances\(s\) \{\s*\n\s*s = s \|\| settings;\s*\n\s*return s\.enterAtEnd === 'advance';\s*\n\}/,
+    'only an explicit "advance" advances — absent, unset or anything else keeps splitting');
+});
+
+test('a device that has never saved settings is seeded with the new behaviour, once', () => {
+  const seed = APP.slice(APP.indexOf('function seedNewDeviceDefaults()'), APP.indexOf('let settings = loadSettings();'));
+  assert.match(seed, /if \(localStorage\.getItem\(SETTINGS_KEY\) !== null\) return;/,
+    'the test for "new device" is that NOTHING has ever been stored');
+  assert.match(seed, /JSON\.stringify\(\{ enterAtEnd: 'advance' \}\)/);
+  assert.match(seed, /catch \{/, 'private mode must not throw at boot');
+});
+
+test('Baseline: at the end it advances, and it does so even when splitting is switched off', () => {
+  const fn = STRIPS.slice(STRIPS.indexOf('function onKey(e, i, input)'), STRIPS.indexOf("} else if (e.key === 'Backspace'"));
+  const advanceAt = fn.indexOf('deps.enterAdvances');
+  const gateAt = fn.indexOf('if (!joinSplitOk()) return;');
+  assert.ok(advanceAt > -1 && gateAt > -1, 'both branches present');
+  assert.ok(advanceAt < gateAt,
+    'the advance is decided BEFORE the split gate — a researcher who turned splitting off still wants Enter to walk');
+  assert.match(fn, /const atEnd = \(input\.selectionStart \?\? 0\) === input\.value\.length\s*\n\s*&& \(input\.selectionEnd \?\? 0\) === input\.value\.length;/,
+    'end means a collapsed caret at the very end, never a selection');
+  assert.match(fn, /focusStripAfter\(i\);/);
+  // mid-text Enter is untouched: it still places the text tier of the split
+  assert.match(fn, /stripsPlace\(i, 'text', input\.selectionStart \?\? input\.value\.length\);/);
+});
+
+test('the walk stops at the last line rather than blurring', () => {
+  const fn = STRIPS.slice(STRIPS.indexOf('function focusStripAfter(i)'), STRIPS.indexOf('function onKey(e, i, input)'));
+  assert.match(fn, /if \(!next\) return;/, 'nothing to focus on the last line');
+  assert.doesNotMatch(fn, /\.blur\(\)/, 'a keyboard that closes itself at the end reads as the app quitting');
+  assert.match(fn, /setSelectionRange\(next\.value\.length, next\.value\.length\)/, 'caret lands at the end, ready to type');
+});
+
+test('Gloss: the same rule, and it takes precedence over trimming an edge line', () => {
+  const i = APP.indexOf("} else if (e.key === 'Enter' && atEnd && enterAtEndAdvances()) {");
+  const j = APP.indexOf("} else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {");
+  assert.ok(i > -1 && j > -1, 'both branches present');
+  assert.ok(i < j, 'the advance branch is first, so it wins when the setting is on');
+  assert.match(APP.slice(i, j), /const next = all\[all\.indexOf\(fi\) \+ 1\];/, 'it walks to the next translation');
+  // the start-of-line trim is deliberately untouched
+  assert.match(APP, /e\.key === 'Enter' && atStart && joinSplitAllowed\('gloss'\)/);
+});
+
+test('the researcher can set it, and a NEW project defaults to advance', () => {
+  assert.match(PANEL, /\{ k: 'enterAtEnd', type: 'select', opts: \['advance', 'split'\], optPrefix: 'panel\.opt\.enterAtEnd\.', note: 'panel\.f\.enterAtEndNote' \}/);
+  assert.match(PANEL, /\(Object\.keys\(s\)\.length \? 'split' : 'advance'\)/,
+    'an existing project keeps split; a project with no settings at all is new and gets advance');
+  for (const k of ['panel.f.enterAtEnd', 'panel.f.enterAtEndNote', 'panel.opt.enterAtEnd.advance', 'panel.opt.enterAtEnd.split'])
+    assert.equal((I18N.match(new RegExp(`\\n {2,4},?'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
+});
+
+test('the strips are given the setting the same way the other gates are', () => {
+  assert.match(APP, /enterAdvances: \(\) => enterAtEndAdvances\(\),/);
+  assert.match(STRIPS, /deps\.enterAdvances && deps\.enterAdvances\(\)/,
+    'guarded, so an older host that never passes it behaves exactly as before');
+});

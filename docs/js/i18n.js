@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v618';
+export const ENGINE_VERSION = 'v619';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1449,6 +1449,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.enterAdvances': 'At the end of a line, Enter now moves to the next line instead of starting a split there — the split that used to leave an empty line behind. Splitting is still there in the middle of a line and on the ✂ on the waveform. New devices get this; devices already in use keep what they had, and either way you can set it under “What Enter does at the end of a line”.'
     ,'panel.rel.new.cutIconPlace': 'The scissors that rides the playhead now sits on the waveform instead of hanging below it, where on a phone it covered most of the line you were typing into.'
     ,'panel.rel.new.appColours': 'Each app now wears its own colour all the way down. The heading bar matches the window colour of the installed app instead of always being blue, so a violet or amber title bar no longer sits above a blue bar. The Paragraph Analysis Tool and the Researcher Panel also have their own icons: a paragraph mark over a branching diagram, and a stack of discs. They used to be the editor’s icon in a different colour, which is no difference at all on a home screen.'
     ,'panel.rel.new.reviewPass': 'A structured review of everything since the last production release found defects its own tests had missed, and this release is those fixes. The Paragraph Analysis Tool could lose a recording when it updated with a document open. Cancelling a transfer from the queue card left the half-made text on Google Drive, and pause or cancel pressed on a dead connection was ignored for up to a minute. The Toolbox converter wrote empty identifiers, let one marker take two jobs, and only warned about column damage when it was total. And the Android keyboard fix from last release was measuring something that setting is defined never to change, so it did nothing at all.'
@@ -2070,6 +2071,10 @@ internet after the first time.</p>
   'panel.f.landOnCutNote': 'When a text has a recording and NO WORDS YET, open it on the Cut tab instead of Baseline. Once someone has chosen a tab for a text, that text re-opens on the tab they left it on, whatever this setting says \u2014 and a text with no recording never opens on Cut.',
   'panel.f.joinSplitBaseline': 'Allow joining and splitting lines on the Baseline tab',
   'panel.f.joinSplitBaselineNote': 'On by default. Turn it off to keep all cutting on the Cut tab, so lines cannot be reshaped while someone is transcribing. This hides the join buttons as well as the keys.',
+  'panel.f.enterAtEnd': 'What Enter does at the end of a line',
+  'panel.f.enterAtEndNote': 'At the END of a line, Enter can simply move to the next line, or it can start a split there. Splitting is always available in the middle of a line and from the \u2702 on the waveform, so “move to the next line” loses nothing and stops an accidental empty line. New devices start with “move to the next line”; devices already in use keep what they had.',
+  'panel.opt.enterAtEnd.advance': 'Move to the next line',
+  'panel.opt.enterAtEnd.split': 'Start a split there',
   'panel.f.joinSplitGloss': 'Allow joining and splitting lines on the Gloss tab',
   'panel.f.joinSplitGlossNote': 'On by default. Same as above, for the Gloss tab.',
   'panel.f.cutJoinTexted': 'Allow joining lines that already have text, on the Cut tab',
@@ -3744,6 +3749,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.enterAdvances': 'Di akhir baris, Enter kini berpindah ke baris berikutnya alih-alih memulai pemisahan di sana — pemisahan yang dulu meninggalkan baris kosong. Pemisahan tetap tersedia di tengah baris dan pada ✂ di gelombang suara. Perangkat baru mendapat perilaku ini; perangkat yang sudah dipakai tetap seperti sebelumnya, dan keduanya dapat diatur pada “Fungsi Enter di akhir baris”.'
     ,'panel.rel.new.cutIconPlace': 'Gunting yang mengikuti kepala-putar kini berada di atas gelombang suara, tidak lagi menggantung di bawahnya — di ponsel posisi lama menutupi sebagian besar baris yang sedang Anda ketik.'
     ,'panel.rel.new.appColours': 'Setiap aplikasi kini memakai warnanya sendiri sampai ke bawah. Bilah judul di dalam aplikasi mengikuti warna jendela aplikasi terpasang, tidak lagi selalu biru, sehingga bilah judul ungu atau jingga tak lagi berada di atas bilah biru. Alat Analisis Paragraf dan Panel Peneliti juga punya ikon sendiri: tanda paragraf di atas diagram bercabang, dan tumpukan cakram. Sebelumnya keduanya hanya ikon editor dengan warna berbeda, yang di layar utama sama saja.'
     ,'panel.rel.new.reviewPass': 'Tinjauan menyeluruh atas semua perubahan sejak rilis produksi terakhir menemukan cacat yang lolos dari pengujiannya sendiri, dan rilis ini adalah perbaikannya. Alat Analisis Paragraf bisa kehilangan rekaman saat diperbarui dengan dokumen terbuka. Membatalkan transfer dari kartu antrean meninggalkan teks setengah jadi di Google Drive, dan jeda atau pembatalan saat koneksi mati diabaikan hingga satu menit. Pengonversi Toolbox menulis pengenal kosong, membiarkan satu penanda memegang dua peran, dan hanya memperingatkan kerusakan kolom bila kerusakannya total. Dan perbaikan papan ketik Android dari rilis lalu mengukur sesuatu yang menurut definisinya tidak pernah berubah, sehingga tidak berpengaruh sama sekali.'
@@ -4287,6 +4293,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.landOnCutNote': 'Bila sebuah teks punya rekaman dan BELUM ADA KATA-KATANYA, buka di tab Potong, bukan Ketik. Setelah seseorang memilih tab untuk sebuah teks, teks itu dibuka lagi di tab terakhir yang dipakai, apa pun pengaturan ini \u2014 dan teks tanpa rekaman tidak pernah dibuka di tab Potong.',
   'panel.f.joinSplitBaseline': 'Izinkan menggabungkan dan memisahkan baris di tab Ketik',
   'panel.f.joinSplitBaselineNote': 'Aktif secara bawaan. Matikan agar semua pemotongan hanya di tab Potong, sehingga baris tidak bisa diubah saat seseorang sedang menulis. Ini juga menyembunyikan tombol gabung, bukan hanya tombol papan ketik.',
+  'panel.f.enterAtEnd': 'Fungsi Enter di akhir baris',
+  'panel.f.enterAtEndNote': 'Di AKHIR baris, Enter dapat langsung berpindah ke baris berikutnya, atau memulai pemisahan di sana. Pemisahan tetap tersedia di tengah baris dan lewat \u2702 pada gelombang suara, jadi “pindah ke baris berikutnya” tidak menghilangkan apa pun dan mencegah baris kosong yang tidak disengaja. Perangkat baru dimulai dengan “pindah ke baris berikutnya”; perangkat yang sudah dipakai tetap seperti sebelumnya.',
+  'panel.opt.enterAtEnd.advance': 'Pindah ke baris berikutnya',
+  'panel.opt.enterAtEnd.split': 'Mulai pemisahan di sana',
   'panel.f.joinSplitGloss': 'Izinkan menggabungkan dan memisahkan baris di tab Gloss',
   'panel.f.joinSplitGlossNote': 'Aktif secara bawaan. Sama seperti di atas, untuk tab Gloss.',
   'panel.f.cutJoinTexted': 'Izinkan menggabungkan baris yang sudah ada teksnya, di tab Potong',

@@ -683,6 +683,7 @@ const GROUPS = [
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
+    { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
@@ -1229,6 +1230,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v619', date: '2026-09-08', items: [
+    { k: 'panel.rel.new.enterAdvances' },
+  ] },
   { v: 'v618', date: '2026-09-08', items: [
     { k: 'panel.rel.new.cutIconPlace' },
   ] },
@@ -9008,6 +9012,12 @@ function toFormValues(s) {
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
+    /* ⚠ A NEW PROJECT GETS THE NEW BEHAVIOUR; an existing one keeps whatever it had (Seth,
+     * 2026-09-08: "default though for new devices and projects (not existing ones)"). An unset
+     * value on a project that already has settings means it predates this field, so it shows
+     * 'split' — the device-side accessor reads absence the same way. */
+    else if (f.k === 'enterAtEnd') v.enterAtEnd = (s.enterAtEnd === 'advance' || s.enterAtEnd === 'split')
+      ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
     else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;

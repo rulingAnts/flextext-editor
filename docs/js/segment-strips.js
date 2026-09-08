@@ -1052,9 +1052,32 @@ function stripsCaretWant(input, i) {
   return !!(p && p.tab === 'baseline' && p.i === i && !Object.prototype.hasOwnProperty.call(p.pos, 'text'));
 }
 
+/* The next line's text box, brought into view. Nothing to focus on the last line, so Enter there
+ * simply does nothing rather than blurring — a keyboard that closes itself at the end of a text
+ * reads as the app quitting on you. */
+function focusStripAfter(i) {
+  const boxes = [...document.querySelectorAll('.seg-strip .seg-text')];
+  const next = boxes[i + 1];
+  if (!next) return;
+  next.focus();
+  try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* not a text input */ }
+  try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); }
+}
+
 function onKey(e, i, input) {
   const doc = deps.getDoc();
   if (e.key === 'Enter') {
+    /* ⚠ AT THE END OF THE LINE, ENTER MOVES ON — it does not start a split (Seth, 2026-09-08). See
+     * enterAtEndAdvances in app.js for why, and for why this is a new-devices-only default.
+     * Checked BEFORE joinSplitOk deliberately: a researcher who turned splitting off still wants
+     * Enter to walk to the next line, and today it does nothing at all for them. */
+    const atEnd = (input.selectionStart ?? 0) === input.value.length
+               && (input.selectionEnd ?? 0) === input.value.length;
+    if (atEnd && deps.enterAdvances && deps.enterAdvances()) {
+      e.preventDefault();
+      focusStripAfter(i);
+      return;
+    }
     if (!joinSplitOk()) return;
     e.preventDefault();
     // The TEXT tier of the pending split; the audio tier is placed at the playhead (Enter outside

@@ -332,6 +332,16 @@ function applyUrlSettings() {
 
 /* ---------------- App state ---------------- */
 
+/* ⚠ FIRST RUN ONLY, AND THE TEST IS "HAS THIS DEVICE EVER SAVED SETTINGS" — see enterAtEndAdvances.
+ * localStorage having no settings key at all is what makes a device new; anything else is an
+ * existing device whose behaviour must not change beneath its user. */
+(function seedNewDeviceDefaults() {
+  try {
+    if (localStorage.getItem(SETTINGS_KEY) !== null) return;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ enterAtEnd: 'advance' }));
+  } catch { /* private mode: the accessor's absent-means-split default applies */ }
+})();
+
 let settings = loadSettings();
 let current = null;          // { id, title, created, modified, doc }
 let activeTab = 'baseline';
@@ -947,6 +957,30 @@ function joinKeysEnabled() {
   return settings.backspaceJoin === true;
 }
 
+/* ⚠ WHAT ENTER DOES AT THE END OF A LINE — A NEW DEFAULT, DELIBERATELY GRANDFATHERED (Seth,
+ * 2026-09-08: "on the baseline tab, enter/return at the end of a line not break a line, but rather
+ * the scissors break a line. What should happen instead is if the user presses enter at the end of
+ * the line it just advances to the next line… Let's make this new behavior default though for new
+ * devices and projects (not existing ones). Especially for mobile devices/android.").
+ *
+ * Why it matters: finishing a line and pressing Enter is the most natural gesture there is, and it
+ * was starting a SPLIT at the very end of the text — a break that yields an empty line, which is
+ * almost never what the typist meant. Splitting stays available where it is deliberate: mid-text
+ * Enter, and the ✂ that rides the playhead.
+ *
+ * ⚠ THE GRANDFATHERING IS THE PRESENCE OF THE SETTINGS BLOB ITSELF. A device that has ever saved
+ * settings is an EXISTING device and keeps 'split'; a device with no stored settings at all is new,
+ * and boot writes 'advance' once (see the seed below) so its behaviour is explicit rather than
+ * inferred. That way an old device cannot silently change under a coworker mid-project, which is
+ * the failure this whole shape exists to avoid.
+ *
+ * Absent value ⇒ 'split', matching every other gate here: an older host that never passed it
+ * behaves exactly as before. */
+function enterAtEndAdvances(s) {
+  s = s || settings;
+  return s.enterAtEnd === 'advance';
+}
+
 /* THE CUT-TAB FAMILY OF GATES (Seth, 2026-08-13). All default ON — `!== false`, the same polarity
  * as `segmentation` and the OPPOSITE of `backspaceJoin`. The difference is deliberate and worth
  * stating once: backspaceJoin REMOVES a shortcut people were relying on, so absent must mean off;
@@ -1296,6 +1330,15 @@ function decorateGlossSegments() {
           } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
             e.preventDefault();
             glossPlaceEdge(i, 0);                    // an empty line BEFORE this one (audio still to place)
+          } else if (e.key === 'Enter' && atEnd && enterAtEndAdvances()) {
+            // ⚠ Same rule as the Baseline tab (Seth, 2026-09-08: "I think maybe something similar on
+            // the gloss tab"): at the end, Enter WALKS to the next line's translation rather than
+            // trimming an empty line after this one. Before joinSplitAllowed, for the same reason.
+            e.preventDefault();
+            const all = [...document.querySelectorAll('.free-input')];
+            const next = all[all.indexOf(fi) + 1];
+            if (next) { next.focus(); try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
+                        try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); } }
           } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
             e.preventDefault();
             glossPlaceEdge(i, wordCount());          // an empty line AFTER this one
@@ -1771,6 +1814,7 @@ function switchTab(tab, landing) {
         // researcher push (changeSettings) can land mid-session — a snapshot would keep the old
         // answer until the next open, which is the drift this setting exists to remove.
         joinKeys: () => joinKeysEnabled(),
+        enterAdvances: () => enterAtEndAdvances(),
         joinSplit: () => joinSplitAllowed('baseline'),
         allowAdjust: () => adjustBoundariesAllowed(),
         // Rule A (plans/split-tiers.md): a line with glosses or a translation is the Gloss tab's.
@@ -4578,7 +4622,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -6060,6 +6104,7 @@ const SETUP_GROUPS = [
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
+    { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
@@ -6323,6 +6368,10 @@ function deviceSetupValues() {
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
+    // Same rule as the panel's twin: an explicit value wins, otherwise a device that has stored
+    // anything at all is an existing one and keeps 'split'. See enterAtEndAdvances.
+    else if (f.k === 'enterAtEnd') v.enterAtEnd = (s.enterAtEnd === 'advance' || s.enterAtEnd === 'split')
+      ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
     else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;

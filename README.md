@@ -243,21 +243,30 @@ tabs, two of which held 61% of everything under names that did not predict their
 
 ### Which settings apply where
 
-**ᴾ = only meaningful on a device linked to a researcher.** Ten settings are inert on an app working
-alone: six because the engine grants them unconditionally when there is no researcher (a lone worker
-always has them, so a switch could only lie), and four because they wait on an upload that cannot
-happen with no Drive behind it. They are still **shown** on such a device's Settings tab, greyed,
-each saying why on tap — a setting that vanishes when you link a device is a setting nobody can find
-twice.
+**ᴾ marks a setting that only means something on a device linked to a researcher.** All of them are
+still **shown** on an unlinked device’s Settings tab, greyed, each saying why when you tap it —
+because a setting that vanishes the moment you link a device is a setting nobody can find twice.
 
-Two go the other way: the **spoken-consent sound file** exists only on an unlinked device (the panel
-pushes a URL instead), and the **app language** is live in the panel and greyed on the device, where
-the toolbar's own selector already owns it.
+Ten are permissions or automations the researcher grants or withholds. **Six** because the engine
+simply grants them when there is no researcher (`!Sync.hasSession()` short-circuits the gate: delete
+a text, Delete all data, remove a recording, swap a recording, blank lines, in-place editing) — a
+lone worker always has them, so a switch offering to take one away could only lie. **Four** because
+they wait on an upload that cannot happen with no Drive behind it (delete after upload, auto-backup
+and its interval, Done). The **upload** send button is the same story at option rather than field
+level.
 
-One is per device and never a project default: the consent prompt's **upload button**, because the
-audio streams into one device's own Drive folder and mints a URL for that device. Everything else in
-a project template means exactly what it means on a device — a template *is* the settings a new
-device is born with.
+The **app language** carries the mark for a different reason: it is live in the panel, where a
+researcher pushes a language, and greyed on the device, where the toolbar’s own selector already
+owns it — two controls for one thing could only disagree.
+
+The **spoken consent prompt** is the one setting whose *control* differs by surface, in both
+directions. An unlinked device picks a **sound file** from itself; a linked device is pushed a
+**Drive URL**, which always wins if both exist. And a project template gets the URL box but not the
+**upload button** beside it, because that upload streams into one device’s own Drive folder and
+mints a URL for that device — there is no device yet to mint one for.
+
+Everything else in a project template means exactly what it means on a device: a template *is* the
+settings a new device is born with, not a different kind of object.
 
 The **Audio Segmenter** shows a shorter list (writing systems, appearance, its own permissions and
 the bundle) — after filtering it has no Recording and no Consent section at all, so the "Recording &

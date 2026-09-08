@@ -67,11 +67,15 @@ test('the researcher chooses words, icons, both, or auto; auto is icons only bel
     'the width guess is the fallback now, not the rule');
   assert.match(body, /matchMedia\(`\(max-width: \$\{ICONS_BELOW_PX - 1\}px\)`\)/, 'still the fallback query');
   assert.match(body, /m\.addEventListener\('change', \(\) => applyHeaderLabels\(\)\)/, 'and re-decides live');
-  /* ⚠ STILL NO DEVICE SNIFFING. The portrait rule Seth added ("a tablet that is held vertically
-   * should then be treated as a screen smaller than 1000px") is a CAPABILITY query, which is a
-   * different thing from asking what device this claims to be — that stays banned. */
+  /* ⚠ ASK WHAT THE DEVICE CAN DO, NOT WHAT IT CLAIMS TO BE — and note WHY, because the reason is
+   * not the one it looks like. This is not a privacy or security rule (Seth, 2026-09-08: "UA device
+   * sniffing is not a privacy/security issue for us"). It is here because on the original problem a
+   * first attempt DID sniff the device and simply did not fix it: what the layout needed to know
+   * was a capability, and a name for the device does not answer that question. The portrait rule
+   * ("a tablet that is held vertically should then be treated as a screen smaller than 1000px") is
+   * a capability query for the same reason — it asks about the pointer, not the brand. */
   assert.doesNotMatch(APP.slice(APP.indexOf('function applyHeaderLabels()'), APP.indexOf('function applyUiScale()')),
-    /userAgent|maxTouchPoints/, 'never the user agent');
+    /userAgent|maxTouchPoints/, 'a device name cannot answer a capability question');
   assert.match(body, /matchMedia\('\(orientation: portrait\) and \(pointer: coarse\)'\)/,
     'a held-vertically tablet counts as narrow');
   assert.match(body, /document\.documentElement\.dataset\.labels = mode;/);

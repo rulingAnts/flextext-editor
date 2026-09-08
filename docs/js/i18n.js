@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v636';
+export const ENGINE_VERSION = 'v637';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1450,6 +1450,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.glossLandingSetting': 'New setting “After playing, put the cursor in”: on the Gloss tab, where the cursor goes when somebody plays a line and then starts typing without a box selected. The free translation to begin with, or the next empty word gloss — choose by the job that device has been given. It only applies when they were not already part-way through a box on that same line.'
     ,'panel.rel.new.keepYourPlace': 'Listening no longer costs you your place. Type, tap play, listen — and the next letter you type goes back exactly where the cursor was, instead of jumping to the end of the line. Enter does whatever it would have done at that same spot. Move to a different line and the memory is dropped, so you start cleanly at the end of that line\u2019s text.'
     ,'panel.rel.fix.enterNeedsCutMode': 'Where Enter moves on rather than cutting, it no longer cuts a line by accident. Before, only Enter at the very end moved on — pressing it anywhere else in the line still started a cut, on both the Baseline and Gloss tabs. Now a line is only ever cut once cutting is switched on for it. And pressing Enter while a segment is playing puts the cursor in the line you are listening to, at the end of what is written there; a line with nothing to type in passes you on to the next line\u2019s play button.'
     ,'panel.rel.new.wordGlossGate': 'Word-by-word glossing can now be switched off for a device. With it off the Gloss tab shows the words of the line and the free translation, and no box under each word — for somebody whose job is the translation rather than the analysis. Glosses already recorded are kept, simply not shown there.'
@@ -2021,8 +2022,8 @@ internet after the first time.</p>
   'panel.f.allowAudioRemove': 'Let the coworker remove a text\u2019s recording (the \u2715 on the player)',
   'panel.f.uiScale': 'Text size (whole app)',
   'panel.f.headerLabels': 'Top-row buttons and tabs',
-  'panel.f.headerLabelsNote': 'Automatic goes by the width of the screen alone: icons only when the screen is narrower than 1000 px (a small tablet, a phone, a narrowed window), icons with words on anything wider. The words stay available to screen readers and on hover in every choice.',
-  'panel.opt.labels.auto': 'Automatic (icons only when the screen is narrower than 1000 px)',
+  'panel.f.headerLabelsNote': 'Automatic uses words whenever they actually fit, and switches to icons when they do not — so it follows the length of the words in this language, not a fixed screen width. A tablet held upright counts as narrow. The words stay available to screen readers and on hover in every choice.',
+  'panel.opt.labels.auto': 'Automatic (words when they fit, icons when they do not)',
   'panel.opt.labels.both': 'Icons and words',
   'panel.opt.labels.icons': 'Icons only',
   'panel.opt.labels.text': 'Words only',
@@ -2093,6 +2094,10 @@ internet after the first time.</p>
   'panel.f.glossTab': 'Show the Gloss tab',
   'panel.f.wordGloss': 'Gloss word by word',
   'panel.f.wordGlossNote': 'Off leaves the Gloss tab showing the words of the line and the free translation, with no box under each word. For somebody whose job is the translation rather than the analysis — and glosses already recorded are kept, just not shown here.',
+  'panel.f.glossLanding': 'After playing, put the cursor in',
+  'panel.f.glossLandingNote': 'On the Gloss tab, where the cursor goes when someone plays a line and then starts typing — unless they were already part-way through a box on that same line, in which case they simply carry on where they left off. Choose by the job: the free translation for someone translating, the next empty gloss for someone glossing.',
+  'panel.opt.glossLanding.free': 'The free translation',
+  'panel.opt.glossLanding.gloss': 'The next empty word gloss',
   'panel.f.editorTabsNote': 'Hand different steps to different people: one coworker cuts the audio, another types the text, a third adds glosses. Useful too while somebody is still learning — give them one tab, add the others as they are ready. At least one tab always stays.',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
@@ -3778,6 +3783,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.glossLandingSetting': 'Pengaturan baru “Setelah memutar, taruh kursor di”: di tab Glos, ke mana kursor menuju ketika seseorang memutar sebuah baris lalu mulai mengetik tanpa kotak terpilih. Terjemahan bebas sebagai awalan, atau glos kata kosong berikutnya — pilih sesuai tugas perangkat itu. Ini hanya berlaku bila mereka belum berada di tengah sebuah kotak pada baris yang sama.'
     ,'panel.rel.new.keepYourPlace': 'Mendengarkan tidak lagi membuat Anda kehilangan tempat. Ketik, tekan putar, dengarkan — dan huruf berikutnya yang Anda ketik kembali persis ke tempat kursor tadi, bukan melompat ke akhir baris. Enter melakukan apa pun yang akan dilakukannya di tempat yang sama itu. Pindah ke baris lain dan ingatan itu dilepaskan, sehingga Anda mulai bersih di akhir teks baris tersebut.'
     ,'panel.rel.fix.enterNeedsCutMode': 'Bila Enter berpindah alih-alih memotong, kini ia tidak lagi memotong baris tanpa sengaja. Sebelumnya hanya Enter di ujung baris yang berpindah — menekannya di tempat lain tetap memulai pemotongan, baik di tab Dasar maupun Glos. Kini sebuah baris hanya terpotong setelah mode potong dinyalakan untuknya. Dan menekan Enter saat sebuah segmen sedang diputar akan menaruh kursor di baris yang sedang Anda dengarkan, di akhir tulisan yang ada; baris yang tidak punya tempat mengetik akan meneruskan Anda ke tombol putar baris berikutnya.'
     ,'panel.rel.new.wordGlossGate': 'Pemberian glos kata per kata kini dapat dimatikan untuk sebuah perangkat. Bila dimatikan, tab Glos menampilkan kata-kata baris itu dan terjemahan bebasnya, tanpa kotak di bawah tiap kata — cocok bagi orang yang tugasnya menerjemahkan, bukan menganalisis. Glos yang sudah tercatat tetap tersimpan, hanya tidak ditampilkan di sana.'
@@ -4277,8 +4283,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.allowAudioRemove': 'Izinkan rekan kerja menghapus rekaman sebuah teks (tanda \u2715 pada pemutar)',
   'panel.f.uiScale': 'Ukuran teks (seluruh aplikasi)',
   'panel.f.headerLabels': 'Tombol dan tab baris atas',
-  'panel.f.headerLabelsNote': 'Otomatis hanya melihat lebar layar: ikon saja bila lebar layar kurang dari 1000 px (tablet kecil, ponsel, jendela yang dipersempit), ikon beserta kata pada yang lebih lebar. Katanya tetap tersedia untuk pembaca layar dan saat disorot pada setiap pilihan.',
-  'panel.opt.labels.auto': 'Otomatis (ikon saja bila lebar layar kurang dari 1000 px)',
+  'panel.f.headerLabelsNote': 'Otomatis memakai kata bila kata itu memang muat, dan beralih ke ikon bila tidak — jadi ia mengikuti panjang kata dalam bahasa ini, bukan lebar layar yang tetap. Tablet yang dipegang tegak dihitung sempit. Katanya tetap tersedia untuk pembaca layar dan saat disorot pada setiap pilihan.',
+  'panel.opt.labels.auto': 'Otomatis (kata bila muat, ikon bila tidak)',
   'panel.opt.labels.both': 'Ikon dan kata',
   'panel.opt.labels.icons': 'Ikon saja',
   'panel.opt.labels.text': 'Kata saja',
@@ -4343,6 +4349,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.glossTab': 'Tampilkan tab Glos',
   'panel.f.wordGloss': 'Beri glos kata per kata',
   'panel.f.wordGlossNote': 'Jika dimatikan, tab Glos hanya menampilkan kata-kata baris itu dan terjemahan bebasnya, tanpa kotak di bawah tiap kata. Cocok bagi orang yang tugasnya menerjemahkan, bukan menganalisis — dan glos yang sudah tercatat tetap tersimpan, hanya tidak ditampilkan di sini.',
+  'panel.f.glossLanding': 'Setelah memutar, taruh kursor di',
+  'panel.f.glossLandingNote': 'Di tab Glos, ke mana kursor menuju ketika seseorang memutar sebuah baris lalu mulai mengetik — kecuali mereka sudah berada di tengah sebuah kotak pada baris yang sama, yang dalam hal itu mereka cukup melanjutkan dari tempat terakhir. Pilih sesuai tugasnya: terjemahan bebas bagi yang menerjemahkan, glos kosong berikutnya bagi yang memberi glos.',
+  'panel.opt.glossLanding.free': 'Terjemahan bebas',
+  'panel.opt.glossLanding.gloss': 'Glos kata kosong berikutnya',
   'panel.f.editorTabsNote': 'Bagikan langkah yang berbeda kepada orang yang berbeda: satu rekan memotong audio, yang lain mengetik teks, yang ketiga menambahkan glos. Berguna juga selagi seseorang masih belajar — beri satu tab, tambahkan yang lain saat mereka siap. Setidaknya satu tab selalu tersisa.',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',

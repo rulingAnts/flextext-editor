@@ -158,20 +158,48 @@ export function boundaryAtPlayhead(segments, index, playheadMs, opts = {}) {
     return normalizeSegments(out, opts);
   }
 
-  // The playhead must leave a viable segment on BOTH sides, or it is not a usable boundary.
+  // The boundary must leave a viable segment on BOTH sides, or it is not usable as it stands.
   const lo = cur.start + minMs;
   const hi = cur.end - minMs;
-  if (playheadMs < lo || playheadMs > hi) {
-    // No room (or the playhead is outside this segment entirely, e.g. the user scrubbed backwards).
-    // Keep the existing segment intact and give the new line a pending segment: text is never lost,
-    // and we have not invented a boundary the user did not choose.
-    out.splice(index + 1, 0, { timePending: true });
-    return normalizeSegments(out, opts);
+  let at = playheadMs;
+  let nudged = false;
+  if (at < lo || at > hi) {
+    /* ⚠ A CUT NEAR THE EDGE IS NUDGED INWARD, NOT ABANDONED (Seth, 2026-09-08).
+     *
+     * This used to give up for every out-of-range position: keep the segment whole and splice in a
+     * `{ timePending: true }` one, on the reasoning that we should not invent a boundary the user
+     * did not choose. For a cut the user placed INSIDE the line, within minMs of one of its ends,
+     * that reasoning cost more than it saved, and silently. The original segment stayed intact, so
+     * the line kept ALL of its sound INCLUDING the part that belonged to the new line, while the
+     * new line got none — one line holding two lines' audio, and nothing said so. Seth: "on a long
+     * text, that'll really add up."
+     *
+     * A boundary moved by less than minMs is a far smaller lie than a line with no time at all, and
+     * timeEstimated is exactly how this file already says "we moved this, it is not your chosen
+     * time" (see normalizeSegments pass 2). So a position inside the segment is clamped into range.
+     *
+     * ⚠ THE TWO CASES THAT STILL REFUSE, both covered by segments-ordering:
+     *   · a position OUTSIDE the segment entirely (the user scrubbed away, or past the media end) —
+     *     clamping that really would be inventing a boundary, "not a clamp-fudge";
+     *   · a segment with no room at all, shorter than 2 * minMs, where hi < lo and there is no legal
+     *     boundary to clamp to — refusing beats creating a sub-minimum segment. */
+    const inside = at >= cur.start && at <= cur.end;
+    if (!inside || hi < lo) {
+      out.splice(index + 1, 0, { timePending: true });
+      return normalizeSegments(out, opts);
+    }
+    at = Math.min(hi, Math.max(lo, at));
+    nudged = true;
   }
 
-  const first = { ...cur, end: playheadMs };
-  const second = { ...cur, start: playheadMs, end: cur.end };
+  const first = { ...cur, end: at };
+  const second = { ...cur, start: at, end: cur.end };
+  /* The second half's start IS the boundary, so it does not inherit the original's estimated flag —
+   * it is whatever we just decided it to be. ⚠ This delete has to come BEFORE the nudge marking
+   * below, or it would wipe it straight back off again. */
   delete second.timeEstimated;
+  // ...but a boundary we had to move inward is not the user's chosen time, on either side of it.
+  if (nudged) { first.timeEstimated = true; second.timeEstimated = true; }
   out.splice(index, 1, first, second);
   return normalizeSegments(out, opts);
 }

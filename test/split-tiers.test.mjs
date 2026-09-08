@@ -43,7 +43,7 @@ test('the pending-split engine: one at a time, toggle off, and every cancel with
   assert.match(eng, /p\.pos\[tier\] === value\) \{ splitCancel\(\); return 'cancelled'; \}/, 'the same scissors again toggles it off');
   assert.match(eng, /if \(plan\.complete\) \{\s*\n\s*pendingSplit = null;\s*\n\s*try \{ p\.render\(null\); \} catch \{[^}]*\}\s*\n\s*p\.commit\(p\.pos\);/, 'the write happens once, when the last tier lands');
   assert.match(eng, /if \(e\.key === 'Escape' && pendingSplit\) \{ e\.preventDefault\(\); splitCancel\(\); \}/, 'Escape cancels');
-  assert.match(eng, /closest\('\.split-pending, #audio-player, \.cut-scissors, \.gseg-scissors, \.split-here, \.split-prompt, \.scissor-btn, \.pa-cut, \.pa-rowcut, \.pa-player, \.pa-rowplay, #btn-undo, #pa-undo, #mg-undo'\)\) return;[^\n]*\n\s*splitCancel\(\);/, 'a tap away from the line cancels');
+  assert.match(eng, /closest\('\.split-pending, #audio-player, \.cut-scissors, \.gseg-scissors, \.split-here, \.split-prompt, \.scissor-btn, \.seg-arm, \.pa-cut, \.pa-rowcut, \.pa-player, \.pa-rowplay, #btn-undo, #pa-undo, #mg-undo'\)\) return;[^\n]*\n\s*splitCancel\(\);/, 'a tap away from the line cancels — and .seg-arm is exempt, because arming/disarming manages the pending split itself');
   assert.match(APP, /function doUndo\(\) \{ if \(splitCancel\(\)\) return;/, 'Undo cancels first');
   assert.match(APP, /function switchTab\(tab, landing\) \{\s*\n\s*splitCancel\(\);/, 'a tab switch cancels');
   assert.match(APP, /current = null;\s*\n\s*splitCancel\(\);/, 'closing the text cancels');

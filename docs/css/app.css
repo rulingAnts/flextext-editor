@@ -2785,41 +2785,43 @@ body.rp-standalone main { padding-top: 0; }
   cursor: pointer; padding: 0; color: #c9772a;
 }
 .cut-scissors:hover { background: #f6e9dc; }
-/* ⚠ THE ✂ HANGS UNDER THE LINE, AND THE LINE MAKES ROOM FOR IT (Seth, 2026-09-08).
-   First he reported it covering the text: "the scissors icon underneath the play head covers up the
-   baseline textbox so you can't see what you're typing" — the 30px button was anchored by its TOP to
-   the wave's bottom edge, so it hung 28px down over a ~39px text box.
-   ⚠ Moving it ONTO the wave was tried and rejected, for a reason worth keeping: "Putting the scissors
-   RIGHT on top of the play head isn't a solution either, because that makes it easy to accidentally
-   split when you meant to scrub." The wave is the scrub surface; a button on it steals the gesture.
-   ⚠ So the answer is space, not relocation: "We might just need to adjust the line height and the
-   size of the scissors icon. Scissors underneath the line looks good and makes sense, we just need to
-   make sure we size and space things so the scissors button icon doesn't cover text."
-   Hence a smaller button (24px) and a reserved lane below each wave — and the lane is only paid for
-   when the tab actually offers splitting, because ~26px per line is real screen on a phone. */
-/* ⚠ SMALL BUTTON, BIG TARGET — the vertical cost is what we are buying down (Seth, 2026-09-08:
-   "making the scissors button a bit smaller (especially on a small screen) is something we can
-   totally do. Can we do that so that we're dealing with a, I dunno, 15-20px cost instead of a 30px
-   cost?"). Every line pays the lane, so 10px per line is 10px × every line on the screen.
-   The visual shrinks to 18px; the TOUCH area is bought back sideways with ::after, where the lane is
-   empty anyway — ±12px horizontally is free, and 3px vertically stays well inside the clearance.
-   ⚠ Do NOT buy it back vertically instead: upward reaches the wave, and a tappable strip of the
-   scrub surface is the thing that got the previous attempt rejected; downward reaches the text. */
-/* ⚠ IT STRADDLES THE WAVE'S BOTTOM EDGE (Seth, 2026-09-08): "the scissors button kind of half
-   hanging off the bottom of the waveform so that the top of the button takes up maybe the bottom
-   third of the playhead and then hangs off the bottom of the waveform just a bit (like 15px-ish??).
-   And then spacing so that doesn't cover text, but also doesn't leave ENORMOUS padding."
-   So a third of the button sits over the very bottom of the wave and two thirds hang below, which is
-   what buys the lane down from ~30px to ~16px. The overlap is deliberate and small: the bottom sliver
-   of a waveform is not where anyone aims to start a scrub, and it is nothing like the earlier attempt
-   that put the whole button on the playhead ("that makes it easy to accidentally split when you meant
-   to scrub").
-   The touch target is widened SIDEWAYS only, into the empty lane — ±12px is free. ⚠ Never widen it
-   downward onto the text, nor upward, which would give back the scrub surface this shape protects. */
-.cut-scissors { width: 18px; height: 18px; font-size: 11px; transform: translate(-50%, -33%); }
-.cut-scissors::after { content: ''; position: absolute; inset: 0 -12px; }
-.seg-cutlane .seg-text { padding-top: 16px; }
-.gseg-cutlane .gseg-wavewrap { margin-bottom: 16px; }
+
+/* ⚠ NOTHING TO CUT WITH UNTIL YOU ASK FOR IT (Seth, 2026-09-08, after three rounds of trying to make
+   the ✂ fit): "Too many scissors buttons on a small touch screen makes for a lot of accidental
+   pushing the wrong button and then being confused about how to undo cut mode." And: "all cuts on
+   baseline or gloss tab start with pushing a scissors button in the left edge of a line and then all
+   the scissors buttons show up. Then spacing/covering up doesn't matter."
+   The idea is PAT's, which has had a join/split switch from the start.
+
+   This is why the earlier attempts kept failing: they were all trying to find room for controls that
+   are needed for a few seconds and shown for the whole session. Arming ONE LINE at a time makes the
+   idle screen free of them entirely — no lane, no shrinking, no compromise on size — and the armed
+   line can overlap freely, because in that moment the user is choosing a cut point, not reading.
+
+   Rendered as usual and hidden here, rather than gated at every creation site: the ticker keeps them
+   positioned, so arming reveals a button that is already in the right place. */
+.seg-strip:not(.cut-armed) .cut-scissors,
+.seg-strip:not(.cut-armed) .scissor-btn,
+.segment:not(.cut-armed) .cut-scissors,
+.segment:not(.cut-armed) .scissor-btn,
+.segment:not(.cut-armed) .chain-btn { display: none !important; }
+
+/* The one control that IS always there: a line's own ✂ in its left gutter, under ▶. Tapping it arms
+   that line; tapping it again — or arming another — puts everything away. ⚠ It is also the cancel,
+   which is the answer to "confused about how to undo cut mode": the button that started it is the
+   button that stops it, in the same place, and it says so by turning red. */
+.seg-arm {
+  appearance: none; border: 1px solid var(--border); background: var(--panel);
+  border-radius: 8px; width: 34px; height: 26px; font-size: 13px; line-height: 1;
+  cursor: pointer; padding: 0; color: #c9772a; margin-top: 4px;
+}
+.seg-arm:hover { background: #f6e9dc; }
+.seg-arm[aria-pressed="true"] {
+  background: #fdecea; border-color: #e57373; color: #c62828; position: relative;
+}
+.seg-arm[aria-pressed="true"]::after {
+  content: '\00d7'; position: absolute; right: 2px; top: -2px; font-size: 15px; font-weight: 700; color: #c62828;
+}
 
 #cut-strips { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 /* Focusable, because this tab has no text box to hold focus and Enter/Backspace must land
@@ -2861,7 +2863,7 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
    `.pa-wavewrap .pa-rowcut` is CENTRED on its wave at 26px. Centred on 22px it overhangs 2px each
    side, which reaches nothing, and it keeps a tappable target on the playhead where the gesture
    expects it. */
-.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 0; }
+.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 2px; }
 /* A word on the Gloss tab is editable in place (glossEditWord). */
 .word-txt[contenteditable] { cursor: text; border-bottom: 1px dotted transparent; min-width: 1ch; }
 .word-txt[contenteditable]:hover { border-bottom-color: var(--muted); }

@@ -103,7 +103,15 @@ test('#42 Space is a setting: auto (off on coarse pointers), on, off; Shift+Spac
   assert.match(space, /if \(e\.shiftKey\) \{[\s\S]{0,900}?e\.preventDefault\(\);[\s\S]{0,300}?togglePlayFromKey\(\);\s*\n\s*return;\s*\n\s*\}/, 'Shift+Space first');
   const shiftAt = space.indexOf('e.shiftKey'), gateAt = space.indexOf('transportKeysApply(e.target');
   assert.ok(shiftAt < gateAt, 'Shift+Space is decided before the text-box gate, so it works inside a field');
-  assert.match(space, /if \(!spaceToggles\(\)\) return;/, 'plain Space honours the setting');
+  /* ⚠ …EXCEPT ON THE TRANSPORT ITSELF (#59, 2026-09-08). Seth: "when the preview player is focused,
+   * spacebar should play." Where Space is the typing key, focus resting on the player is an
+   * unambiguous statement of intent — the same reasoning that makes Shift+Space mean "audio"
+   * wherever the caret is. A text box, the speed picker and the zoom slider are NOT the transport;
+   * onTransport's inTextField guard keeps the key with them. */
+  assert.match(space, /if \(!spaceToggles\(\) && !onTransport\(e\.target\)\) return;/,
+    'plain Space honours the setting, unless focus is on the transport');
+  assert.match(APP, /const onTransport = \(el\) => !!\(el && el\.closest && !inTextField\(el\)\s*\n?\s*&& el\.closest\(PLAY_BTNS \+ ', #audio-player'\)\);/,
+    'and "the transport" is the play buttons and the dock, minus its form controls');
   assert.ok(space.indexOf('spaceToggles()') < gateAt, 'the setting gate sits before the field gate');
   assert.ok(APP.includes('function togglePlayFromKey()'), 'one toggle body shared by both paths');
   assert.match(APP, /player\.playSpan\(inside \? at : lastPlayTarget\.start, lastPlayTarget\.end, lastPlayTarget\.start\)/);
@@ -167,8 +175,8 @@ test('2026-09-06: with Space off, a plain keystroke goes to the last played line
    * too, especially if they're brand new to computers". So every printable key now redirects — but
    * where Space IS the transport it still plays rather than typing, which is the part 2026-09-06
    * actually cared about. */
-  assert.match(rule, /!\(e\.key === ' ' && \(e\.shiftKey \|\| spaceToggles\(\)\)\) && !inTextField\(e\.target\)/,
-    'Space still plays where Space is the transport; never for Shift+Space; only outside a box');
+  assert.match(rule, /!\(e\.key === ' ' && \(e\.shiftKey \|\| spaceToggles\(\) \|\| onTransport\(e\.target\)\)\) && !inTextField\(e\.target\)/,
+    'Space is never redirected where it is the transport, on the chord, or with the player focused (#59)');
   // ⚠ restoreTypingFocus, not focusAtEnd: the caret goes back where the user left it on this line.
   assert.match(rule, /if \(restoreTypingFocus\(\)\) return;/,
     'focus the box and let the keystroke land there (no preventDefault)');

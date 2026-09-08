@@ -11008,6 +11008,20 @@ function wireCompanionLinks() {
 
 function wirePlaybackKeys() {
   const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
+  /* ⚠ FOCUS ON THE TRANSPORT MEANS SPACE IS THE TRANSPORT (Seth, 2026-09-08: "when the preview
+   * player is focused, spacebar should play" — issue #59).
+   *
+   * Where Space is the TYPING key — spaceToggles() false, the touch default — two rules collided.
+   * Space is printable, so the v636 typing redirect carried it into the line's text box; with the
+   * player focused that is plainly not what the user meant. Before v636 it did nothing at all,
+   * which is why this only surfaced now. Focus resting on the transport is an unambiguous statement
+   * of intent, the same reasoning that makes Shift+Space mean "audio" wherever the caret is.
+   *
+   * ⚠ A TEXT BOX IS NOT THE TRANSPORT, and neither is the speed picker or the zoom slider: a space
+   * typed in a box must still be a space, and those controls own the key natively. Hence the
+   * inTextField guard, which catches input/select/textarea/contenteditable inside the dock too. */
+  const onTransport = (el) => !!(el && el.closest && !inTextField(el)
+    && el.closest(PLAY_BTNS + ', #audio-player'));
   /* ⚠ CAPTURED AS FOCUS LEAVES A BOX — which is precisely the moment the ▶ is pressed, or the
    * waveform clicked (that path blurs the field deliberately; see the pointerdown handler). */
   document.addEventListener('focusout', (e) => rememberCaret(e.target), true);
@@ -11062,7 +11076,7 @@ function wirePlaybackKeys() {
      * should be nearly invisible too, especially if they're brand new to computers"). The Space bar
      * is the one exception: where Space is the transport it keeps playing rather than typing. */
     if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === 'string' && e.key.length === 1
-        && !(e.key === ' ' && (e.shiftKey || spaceToggles())) && !inTextField(e.target)
+        && !(e.key === ' ' && (e.shiftKey || spaceToggles() || onTransport(e.target))) && !inTextField(e.target)
         && !document.querySelector('.modal:not([hidden])')) {
       // ⚠ restore, not focusAtEnd: the caret goes back where they left it, not to the end.
       if (restoreTypingFocus()) return;
@@ -11089,7 +11103,9 @@ function wirePlaybackKeys() {
     // The Cut tab has its own Space (continuous play/pause) — see the cut-tab key handler. Two
     // handlers would toggle twice and cancel each other out.
     if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
-    if (!spaceToggles()) return;   // touch default: Space types; ▶ or Shift+Space plays
+    // touch default: Space types; ▶ or Shift+Space plays — UNLESS focus is on the transport itself,
+    // where Space can only mean play (#59). See onTransport.
+    if (!spaceToggles() && !onTransport(e.target)) return;
     /* ⚠ NOT "any button": that blanket exemption is what jammed Space on the Baseline and Gloss
      * tabs, because focus sits on the TAB BUTTON you clicked to get there and the key was spent
      * re-activating it. transportKeysApply draws the line properly — see it for the full rule. */

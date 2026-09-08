@@ -351,12 +351,15 @@ higher-exposure setting would want *cannot be honestly claimed by a browser tab 
 decides what is cached, paged or swapped, and a page cannot choose a storage path, reach an OS
 keychain, or keep itself out of a device backup. The shells are where those become possible.
 
-⚠ **This does not make the shells a recommended path.** For the primary audience the URL *is* the
-onboarding: finding a downloaded file, running a wizard, or enabling installation from unknown
-sources are each, on their own, enough to stop the work — and the last of those amounts to teaching a
-field team to switch off a safety feature, which is a harm in itself. So the browser path must stay
-safe on its own, and shell-only protections are an upgrade for those who can install, never the
-baseline. Nothing here is on the roadmap. See `plans/consent-person-based.md` §3.8.
+⚠ **This does not make the shells a recommended path *here*.** For the primary audience the URL *is*
+the onboarding: finding a downloaded file, running a wizard, or enabling installation from unknown
+sources are each, on their own, enough to stop the work — and the last amounts to teaching a field
+team to switch off a safety feature, which is a harm in itself. ⚠ **But that is a property of
+distributing unsigned builds ourselves, not of native shells:** a signed build on a store installs in
+two taps, and a managed deployment installs with none. Another team with a signing identity is in a
+different position, so the architecture stays shell-capable. What must hold either way is that the
+browser path is safe on its own, and shell-only protections are an upgrade for those who can install,
+never the baseline. Nothing here is on the roadmap. See `plans/consent-person-based.md` §3.8.
 
 **Why native at all — two independent archival reasons** (full argument in `android/README.md`):
 the WebView's AGC-or-clip dilemma (AGC is processing, which IASA TC-03 and FADGI forbid on a

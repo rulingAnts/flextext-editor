@@ -741,8 +741,35 @@ that cannot be made, and this repo already counts that as broken.
 ⚠ **The unsigned APK is worse than an inconvenience.** Installing one requires enabling installation
 from unknown sources and dismissing a warning designed to be alarming — so the instruction is
 literally *"turn off a safety feature and ignore what your phone tells you"*. Teaching that habit to
-a field team is itself a harm, and it does not stay contained to our app. **If a shell ever becomes a
-recommended path rather than a specialist one, signing and store distribution stop being optional.**
+a field team is itself a harm, and it does not stay contained to our app.
+
+#### ⚠ But that wall is distribution, not platform — and someone else can pay to remove it
+
+Seth, 2026-09-08: *"other developers may have the connections and resources to get a capacitor shell
+signed and on the play store."* Correct, and it changes what this section is claiming. **The barrier
+above is a property of an unsigned, self-distributed build, not of native shells.** An organisation
+with a signing identity and a store account turns installation into *open the store, tap Install* —
+fewer steps than a PWA, and the unknown-sources harm disappears entirely.
+
+Three routes, and they are not interchangeable:
+
+| route | what it removes | what it costs |
+|---|---|---|
+| **signing alone** | verifiable provenance; the build is attributable and tamper-evident | ⚠ **does not remove the sideloading step** — a signed APK installed by hand still needs unknown sources |
+| **store distribution** (Play, F-Droid) | the sideloading step entirely; updates arrive on their own | account, review, policy compliance, an ongoing update duty — and ⚠ a **public listing**, which names the project and where it is used; that is a disclosure decision, not automatically a desirable one |
+| **managed/enterprise distribution** (MDM) | installation as a user act at all — the device arrives ready | an organisation with device management already in place |
+
+⚠ **The third is the natural fit for the second audience**, and Seth already named the shape of it:
+*"helping pre-install things may be doable"*. A pre-provisioned device is exactly where the shell's
+protections are reachable *and* where nobody is asked to sideload anything.
+
+⚠ **And store distribution is not universal either** — Play services are absent on some devices and
+in some places, which is a plain fact about coverage rather than about anyone's intent. A signed
+build plus a second channel is what makes a deployment portable.
+
+**So the honest statement is narrower than "native is out of reach":** it is out of reach *for a
+project distributing unsigned builds itself*, which is the situation here today and may not be
+someone else's. The architecture should stay shell-capable for that reason.
 
 **For audience two the arithmetic reverses.** Installation is plausibly trainable, and a device
 handed over already set up is plausible — which is the case where every capability in the table above

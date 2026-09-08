@@ -199,8 +199,12 @@ between them they check parity, section membership, tab cover, i18n coverage, an
 **Validation** (`validateDeviceSettings` in the panel, `validateDeviceSetup` in the app) returns
 `{ group, field, msg }`, where `group` is a **section** id — the banner names it and its jump button
 expands it. Two rules to know: the panel refuses a save that switches off all three editor tabs (the
-app warns instead, since it live-saves), and `templateMode` drops the one rule a project template
-cannot satisfy, the per-device consent-audio URL. A surface only ever validates fields it actually
+app warns instead, since it live-saves), and `templateMode` exempts the consent-audio URL — not
+because a template cannot hold one (it can: the upload button works there and borrows a device of
+the project to carry the bytes, since `assignment/finish` mints the prompt token **unscoped**) but
+because a researcher writing a project's defaults may not have created a device yet. Every merged
+object `applyTemplateModal` pushes is held to the full rule, so a device is still refused by name
+rather than given a consent step with nothing to play. A surface only ever validates fields it actually
 renders (`setupProblems`) — otherwise a rule reads an `undefined` out of a control that is not
 there, which is how the Audio Segmenter came to be told to fix send buttons it does not have.
 

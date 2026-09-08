@@ -695,11 +695,15 @@ export function wireIconPicks(root) {
  *   • UNPAIRED ONLY — `consentAudioFile`, a picked file where the panel has a Drive URL box; and
  *     `appLang`, live HERE (the researcher pushes a language) but greyed THERE, where the toolbar's
  *     own language selector is the live control and a second one could only disagree with it.
- *   • PER DEVICE, NEVER A TEMPLATE — the consent prompt's upload button. The audio streams into ONE
- *     device's own Drive folder and mints a URL for that device, so openSettingsModal removes the
- *     button in template mode and validateDeviceSettings drops the matching rule (templateMode).
- *     Everything else in this table is meaningful in a project template exactly as it is on a
- *     device: a template is the settings a NEW device is born with, not a different kind of object.
+ *   • THE SAME EVERYWHERE ELSE, INCLUDING THE CONSENT PROMPT (corrected 2026-09-09). This list once
+ *     carried a third case — the prompt upload as "per device, never a template" — on the reasoning
+ *     that it mints a URL "for that device". It streams into one device's Drive folder, yes, but
+ *     assignment/finish mints the token with scope = null, so it names no instance and redemption
+ *     skips the device check: any device holding the URL can play it, which is precisely why
+ *     applyTemplateModal can push a template's consentAudioUrl to every device in a project. The
+ *     button therefore works on the template form too and borrows a device of that project to carry
+ *     the bytes. So: a template is the settings a NEW device is born with, with no exceptions — not
+ *     a different kind of object.
  * ───────────────────────────────────────────────────────────────────────────── */
 const GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', helpModal: 'wscodes', fields: [
@@ -1324,6 +1328,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v644', date: '2026-09-09', items: [
+    { k: 'panel.rel.new.projectConsentPrompt' },
+    { k: 'panel.rel.fix.consentPromptNoLink' },
+  ] },
   { v: 'v643', date: '2026-09-09', items: [
     { k: 'panel.rel.new.settingsDocs' },
   ] },
@@ -9348,10 +9356,18 @@ function readForm(box) {
  *   • the consent MESSAGE IF consent mode is Text (else the text consent screen is blank).
  * Everything else has a safe default/fallback. Returns [{ group, field, msg }] (empty = OK). */
 function validateDeviceSettings(raw, opts = {}) {
-  /* opts.templateMode drops ONLY the consent-audio URL rule, for the project template form: that
-   * URL is minted per device by the prompt upload, so a template can never hold one and the rule
-   * would make audio consent unreachable there. Everything a template CAN satisfy it still must —
-   * and the dropped rule is re-applied to each merged object before it is pushed to a device. */
+  /* opts.templateMode drops ONLY the consent-audio URL rule, for the project template form.
+   *
+   * ⚠ THE REASON CHANGED, THE RULE DID NOT (2026-09-09). It used to be that a template could never
+   * hold a prompt URL at all, so demanding one made audio consent unreachable. A template CAN hold
+   * one now — the upload button works there. It is still exempt because a researcher writing a
+   * project's defaults may not have created any device yet, and the upload borrows a device of the
+   * project to carry the bytes: blocking the save would refuse work over a step that cannot be
+   * taken until later, which is the same dead end wearing different clothes.
+   *
+   * The device is protected either way, and that is what matters: the rule is re-applied to every
+   * merged object applyTemplateModal pushes, so a device is refused BY NAME rather than quietly
+   * given a consent step with nothing to play. */
   const { parseFolder, uploadIsUrl, templateMode } = opts;
   const blank = (v) => !v || !String(v).trim();
   const out = [];
@@ -9550,17 +9566,35 @@ async function openSettingsModal(target, opts = {}) {
   }
   fillForm(box, toFormValues(source));
   wireIconPicks(box);
-  /* ⚠ THE CONSENT PROMPT IS PER-DEVICE, so in TEMPLATE mode its upload button had nothing to
-   * target and sat there dead — the upload streams the audio into one device's own Drive folder
-   * and mints a URL for that device, which is why its wiring below requires target.instance. A
-   * control that cannot act must say what to do instead of sitting there (the repo's rule), so in
-   * template mode it is replaced by the reason. The template still carries the consent MODE; the
-   * prompt itself is uploaded on each device, where the button works. */
+  /* THE CONSENT PROMPT IN A PROJECT TEMPLATE (Seth, 2026-09-09: "I'd like to be able to upload a
+   * recording as either default or override (just like any other setting on the project default
+   * device settings) consent prompt").
+   *
+   * This button used to be REMOVED here, replaced by "the prompt is uploaded on each device" — on
+   * the reasoning that the upload streams into one device's Drive folder and mints a URL "for that
+   * device". The first half is true; the second was not. `assignment/finish` mints the prompt URL
+   * with scope = null (worker/src/v1.js), so the token carries no instance and redemption skips the
+   * device check entirely: any device holding the URL can fetch it. The suite already depends on
+   * that — applyTemplateModal pushes a template's consentAudioUrl to EVERY device in the project.
+   *
+   * So the button works here, and the only thing template mode really lacks is somewhere to put the
+   * bytes: the upload route is addressed by instance. It borrows one device of this project as the
+   * host, which is the same Drive the prompt would have landed in had it been uploaded on that
+   * device, and the URL then belongs to all of them. A project with no devices yet has no host, and
+   * says so on the click rather than offering a button that fails.
+   *
+   * ⚠ THE HOST IS RESOLVED AT CLICK TIME, not here. estateCache can be cold when this modal opens
+   * (it is what projectInstanceList reads), and a button disabled on the strength of a stale cache
+   * is worse than one that re-checks and explains. */
+  const promptHostId = () => {
+    if (target.instance) return target.instance.instance_id;
+    if (!target.project) return null;
+    const list = projectInstanceList(target.project.folderId);
+    return list.length ? list[0].instance_id : null;
+  };
   if (target.project) {
     const cu = box.querySelector('[data-gact="consentUpload"]');
-    if (cu) { cu.insertAdjacentHTML('afterend', `<p class="note">${esc(t('panel.set.promptPerDevice'))}</p>`); cu.remove(); }
-    const cf = box.querySelector('#rp-consent-file');
-    if (cf) cf.remove();
+    if (cu) cu.insertAdjacentHTML('afterend', `<p class="note">${esc(t('panel.set.promptProject'))}</p>`);
   }
   /* Template mode drops ONE validation rule — the audio-prompt URL — because that URL is minted
    * per device (above) and can never exist in a template. Without this, ticking audio consent in a
@@ -9601,12 +9635,15 @@ async function openSettingsModal(target, opts = {}) {
   {
     const cuBtn = box.querySelector('[data-gact="consentUpload"]');
     const cuFile = box.querySelector('#rp-consent-file');
-    if (cuBtn && cuFile && target.instance) {
+    if (cuBtn && cuFile) {
       cuBtn.addEventListener('click', () => cuFile.click());
       cuFile.addEventListener('change', (e) => busy(cuBtn, async () => {
         const file = e.target.files[0]; e.target.value = '';
         if (!file) return;
-        const iid = target.instance.instance_id;
+        /* A device to address the upload route with — this one, or any device of this project. The
+         * minted URL is unscoped, so which one it was does not change who can play it. */
+        const iid = promptHostId();
+        if (!iid) { deps.toast(t('panel.set.promptNeedsDevice'), 8000); return; }
         consentUploading = { pct: 0 };
         // busy() restores the label in its own finally, so painting it here is safe.
         cuBtn.textContent = t('panel.f.consentUploadingPct', { pct: 0 });
@@ -9627,7 +9664,14 @@ async function openSettingsModal(target, opts = {}) {
           cuBtn.textContent = t('panel.f.consentFinishing');
           const fin = await Researcher.assignFinish(iid, 'consent-prompt', { promptFileId: fileId, ttlDays: assignTtlDays() });
           const input = box.querySelector('[data-f="consentAudioUrl"]');
-          if (input && fin.promptUrl) input.value = fin.promptUrl;
+          /* ⚠ THE UPLOAD CAN SUCCEED AND THE LINK STILL NOT EXIST, and it used to say nothing at
+           * all. mintTextfileUrl REFUSES to mint an unscoped token for a MEMBER minting into the
+           * owner's Drive (worker/src/v1.js: "A MEMBER MAY NOT MINT AN UNSCOPED TOKEN"), and a
+           * consent prompt is always unscoped — so for a member `promptUrl` comes back null, the
+           * old `if (fin.promptUrl)` quietly did nothing, and the button reported success over a
+           * setting that had not changed. Say which half failed. */
+          if (!fin.promptUrl) { deps.toast(t('panel.f.consentNoLink'), 9000); return; }
+          if (input) input.value = fin.promptUrl;
           paintPromptState(box);   // the hidden carrier changed — the visible state must follow
           deps.toast(t('panel.f.consentUploaded'), 5000);
         } catch (err) { errToast(err); }

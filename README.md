@@ -259,14 +259,18 @@ The **app language** carries the mark for a different reason: it is live in the 
 researcher pushes a language, and greyed on the device, where the toolbar’s own selector already
 owns it — two controls for one thing could only disagree.
 
-The **spoken consent prompt** is the one setting whose *control* differs by surface, in both
-directions. An unlinked device picks a **sound file** from itself; a linked device is pushed a
-**Drive URL**, which always wins if both exist. And a project template gets the URL box but not the
-**upload button** beside it, because that upload streams into one device’s own Drive folder and
-mints a URL for that device — there is no device yet to mint one for.
+The **spoken consent prompt** is the one setting whose *control* differs by surface. An unlinked
+device picks a **sound file** from itself; in the panel you press **Upload recording** and the audio
+streams into the researcher’s Drive, filling the setting with the link it mints. A pushed link
+always wins over a file picked on the device, so linking a device never has to be undone first.
 
-Everything else in a project template means exactly what it means on a device: a template *is* the
-settings a new device is born with, not a different kind of object.
+A **project’s defaults carry a prompt like any other setting** — upload it once and every device in
+the project is created with it, with the usual offer to send it to the devices already there; a
+device given its own recording plays that instead. The bytes ride through one device of the
+project, so a project with no devices yet says so and asks you to create one first.
+
+Otherwise a project template means exactly what it means on a device: it *is* the settings a new
+device is born with, not a different kind of object.
 
 The **Audio Segmenter** shows a shorter list (writing systems, appearance, its own permissions and
 the bundle) — after filtering it has no Recording and no Consent section at all, so the "Recording &

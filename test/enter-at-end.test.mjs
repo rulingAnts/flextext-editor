@@ -99,3 +99,32 @@ test('on the Gloss tab "move to next" is tested before the edge split', () => {
   assert.ok(advance < edgeBefore,
     'the walk must be reached before the atStart edge split, or a blank box can never advance');
 });
+
+/* ⚠ WHERE "MOVE TO NEXT" REACHES FROM (Seth, 2026-09-08). Enter is not only a thing that happens in
+ * a text box: the ▶ is focusable by tap even though it is out of the tab order, and on a phone that
+ * is the usual way in — hear the line, then carry on typing. And a baseline word being corrected on
+ * the Gloss tab should hand over to that word's OWN gloss, because fixing a spelling and glossing
+ * the same word is one motion. All three are gated on the setting: where Enter still splits, it must
+ * keep meaning that. */
+test('Enter on the play button walks, on both tabs', () => {
+  const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
+  assert.match(STRIPS, /play\.addEventListener\('keydown', \(ev\) => \{\s*\n\s*if \(ev\.key !== 'Enter' \|\| !\(deps\.enterAdvances && deps\.enterAdvances\(\)\)\) return;[\s\S]{0,80}?focusStripAfter\(i\);/,
+    'Baseline ▶ hands off to the next line, gated on the setting');
+  assert.match(APP, /btn\.addEventListener\('keydown', \(ev\) => \{\s*\n\s*if \(ev\.key !== 'Enter' \|\| !enterAtEndAdvances\(\)\) return;/,
+    'Gloss ▶ likewise');
+  assert.match(APP, /const next = nextG\.querySelector\('\.gloss-input'\) \|\| nextG\.querySelector\('\.free-input'\);/,
+    "and lands in the next line's first word gloss, falling back to its translation");
+});
+
+test('Enter on a baseline word hands over to that word\'s own gloss', () => {
+  const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  const h = APP.slice(APP.indexOf("t2.addEventListener('keydown'"), APP.indexOf("t2.addEventListener('blur'"));
+  assert.match(h, /const advance = enterAtEndAdvances\(\);/, 'gated on the setting');
+  // ⚠ the line index is read BEFORE the blur: committing a CHANGED word re-renders the whole tab,
+  // and afterwards `seg` is no longer the phrase sitting in the doc, so it could not be found again.
+  assert.ok(h.indexOf('findIndex') < h.indexOf('t2.blur()'),
+    'the line is located before the commit, not after it');
+  assert.match(h, /const cellNow = grp \? grp\.querySelectorAll\('\.word-cell'\)\[i\] : null;/,
+    'the gloss box is looked up by position afterwards, never held across the re-render');
+});

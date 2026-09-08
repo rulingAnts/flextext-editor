@@ -785,6 +785,17 @@ export function renderStrips() {
      * boxes was a keypress spent on something they did not ask for. Still clickable, still reachable
      * by pointer — just not a stop on the way to the next line. */
     play.tabIndex = -1;
+    /* ⚠ ENTER ON THE ▶ WALKS, exactly as Enter at the end of this line's box would (Seth,
+     * 2026-09-08: "if the user has the player (not the text box) focused, that should also move to
+     * the next textbox … as if the cursor were at the end of the textbox"). The ▶ is out of the tab
+     * order but a tap still focuses it, and on a phone that is the usual way in: hear the line, then
+     * press Enter to carry on typing. Only in "move to next" mode — where Enter still splits, it
+     * must keep meaning that. */
+    play.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' || !(deps.enterAdvances && deps.enterAdvances())) return;
+      ev.preventDefault();
+      focusStripAfter(i);
+    });
     // aria-label, NOT title (v322): the native tooltip dropped over the text rows (Seth #10).
     play.setAttribute('aria-label', deps.t(isAligned(seg) ? 'seg.playTip' : 'seg.pendingTip'));
     play.textContent = isAligned(seg) ? '▶' : '⋯';

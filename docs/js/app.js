@@ -1199,6 +1199,21 @@ function decorateGlossSegments() {
      * controls to be part of the tab (keyboard) order. Just next and previous textbox in order." */
     btn.tabIndex = -1;
     btn.textContent = seg.timePending ? '⋯' : '▶';
+    /* ⚠ ENTER ON THE ▶ WALKS — the Gloss twin of the Baseline ▶ (Seth, 2026-09-08). It lands in the
+     * NEXT line's first word gloss, the box you would actually start typing in; a line with no word
+     * boxes at all falls back to its translation. Only in "move to next" mode. */
+    btn.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' || !enterAtEndAdvances()) return;
+      ev.preventDefault();
+      const groups = [...document.querySelectorAll('#gloss-body .segment')];
+      const nextG = groups[i + 1];
+      if (!nextG) return;
+      const next = nextG.querySelector('.gloss-input') || nextG.querySelector('.free-input');
+      if (!next) return;
+      next.focus();
+      try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
+      try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); }
+    });
     btn.setAttribute('aria-label', t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const waveWrap = document.createElement('div');
     waveWrap.className = 'gseg-wavewrap';
@@ -4024,7 +4039,33 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
   let was = w.txt;
   t2.addEventListener('focus', () => { was = t2.textContent; });
   t2.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); t2.blur(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      /* ⚠ "MOVE TO NEXT" CARRIES ON INTO THIS WORD'S OWN GLOSS (Seth, 2026-09-08: "IF the user is
+       * editing a baseline word on the gloss tab, it should move to that word's gloss"). Fixing a
+       * spelling and then glossing that same word is one motion, so the walk stays on the word
+       * rather than leaving the row. The blur below still commits the edit — that is unchanged;
+       * only where the caret goes afterwards is new.
+       *
+       * ⚠ AND THE BOX MUST BE FOUND AGAIN, NOT HELD. Committing a CHANGED word runs glossEditWord,
+       * which re-tokenises the line and re-renders the whole tab, so this cell's sibling gloss box
+       * is a dead node by the time we would focus it. The line index is therefore read BEFORE the
+       * blur (afterwards `seg` is no longer the phrase in the doc) and the box looked up by
+       * position afterwards. An unchanged word re-renders nothing and takes the same path. */
+      const advance = enterAtEndAdvances();
+      const li = advance && current
+        ? current.doc.paragraphs.findIndex((pp) => pp.segments && pp.segments[0] === seg) : -1;
+      t2.blur();
+      if (li < 0) return;
+      setTimeout(() => {
+        const grp = document.querySelectorAll('#gloss-body .segment')[li];
+        const cellNow = grp ? grp.querySelectorAll('.word-cell')[i] : null;
+        const gi = cellNow && cellNow.querySelector('.gloss-input');
+        if (!gi) return;
+        gi.focus();
+        try { gi.setSelectionRange(gi.value.length, gi.value.length); } catch { /* noop */ }
+      }, 0);
+    }
     else if (e.key === 'Escape') { e.preventDefault(); t2.textContent = was; t2.blur(); }
   });
   t2.addEventListener('blur', () => { const v = t2.textContent.trim(); if (v && v !== was) glossEditWord(seg, i, v); else t2.textContent = was; });

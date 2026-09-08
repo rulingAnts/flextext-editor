@@ -6822,6 +6822,17 @@ function validateDeviceSetup(raw) {
  * looked like it was refusing for no reason. Caught by the browser test, not by reading. */
 const setupFieldEl = (box, k) => box.querySelector(`[data-sf="${k}"], [data-sfile="${k}"]`);
 
+/* ⚠ NEVER RAISE A PROBLEM ABOUT A FIELD THIS FORM DOES NOT HAVE. validateDeviceSetup judges a plain
+ * object, and collectDeviceSetup can only report controls that are actually on screen — so a rule
+ * about a field the surface drops reads an `undefined` and fires against it. The Audio Segmenter
+ * is where that bites: SEGMENTER_SETUP_KEYS leaves out sendOptions, so its Settings tab was told
+ * "Allowed send buttons — How work leaves section" about a section that is not rendered there, with
+ * a jump button that could not go anywhere. Same rule as readDeviceSetup's `has()`: a surface that
+ * does not show a setting neither writes it nor complains about it. */
+function setupProblems(form) {
+  return validateDeviceSetup(collectDeviceSetup(form)).filter((p) => setupFieldEl(form, p.field));
+}
+
 /* ⚠ `advisory` IS THE WHOLE DIFFERENCE THE SAVE BUTTON'S REMOVAL MADE, and it is not cosmetic.
  * A blocking check ran once, on a deliberate click, and could fairly take the tab, the focus and a
  * toast — the user had just asked for the form to be judged. A live save re-checks after every
@@ -7102,7 +7113,7 @@ function renderDeviceSetup() {
    * the STATE, not a reaction to a keystroke; that is what makes it a real replacement for the
    * refusal rather than a softer version of it. Advisory here too: opening the tab must not seize
    * a tab or the focus, only show what is wrong. */
-  flagSetupProblems(form, validateDeviceSetup(collectDeviceSetup(form)), showGroup, { advisory: true });
+  flagSetupProblems(form, setupProblems(form), showGroup, { advisory: true });
 }
 
 /* ⚠ SETTINGS SAVE THEMSELVES, THE MOMENT THEY CHANGE (Seth, 2026-08-07). There is no Save button.
@@ -7184,7 +7195,7 @@ async function saveDeviceSetupLive(form, showGroup, { immediate = false } = {}) 
   // The consent-file line depends on the stored state, and this is the one bit of the form that is
   // NOT where the value came from — so repaint just that.
   updateSetupConditionals(form);
-  flagSetupProblems(form, validateDeviceSetup(collectDeviceSetup(form)), showGroup, { advisory: true });
+  flagSetupProblems(form, setupProblems(form), showGroup, { advisory: true });
   markSetupSaved(form);
 }
 

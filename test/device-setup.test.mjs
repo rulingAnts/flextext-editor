@@ -85,16 +85,41 @@ const fieldOf = (gs, k) => allFields(gs).find((f) => f.k === k);
 console.log('\nthe two forms present the same groups, in the same order');
 ok(JSON.stringify(SETUP_GROUPS.map((g) => g.id)) === JSON.stringify(GROUPS.map((g) => g.id)),
    `group ids match: ${SETUP_GROUPS.map((g) => g.id).join(' · ')}`);
-// Locked by the connectivity design note: "Languages · Recording/AGC · Consent · Sending · Buttons".
-ok(JSON.stringify(SETUP_GROUPS.map((g) => g.id)) === JSON.stringify(['languages', 'segmentation', 'recording', 'consent', 'sending', 'other']),
-   'and Audio Segmentation has its own tab between Languages and Recording, with Buttons renamed Other (Seth, 2026-08-07)');
-// The mode and the exports it governs travel together — the exports' own note says they follow it.
-for (const k of ['segmentation', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
-  ok(SETUP_GROUPS.find((g) => g.id === 'segmentation').fields.some((f) => f.k === k),
-     `${k} sits on the Audio Segmentation tab, not under a heading about buttons`);
-  ok(GROUPS.find((g) => g.id === 'segmentation').fields.some((f) => f.k === k),
+/* THE NINE SECTIONS, in order (Seth, 2026-09-09). The six flat tabs before this had grown into two
+ * dumping grounds — `segmentation` held eighteen fields across five subjects and `other` twelve
+ * across four — so the tab a setting sat on had stopped predicting anything. Pinned here because a
+ * name is only worth renaming once: the next person to add a switch should have to pick a section
+ * that is true of it, and adding a tenth section should be a deliberate act that fails this line. */
+const SECTIONS = ['languages', 'appearance', 'tasks', 'permissions', 'typing', 'recording', 'consent', 'leaving', 'bundle'];
+ok(JSON.stringify(SETUP_GROUPS.map((g) => g.id)) === JSON.stringify(SECTIONS),
+   `nine sections, in the agreed order: ${SECTIONS.join(' · ')}`);
+// The exports moved to their own section, per Seth: "move the save/export settings to the sending
+// tab (even though they're audio segmentation specific)". The mode itself stays with the tasks.
+for (const k of ['exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'segTimeNotes']) {
+  ok(SETUP_GROUPS.find((g) => g.id === 'bundle').fields.some((f) => f.k === k),
+     `${k} is in "What goes in the bundle", not filed under the editing mode`);
+  ok(GROUPS.find((g) => g.id === 'bundle').fields.some((f) => f.k === k),
      `  ...and the panel agrees`);
 }
+// "Tasks" is only an honest name while it means WHICH STEPS this device does, and nothing else.
+ok(JSON.stringify(SETUP_GROUPS.find((g) => g.id === 'tasks').fields.map((f) => f.k))
+   === JSON.stringify(['segmentation', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss']),
+   'Tasks holds the five step switches and nothing else');
+// recordWelcome was filed under Sending, where nothing about it belonged.
+ok(SETUP_GROUPS.find((g) => g.id === 'recording').fields.some((f) => f.k === 'recordWelcome'),
+   'the Recorder welcome heading sits with Recording');
+
+/* THE FOUR MACRO-TABS. `secs` must name real sections and cover every one of them exactly once —
+ * a section missing from SET_TABS renders nowhere at all, which is the one way this layout can
+ * silently lose a setting. */
+const SETUP_TABS = lift(app, 'SETUP_TABS', [], []);
+const SET_TABS = lift(panel, 'SET_TABS', [], []);
+ok(!!SETUP_TABS && !!SET_TABS, 'both macro-tab tables parse');
+ok(JSON.stringify(SETUP_TABS) === JSON.stringify(SET_TABS), 'both surfaces declare the same macro-tabs');
+ok(JSON.stringify(SET_TABS.map((t) => t.id)) === JSON.stringify(['device', 'work', 'capture', 'out']),
+   'four macro-tabs: device · work · capture · out');
+ok(JSON.stringify(SET_TABS.flatMap((t) => t.secs).sort()) === JSON.stringify(SECTIONS.slice().sort()),
+   'every section is on exactly one macro-tab, and no tab names a section that does not exist');
 
 console.log('\nFULL PARITY — every panel field is present here');
 /* The ONE divergence, and it is declared in the spec itself (`standalone: true`) rather than in a
@@ -412,8 +437,9 @@ console.log('\nthe form selects on data-sf, never the panel\'s data-f');
 ok(!/data-f=/.test(fieldSrc), 'setupFieldHtml emits data-sf only, so the two forms cannot select into each other');
 ok(/data-sfile="\$\{f\.k\}"/.test(fieldSrc),
    'the file input uses data-sfile — a file input\'s .value is a fake path and must stay out of collect/fill');
-ok(/id="ds-tab-\$\{g\.id\}"/.test(app) && /id="ds-grp-\$\{g\.id\}"/.test(app),
-   'and its tab/panel ids are ds-* — the panel modal may be in the DOM at the same time');
+ok(/id="ds-tab-\$\{tb\.id\}"/.test(app) && /id="ds-tp-\$\{tb\.id\}"/.test(app)
+   && /id="ds-grp-\$\{g\.id\}"/.test(app) && /id="ds-sum-\$\{g\.id\}"/.test(app),
+   'and its tab / tabpanel / section / summary ids are ds-* — the panel modal may be in the DOM at the same time');
 
 console.log('\n⚠ NO KEY IS DEFINED TWICE INSIDE ONE LANGUAGE BLOCK');
 /* A duplicate is a SILENT overwrite: the later entry wins and the earlier one is dead. It bit twice
@@ -466,9 +492,14 @@ for (const f of allFields(SETUP_GROUPS)) {
     ok(n === 2, `${key} (option label for ${f.k}) is in BOTH en and id (found ${n})`);
   }
 }
+// Macro-tab labels, and the section headings + their one-line blurbs.
+for (const tb of SET_TABS) {
+  const n = inBoth(`panel.tab.${tb.id}`);
+  ok(n === 2, `panel.tab.${tb.id} is in BOTH en and id (found ${n})`);
+}
 // Group headings are built the same way.
 for (const g of SETUP_GROUPS) {
-  for (const key of [`panel.grp.${g.id}`, g.legend, g.note].filter(Boolean)) {
+  for (const key of [`panel.grp.${g.id}`, `panel.grpNote.${g.id}`, g.legend, g.note].filter(Boolean)) {
     const n = inBoth(key);
     ok(n === 2, `${key} is in BOTH en and id (found ${n})`);
   }

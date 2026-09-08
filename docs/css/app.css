@@ -1840,6 +1840,40 @@ body.rp-standalone main { padding-top: 0; }
 .rp-groups { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .rp-tab { appearance: none; border: none; background: none; padding: 8px 12px; font-size: 14px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .rp-tab.on { color: var(--blue-dark); border-bottom-color: var(--blue); font-weight: 600; }
+
+/* ---------------- Settings: collapsible sections inside a macro-tab (v641) ----------------
+   Nine sections under four tabs, ONE OPEN AT A TIME (the JS enforces that on the toggle event).
+   A closed section is a two-line row — name plus a blurb of what is inside — so the whole tab is
+   scannable without opening anything, which is the entire reason for the accordion. */
+.rp-tabpanel { display: flex; flex-direction: column; gap: 8px; }
+.rp-sec { border: 1px solid var(--border); border-radius: 10px; background: var(--card, #fff); overflow: hidden; }
+.rp-sec > summary {
+  cursor: pointer; padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 2px 10px; list-style: none; user-select: none;
+}
+.rp-sec > summary::-webkit-details-marker { display: none; }   /* Safari draws its own triangle */
+.rp-sec > summary:hover { background: var(--hover, rgba(0,0,0,.03)); }
+.rp-sec > summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+/* The caret is drawn on ::before rather than left to the native marker so it can rotate and so the
+   summary can be a flex row (a list-item summary cannot). */
+.rp-sec > summary::before {
+  content: ""; flex: 0 0 auto; width: 0; height: 0; margin-right: 2px;
+  border: 5px solid transparent; border-left-color: var(--muted);
+  transform-origin: 3px 50%; transition: transform .12s ease;
+}
+.rp-sec[open] > summary::before { transform: rotate(90deg); }
+.rp-sec-name { font-weight: 600; font-size: 15px; }
+/* The blurb rides the same line on a wide screen and drops to its own on a narrow one — flex-wrap
+   plus a min-width large enough that it never shares a line it cannot use. */
+.rp-sec-note { color: var(--muted); font-size: 13px; flex: 1 1 22ch; min-width: 22ch; }
+.rp-sec[open] > summary { border-bottom: 1px solid var(--border); }
+.rp-secbody { padding: 12px; }
+/* Sections that named no legend get no second border inside the first — the <details> card IS the
+   grouping. Only Languages / Consent / Sending, which head their fieldset with something the
+   section name does not already say, keep the bordered box. */
+.rp-fieldset.rp-fs-plain { border: none; padding: 0; }
+.rp-sec-help { align-self: flex-end; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .rp-sec > summary::before { transition: none; } }
 .rp-fieldset { border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; margin: 0; }
 .rp-fieldset legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
 .rp-multi { display: flex; flex-wrap: wrap; gap: 6px 16px; }

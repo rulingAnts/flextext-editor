@@ -74,7 +74,10 @@ test('a ticked Cut tab does not count when segmentation is off', () => {
 test('the rule reaches stored snapshots too, not just the live form', () => {
   assert.match(PANEL, /segmentation: s\.segmentation, cutTab: s\.cutTab, baselineTab: s\.baselineTab, glossTab: s\.glossTab,/,
     'settingsToRaw carries them, so a merged push is held to the same rule');
-  assert.match(PANEL, /out\.push\(\{ group: 'segmentation', field: 'baselineTab', msg: t\('panel\.val\.tabsNone'\) \}\)/);
+  // The section is 'tasks' since the v641 reorganisation — the id was renamed with the label.
+  assert.match(PANEL, /out\.push\(\{ group: 'tasks', field: 'baselineTab', msg: t\('panel\.val\.tabsNone'\) \}\)/);
+  assert.match(APP, /out\.push\(\{ group: 'tasks', field: 'baselineTab', msg: t\('panel\.val\.tabsNone'\) \}\)/,
+    'and the unpaired form warns on the same rule');
   assert.equal((I18N.match(/'panel\.val\.tabsNone':/g) || []).length, 2, 'EN + ID');
 });
 

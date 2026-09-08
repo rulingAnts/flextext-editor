@@ -60,10 +60,15 @@ const keySet = keys ? keys[1] : '';
 for (const k of ['vernLang', 'analLang', 'segTimeNotes', 'SETUP_EXPORT_KEYS', 'allowBlankLines', 'allowTextEdit']) ok(keySet.includes(k), `  …${k}`);
 for (const k of ['segmentation', 'cutTab', 'recordFormat', 'consentAsk', 'sendOptions', 'buttons']) ok(!keySet.includes(`'${k}'`), `  …but not ${k}`);
 ok(/const segOn = SEGMENTER_MODE \? true : !!raw\.segmentation;/.test(app), 'segmentation is always ON here — the exports "follow the mode" against true');
-ok(/const setupGroups = setupGroupsFor\(\);/.test(fn(app, 'renderDeviceSetup')) && /setupGroups\.map\(setupGroupHtml\)/.test(fn(app, 'renderDeviceSetup')),
-   'renderDeviceSetup builds from the filtered groups');
+ok(/const setupTabs = setupTabsFor\(\);/.test(fn(app, 'renderDeviceSetup')) && /setupTabs\.map\(setupTabPanelHtml\)/.test(fn(app, 'renderDeviceSetup')),
+   'renderDeviceSetup builds from the filtered macro-tabs');
 ok(/only: 'segmenter'/.test(app) && /\(!f\.only \|\| f\.only === mode\)/.test(fn(app, 'setupGroupsFor')),
-   'and the two segmenter-only fields stay out of the editor\'s form');
+   'and the segmenter-only fields stay out of the editor\'s form');
+/* ⚠ A MACRO-TAB WITH NOTHING LEFT IN IT MUST NOT RENDER. After SEGMENTER_SETUP_KEYS filtering this
+ * app has no Recording and no Consent section, so "Recording & consent" has no contents at all —
+ * an empty tab reads as a broken one. setupTabsFor drops it; no special case, just the filter. */
+ok(/\.filter\(\(tb\) => tb\.secs\.length\)/.test(fn(app, 'setupTabsFor')),
+   'and a macro-tab whose sections all filtered away is dropped entirely');
 for (const k of ['setup.off.allowBlankLines', 'setup.off.allowTextEdit']) ok(both(k), `${k} in both languages`);
 
 console.log('\nthe tab behaves like the editor\'s');

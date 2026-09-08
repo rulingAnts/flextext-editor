@@ -6280,6 +6280,24 @@ const SETUP_BPS = { mp3: 8000, opus: 6000, webmpcm: 187500, wav16: 96000, wav24:
  * `offOpts: [...]`     same, for individual options inside a multicheck.
  * `standalone: true`   this field exists ONLY here, never in the panel (the consent file picker).
  */
+/* ─────────────────────────────────────────────────────────────────────────────
+ * THE UNPAIRED DEVICE'S OWN SETTINGS TAB — the same nine sections under the same four macro-tabs as
+ * the researcher panel's GROUPS/SET_TABS (see the long note there for why the old six flat tabs
+ * were reorganised, and for the ids' load-bearing role). One shape, three surfaces: per device and
+ * per project template in the panel, and here for somebody working alone.
+ *
+ * ⚠ WHAT IS DIFFERENT HERE, and it is only ever these two things:
+ *   1. `off:` — the ten fields that are inert without a researcher behind them. Six because their
+ *      engine gate short-circuits on `!Sync.hasSession()` (allowDelete, deleteAllEnabled,
+ *      allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit — a lone worker always has
+ *      these, so a switch could only lie), and four because they wait on an upload that cannot
+ *      happen with no Drive target (autoDel, autoBackup, autoBackupMins, doneEnabled). Plus
+ *      `appLang`, inert for a different reason: the toolbar's own selector is the live control.
+ *      THEY ARE SHOWN, GREYED, WITH THE REASON ON TAP — never hidden. A setting that vanishes when
+ *      you pair a device is a setting nobody can find twice.
+ *   2. `consentAudioFile` replaces the panel's `consentAudioUrl`: a picked file where a managed
+ *      device gets a pushed Drive link. The only field either surface has that the other lacks.
+ * ───────────────────────────────────────────────────────────────────────────── */
 const SETUP_GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', note: 'research.note', fields: [
     // The panel pushes this to a managed device. Here the toolbar's own language selector is the
@@ -6292,48 +6310,74 @@ const SETUP_GROUPS = [
     { k: 'vernLang', type: 'text', ph: 'fau', tip: 'research.wsCase', note: 'research.wsCase' },
     { k: 'analLang', type: 'text', ph: 'en', tip: 'research.wsCase' },
   ] },
-  /* Audio Segmentation Mode + the exports it governs, on their own tab (Seth, 2026-08-07). They
-   * were the tail of the Buttons tab, which filed a mode that rewrites both editing tabs — and the
-   * annotation files a text ships with — under a heading about which buttons show. */
-  { id: 'segmentation', fields: [
+  { id: 'appearance', fields: [
+    { k: 'buttons', type: 'multicheck', opts: ALL_BUTTONS, optPrefix: 'panel.opt.btn.' },
+    // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and how much of the
+    // top row is words rather than icons.
+    { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
+    { k: 'headerLabels', type: 'select', opts: ['auto', 'both', 'icons', 'text'], optPrefix: 'panel.opt.labels.', note: 'panel.f.headerLabelsNote' },
+    // The Gloss tab's picture (Seth, 2026-09-06): seven candidates, shown as icons, not names. The
+    // default is a template for new devices and new project templates only — see GLOSS_ICON_DEFAULT.
+    { k: 'glossIcon', type: 'select', opts: ['stack', 'globe', 'translate', 'equals', 'bubble', 'book', 'pencil'], optPrefix: 'panel.opt.glossIcon.', icons: true, note: 'panel.f.glossIconNote' },
+    // Fully meaningful standalone (a local list order), so no `off` note — unlike its old neighbours.
+    { k: 'sortAlpha', type: 'checkbox' },
+  ] },
+  { id: 'tasks', fields: [
     // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
-    { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
     // ⚠ The other two tabs, so steps can be handed to different coworkers. Never all three off —
-    // editorTabEnabled brings Baseline back rather than leave a device with nothing.
+    // validateDeviceSetup refuses it, and editorTabEnabled brings Baseline back rather than leave
+    // a device with nothing.
     { k: 'baselineTab', type: 'checkbox', note: 'panel.f.editorTabsNote' },
     { k: 'glossTab', type: 'checkbox' },
     { k: 'wordGloss', type: 'checkbox', note: 'panel.f.wordGlossNote' },
-    { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
-    { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
+  ] },
+  { id: 'permissions', fields: [
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
-    { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
     // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
     { k: 'adjustBoundaries', type: 'checkbox', note: 'panel.f.adjustBoundariesNote' },
-    // The times ride the .flextext as begin/end attributes always; this is whether they ALSO ride
-    // as a note item FLEx shows on its own line. Default on (the behaviour every export had).
-    { k: 'segTimeNotes', type: 'checkbox', note: 'panel.f.segTimeNotesNote' },
-    // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
-    // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
-    // about what leaves this machine.
-    { k: 'exportEaf', type: 'checkbox' },
-    { k: 'exportSaymore', type: 'checkbox' },
-    { k: 'exportPreview', type: 'checkbox' },
-    // .fxpa: local saves only, never uploads (bandwidth).
-    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
+    { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
+    // deleteAllAllowed() and allowDeleteOn() both short-circuit on !Sync.hasSession(), so on a
+    // standalone app these are already ON and cannot be turned off — the switch would be a lie.
+    { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
+    { k: 'deleteAllEnabled', type: 'checkbox', off: 'setup.off.deleteAllEnabled' },
+    // The player dock's ✕. No `only`: the dock is in the editor AND the segmenter, and Seth asked
+    // for "one setting" across the tabs rather than one per app.
+    { k: 'allowAudioRemove', type: 'checkbox', off: 'setup.off.allowAudioRemove' },
+    // Swap a text's recording for a different file — the Segmenter's counterpart to the ✕ above,
+    // and same standalone rule. ⚠ Its gate shipped with no switch anywhere (found 2026-09-09), so
+    // no managed device could be granted it; this is that switch.
+    { k: 'allowAudioSwap', type: 'checkbox', off: 'setup.off.allowAudioSwap', only: 'segmenter' },
+    // The Audio Segmenter's own two (only: they appear in ITS Settings tab, not the editor's), with
+    // the same standalone rule as allowDelete: always on when working alone, the researcher's to
+    // switch off on a device they manage.
+    { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
+    { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
+  ] },
+  { id: 'typing', fields: [
+    { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
+    // Whether the plain Space bar plays (automatic = off on a touch screen, where Space is typing).
+    { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
+    { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
+    { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
   ] },
   { id: 'recording', notice: 'pwaAudio', fields: [
     { k: 'recordFormat', type: 'select', opts: Object.keys(REC_FORMATS), optPrefix: 'panel.opt.fmt.', help: 'recfmt' },
     { k: 'maxRecordSeconds', type: 'range' },   // auto-stop cap (0 = no limit) + live size readout
     { k: 'agc', type: 'select', opts: SETUP_AGC_OPTS, optPrefix: 'panel.opt.agc.', note: 'recformat.agcNote' },
     { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
-    // One-tap archive-grade capture: 24-bit WAV with EVERY processing stage off (AGC/NR/echo/
-    // normalization are prohibited on preservation masters).
+    // ⚠ NOT A SETTING — `type: 'action'`. One tap fills the six fields above with archive-grade
+    // capture: 24-bit WAV, EVERY processing stage off (AGC/NR/echo/normalization are prohibited on
+    // preservation masters). Labelled "Use archival settings" so the row reads as a button.
     { k: 'archivalDefaults', type: 'action' },
+    // Left ENABLED on purpose: it is the Recorder's welcome heading, which this app does not paint —
+    // but the same origin opened with ?mode=record does, so it is not inert, just not visible here.
+    // Filed under "Sending" until the 2026-09-09 audit, where nothing about it belonged.
+    { k: 'recordWelcome', type: 'text' },
   ] },
   { id: 'consent', legend: 'consent.legend', fields: [
     // Consent is multi-select: any combination of prompts + confirmations, all required together.
@@ -6351,7 +6395,7 @@ const SETUP_GROUPS = [
     { k: 'consentAudioFile', type: 'file', accept: 'audio/*', standalone: true, note: 'setup.consentFileNote' },
     { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.', note: 'consent.note' },
   ] },
-  { id: 'sending', legend: 'research.sendLegend', details: ['relay.summary', 'relay.note'], detailsOff: 'setup.off.relay', fields: [
+  { id: 'leaving', legend: 'research.sendLegend', details: ['relay.summary', 'relay.note'], detailsOff: 'setup.off.relay', fields: [
     // Upload rides the researcher's Google Drive (see notes/uploadoauthdriveplan): a standalone
     // device holds no OAuth, and openShareMenu() already hides the button when there is no target.
     { k: 'sendOptions', type: 'multicheck', opts: SETUP_SEND_OPTS, optPrefix: 'panel.opt.send.',
@@ -6362,37 +6406,32 @@ const SETUP_GROUPS = [
     { k: 'autoDel', type: 'checkbox', off: 'setup.off.autoDel', note: 'research.autoDelNote' },
     { k: 'autoBackup', type: 'checkbox', off: 'setup.off.autoBackup' },
     { k: 'autoBackupMins', type: 'select', opts: ['5', '15', '30', '60'], optPrefix: 'panel.opt.abm.', off: 'setup.off.autoBackup' },
-    // Left ENABLED on purpose: it is the Recorder's welcome heading, which this app does not paint —
-    // but the same origin opened with ?mode=record does, so it is not inert, just not visible here.
-    { k: 'recordWelcome', type: 'text' },
-  ] },
-  { id: 'other', fields: [
-    { k: 'buttons', type: 'multicheck', opts: ALL_BUTTONS, optPrefix: 'panel.opt.btn.' },
-    // deleteAllAllowed() and allowDeleteOn() both short-circuit on !Sync.hasSession(), so on a
-    // standalone app these are already ON and cannot be turned off — the switch would be a lie.
-    { k: 'deleteAllEnabled', type: 'checkbox', off: 'setup.off.deleteAllEnabled' },
-    { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
-    // The Audio Segmenter's own two (only: they appear in ITS Settings tab, not the editor's), with
-    // the same standalone rule as allowDelete: always on when working alone, the researcher's to
-    // switch off on a device they manage.
-    { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
-    { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
-    // The player dock's ✕. No `only`: the dock is in the editor AND the segmenter, and Seth asked
-    // for "one setting" across the tabs rather than one per app.
-    { k: 'allowAudioRemove', type: 'checkbox', off: 'setup.off.allowAudioRemove' },
-    // Touch-screen defaults (Seth, 2026-09-04): text size for the whole app, and whether the plain
-    // Space bar plays (automatic = off on a touch screen, where Space is for typing).
-    { k: 'uiScale', type: 'select', opts: ['0.85', '1', '1.15', '1.3', '1.5'], optPrefix: 'panel.opt.scale.' },
-    { k: 'headerLabels', type: 'select', opts: ['auto', 'both', 'icons', 'text'], optPrefix: 'panel.opt.labels.', note: 'panel.f.headerLabelsNote' },
-    { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
-    // The Gloss tab's picture (Seth, 2026-09-06): seven candidates, shown as icons, not names. The
-    // default is a template for new devices and new project templates only — see GLOSS_ICON_DEFAULT.
-    { k: 'glossIcon', type: 'select', opts: ['stack', 'globe', 'translate', 'equals', 'bubble', 'book', 'pencil'], optPrefix: 'panel.opt.glossIcon.', icons: true, note: 'panel.f.glossIconNote' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
-    // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
-    { k: 'sortAlpha', type: 'checkbox' },
   ] },
+  { id: 'bundle', fields: [
+    // The times ride the .flextext as begin/end attributes always; this is whether they ALSO ride
+    // as a note item FLEx shows on its own line. Default on (the behaviour every export had).
+    { k: 'segTimeNotes', type: 'checkbox', note: 'panel.f.segTimeNotesNote' },
+    // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
+    // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
+    // about what leaves this machine. ⚠ The mode switch is on ANOTHER macro-tab now; syncSetupExports
+    // still re-derives these when it moves, because the whole form is one live DOM tree.
+    { k: 'exportEaf', type: 'checkbox' },
+    { k: 'exportSaymore', type: 'checkbox' },
+    { k: 'exportPreview', type: 'checkbox' },
+    // .fxpa: local saves only, never uploads (bandwidth).
+    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
+  ] },
+];
+
+/* The macro-tabs — the same four, in the same order, as the panel's SET_TABS. `secs` is the
+ * accordion order inside each; the first surviving section opens when its tab is first shown. */
+const SETUP_TABS = [
+  { id: 'device', secs: ['languages', 'appearance'] },
+  { id: 'work', secs: ['tasks', 'permissions', 'typing'] },
+  { id: 'capture', secs: ['recording', 'consent'] },
+  { id: 'out', secs: ['leaving', 'bundle'] },
 ];
 
 /* CONSENT AUDIO ON A STANDALONE APP — a picked file, not a Drive link.
@@ -6529,19 +6568,66 @@ function setupNoticeHtml(kind) {
        + `<p class="note">${esc(t('panel.notice.audioSoon'))}</p></div>`;
 }
 
-function setupGroupHtml(g) {
-  const notice = g.notice ? setupNoticeHtml(g.notice) : '';
-  const note = g.note ? `<p class="note">${t(g.note)}</p>` : '';
+/* SECTION → MACRO-TAB, and the accordion wiring. Mirrors the researcher panel’s TAB_OF_SEC /
+ * wireSettingsTabs / showSettingsSection exactly — see the long note beside GROUPS over there. */
+const SETUP_TAB_OF_SEC = new Map(SETUP_TABS.flatMap((tb) => tb.secs.map((sec) => [sec, tb.id])));
+
+/* ONE COLLAPSIBLE SECTION. Summary = the section name plus a one-line blurb of what is inside; nine
+ * closed rows with blurbs are scannable in a way six bare tab labels never were.
+ * The fieldset takes a <legend> only where the section named one (g.legend): "Languages" opening a
+ * box headed "FLEx Writing System Codes" is informative, "Appearance" opening one headed
+ * "Appearance" is noise — and where there is none it borrows the summary as its accessible name. */
+function setupGroupHtml(g, open) {
+  const notice = g.notice ? setupNoticeHtml(g.notice) : "";
+  const note = g.note ? `<p class="note">${t(g.note)}</p>` : "";
   // detailsOff: the disclosure is about a route this device does not have (the >500 MB upload
   // note). Greyed and unopenable, with the same reason treatment as any other inert control —
   // removing it would leave a researcher wondering where the guidance went.
-  const details = !g.details ? ''
+  const details = !g.details ? ""
     : (g.detailsOff
         ? `<div class="setup-off" data-off="${esc(g.detailsOff)}"><p class="advanced-off">${esc(t(g.details[0]))} ${setupOffMark()}</p>${setupOffHtml(g.detailsOff)}</div>`
         : `<details class="advanced"><summary>${esc(t(g.details[0]))}</summary><div class="note">${t(g.details[1])}</div></details>`);
-  const fields = g.fields.map(setupFieldHtml).join('');
-  return `<div class="rp-group" id="ds-grp-${g.id}" role="tabpanel" aria-labelledby="ds-tab-${g.id}" data-group="${g.id}" hidden>`
-       + `${notice}${note}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${fields}${details}</fieldset></div>`;
+  const fields = g.fields.map(setupFieldHtml).join("");
+  /* A <legend> only where the section named its own (g.legend): "Languages" opening a box headed
+   * "FLEx Writing System Codes" is informative, "Appearance" opening one headed "Appearance" is not.
+   * ⚠ The fieldset's border and the absolutely-positioned "more info…" both hang off that legend —
+   * with no legend there is no border for the button to sit on, so it becomes a plain right-aligned
+   * link at the top of the section instead of floating over the first field. */
+  const legend = g.legend ? `<legend>${esc(t(g.legend))}</legend>` : "";
+  const labelled = g.legend ? "" : ` aria-labelledby="ds-sum-${g.id}"`;
+  return `<details class="rp-sec" id="ds-grp-${g.id}" data-group="${g.id}"${open ? " open" : ""}>`
+    + `<summary id="ds-sum-${g.id}"><span class="rp-sec-name">${esc(t("panel.grp." + g.id))}</span>`
+    + `<span class="rp-sec-note">${esc(t("panel.grpNote." + g.id))}</span></summary>`
+    + `<div class="rp-group rp-secbody">${notice}${note}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${fields}${details}</fieldset></div></details>`;
+}
+
+// One macro-tab and its surviving sections; `secs` is already filtered by setupTabsFor().
+function setupTabPanelHtml(tb, i) {
+  return `<div class="rp-tabpanel" id="ds-tp-${tb.id}" role="tabpanel" aria-labelledby="ds-tab-${tb.id}" data-tab="${tb.id}"${i ? " hidden" : ""}>`
+    + tb.secs.map((g, j) => setupGroupHtml(g, j === 0)).join("") + `</div>`;
+}
+
+/* ONE SECTION OPEN AT A TIME (Seth, 2026-09-09). On the `toggle` event, not a summary click, so
+ * keyboard, pointer and programmatic `.open = true` all behave alike. ⚠ `toggle` does not bubble:
+ * the listener goes on each <details>. */
+function wireSetupTabs(form) {
+  form.querySelectorAll(".rp-sec").forEach((d) => d.addEventListener("toggle", () => {
+    if (!d.open || !d.parentNode) return;
+    d.parentNode.querySelectorAll(".rp-sec[open]").forEach((o) => { if (o !== d) o.open = false; });
+  }));
+}
+
+function showSetupTab(form, tabId) {
+  form.querySelectorAll(".rp-tabpanel").forEach((p) => { p.hidden = p.dataset.tab !== tabId; });
+  form.querySelectorAll(".rp-tab").forEach((b) => {
+    const on = b.dataset.tab === tabId;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  // A tab whose sections the reader had all closed would come back looking empty rather than collapsed.
+  const panel = form.querySelector(`.rp-tabpanel[data-tab="${tabId}"]`);
+  const first = panel && !panel.querySelector(".rp-sec[open]") && panel.querySelector(".rp-sec");
+  if (first) first.open = true;
 }
 
 // Stored settings → the form's canonical values.
@@ -6705,7 +6791,7 @@ function validateDeviceSetup(raw) {
    * so a valid setup always exists; upload is disabled on this form and cannot count. */
   const send = Array.isArray(raw.sendOptions) ? raw.sendOptions : [];
   if (!send.includes('save')) {
-    out.push({ group: 'sending', field: 'sendOptions', msg: t('setup.val.sendNone') });
+    out.push({ group: 'leaving', field: 'sendOptions', msg: t('setup.val.sendNone') });
   }
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
   // A spoken reminder needs SOMETHING to play: a file picked just now, one already stored, or a
@@ -6713,6 +6799,16 @@ function validateDeviceSetup(raw) {
   const haveAudio = !!(pendingConsentFile || consentLocalAudio() || settings.consentAudio);
   if (ask.includes('audio') && !haveAudio) out.push({ group: 'consent', field: 'consentAudioFile', msg: t('setup.val.consentFile') });
   if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
+  /* THE SAME AT-LEAST-ONE-TAB RULE THE PANEL ENFORCES (Seth, 2026-09-08: "let's also not let the
+   * researcher disable all three tabs"). Advisory on this form, which live-saves rather than
+   * blocking on a Save button — but the warning is the point: editorTabEnabled would quietly hand
+   * Baseline back, and a fallback that fires without saying so teaches nothing. */
+  const tabOn = (k) => raw[k] !== false;
+  // ⚠ The Cut tab only COUNTS while segmentation is on — with the mode off it is not there to be
+  // the one remaining tab. Same test as the panel's, so the two surfaces never disagree.
+  if (!tabOn('baselineTab') && !tabOn('glossTab') && !(tabOn('segmentation') && tabOn('cutTab'))) {
+    out.push({ group: 'tasks', field: 'baselineTab', msg: t('panel.val.tabsNone') });
+  }
   return out;
 }
 
@@ -6740,7 +6836,7 @@ function flagSetupProblems(box, problems, showGroup, { advisory = false } = {}) 
   const old = box.querySelector('.rp-valbanner'); if (old) old.remove();
   if (!problems.length) return;
 
-  const labelFor = (p) => t('panel.val.fieldAtTab', { field: t('panel.f.' + p.field), tab: t('panel.grp.' + p.group) });
+  const labelFor = (p) => t('panel.val.fieldAtSec', { field: t('panel.f.' + p.field), tab: t('panel.grp.' + p.group) });
   for (const p of problems) {
     const el = setupFieldEl(box, p.field);
     if (el) {
@@ -6751,8 +6847,10 @@ function flagSetupProblems(box, problems, showGroup, { advisory = false } = {}) 
       err.textContent = p.msg;
       wrap.appendChild(err);
     }
-    const tab = box.querySelector(`.rp-tab[data-tab="${p.group}"]`);
-    if (tab) tab.classList.add('rp-tab-err');   // errors on other tabs stay visible too
+    // The dot marks the MACRO-TAB holding the failing section, so an error on a tab you are not
+    // looking at stays visible; the banner names the section itself.
+    const tab = box.querySelector(`.rp-tab[data-tab="${SETUP_TAB_OF_SEC.get(p.group) || p.group}"]`);
+    if (tab) tab.classList.add('rp-tab-err');
   }
   const banner = document.createElement('div');
   banner.className = 'rp-valbanner';
@@ -6871,12 +6969,24 @@ function updateSetupConditionals(box) {
  * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
  * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
 const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
-  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowAudioRemove', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels', 'adjustBoundaries']);
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels', 'adjustBoundaries']);
 function setupGroupsFor() {
   const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
   return SETUP_GROUPS
     .map((g) => ({ ...g, fields: g.fields.filter((f) => (!f.only || f.only === mode) && (!SEGMENTER_MODE || SEGMENTER_SETUP_KEYS.has(f.k))) }))
     .filter((g) => g.fields.length);
+}
+
+/* The macro-tabs actually worth rendering, each carrying its surviving sections. The Audio
+ * Segmenter keeps a much shorter Settings tab (SEGMENTER_SETUP_KEYS), and after filtering it has no
+ * Recording and no Consent section at all — so "Recording & consent" is dropped ENTIRELY rather
+ * than shown as a tab with nothing under it. No special case: an empty tab is simply one whose
+ * sections all filtered away. */
+function setupTabsFor() {
+  const secs = setupGroupsFor();
+  return SETUP_TABS
+    .map((tb) => ({ ...tb, secs: tb.secs.map((id) => secs.find((g) => g.id === id)).filter(Boolean) }))
+    .filter((tb) => tb.secs.length);
 }
 
 function renderDeviceSetup() {
@@ -6888,12 +6998,12 @@ function renderDeviceSetup() {
    * by replacing #device-setup's children. Attaching them to #device-setup itself would stack a new
    * set on every entry to the Settings tab — that element survives a re-render, so one Save click
    * would eventually save N times. Discarding the wrapper discards its listeners with it. */
-  const setupGroups = setupGroupsFor();
+  const setupTabs = setupTabsFor();
   const form = document.createElement('div');
   form.innerHTML = `
-    <div class="rp-tabs" role="tablist">${setupGroups.map((g, i) =>
-      `<button type="button" class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="ds-tab-${g.id}" aria-controls="ds-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
-    <div class="rp-groups">${setupGroups.map(setupGroupHtml).join('')}</div>
+    <div class="rp-tabs" role="tablist">${setupTabs.map((tb, i) =>
+      `<button type="button" class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="ds-tab-${tb.id}" aria-controls="ds-tp-${tb.id}" aria-selected="${i === 0}" data-tab="${tb.id}">${esc(t('panel.tab.' + tb.id))}</button>`).join('')}</div>
+    <div class="rp-groups">${setupTabs.map(setupTabPanelHtml).join('')}</div>
     <p class="note rp-enc">${esc(t('setup.localNote'))}</p>
     <p class="note ds-saved" id="ds-saved" role="status" aria-live="polite"></p>`;
   box.replaceChildren(form);
@@ -6902,18 +7012,21 @@ function renderDeviceSetup() {
   /* Only ever non-null between the file dialog closing and the save that immediately follows it.
    * Cleared on a rebuild so a pick that failed to commit is not re-attempted against a fresh form. */
   pendingConsentFile = null;
-  const groups = form.querySelectorAll('.rp-group');
+  wireSetupTabs(form);
+  /* showGroup takes a SECTION id, not a tab id: the validation banner and its jump buttons know
+   * which setting they want, not which of four tabs holds it. Selects the owning macro-tab, then
+   * expands that section — the toggle listener collapses whatever else was open. */
   const showGroup = (id) => {
     if (flushLiveSave) flushLiveSave();   // a half-typed field must not wait on a hidden tab
-    groups.forEach((g) => { g.hidden = g.dataset.group !== id; });
-    form.querySelectorAll('.rp-tab').forEach((b) => {
-      const on = b.dataset.tab === id;
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-selected', String(on));
-    });
+    showSetupTab(form, SETUP_TAB_OF_SEC.get(id) || id);
+    const sec = form.querySelector(`.rp-sec[data-group="${id}"]`);
+    if (sec && !sec.open) sec.open = true;
   };
-  form.querySelectorAll('.rp-tab').forEach((b) => b.addEventListener('click', () => showGroup(b.dataset.tab)));
-  showGroup(setupGroups[0].id);
+  form.querySelectorAll('.rp-tab').forEach((b) => b.addEventListener('click', () => {
+    if (flushLiveSave) flushLiveSave();
+    showSetupTab(form, b.dataset.tab);
+  }));
+  showGroup(setupTabs[0].secs[0].id);
 
   form.addEventListener('change', (e) => {
     // Only when the MODE switch itself moves: re-deriving on every change would undo an export the

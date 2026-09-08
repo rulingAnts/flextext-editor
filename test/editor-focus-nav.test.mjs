@@ -133,7 +133,14 @@ console.log('\n...and Tab/Space still route through that function');
 {
   ok(/e\.key === 'Tab'\)[\s\S]{0,220}?focusNextWordGloss\(g, e\.shiftKey \? -1 : 1\)/.test(app),
      'Tab (and Shift+Tab) still call it');
-  ok(/e\.key === ' '\)[\s\S]{0,220}?focusNextWordGloss\(g, 1\)/.test(app), 'and Space still calls it');
+  /* ⚠ PLAIN Space only, since 2026-09-08. It used to catch Shift+Space too and swallow the chord,
+   * so in a gloss box the one key that means "audio wherever the caret is" moved the caret instead
+   * (Seth: "We want Shift+Space to JUST affect the player"). The free-translation box never had it,
+   * because it intercepts Tab and nothing else. */
+  ok(/e\.key === ' ' && !e\.shiftKey\)[\s\S]{0,1400}?focusNextWordGloss\(g, 1\)/.test(app),
+     'and plain Space still calls it');
+  ok(!/e\.key === ' '\)[\s\S]{0,220}?focusNextWordGloss\(g, 1\)/.test(app),
+     '…but the chord is no longer swallowed here');
   /* Boundary Enter belongs to the line SPLIT in segmentation mode (v322) — a fix to Tab must not
    * have quietly changed which listener owns Enter. */
   ok(/if \(segmentationEnabled\(\) && \(atStart \|\| atEnd\)\) return;/.test(app),

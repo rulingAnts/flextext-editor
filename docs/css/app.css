@@ -347,14 +347,14 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
    their way. */
 .segment.has-gutter > .word-row,
 .segment.has-gutter > .free-row { padding-left: var(--gseg-indent); }
-.segment.has-gutter.cut-armed .gseg-bar,
-.segment.has-gutter.split-pending .gseg-bar { margin-bottom: 30px; }
-/* ⚠ 30px, and it is the PLAYHEAD ✂ this clears, not the arming one — measured on the rig rather
-   than guessed. The wave sits centred in the bar, so its bottom is (34 - 22) / 2 = 6px above the
-   bar's; the ✂ hangs 2px below that, stands 30px tall and is pulled back up 2px by its transform,
-   so it ends ~24px below the bar. 30 leaves about 6px of air. The previous value reused the arm's
-   height and happened to land 1px clear, which was luck, not design: nudge a font size and it
-   would have started covering the words again. */
+/* ⚠ AND NOTHING MOVES WHEN A LINE IS ARMED. I reserved room here for the playhead ✂ so it would not
+   land on the words; Seth: "I don't want the cut mode to jump to a new line like this… we don't
+   need that anymore. That's why we HAVE cut mode… When we're starting a cut, then covering up text
+   doesn't matter so much." That is the decision this whole arming model was built on — see the
+   header of test/playhead-scissors-placement.test.mjs, which records it as "the armed line may
+   overlap freely — in that moment the user is choosing a cut point, not reading." Reserving space
+   for controls that are wanted for a few seconds is exactly what every earlier attempt got wrong,
+   and it cost every line permanent height. So: no reservation, armed or not. */
 /* A FIXED width, not a min-width: --gseg-indent below assumes this column's exact size, so a
    two- or three-digit line number must not quietly widen the gutter and break the alignment. */
 .gseg-bar .segnum { padding-top: 0; align-self: center; width: var(--gseg-num-w); min-width: var(--gseg-num-w);

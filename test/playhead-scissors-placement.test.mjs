@@ -133,9 +133,17 @@ test('the interlinear rows are indented past the whole gutter', () => {
 /* ⚠ AND THE VERTICAL ROOM IS BOUGHT ONLY WHEN SCISSORS ARE ACTUALLY SHOWING. Reserving it always is
  * what put the block on its own line; removing it altogether would let the PLAYHEAD ✂ — which hangs
  * in the wave's column, exactly where these rows now are — cover the words again (v618–v621). */
-test('the room for the playhead ✂ is reserved only while armed or mid-split', () => {
-  assert.match(CSS, /\.segment\.has-gutter\.cut-armed \.gseg-bar,\s*\n\.segment\.has-gutter\.split-pending \.gseg-bar \{ margin-bottom: 30px; \}/,
-    'armed or pending buys the room');
+/* ⚠ ARMING A LINE MOVES NOTHING (Seth, 2026-09-08: "I don't want the cut mode to jump to a new line
+ * like this… That's why we HAVE cut mode… When we're starting a cut, then covering up text doesn't
+ * matter so much"). I had reserved room so the playhead ✂ would not land on the words, which is the
+ * mistake this file's own header describes: finding permanent room for controls wanted for a few
+ * seconds. Arming already solved it — the idle screen carries no scissors, and the armed line may
+ * overlap freely. */
+test('no vertical room is reserved for the scissors, armed or not', () => {
   assert.doesNotMatch(CSS, /\.gseg-bar\.has-gutter \{ margin-bottom/,
-    'and it is NOT reserved unconditionally any more');
+    'not unconditionally');
+  assert.doesNotMatch(CSS, /\.segment\.has-gutter\.cut-armed \.gseg-bar[^}]*margin-bottom/,
+    'and not on arming either — the line must not jump');
+  assert.match(CSS, /the armed line may\s*\n\s*\* overlap freely|covering up text\s*\n\s*doesn't matter/,
+    'and the reason is written down where the next person will look');
 });

@@ -82,3 +82,20 @@ test('the strips are given the setting the same way the other gates are', () => 
   assert.match(STRIPS, /deps\.enterAdvances && deps\.enterAdvances\(\)/,
     'guarded, so an older host that never passes it behaves exactly as before');
 });
+
+/* ⚠ ORDER IS THE WHOLE FIX (Seth, 2026-09-08). A BLANK translation box satisfies `atStart` and
+ * `atEnd` at the same time — caret at 0, nothing after it. While the atStart branch came first it
+ * swallowed every Enter on an empty translation and started an edge split, which on an unarmed line
+ * showed as "orange border and cancel button show, but not scissors buttons" and could not be
+ * finished. With "move to next" on, the walk must be reached first. A box with text after the caret
+ * is not atEnd, so a deliberate split-before-this-line still lands. */
+test('on the Gloss tab "move to next" is tested before the edge split', () => {
+  const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  const handler = APP.slice(APP.indexOf("fi.addEventListener('keydown'"));
+  const advance = handler.indexOf("e.key === 'Enter' && atEnd && enterAtEndAdvances()");
+  const edgeBefore = handler.indexOf("e.key === 'Enter' && atStart && joinSplitAllowed('gloss')");
+  assert.ok(advance > -1, 'the advance branch exists');
+  assert.ok(edgeBefore > -1, 'the edge-split branch exists');
+  assert.ok(advance < edgeBefore,
+    'the walk must be reached before the atStart edge split, or a blank box can never advance');
+});

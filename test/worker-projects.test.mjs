@@ -18,9 +18,15 @@
  * Runs on the local rig: bash test/local-rig.sh
  */
 
-import { FIXTURE } from './worker-seed.mjs';
+import { requireRig } from './worker-rig-guard.mjs';
 
 const BASE = process.argv[2] || process.env.FX_PROBE_BASE || 'http://127.0.0.1:8787';
+
+/* ⚠ BEFORE the seed import — loading worker-seed.mjs APPLIES schema-current.sql to the local D1 as a
+ * side effect. Probing first is exactly what keeps "no rig" (a skip) distinct from "the seed is
+ * broken" (a failure); see worker-rig-guard.mjs. */
+await requireRig(BASE, 'worker-projects');
+const { FIXTURE } = await import('./worker-seed.mjs');
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 

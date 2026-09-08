@@ -29,6 +29,29 @@ export function isAligned(seg) {
   return !!seg && !seg.timePending && isNum(seg.start) && isNum(seg.end) && seg.end > seg.start;
 }
 
+/* ⚠ A TIER THE USER CANNOT REACH MUST NOT BE REQUIRED (Seth, 2026-09-08).
+ *
+ * The audio side of a split is placed with the ✂ that hangs under the PLAYHEAD, and the tickers
+ * draw that ✂ only while the playhead is actually inside this line's segment. So a line the
+ * playhead was nowhere near listed an `audio` tier that had no control anywhere on screen: placing
+ * the words tier left the split pending for ever — Seth saw it as "orange border and cancel button
+ * show, but not scissors buttons", and as a line that simply refused to cut. Nothing was written,
+ * so nothing was corrupted; it just could not be finished, and the ✕ was the only way out.
+ *
+ * The engine already has the answer for a split with no placed time: splitSegment interpolates by
+ * word position and marks the result timeEstimated. So when the playhead is elsewhere the audio
+ * tier drops out and that interpolation takes over — which is also what makes it possible to split
+ * a line you have not typed a translation or glosses for yet, the thing Seth asked for. With the
+ * playhead inside the segment nothing changes: the ✂ is there, so the tier is required and placed.
+ *
+ * Pass the playhead in milliseconds, or null when there is no audio loaded at all — no playhead is
+ * simply the strongest case of "you cannot place it". */
+export function audioTierReachable(seg, playheadMs) {
+  if (!isAligned(seg)) return false;
+  if (!isNum(playheadMs)) return false;
+  return playheadMs >= seg.start && playheadMs <= seg.end;
+}
+
 function blank(seg) {
   // Preserve any non-time fields a caller attached (e.g. phraseIndex) while clearing the times.
   const out = { ...seg, timePending: true };

@@ -32,11 +32,25 @@ const STRIPS = rd('../docs/js/segment-strips.js'), CSS = rd('../docs/css/app.css
 const APP = rd('../docs/js/app.js'), I18N = rd('../docs/js/i18n.js');
 
 test('the split controls are hidden until their line is armed', () => {
-  assert.match(CSS, /\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\) \.cut-scissors,\s*\n\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.cut-scissors,\s*\n\.segment:not\(\.cut-armed\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.chain-btn \{ display: none !important; \}/,
+  assert.match(CSS, /\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\):not\(\.split-pending\) \.cut-scissors,\s*\n\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\):not\(\.split-pending\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\):not\(\.split-pending\) \.cut-scissors,\s*\n\.segment:not\(\.cut-armed\):not\(\.split-pending\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.chain-btn \{ display: none !important; \}/,
     'both tabs, and the chain links with them');
   // ⚠ the Cut tab is exempt: cutting is its whole job, so it is always armed
   assert.match(CSS, /Cut mode should ALWAYS be armed\s*\n\s*on the cut tab/, 'and the exemption says why');
   assert.doesNotMatch(STRIPS, /cut-row cut-armed/, 'the exemption is declarative, not a class armLine could strip');
+});
+
+/* ⚠ THE SECOND EXEMPTION (Seth, 2026-09-08): "sometimes pressing enter makes orange border and
+ * cancel button show, but not scissors buttons." Enter can START a split without arming anything,
+ * and arming was the only thing that revealed the ✂ — so the split could be begun but never
+ * finished, with the ✕ as the only way out. A line mid-split must show the controls that end it. */
+test('a pending split shows its scissors even on an unarmed line', () => {
+  assert.match(CSS, /\.segment:not\(\.cut-armed\):not\(\.split-pending\) \.cut-scissors/,
+    'the Gloss tab exempts a pending line');
+  assert.match(CSS, /\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\):not\(\.split-pending\) \.scissor-btn/,
+    'and so does Baseline');
+  // joining words is not part of FINISHING a split, so the chain links stay hidden
+  assert.match(CSS, /\.segment:not\(\.cut-armed\) \.chain-btn \{ display: none !important; \}/,
+    'the chain link gets no pending exemption');
 });
 
 test('the sizes are the ORIGINAL ones — the shrinking and the lanes were withdrawn', () => {
@@ -77,9 +91,28 @@ test('the arm button sits under ▶ in the gutter, not beside the wave', () => {
 test('the Gloss gutter: number, then ▶ with the ✂ exactly beneath it', () => {
   assert.match(APP, /const num = g\.querySelector\('\.segnum'\);\s*\n\s*if \(num\) bar\.appendChild\(num\);/,
     'the number is MOVED into the bar, not duplicated');
-  assert.match(APP, /gut\.className = 'gseg-gutter';\s*\n\s*gut\.append\(btn, arm\);/, '▶ over ✂');
-  assert.match(CSS, /\.gseg-gutter \{ display: flex; flex-direction: column;[^}]*align-items: stretch; \}/,
+  assert.match(APP, /gut\.className = 'gseg-gutter';[\s\S]{0,140}?gut\.append\(btn, arm\);/, '▶ over ✂');
+  assert.match(CSS, /\.gseg-gutter \{ display: flex; flex-direction: column;[^}]*align-items: stretch;/,
     'stretch is what makes the two edges line up rather than merely sit near each other');
-  assert.match(CSS, /\.gseg-arm \{ grid-column: auto; grid-row: auto;/,
+  assert.match(CSS, /\.gseg-bar \.gseg-arm \{ grid-column: auto; grid-row: auto;/,
     'the Baseline grid placement is cancelled here — this gutter is flex, not grid');
+});
+
+/* ⚠ ONE LINE THROUGH ▶, THE NUMBER AND THE WAVE (Seth, 2026-09-08): "we want the number and the
+ * waveform vertical midline both to be flush with the midline of the play button (and the scissors
+ * to be immediately below the play line)". Centring the whole ▶/✂ stack put that midline in the GAP
+ * between the buttons. The gutter is therefore pulled up by exactly the ✂'s height plus the gap, so
+ * what the bar centres is a box the height of ▶ alone. Measured on the rig afterwards: ▶, number
+ * and wave all at mid 228.5, ✂ starting 3px below ▶. */
+test('the play button is what sits on the wave\'s midline, not the whole stack', () => {
+  assert.match(CSS, /\.gseg-gutter \{[^}]*margin-bottom: calc\(-1 \* \(var\(--gseg-arm-h\) \+ var\(--gseg-gutter-gap\)\)\);/,
+    'the pull-up is exactly the ✂ and the gap it hangs by');
+  assert.match(CSS, /\.gseg-bar\.has-gutter \{ margin-bottom: calc\(4px \+ var\(--gseg-arm-h\) \+ var\(--gseg-gutter-gap\)\); \}/,
+    'and the bar reserves that overhang, so the ✂ never lands on the word row');
+  assert.match(APP, /bar\.classList\.add\('has-gutter'\)/, 'the class is set where the gutter is built');
+  // ▶ is square and BIGGER than the ✂ on purpose: "easy to hit the play button and not so easy to
+  // push the cut toggle button on accident".
+  assert.match(CSS, /--gseg-play-size: 34px; --gseg-arm-h: 20px; --gseg-gutter-gap: 3px;/, 'the three sizes');
+  assert.match(CSS, /\.gseg-play \{[^}]*width: var\(--gseg-play-size\);\s*\n?\s*height: var\(--gseg-play-size\);/,
+    'square: the same custom property for both axes');
 });

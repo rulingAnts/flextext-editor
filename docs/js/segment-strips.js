@@ -20,7 +20,7 @@
  * DISPLAY of samples, never a modification of them.
  */
 
-import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
+import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, audioTierReachable, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
@@ -1010,7 +1010,11 @@ export function stripSplitAtPlayhead() {
 /* ── the Baseline tab's side of the pending split ──────────────────────────────────────────── */
 function stripsInfo(i) {
   const doc = deps.getDoc();
-  return { tab: 'baseline', aligned: isAligned(docSegments(doc)[i]), text: deps.getParagraphs(doc)[i] || '',
+  /* ⚠ `aligned` means "the audio tier can be PLACED" — the same rule the Gloss tab uses, and for the
+   * same reason: the ✂ that places it lives under the playhead. See audioTierReachable. */
+  const pl = deps.getPlayer && deps.getPlayer();
+  const ms = pl && Number.isFinite(pl.currentTime) ? pl.currentTime * 1000 : null;
+  return { tab: 'baseline', aligned: audioTierReachable(docSegments(doc)[i], ms), text: deps.getParagraphs(doc)[i] || '',
            hasGloss: !!(deps.hasGloss && deps.hasGloss(i)) };
 }
 /* Rule A: a line that already carries glosses or a translation is not this tab's to split or join. */

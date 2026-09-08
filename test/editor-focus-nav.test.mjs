@@ -133,14 +133,21 @@ console.log('\n...and Tab/Space still route through that function');
 {
   ok(/e\.key === 'Tab'\)[\s\S]{0,220}?focusNextWordGloss\(g, e\.shiftKey \? -1 : 1\)/.test(app),
      'Tab (and Shift+Tab) still call it');
-  /* ⚠ PLAIN Space only, since 2026-09-08. It used to catch Shift+Space too and swallow the chord,
-   * so in a gloss box the one key that means "audio wherever the caret is" moved the caret instead
-   * (Seth: "We want Shift+Space to JUST affect the player"). The free-translation box never had it,
-   * because it intercepts Tab and nothing else. */
-  ok(/e\.key === ' ' && !e\.shiftKey\)[\s\S]{0,1400}?focusNextWordGloss\(g, 1\)/.test(app),
-     'and plain Space still calls it');
-  ok(!/e\.key === ' '\)[\s\S]{0,220}?focusNextWordGloss\(g, 1\)/.test(app),
-     '…but the chord is no longer swallowed here');
+  /* ⚠ SPACE NO LONGER WALKS — IT TYPES A PERIOD (2026-09-08). Two reasons, the second load-bearing:
+   * Leipzig joins a multi-word gloss with periods (`am.talking.about`), and OneStory Editor aligns
+   * interlinear data by WHITESPACE ALONE in its XML, so a space inside a gloss silently misaligns
+   * the line downstream. The space was therefore always blocked here; typing the period instead of
+   * swallowing the key teaches the convention "by starting with what they already think by
+   * default". Tab still walks, and so does Enter in "move to next" mode, so no navigation is lost.
+   *
+   * ⚠ PLAIN Space only: this branch used to catch Shift+Space as well and swallow the chord, so the
+   * one key meaning "audio wherever the caret is" moved the caret instead. */
+  ok(/e\.key === ' ' && !e\.shiftKey\)/.test(app), 'the chord is no longer caught here');
+  ok(/g\.setRangeText\('\.', from, to, 'end'\)/.test(app), 'plain Space inserts a period at the caret');
+  ok(/g\.dispatchEvent\(new Event\('input', \{ bubbles: true \}\)\)/.test(app),
+     'and says so, since setRangeText fires no input event and the model is written by that listener');
+  ok(/OneStory Editor aligns interlinear data by WHITESPACE ALONE/.test(app),
+     'the reason a space must never reach a gloss is written where the guard is');
   /* Boundary Enter belongs to the line SPLIT in segmentation mode (v322) — a fix to Tab must not
    * have quietly changed which listener owns Enter. */
   ok(/if \(segmentationEnabled\(\) && \(atStart \|\| atEnd\)\) return;/.test(app),

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v638';
+export const ENGINE_VERSION = 'v639';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -302,6 +302,12 @@ en: {
   'baseline.hintSeg': 'Type the words for each line. <b>Enter</b> inside a box breaks the line at the cursor; '
     + '<b>Enter</b> with no box selected breaks it at the playhead and keeps the words together \u2014 so you can '
     + 'listen and cut without typing.',
+  /* ⚠ THE "MOVE TO NEXT" TWIN. hintSeg above stays exactly right for a device still set to `split`,
+   * where Enter does divide a line. Where Enter moves on instead (the default for new devices) that
+   * sentence became false in v635, and this is the instruction a coworker actually reads. */
+  'baseline.hintSegMove': 'Type the words for each line. <b>Enter</b> moves on to the next line. '
+    + 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
+    + 'every place you can cut. Tap it again to put them away.',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
@@ -900,7 +906,7 @@ en: {
   iPhone/iPad.)</li>
   <li><b>Start:</b> tap <b>New text</b> and give it a name at the top.</li>
   <li><b>Type the story</b> on the <b>Baseline</b> tab, in your own language. Press Enter to start a new paragraph.</li>
-  <li><b>Give word meanings:</b> open the <b>Gloss</b> tab. Under each blue word, type what it means. Press Enter to jump to the next word.</li>
+  <li><b>Give word meanings:</b> open the <b>Gloss</b> tab. Under each blue word, type what it means. Press Enter to jump to the next word. A word meaning never holds a space: if it takes several English words, press the space bar and a dot appears instead — <b>am.talking.about</b>. That is how linguists join one meaning together, and other programs need it that way to line the words up.</li>
   <li><b>Join words:</b> if two words belong together as one unit, tap the small 🔗 between them. Tap <b>✂ break</b> to separate them again.</li>
   <li><b>Translate the sentence:</b> on the <b>Free</b> line, write the meaning of the whole sentence.</li>
   <li><b>Send your work:</b> tap <b>Save and send…</b> and choose WhatsApp, email, another app —
@@ -1450,6 +1456,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.glossSpaceDot': 'In a word-gloss box the space bar now types a dot — am.talking.about. A word meaning must never hold a space: linguists join the parts of one meaning with a dot, and OneStory Editor lines interlinear words up by whitespace alone, so a space inside a gloss quietly pulls the line out of alignment. The space was already blocked here; typing the dot teaches the convention instead of just refusing the key. The free translation is prose and is unaffected. The on-screen help on the Baseline tab has been corrected too: where Enter moves on, it no longer tells you that Enter breaks the line.'
     ,'panel.rel.fix.shiftSpaceGloss': 'Shift+Space now plays the line from inside a word gloss too, instead of jumping to the next gloss box. It already behaved this way in the free translation; the word glosses were catching the key combination and moving the cursor rather than letting it reach the player.'
     ,'panel.rel.new.tasksGroup': 'The device settings group once called “Audio Segmentation” is now “Tasks”, since it decides which steps of the work a device does — not only the audio ones.'
     ,'panel.rel.new.glossLandingSetting': 'New setting “After playing, put the cursor in”: on the Gloss tab, where the cursor goes when somebody plays a line and then starts typing without a box selected. The free translation to begin with, or the next empty word gloss — choose by the job that device has been given. It only applies when they were not already part-way through a box on that same line.'
@@ -2051,7 +2058,7 @@ internet after the first time.</p>
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
   'panel.f.sortAlpha': 'Keep the texts list in alphabetical order (otherwise: most recent first)',
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
-  'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and Enter breaks the line at the playhead. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
+  'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and per-line cutting. What the Enter key does is a separate setting below. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
   /* Seth, 2026-08-13 — DEFAULT OFF, unlike segmentation. The join BUTTONS are the reliable route
    * now; the keys mainly produce accidental joins the transcriber then has to notice and undo. */
   'panel.f.backspaceJoin': 'Allow Backspace/Delete to join lines',
@@ -2791,6 +2798,9 @@ id: {
   'baseline.hintSeg': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> di dalam kotak memotong baris di posisi kursor; '
     + '<b>Enter</b> tanpa kotak yang dipilih memotongnya di posisi pemutar dan kata-katanya tetap utuh \u2014 jadi Anda '
     + 'bisa mendengarkan sambil memotong tanpa mengetik.',
+  'baseline.hintSegMove': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> berpindah ke baris berikutnya. '
+    + 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
+    + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
@@ -3328,7 +3338,7 @@ id: {
   dipakai, atau gunakan Chrome/Edge. Tidak didukung di Safari atau iPhone/iPad.)</li>
   <li><b>Mulai:</b> tekan <b>Teks baru</b> dan beri nama di bagian atas.</li>
   <li><b>Ketik cerita</b> di tab <b>Ketik</b>, dalam bahasa daerah Anda. Tekan Enter untuk paragraf baru.</li>
-  <li><b>Isi arti kata:</b> buka tab <b>Terjemahan Balik</b>. Di baris <b>Harfiah</b>, di bawah setiap kata <b>Asli</b> yang biru, ketik artinya. Tekan Enter untuk pindah ke kata berikutnya.</li>
+  <li><b>Isi arti kata:</b> buka tab <b>Terjemahan Balik</b>. Di baris <b>Harfiah</b>, di bawah setiap kata <b>Asli</b> yang biru, ketik artinya. Tekan Enter untuk pindah ke kata berikutnya. Arti satu kata tidak pernah memuat spasi: kalau perlu beberapa kata, tekan spasi dan yang muncul adalah titik — <b>saya.sedang.bicara</b>. Begitulah ahli bahasa menyatukan satu arti, dan program lain memerlukannya demikian agar kata-katanya sejajar.</li>
   <li><b>Gabungkan kata:</b> kalau dua kata merupakan satu kesatuan, tekan tanda 🔗 kecil di antaranya. Tekan <b>✂ pisah</b> untuk memisahkannya lagi.</li>
   <li><b>Terjemahkan kalimat:</b> di baris <b>Bebas</b>, tulis arti seluruh kalimat.</li>
   <li><b>Kirim hasil kerja:</b> tekan <b>Simpan & kirim…</b> lalu pilih WhatsApp, email, aplikasi
@@ -3785,6 +3795,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.glossSpaceDot': 'Di kotak arti kata, tombol spasi kini mengetik titik — saya.sedang.bicara. Arti satu kata tidak boleh memuat spasi: ahli bahasa menyatukan bagian-bagian satu arti dengan titik, dan OneStory Editor menyejajarkan kata antarbaris hanya berdasarkan spasi, sehingga spasi di dalam glos diam-diam merusak kesejajaran baris itu. Spasi memang sudah dihalangi di sini; mengetik titik mengajarkan kaidahnya, bukan sekadar menolak tombolnya. Terjemahan bebas berupa prosa dan tidak terpengaruh. Petunjuk di layar pada tab Ketik juga diperbaiki: bila Enter berpindah, ia tidak lagi menyatakan bahwa Enter memotong baris.'
     ,'panel.rel.fix.shiftSpaceGloss': 'Shift+Space kini memutar baris juga dari dalam glos kata, bukan melompat ke kotak glos berikutnya. Di terjemahan bebas hal ini sudah benar; kotak glos kata menangkap kombinasi tombol itu dan memindahkan kursor alih-alih membiarkannya sampai ke pemutar.'
     ,'panel.rel.new.tasksGroup': 'Kelompok pengaturan perangkat yang dahulu bernama “Segmentasi Audio” kini bernama “Tugas”, karena ia menentukan langkah kerja mana yang dilakukan sebuah perangkat — bukan hanya yang berkaitan dengan audio.'
     ,'panel.rel.new.glossLandingSetting': 'Pengaturan baru “Setelah memutar, taruh kursor di”: di tab Glos, ke mana kursor menuju ketika seseorang memutar sebuah baris lalu mulai mengetik tanpa kotak terpilih. Terjemahan bebas sebagai awalan, atau glos kata kosong berikutnya — pilih sesuai tugas perangkat itu. Ini hanya berlaku bila mereka belum berada di tengah sebuah kotak pada baris yang sama.'
@@ -4314,7 +4325,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
   'panel.f.sortAlpha': 'Urutkan daftar teks menurut abjad (jika tidak: yang terbaru dahulu)',
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',
-  'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
+  'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan pemotongan per baris. Apa yang dilakukan tombol Enter adalah pengaturan tersendiri di bawah. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
   /* Lihat catatan pada blok en \u2014 default MATI. */
   'panel.f.backspaceJoin': 'Izinkan Backspace/Delete menggabungkan baris',
   'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah \u2014 di tab Ketik dan Gloss, dan juga di tab Potong, di mana Backspace menggabungkan baris yang sedang aktif dengan baris di atasnya. Tombol gabung \ud83d\udd17 tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',

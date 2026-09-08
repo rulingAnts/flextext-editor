@@ -167,6 +167,14 @@ phrase = { attrs, baseline, words: [ { txt, gls, punct, … } ], free, pre/postI
 span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
 ```
 - `paragraphs[].segments` are FLEx *phrases* (text structure). `doc.segments` are *time spans*.
+- **A word gloss (`gls`) never contains whitespace.** Two reasons, and the second is the
+  load-bearing one: Leipzig joins the parts of a multi-word gloss with a period
+  (`am.talking.about`), and **OneStory Editor aligns interlinear data by whitespace alone in its
+  XML**, so a space inside a gloss silently misaligns the whole line once the text leaves us. The
+  editor enforces it at the keyboard rather than by validation: in a word-gloss box the space bar
+  types a period (`app.js`, the `.gloss-input` keydown). Typing the convention rather than blocking
+  it also teaches it — the user reaches for the space bar out of habit and gets the right character.
+  Free translations are prose and are unaffected.
 - **Segmentation mode invariant (flat mode): one line = one paragraph = one phrase = one span**,
   including blank lines (a blank line is a real timed span — usually silence).
 - All span edits route through `segments.js` (`boundaryAtPlayhead` / `mergeSegments` /

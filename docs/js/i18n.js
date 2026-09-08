@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v633';
+export const ENGINE_VERSION = 'v634';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1450,6 +1450,8 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.wordGlossGate': 'Word-by-word glossing can now be switched off for a device. With it off the Gloss tab shows the words of the line and the free translation, and no box under each word — for somebody whose job is the translation rather than the analysis. Glosses already recorded are kept, simply not shown there.'
+    ,'panel.rel.new.oneTabRule': 'Settings will no longer save with all three editor tabs switched off, since that would leave the coworker nowhere to work.'
     ,'panel.rel.fix.headerLadder': 'The top row now settles on its layout immediately rather than a moment later, so it no longer appears briefly on two lines with its words still showing before deciding to use pictures.'
     ,'panel.rel.new.editorTabGates': 'Each of the three editor tabs can now be shown or hidden per device, so different steps can go to different people — one cuts the audio, another types the text, another adds glosses — or a beginner starts with one tab and gains the rest as they are ready. At least one tab always remains, whatever the switches say.'
     ,'panel.rel.new.headerWrap': 'If the top row still cannot fit after the words become pictures, it now breaks in one place: the tabs move down together with Save and Send, rather than the row breaking wherever it happens to run out of room.'
@@ -1954,6 +1956,7 @@ internet after the first time.</p>
   'panel.val.consentAudio': '\u201cSpoken reminder\u201d is switched on \u2014 add the recording that will be played to the speaker.',
   'panel.val.consentMsg': 'Text consent is on — enter the consent message.',
   'panel.val.sendNone': 'Tick “Upload” or “Save to file”. Share alone sends only the plain text — no audio and no annotation files — so the device could never deliver a recording.',
+  'panel.val.tabsNone': 'A device needs at least one editor tab. Leave Baseline, Gloss, or Cut switched on — with every one of them off there is nothing for the coworker to work in.',
   'panel.grp.languages': 'Languages',
   'panel.legend.languages': 'FLEx Writing System Codes',
   'panel.grp.moreInfo': 'more info…',
@@ -2086,6 +2089,8 @@ internet after the first time.</p>
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.baselineTab': 'Show the Baseline tab',
   'panel.f.glossTab': 'Show the Gloss tab',
+  'panel.f.wordGloss': 'Gloss word by word',
+  'panel.f.wordGlossNote': 'Off leaves the Gloss tab showing the words of the line and the free translation, with no box under each word. For somebody whose job is the translation rather than the analysis — and glosses already recorded are kept, just not shown here.',
   'panel.f.editorTabsNote': 'Hand different steps to different people: one coworker cuts the audio, another types the text, a third adds glosses. Useful too while somebody is still learning — give them one tab, add the others as they are ready. At least one tab always stays.',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
@@ -3771,6 +3776,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.wordGlossGate': 'Pemberian glos kata per kata kini dapat dimatikan untuk sebuah perangkat. Bila dimatikan, tab Glos menampilkan kata-kata baris itu dan terjemahan bebasnya, tanpa kotak di bawah tiap kata — cocok bagi orang yang tugasnya menerjemahkan, bukan menganalisis. Glos yang sudah tercatat tetap tersimpan, hanya tidak ditampilkan di sana.'
+    ,'panel.rel.new.oneTabRule': 'Pengaturan tidak lagi dapat disimpan dengan ketiga tab editor dimatikan, karena itu akan membuat rekan kerja tidak punya tempat untuk bekerja.'
     ,'panel.rel.fix.headerLadder': 'Baris atas kini menetapkan tata letaknya seketika, bukan sesaat kemudian, sehingga tidak lagi tampak sekejap dalam dua baris dengan kata-katanya masih terlihat sebelum memutuskan memakai gambar.'
     ,'panel.rel.new.editorTabGates': 'Masing-masing dari tiga tab editor kini dapat ditampilkan atau disembunyikan per perangkat, sehingga langkah yang berbeda dapat diberikan kepada orang yang berbeda — satu memotong audio, yang lain mengetik teks, yang lain menambahkan glos — atau seorang pemula mulai dengan satu tab dan menerima sisanya saat siap. Setidaknya satu tab selalu tersisa, apa pun pengaturannya.'
     ,'panel.rel.new.headerWrap': 'Jika baris atas tetap tidak muat setelah kata berubah menjadi gambar, kini ia patah di satu tempat: tab berpindah ke bawah bersama Simpan dan Kirim, bukan patah di sembarang tempat saat kehabisan ruang.'
@@ -4203,6 +4210,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.val.consentAudio': '\u201cPengingat lisan\u201d aktif \u2014 tambahkan rekaman yang akan diputar untuk penutur.',
   'panel.val.consentMsg': 'Izin teks aktif — masukkan pesan izin.',
   'panel.val.sendNone': 'Centang “Unggah” atau “Simpan ke berkas”. “Bagikan” saja hanya mengirim teks biasa — tanpa audio dan tanpa berkas anotasi — sehingga perangkat tidak akan pernah bisa mengirimkan rekaman.',
+  'panel.val.tabsNone': 'Perangkat memerlukan setidaknya satu tab editor. Biarkan Dasar, Glos, atau Potong tetap menyala — bila semuanya dimatikan, tidak ada tempat bagi rekan kerja untuk bekerja.',
   'panel.grp.languages': 'Bahasa',
   'panel.legend.languages': 'Kode Sistem Penulisan FLEx',
   'panel.grp.moreInfo': 'info selengkapnya…',
@@ -4329,6 +4337,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.baselineTab': 'Tampilkan tab Dasar',
   'panel.f.glossTab': 'Tampilkan tab Glos',
+  'panel.f.wordGloss': 'Beri glos kata per kata',
+  'panel.f.wordGlossNote': 'Jika dimatikan, tab Glos hanya menampilkan kata-kata baris itu dan terjemahan bebasnya, tanpa kotak di bawah tiap kata. Cocok bagi orang yang tugasnya menerjemahkan, bukan menganalisis — dan glos yang sudah tercatat tetap tersimpan, hanya tidak ditampilkan di sini.',
   'panel.f.editorTabsNote': 'Bagikan langkah yang berbeda kepada orang yang berbeda: satu rekan memotong audio, yang lain mengetik teks, yang ketiga menambahkan glos. Berguna juga selagi seseorang masih belajar — beri satu tab, tambahkan yang lain saat mereka siap. Setidaknya satu tab selalu tersisa.',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',

@@ -409,7 +409,10 @@ Open items on the suite, in the order the maintainer named them; each issue hold
 - **Researcher panel:** assignment-upload progress in a movable modal (#38); an uploaded but
   unsent assignment saved into Unassigned (#37); sub-folders and tags for texts (#34, #35); rename
   devices (#32); finished texts removed from devices and their afterlife (#30, a design question);
-  pause, resume and cancel for transfers (#21).
+  pause, resume and cancel for transfers (#21); **an audit of settings that contradict each other**
+  (Seth, 2026-09-08) — the v641 reorganisation went through all fifty and found no dead ones, but it
+  looked for misfiling, not for combinations that cancel out (word glossing off while the gloss
+  landing box is set to "the next empty word gloss", say). See `plans/settings-organisation.md`.
 - **Interchange:** Toolbox / SFM to FLExText import, one or many texts per file (#29); lameta
   integration from the engine side (#28, superseded in scope by the keeper).
 - **Devices:** native audio conversion as a fallback (#22); a resource audit for a 40-minute

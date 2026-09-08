@@ -202,21 +202,66 @@ file is released, so nothing is ever deleted before it is stored.
 
 ## What the researcher can set on a device
 
-Every setting below lives on the device's **Settings** tab (the editor and the segmenter each show
-the groups that apply to them) and in the researcher panel, from which it is pushed to a paired
-device and lands live, without a reload:
+The same **fifty settings, in the same shape, on three surfaces**: a device's settings in the
+researcher panel (pushed to a paired device, landing live without a reload), a project's **default
+settings** (what a new device in that project is born with), and the **Settings** tab of an app that
+is not linked to a researcher. The panel renders the first two from one table through one form, so
+they cannot drift; `test/device-setup.test.mjs` holds the third in lockstep with them.
 
-| Group | Settings |
+They are grouped as **nine sections under four tabs**, and inside a tab the sections open one at a
+time. A closed section shows its name and a line saying what is in it (v641 — before that, six flat
+tabs, two of which held 61% of everything under names that did not predict their contents).
+
+### This device
+
+| Section | Settings |
 |---|---|
-| Languages | app language; vernacular and analysis writing systems (code, font) |
-| Segmentation | segmentation on/off; Cut tab; land on Cut; Backspace joins; join/split on Baseline and Gloss; cut/join lines that already have text; **allow moving boundaries by dragging** (grips on the strips of all three tabs and movable cut marks on the Cut tab's top player; independent of the texted-lines switch); export timing as notes; which exports ride a bundle (ELAN, SayMore, listening page, JSON) |
-| Recording | format, maximum length, AGC / noise suppression / echo cancellation, normalisation, archival defaults |
-| Consent | ask, message, consent audio, confirmation |
-| Sending | send options, delete after upload, automatic backup and its interval, recorder welcome |
-| Other | which buttons show; Done button; delete and delete-all; alphabetical sort; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** (automatic / icons and words / icons only / words only; automatic is icons only when the window is narrower than 1000 px); **the Space bar plays / pauses** (automatic = off on a mobile device, an Android phone or tablet; a laptop with a touch screen counts as a laptop); **Gloss tab icon** (seven pictures, chosen from a picker that shows them; interlinear rows by default; each device keeps its choice and the dashboard counts which is in use); segmenter: blank lines, in-place text editing |
+| **Languages** | app language ᴾ; vernacular and analysis writing-system **codes** (case-sensitive, must match FLEx exactly) |
+| **Appearance** | which toolbar buttons show; **text size** (whole app, the top row and player excepted); **top-row buttons and tabs** — automatic / icons and words / icons only / words only, where *automatic* uses words whenever they actually fit and switches to icons when they do not, so it follows the length of the words **in this language** rather than a fixed screen width, and a tablet held upright counts as narrow; **Gloss tab icon** (seven pictures, chosen from a picker that shows them; interlinear rows by default, each device keeps its choice and the dashboard counts which is in use); alphabetical sort of the texts list (otherwise most recent first) |
 
-The top-row setting is on the segmenter's Settings tab as well as the editor's, and in the
-researcher panel's device settings; the Space-bar setting is editor-only.
+### The coworker's job
+
+| Section | Settings |
+|---|---|
+| **Tasks** — which steps this device does | Audio Segmentation Mode on/off; **show the Cut tab / the Baseline tab / the Gloss tab**, each separately, so one coworker cuts the audio, another transcribes and a third glosses (never all three off — the panel refuses the save, and the device brings Baseline back rather than leave anyone with nothing); **gloss word by word** — off leaves the Gloss tab showing the line's words and the free translation with no box under each word, for somebody whose job is the translation rather than the analysis (glosses already recorded are kept, just not shown) |
+| **What the coworker may change** | join/split lines on Baseline; join/split on Gloss; join lines that already have text, on the Cut tab; **allow moving line boundaries by dragging** (grips on the strips of all three tabs and movable cut marks on the Cut tab's top player — independent of the texted-lines switch); Backspace/Delete joins lines; delete individual texts ᴾ; "Delete all data" ᴾ; remove a text's recording — the ✕ on the player ᴾ; and three the **Audio Segmenter** alone reads: swap a recording for a different file ᴾ, add blank text lines ᴾ, edit words and glosses in place ᴾ |
+| **Typing & keys** | **what Enter does at the end of a line** — move to the next line, or start a split there (splitting is always available mid-line and from the ✂ on the waveform, so "move to the next line" loses nothing and stops an accidental empty line; new devices start on it, devices already in use keep what they had); **the Space bar plays / pauses** — automatic is off on a mobile device, where Space is for typing, and on for a laptop, touch screen or not; **where the cursor lands after playing, on the Gloss tab** — the free translation or the next empty word gloss, chosen by the job; open new recordings on the Cut tab |
+
+### Recording & consent
+
+| Section | Settings |
+|---|---|
+| **Recording** | format; maximum length; AGC / noise reduction / echo cancellation; peak normalisation; **Use archival settings** — a *button*, not a switch, that fills the six above with 24-bit WAV and every processing stage off, the preservation-master baseline; the Recorder's welcome heading |
+| **Consent** | which prompts are asked (written, spoken); the written consent message; the spoken prompt — a **Drive URL** in the panel, a **picked sound file** on an unlinked device; which confirmations are required (yes/no, recorded, signature) |
+
+### Sending
+
+| Section | Settings |
+|---|---|
+| **How work leaves** | which send buttons exist (share, upload ᴾ, save, download); delete after finished & uploaded ᴾ; auto-backup of changed texts and its interval ᴾ; a **Done** button on each text, which auto-uploads it and raises a badge for the researcher ᴾ |
+| **What goes in the bundle** | write each line's audio times as a FLEx **note item** as well as begin/end attributes; include the ELAN `.eaf`; the SayMore annotation file; the listening page `.preview.html`; the Paragraph Analysis `.fxpa`. An unset export follows Audio Segmentation Mode, and the boxes show the **effective** value so they never misreport what the device writes |
+
+### Which settings apply where
+
+**ᴾ = only meaningful on a device linked to a researcher.** Ten settings are inert on an app working
+alone: six because the engine grants them unconditionally when there is no researcher (a lone worker
+always has them, so a switch could only lie), and four because they wait on an upload that cannot
+happen with no Drive behind it. They are still **shown** on such a device's Settings tab, greyed,
+each saying why on tap — a setting that vanishes when you link a device is a setting nobody can find
+twice.
+
+Two go the other way: the **spoken-consent sound file** exists only on an unlinked device (the panel
+pushes a URL instead), and the **app language** is live in the panel and greyed on the device, where
+the toolbar's own selector already owns it.
+
+One is per device and never a project default: the consent prompt's **upload button**, because the
+audio streams into one device's own Drive folder and mints a URL for that device. Everything else in
+a project template means exactly what it means on a device — a template *is* the settings a new
+device is born with.
+
+The **Audio Segmenter** shows a shorter list (writing systems, appearance, its own permissions and
+the bundle) — after filtering it has no Recording and no Consent section at all, so the "Recording &
+consent" tab is dropped rather than shown empty.
 
 ## Touch and keyboard
 
@@ -230,19 +275,33 @@ researcher panel's device settings; the Space-bar setting is editor-only.
 - **A boundary is moved by its grip** at either end of a line's waveform, never on the top player;
   the researcher's "allow moving line boundaries by dragging" switch removes every grip at once.
 - **Space** plays or pauses outside a text box on a laptop or desktop, touch screen or not; on a
-  mobile device it types a space (setting above). **Shift+Space** always plays or pauses, inside a box too, and inside a box it
-  plays that box's own line without moving the cursor.
-- When Space does not play, typing with no box selected goes to the line you last played: the
-  nearest box is focused at its end and the keystroke lands there.
+  mobile device it types a space (setting above). It plays whenever one of the **play controls or the
+  player itself** has focus, whatever that setting says — someone who has just tabbed to ▶ means to
+  play. **Shift+Space** always plays or pauses, inside a box too, and inside a box it plays that
+  box’s own line without moving the cursor.
+- **Space inside a word-gloss box types a period**, never a space. Leipzig joins the parts of a
+  multi-word gloss with a period (`am.talking.about`), and OneStory Editor aligns interlinear data
+  by whitespace alone in its XML — so a space inside a gloss silently misaligns the data. Typing the
+  convention rather than refusing the key teaches it at the moment it is being used.
+- When Space does not play, **typing with no box selected returns to where you left off**: the app
+  remembers the caret you had before you reached for the player, and puts you back in that box at
+  that spot, so pressing ▶ never costs you your place. Enter does the same and then acts. If there
+  is no remembered caret — a different line was played, or the tab changed — it falls back to the
+  line last played; on the Gloss tab, to the free translation or the next empty gloss, whichever the
+  researcher chose.
 - **Splitting a line is one rule on every tab.** A more basic tab cannot split or join a line with
   more advanced data (the Cut tab leaves texted lines alone; the Baseline tab leaves glossed or
   translated lines alone). A split asks for one position per part the line has, in any order: the
   playhead for the sound, the cursor for the words or the translation, the scissors between two
   words; nothing changes until every part is placed, the part still needed is marked in orange with
   a scissors under it (no words), and Escape, Undo, the same scissors again, a tap elsewhere or the round ✕ cancels.
-- **Enter** in a free-translation box places that translation's side of a split when the cursor is
-  inside the text; in an empty box it moves to the next line. On the Gloss tab a word can be
-  corrected in place without losing its gloss.
+- **Enter mid-line always offers a split** — it places that box’s side of one at the cursor, on
+  whichever tab allows splitting there. **At the end of a line it is the researcher’s choice**
+  (*Typing & keys* above): move to the next box, which is the default for new devices, or start a
+  split there, which is what every device did before v635 and what devices already in use keep.
+  Splitting is never lost by choosing "move" — mid-line and the ✂ on the waveform both still do it —
+  and an accidental empty line stops happening. On the Gloss tab a word can be corrected in place
+  without losing its gloss.
 
 ## Localization & help
 

@@ -158,6 +158,54 @@ Key engine modules (`docs/js/`):
 settings, no IndexedDB, no i18n. Input is a plain doc object; output is a string/Blob/Buffer. The
 acceptance test is "does it run under plain node" — `test/seg-exports.test.mjs` is the enforcement.
 
+### 3.1 The settings table — one shape, three surfaces
+
+Fifty device settings are declared **twice**, as field tables, and rendered on **three** surfaces:
+
+| Table | File | Renders |
+|---|---|---|
+| `GROUPS` + `SET_TABS` | `researcher-panel.js` | a device's settings (`openSettingsModal({ instance })`) **and** a project's default settings (`{ project }`) |
+| `SETUP_GROUPS` + `SETUP_TABS` | `app.js` | the Settings tab of an app not linked to a researcher (`renderDeviceSetup`) |
+
+The panel's two surfaces are the same table through the same form, so they cannot drift; the third
+is separate code and is held in lockstep by `test/device-setup.test.mjs`, which fails if the two
+tables disagree on fields, order, section ids, or EN+ID coverage of every label.
+
+**Shape (v641):** nine `GROUPS` entries are *sections*; `SET_TABS` deals them out to four
+macro-tabs. Inside a tab the sections are `<details>` in an accordion, one open at a time — enforced
+on the `toggle` event (⚠ which does not bubble, so the listener is on each `<details>`), not by
+intercepting the summary click, so keyboard, pointer and programmatic `.open = true` behave alike.
+`showGroup` takes a **section** id and resolves its tab through `TAB_OF_SEC` / `SETUP_TAB_OF_SEC`;
+every caller knows the setting it wants, never which tab happens to hold it.
+
+**Per-field markers**, all on the `SETUP_GROUPS` side, because they describe how a setting behaves
+*without a researcher*:
+
+| Marker | Meaning |
+|---|---|
+| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Ten fields; six whose engine gate reads `!Sync.hasSession() || settings.X === true`, four that wait on an upload that cannot happen. |
+| `only: 'segmenter'` | the field appears in that mode's Settings tab only (`setupGroupsFor`) |
+| `standalone: true` | exists on the unlinked surface alone — `consentAudioFile`, the picked file where the panel pushes a Drive URL |
+| `type: 'action'` | a **button**, not a setting (`archivalDefaults`) — excluded from collect/fill |
+
+**Adding a setting.** Add the field to *both* tables in the same section at the same position; add
+`panel.f.<k>` in EN **and** ID; if it needs a researcher, add `off:` plus `setup.off.<k>` in both
+languages; if the device must store it under a different name, map it in `toFormValues` /
+`deviceSetupValues` **and** `readDeviceSetup`, and add it to the pushed-settings allowlist by its
+**stored** key (`autoDel` is displayed, `autoDelUploaded` is stored — `test/settings-key-aliases.test.mjs`
+guards that trap). Then run `node --test test/device-setup.test.mjs test/settings-layout.test.mjs`;
+between them they check parity, section membership, tab cover, i18n coverage, and the scope map.
+
+**Validation** (`validateDeviceSettings` in the panel, `validateDeviceSetup` in the app) returns
+`{ group, field, msg }`, where `group` is a **section** id — the banner names it and its jump button
+expands it. Two rules to know: the panel refuses a save that switches off all three editor tabs (the
+app warns instead, since it live-saves), and `templateMode` drops the one rule a project template
+cannot satisfy, the per-device consent-audio URL. A surface only ever validates fields it actually
+renders (`setupProblems`) — otherwise a rule reads an `undefined` out of a control that is not
+there, which is how the Audio Segmenter came to be told to fix send buttons it does not have.
+
+The full audit that produced this shape, including the scope map, is `plans/settings-organisation.md`.
+
 ## 4. The data model
 
 A text ("doc") is:

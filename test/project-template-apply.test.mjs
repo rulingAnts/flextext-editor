@@ -128,14 +128,42 @@ console.log('\na new project goes straight into its Default settings');
   ok(/'panel\.proj\.nowDefaults'/.test(body), 'and says why it opened');
 }
 
-console.log('\nthe template form never pretends to do a per-device act');
+console.log('\nthe template carries the consent prompt too');
 {
-  /* The consent prompt upload streams into ONE device's Drive folder and mints a URL for it, so in
-   * template mode its button had nothing to target and sat there dead. */
+  /* Seth, 2026-09-09: "I'd like to be able to upload a recording as either default or override
+   * (just like any other setting on the project default device settings) consent prompt."
+   *
+   * The button used to be REMOVED here, on the reasoning that the upload mints a URL "for that
+   * device". Half true: it streams into one device's Drive folder, but assignment/finish mints the
+   * prompt token with scope = null, so it names no instance and redemption skips the device check —
+   * which is exactly why applyTemplateModal can already push a template's consentAudioUrl to every
+   * device in the project. So the button stays, and borrows a device of the project as the host. */
   ok(/const cu = box\.querySelector\('\[data-gact="consentUpload"\]'\);/.test(panel)
-     && /cu\.remove\(\);/.test(panel),
-     'the prompt-upload button is removed from the template form, not left dead');
-  ok(/'panel\.set\.promptPerDevice'/.test(panel), 'and replaced by the reason, per the no-dead-controls rule');
+     && !/cu\.remove\(\);/.test(panel),
+     'the prompt-upload button is KEPT on the template form');
+  ok(/'panel\.set\.promptProject'/.test(panel),
+     'with a note saying the recording is saved for the whole project');
+  ok(/const promptHostId = \(\) => \{/.test(panel) && /projectInstanceList\(target\.project\.folderId\)/.test(panel),
+     'and the upload is addressed through a device of this project');
+  /* ⚠ AT CLICK TIME, not at render: estateCache can be cold when the modal opens, and a button
+   * disabled on a stale cache is worse than one that re-checks and explains. */
+  ok(/const iid = promptHostId\(\);\s*\n\s*if \(!iid\) \{ deps\.toast\(t\('panel\.set\.promptNeedsDevice'\)/.test(panel),
+     'a project with no device yet says so on the click, rather than offering a button that fails');
+  ok(!/if \(cuBtn && cuFile && target\.instance\)/.test(panel),
+     'and the wiring no longer requires a target device');
+}
+
+console.log('\nan upload that mints no link is not reported as success');
+{
+  /* mintTextfileUrl REFUSES an unscoped token to a MEMBER minting into the owner's Drive, and a
+   * consent prompt is always unscoped — so promptUrl comes back null, the old `if (fin.promptUrl)`
+   * quietly did nothing, and the button toasted success over a setting that had not changed. */
+  ok(/if \(!fin\.promptUrl\) \{ deps\.toast\(t\('panel\.f\.consentNoLink'\)/.test(panel),
+     'a missing promptUrl says which half failed');
+  ok((i18n.match(/'panel\.f\.consentNoLink':/g) || []).length === 2, '  ...in both languages');
+  for (const k of ['panel.set.promptProject', 'panel.set.promptNeedsDevice']) {
+    ok((i18n.match(new RegExp("'" + k.replace(/\./g, "\\.") + "':", "g")) || []).length === 2, `${k} in both languages`);
+  }
 }
 
 console.log(failures ? `\nFAILED (${failures})` : '\nall passed');

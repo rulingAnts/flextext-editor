@@ -123,8 +123,8 @@ test('template mode drops the per-device consent upload, and only that', () => {
   assert.match(PANEL, /templateMode: !!target\.project/, 'the flag comes from the target');
   assert.match(PANEL, /if \(!templateMode && ask\.includes\('audio'\) && blank\(raw\.consentAudioUrl\)\)/,
     'the URL rule is the only one templateMode relaxes');
-  assert.match(PANEL, /if \(target\.project\) \{[\s\S]{0,400}data-gact="consentUpload"[\s\S]{0,300}promptPerDevice/,
-    'and the dead button is replaced by the reason, never left sitting there');
+  assert.match(PANEL, /if \(target\.project\) \{[\s\S]{0,400}data-gact="consentUpload"[\s\S]{0,300}promptProject/,
+    'and the button KEEPS working there, with a note saying the recording is saved for the project');
 });
 
 test('the project template renders the same nine sections as a device', () => {

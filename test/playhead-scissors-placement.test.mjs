@@ -107,12 +107,35 @@ test('the Gloss gutter: number, then ▶ with the ✂ exactly beneath it', () =>
 test('the play button is what sits on the wave\'s midline, not the whole stack', () => {
   assert.match(CSS, /\.gseg-gutter \{[^}]*margin-bottom: calc\(-1 \* \(var\(--gseg-arm-h\) \+ var\(--gseg-gutter-gap\)\)\);/,
     'the pull-up is exactly the ✂ and the gap it hangs by');
-  assert.match(CSS, /\.gseg-bar\.has-gutter \{ margin-bottom: calc\(4px \+ var\(--gseg-arm-h\) \+ var\(--gseg-gutter-gap\)\); \}/,
-    'and the bar reserves that overhang, so the ✂ never lands on the word row');
-  assert.match(APP, /bar\.classList\.add\('has-gutter'\)/, 'the class is set where the gutter is built');
   // ▶ is square and BIGGER than the ✂ on purpose: "easy to hit the play button and not so easy to
   // push the cut toggle button on accident".
   assert.match(CSS, /--gseg-play-size: 34px; --gseg-arm-h: 20px; --gseg-gutter-gap: 3px;/, 'the three sizes');
   assert.match(CSS, /\.gseg-play \{[^}]*width: var\(--gseg-play-size\);\s*\n?\s*height: var\(--gseg-play-size\);/,
     'square: the same custom property for both axes');
+});
+
+/* ⚠ THE INTERLINEAR SITS BESIDE THE ✂, NOT BELOW IT (Seth, 2026-09-08: "I want the 'word/gloss'
+ * interlinear line to start to the right of the cut button, not on a new line like this"). Measured
+ * on the rig afterwards: unarmed, the labels start at x=110 against the ✂'s right edge of 97, and
+ * the row's top is 250 against the ✂'s top of 249 — beside it, not under it. */
+test('the interlinear rows are indented past the whole gutter', () => {
+  assert.match(CSS, /--gseg-indent: calc\(var\(--gseg-num-w\) \+ var\(--gseg-col-gap\) \+ var\(--gseg-play-size\) \+ var\(--gseg-col-gap\)\)/,
+    'the indent is the gutter: number, gap, play button, gap');
+  assert.match(CSS, /\.segment\.has-gutter > \.word-row,\s*\n\.segment\.has-gutter > \.free-row \{ padding-left: var\(--gseg-indent\); \}/,
+    'and both rows take it');
+  assert.match(APP, /g\.classList\.add\('has-gutter'\)/, 'the class is on the SEGMENT, since the rows are its children');
+  // ⚠ the number column must be a FIXED width, or a 2- or 3-digit line number widens the gutter
+  // and the indent silently stops lining up with it.
+  assert.match(CSS, /\.gseg-bar \.segnum \{[^}]*width: var\(--gseg-num-w\); min-width: var\(--gseg-num-w\);/,
+    'a fixed number column, not a min-width');
+});
+
+/* ⚠ AND THE VERTICAL ROOM IS BOUGHT ONLY WHEN SCISSORS ARE ACTUALLY SHOWING. Reserving it always is
+ * what put the block on its own line; removing it altogether would let the PLAYHEAD ✂ — which hangs
+ * in the wave's column, exactly where these rows now are — cover the words again (v618–v621). */
+test('the room for the playhead ✂ is reserved only while armed or mid-split', () => {
+  assert.match(CSS, /\.segment\.has-gutter\.cut-armed \.gseg-bar,\s*\n\.segment\.has-gutter\.split-pending \.gseg-bar \{ margin-bottom: 30px; \}/,
+    'armed or pending buys the room');
+  assert.doesNotMatch(CSS, /\.gseg-bar\.has-gutter \{ margin-bottom/,
+    'and it is NOT reserved unconditionally any more');
 });

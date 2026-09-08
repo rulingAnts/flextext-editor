@@ -315,8 +315,12 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 .seg-text:focus { outline: 2px solid var(--blue); border-radius: 4px; }
 /* Gloss-tab per-line bar: the same transport, skinnier clothes — a small ▶/⏸ and a thin waveform
    above each interlinear line-group. */
-.gseg-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
-            --gseg-play-size: 34px; --gseg-arm-h: 20px; --gseg-gutter-gap: 3px; }
+/* ⚠ THE GUTTER GEOMETRY LIVES ON .segment, not on the bar, because the interlinear rows BELOW the
+   bar have to line up with it — see --gseg-indent. */
+.segment { --gseg-play-size: 34px; --gseg-arm-h: 20px; --gseg-gutter-gap: 3px;
+           --gseg-col-gap: 8px; --gseg-num-w: 1.6em;
+           --gseg-indent: calc(var(--gseg-num-w) + var(--gseg-col-gap) + var(--gseg-play-size) + var(--gseg-col-gap)); }
+.gseg-bar { display: flex; align-items: center; gap: var(--gseg-col-gap); margin: 2px 0 4px; }
 /* ▶ with the arming ✂ exactly beneath it, and the line number to their left — see the note in
    app.js where this gutter is built. The ✂ takes the play button's width so the two edges line up
    rather than merely sitting near each other.
@@ -329,10 +333,32 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
    easy to push the cut toggle button on accident". */
 .gseg-gutter { display: flex; flex-direction: column; gap: var(--gseg-gutter-gap); flex: none; align-items: stretch;
                margin-bottom: calc(-1 * (var(--gseg-arm-h) + var(--gseg-gutter-gap))); }
-/* ⚠ and the bar must then give that overhang its own room, or the ✂ lands on the word row — the
-   covering-up problem this layout already had once (v618–v621). */
-.gseg-bar.has-gutter { margin-bottom: calc(4px + var(--gseg-arm-h) + var(--gseg-gutter-gap)); }
-.gseg-bar .segnum { padding-top: 0; align-self: center; min-width: 1.4em; text-align: right; flex: none; }
+/* ⚠ THE INTERLINEAR STARTS BESIDE THE ✂, NOT UNDERNEATH IT (Seth, 2026-09-08: "I want the
+   'word/gloss' interlinear line to start to the right of the cut button, not on a new line like
+   this"). The rows are indented past the whole gutter — number, ▶ and the ✂ under it — so they can
+   rise alongside the ✂ instead of being pushed below it, and they land in the same column as the
+   waveform above them.
+
+   ⚠ AND THE VERTICAL ROOM IS NOW CONDITIONAL. Reserving the overhang unconditionally is what put
+   the block on its own line. But the room cannot just go: the PLAYHEAD ✂ hangs below the wave, in
+   the wave's own column, which is exactly where these rows now are — and it covering the text is
+   the v618–v621 problem. It only exists while the line is armed or mid-split, so the bar buys the
+   room only then. Unarmed the line is compact; the moment scissors appear, the text moves out of
+   their way. */
+.segment.has-gutter > .word-row,
+.segment.has-gutter > .free-row { padding-left: var(--gseg-indent); }
+.segment.has-gutter.cut-armed .gseg-bar,
+.segment.has-gutter.split-pending .gseg-bar { margin-bottom: 30px; }
+/* ⚠ 30px, and it is the PLAYHEAD ✂ this clears, not the arming one — measured on the rig rather
+   than guessed. The wave sits centred in the bar, so its bottom is (34 - 22) / 2 = 6px above the
+   bar's; the ✂ hangs 2px below that, stands 30px tall and is pulled back up 2px by its transform,
+   so it ends ~24px below the bar. 30 leaves about 6px of air. The previous value reused the arm's
+   height and happened to land 1px clear, which was luck, not design: nudge a font size and it
+   would have started covering the words again. */
+/* A FIXED width, not a min-width: --gseg-indent below assumes this column's exact size, so a
+   two- or three-digit line number must not quietly widen the gutter and break the alignment. */
+.gseg-bar .segnum { padding-top: 0; align-self: center; width: var(--gseg-num-w); min-width: var(--gseg-num-w);
+                    text-align: right; flex: none; }
 /* ⚠ `.gseg-bar .gseg-arm`, not `.gseg-arm`: the Baseline `.seg-arm` rule has the same specificity
    and comes LATER in this file, so it was winning and the gloss ✂ kept its 38x28. That mattered for
    more than looks — the gutter's pull-up is computed from --gseg-arm-h, so a ✂ that was really 28px

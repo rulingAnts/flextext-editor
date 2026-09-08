@@ -2785,16 +2785,21 @@ body.rp-standalone main { padding-top: 0; }
   cursor: pointer; padding: 0; color: #c9772a;
 }
 .cut-scissors:hover { background: #f6e9dc; }
-/* ⚠ ON THE WAVE, NOT UNDER IT (Seth, 2026-09-08, on an Android screen: "the scissors icon underneath
-   the play head covers up the baseline textbox so you can't see what you're typing"). The button is
-   30px and was anchored by its TOP to the waveform's bottom edge, so it hung 28px below — straight
-   over the .seg-text box, which is only about 39px tall. On a phone that is most of the line the
-   user is typing into.
-   Anchoring the BOTTOM to the wave's lower edge puts the whole button inside the 44px wave band, so
-   it cannot reach the text at all, and the control still rides the playhead where the gesture
-   expects it. This is what the Paragraph Analysis Tool has always done (.pa-wavewrap .pa-rowcut is
-   centred ON its wave) — the strips were the odd ones out. */
-.cut-scissors.on-wave { transform: translate(-50%, -100%); }
+/* ⚠ THE ✂ HANGS UNDER THE LINE, AND THE LINE MAKES ROOM FOR IT (Seth, 2026-09-08).
+   First he reported it covering the text: "the scissors icon underneath the play head covers up the
+   baseline textbox so you can't see what you're typing" — the 30px button was anchored by its TOP to
+   the wave's bottom edge, so it hung 28px down over a ~39px text box.
+   ⚠ Moving it ONTO the wave was tried and rejected, for a reason worth keeping: "Putting the scissors
+   RIGHT on top of the play head isn't a solution either, because that makes it easy to accidentally
+   split when you meant to scrub." The wave is the scrub surface; a button on it steals the gesture.
+   ⚠ So the answer is space, not relocation: "We might just need to adjust the line height and the
+   size of the scissors icon. Scissors underneath the line looks good and makes sense, we just need to
+   make sure we size and space things so the scissors button icon doesn't cover text."
+   Hence a smaller button (24px) and a reserved lane below each wave — and the lane is only paid for
+   when the tab actually offers splitting, because ~26px per line is real screen on a phone. */
+.cut-scissors { width: 24px; height: 24px; font-size: 12px; }
+.seg-cutlane .seg-text { padding-top: 28px; }
+.gseg-cutlane .gseg-wavewrap { margin-bottom: 30px; }   /* 24px button at +1px leaves ~5px clear of the Word row */
 
 #cut-strips { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 /* Focusable, because this tab has no text box to hold focus and Enter/Backspace must land
@@ -2826,7 +2831,17 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 .split-prompt .split-cancel:hover { background: #fdece6; }
 .seg-cutmark { position: absolute; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
 .gseg-cutmark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed #e65100; pointer-events: none; z-index: 2; }
-.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 2px; }
+/* ⚠ ON THE WAVE, NOT BELOW IT — the Gloss tab's version of the v618 fix (Seth, 2026-09-08, with a
+   screenshot: "This is the same problem, except on the gloss tab", the ✂ sitting over the word
+   `bujo` and the gap-scissors beside it).
+   It was `top: 100%; margin-top: 2px`, i.e. the whole 30px button hanging BELOW the wave wrapper and
+   landing on the Word row.
+   ⚠ The Baseline answer does not transfer: `.gseg-wave` is 22px, so a 30px button cannot sit inside
+   it. This follows the Paragraph Analysis Tool instead, which solved exactly this shape long ago —
+   `.pa-wavewrap .pa-rowcut` is CENTRED on its wave at 26px. Centred on 22px it overhangs 2px each
+   side, which reaches nothing, and it keeps a tappable target on the playhead where the gesture
+   expects it. */
+.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 1px; }
 /* A word on the Gloss tab is editable in place (glossEditWord). */
 .word-txt[contenteditable] { cursor: text; border-bottom: 1px dotted transparent; min-width: 1ch; }
 .word-txt[contenteditable]:hover { border-bottom-color: var(--muted); }

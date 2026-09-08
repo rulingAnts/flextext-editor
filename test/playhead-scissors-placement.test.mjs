@@ -1,18 +1,17 @@
-/* Seth, 2026-09-08, on an Android screen: "the scissors icon underneath the play head covers up the
- * baseline textbox so you can't see what you're typing."
+/* Seth, 2026-09-08, in three steps — the middle one is why this file exists rather than a comment.
  *
- * The ✂ that rides the playhead is 30px and was anchored by its TOP to the waveform's bottom edge, so
- * it hung 28px BELOW the wave — directly over `.seg-text`, the box being typed into.
+ * 1. "the scissors icon underneath the play head covers up the baseline textbox so you can't see what
+ *    you're typing." The 30px button was anchored by its TOP to the wave's bottom edge, so it hung
+ *    28px down over a ~39px text box. MEASURED at 375x812: it covered 26 of those 40 pixels.
+ * 2. Moving it ONTO the wave was tried and REJECTED: "Putting the scissors RIGHT on top of the play
+ *    head isn't a solution either, because that makes it easy to accidentally split when you meant to
+ *    scrub." ⚠ The wave is the scrub surface. A button on it steals the gesture. Do not go back.
+ * 3. "We might just need to adjust the line height and the size of the scissors icon. Scissors
+ *    underneath the line looks good and makes sense, we just need to make sure we size and space
+ *    things so the scissors button icon doesn't cover text."
  *
- * MEASURED in the pane at the mobile preset (375×812), strip 1 of a four-line text:
- *     wave      358 → 402   (44px)
- *     text box  404 → 444   (40px)
- *     OLD ✂     400 → 430   → 26px of a 40px text box covered — about two thirds of it
- *     NEW ✂     370 → 400   → 0px over the text box, fully inside the wave
- *
- * The fix anchors the BOTTOM of the button to the wave's lower edge instead, which is what the
- * Paragraph Analysis Tool has always done (`.pa-wavewrap .pa-rowcut` is centred on its wave). The
- * strips were the odd ones out, in both tickers.
+ * So: the ✂ stays UNDER the line, the button is smaller, and the line reserves a lane for it — and the
+ * lane is only paid for when the tab actually offers splitting.
  *
  * Run: node --test test/playhead-scissors-placement.test.mjs
  */
@@ -22,26 +21,28 @@ import { readFileSync } from 'node:fs';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const STRIPS = rd('../docs/js/segment-strips.js'), CSS = rd('../docs/css/app.css');
+const APP = rd('../docs/js/app.js');
 
-test('the playhead ✂ is anchored by its bottom, so it sits inside the wave', () => {
-  assert.match(CSS, /\.cut-scissors\.on-wave \{ transform: translate\(-50%, -100%\); \}/,
-    'the modifier exists and flips the anchor from top to bottom');
-  // and the base rule is untouched, so the Cut tab's own uses are unaffected unless they opt in
-  assert.match(CSS, /\.cut-scissors \{\s*\n\s*position: absolute; transform: translate\(-50%, -2px\);/,
-    'the base placement is left alone — only the opted-in instances move');
+test('the button is small enough to sit in a lane', () => {
+  assert.match(CSS, /\.cut-scissors \{ width: 24px; height: 24px; font-size: 12px; \}/);
+  assert.doesNotMatch(CSS, /\.cut-scissors\.on-wave/, 'the on-the-wave placement was rejected — see step 2 above');
 });
 
-test('both tickers opt in, and both place it 2px inside the wave', () => {
-  const uses = STRIPS.match(/sc\.className = 'cut-scissors on-wave'/g) || [];
-  assert.equal(uses.length, 2, 'the Baseline strips and the Cut tab — the two places that build one');
-  const tops = STRIPS.match(/sc\.style\.top = \((?:wave|w)\.offsetTop \+ (?:wave|w)\.offsetHeight - 2\) \+ 'px';/g) || [];
-  assert.equal(tops.length, 2, 'both anchor to the wave bottom less a 2px inset');
-  // the old geometry must not survive anywhere: it is what covered the text
-  assert.doesNotMatch(STRIPS, /style\.top = \((?:wave|w)\.offsetTop \+ (?:wave|w)\.offsetHeight\) \+ 'px'/,
-    'no placement still hangs the button below the wave');
+test('each tab reserves a lane under the wave, and only when splitting is offered', () => {
+  assert.match(CSS, /\.seg-cutlane \.seg-text \{ padding-top: 28px; \}/, 'Baseline strips');
+  assert.match(CSS, /\.gseg-cutlane \.gseg-wavewrap \{ margin-bottom: 30px; \}/, 'the Gloss tab');
+  assert.match(STRIPS, /host\.classList\.toggle\('seg-cutlane', joinSplitOk\(\)\);/,
+    'no lane, no cost, when the researcher has turned splitting off');
+  assert.match(APP, /classList\.toggle\('gseg-cutlane', joinSplitAllowed\('gloss'\)\);/);
 });
 
-test('the reason and the measurement are written where someone would undo it', () => {
-  assert.match(CSS, /covers up the baseline textbox/, "Seth's own words, so the bug is recognisable");
-  assert.match(CSS, /pa-rowcut/, 'and the tool is cited as the precedent that was already right');
+test('the ✂ hangs under the wave on all three tabs', () => {
+  const tops = STRIPS.match(/sc\.style\.top = \((?:wave|w)\.offsetTop \+ (?:wave|w)\.offsetHeight\) \+ 'px';/g) || [];
+  assert.equal(tops.length, 2, 'the Baseline strips and the Cut tab');
+  assert.match(CSS, /\.gseg-wavewrap \.gseg-scissors \{ top: 100%; margin-top: 1px; \}/, 'and the Gloss tab');
+});
+
+test('the reason each shape was chosen is written where someone would undo it', () => {
+  assert.match(CSS, /covers up the\s*\n?\s*baseline textbox/, "Seth's own words, so the bug is recognisable");
+  assert.match(CSS, /accidentally\s*\n?\s*split when you meant to scrub/, 'and why the obvious alternative is wrong');
 });

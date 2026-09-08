@@ -332,8 +332,14 @@ ok(/function flagSetupProblems\(box, problems, showGroup, \{ advisory = false \}
    'flagSetupProblems has an advisory mode');
 ok(/if \(advisory\) return;\s*\/\/ never move the tab, the focus or the toast while typing/.test(app),
    'which paints the banner, the tab dots and the inline reasons — and moves nothing');
-ok(/flagSetupProblems\(form, validateDeviceSetup\(collectDeviceSetup\(form\)\), showGroup, \{ advisory: true \}\);/.test(app),
+ok(/flagSetupProblems\(form, setupProblems\(form\), showGroup, \{ advisory: true \}\);/.test(app),
    'and the live save uses it');
+/* ⚠ setupProblems, not validateDeviceSetup directly: a rule about a field THIS surface does not
+ * render reads an undefined out of collectDeviceSetup and fires against it. The Segmenter has no
+ * sendOptions control, and was told "Allowed send buttons — How work leaves section" about a
+ * section it does not draw, with a jump button that went nowhere. */
+ok(/return validateDeviceSetup\(collectDeviceSetup\(form\)\)\.filter\(\(p\) => setupFieldEl\(form, p\.field\)\);/.test(app),
+   'and a problem about a field the form does not show is dropped');
 // The banner/dots are all that is left of the dead-end guard, so they must still be computed.
 ok(/if \(!send\.includes\('save'\)\) \{/.test(app),
    'the "no way to get work out" check still runs — it warns now instead of blocking');
@@ -344,7 +350,7 @@ ok(/if \(!send\.includes\('save'\)\) \{/.test(app),
  * Save button." A blocking check only had to run at the moment of saving, because nothing broken
  * could get past it. An advisory one has no such moment — painted only on edit, a half-configured
  * device looks perfectly fine the next time anyone opens the page. Two places fix that: */
-ok(/flagSetupProblems\(form, validateDeviceSetup\(collectDeviceSetup\(form\)\), showGroup, \{ advisory: true \}\);\s*\n\}/.test(app),
+ok(/flagSetupProblems\(form, setupProblems\(form\), showGroup, \{ advisory: true \}\);\s*\n\}/.test(app),
    'renderDeviceSetup paints the problems on ENTRY, before any edit');
 ok(/function markSetupTabProblems\(\)/.test(app) && /tab\.classList\.toggle\('tab-warn', problems\.length > 0\)/.test(app),
    'and the Settings TAB carries a dot, so a device left broken says so without being opened');

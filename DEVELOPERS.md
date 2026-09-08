@@ -47,6 +47,25 @@ Design constraints that explain most of the architecture:
   encrypted at rest under a key held in Worker secrets, NOT in D1, so a database-only breach cannot
   open them. See `plans/drive-as-truth.md` §10 for the threat model, what a D1 breach yields, and
   the minimization work queued against it; `notes/connectivity-*` for the design.
+- **Two settings are served, and one of them is primary.** Most of this suite is shaped for
+  **remote, low-infrastructure fieldwork**: unreliable power, intermittent and slow connectivity,
+  users who are barely literate, and an interface that has to behave like the phone apps they
+  already know. That is audience one, it is the default, and every decision above is made for it.
+  There is a second: **teams whose situation makes exposure itself a risk to the people they work
+  with** — where a device leaving trusted hands, or data read in transit, could bring harm to the
+  community members who gave their voices and stories. Those teams need sharper limits on what is
+  ever stored, and faster ways to remove it.
+
+  ⚠ **The second is served entirely by OPTIONS, never by new defaults.** A protection built for it
+  may be switched on by a researcher, or made standard for a project or a region, but it may never
+  become the only way the suite works, and it may never degrade the offline, low-skill,
+  few-taps experience that audience one depends on. Where a protection costs audience one nothing,
+  take it — those are free wins and there are more of them than you would expect. Where it costs
+  something, it is a setting.
+
+  The rationale for both is the same one that governs everything else here: the privacy and
+  research-ethics obligations this suite carries to the communities it serves. See §"How this work is
+  described" in `CLAUDE.md` before writing about it.
 - **Archival honesty.** Preservation masters are never processed (no AGC/NR); lossy→WAV
   conversions are labeled in both filename and BWF `bext` bytes as NOT archival.
 
@@ -326,6 +345,21 @@ because the failure mode that matters is a limit that is *silent*.
 
 The web engine auto-updates; an installed APK does not. So the native layer is kept so thin it
 almost never needs to change, and it exists for exactly one reason.
+
+⚠ **A third reason has since appeared, and it is not archival.** Several protections a team in a
+higher-exposure setting would want *cannot be honestly claimed by a browser tab at all* — the runtime
+decides what is cached, paged or swapped, and a page cannot choose a storage path, reach an OS
+keychain, or keep itself out of a device backup. The shells are where those become possible.
+
+⚠ **This does not make the shells a recommended path *here*.** For the primary audience the URL *is*
+the onboarding: finding a downloaded file, running a wizard, or enabling installation from unknown
+sources are each, on their own, enough to stop the work — and the last amounts to teaching a field
+team to switch off a safety feature, which is a harm in itself. ⚠ **But that is a property of
+distributing unsigned builds ourselves, not of native shells:** a signed build on a store installs in
+two taps, and a managed deployment installs with none. Another team with a signing identity is in a
+different position, so the architecture stays shell-capable. What must hold either way is that the
+browser path is safe on its own, and shell-only protections are an upgrade for those who can install,
+never the baseline. Nothing here is on the roadmap. See `plans/consent-person-based.md` §3.8.
 
 **Why native at all — two independent archival reasons** (full argument in `android/README.md`):
 the WebView's AGC-or-clip dilemma (AGC is processing, which IASA TC-03 and FADGI forbid on a

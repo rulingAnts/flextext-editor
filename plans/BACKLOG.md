@@ -5,6 +5,33 @@
 > one is the way in.
 
 
+## The editor cannot express three kinds of text it will have to (Seth, 2026-09-08)
+
+Raised while designing person-based consent (`plans/consent-person-based.md`), and explicitly parked:
+*"Our editor app doesn't yet have a way to handle this (also video it needs to be able to handle
+eventually, as well as 'texts' that are actually multiple examples or elicited prompts it doesn't
+handle SUPER well yet). That's for backlog."*
+
+**1. Several speakers in one text.** The data model already carries it — our EAF importer exists
+because ELAN puts a speaker on each tier, and it collapses a conversation into one line list with
+per-line speaker attributes. What is missing is authoring and display: no way to say *this line is
+her, that line is him*, and nothing shows it. ⚠ The consent plan therefore ships `TextSpeaker`
+many-to-many in shape and one-row-per-text in practice, so that the day this lands there is no
+migration — only a UI. Its resolution function is already written for many.
+
+**2. Video.** Nothing in the suite handles it: recording, playback, the segmenter's waveform, the
+listening page, the bundle. Note that consent asks about video as a **separate permission** from
+audio (`consent-person-based.md` §4.2 B), so a speaker may already have answered about a medium we
+cannot yet carry.
+
+**3. "Texts" that are really sets of examples or elicited prompts.** A wordlist, an elicitation
+session or a set of minimal pairs is not a narrative, and the app treats everything as one. The
+symptoms are small but constant: a title that means nothing, paragraph structure that does not apply,
+a listening page that reads oddly, and genre metadata that has nowhere sensible to go.
+
+None of these blocks the consent work. All three are the kind of thing that gets more expensive the
+longer the data model pretends they do not exist.
+
 ## A coworker's NAME, EMAIL and AVATAR must not be reachable from their ID (Seth, 2026-08-28)
 
 **NEXT RELEASE.** The Coworkers list currently shows, for every member of a project: display name,

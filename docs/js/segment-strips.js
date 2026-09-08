@@ -1183,13 +1183,13 @@ function positionCursor() {
         if (canCut) {
           if (!sc) {
             sc = document.createElement('button');
-            sc.className = 'cut-scissors'; sc.type = 'button'; sc.tabIndex = -1; sc.textContent = '\u2702';
+            sc.className = 'cut-scissors on-wave'; sc.type = 'button'; sc.tabIndex = -1; sc.textContent = '\u2702';
             sc.title = deps.t('cut.cut'); sc.setAttribute('aria-label', deps.t('cut.cut'));
             sc.addEventListener('click', (ev) => { ev.stopPropagation(); stripSplitAtPlayhead(); });
             row.appendChild(sc);
           }
           sc.style.left = x + 'px';
-          sc.style.top = (wave.offsetTop + wave.offsetHeight) + 'px';
+          sc.style.top = (wave.offsetTop + wave.offsetHeight - 2) + 'px';   // bottom-anchored: inside the wave, never over the text box
           const pend = pendingSplit && pendingSplit.tab === 'baseline' && pendingSplit.i === i && !Object.prototype.hasOwnProperty.call(pendingSplit.pos, 'audio');
           if (sc.classList.contains('needs-split') !== !!pend) sc.classList.toggle('needs-split', !!pend);
         } else if (sc) sc.remove();
@@ -1827,7 +1827,7 @@ function startCutTicker() {
            * gesture needs no explanation. A keyboard user has Enter; this is for a thumb. */
           if (!sc) {
             sc = document.createElement('button');
-            sc.className = 'cut-scissors';
+            sc.className = 'cut-scissors on-wave';
             sc.type = 'button';
             sc.textContent = '\u2702';
             sc.title = cutDeps.t('cut.cut');
@@ -1836,7 +1836,7 @@ function startCutTicker() {
             row.appendChild(sc);
           }
           sc.style.left = x + 'px';
-          sc.style.top = (w.offsetTop + w.offsetHeight) + 'px';
+          sc.style.top = (w.offsetTop + w.offsetHeight - 2) + 'px';   // bottom-anchored, as on the Baseline strips
         } else { if (cur) cur.remove(); if (sc) sc.remove(); }
       });
     } finally {

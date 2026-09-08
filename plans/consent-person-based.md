@@ -663,8 +663,106 @@ foreclose them — none is on the roadmap, and each needs its own plan:
 | **session-only storage** | nothing persists past the sitting; packages upload or are discarded | ⚠ collides head-on with *"nothing may ever silently discard field work"*. Only safe where the user explicitly chose it AND upload succeeded — otherwise it is data loss wearing a safety label |
 | **encrypt-at-rest behind a passphrase** | the store opens only with a passphrase, entered each use | audience one must never meet a passphrase; and a forgotten one is unrecoverable by design, which is a support burden the primary audience cannot carry |
 | **a second passphrase that wipes** | typing it erases rather than opens | must be indistinguishable from a wrong passphrase, or it protects nobody |
-| **high-assurance wipe** | overwrite rather than delete | ⚠ on flash storage this is weaker than it sounds — wear levelling means overwriting is not erasure. Do not claim more than is true (`drive-as-truth.md:539-541`) |
+| **encrypt before write, so plaintext never reaches storage** | the correct primitive — see below | RAM: a decrypted recording has to live somewhere while it plays |
+| ~~high-assurance wipe~~ | **superseded.** Overwriting is not erasure on flash *or* on SSD — wear levelling relocates blocks, so the old copy survives the overwrite. Destroy the key instead, not the bytes | — |
 | **no-network mode** | capture only; move data by hand | the assignment and auto-upload system is most of what makes audience one work; this is a different workflow, not a setting on the same one |
+
+#### ⚠ The only wipe that works is one you never need: never write plaintext
+
+Seth, 2026-09-08: *"the point about flash storage is taken, and that applies to most devices
+nowadays, including SSD in laptops. The key protection there would be never writing unencrypted data
+to storage in the first place, so that it only lives unencrypted in RAM."*
+
+That is the right primitive, and it makes the wipe problem disappear rather than solving it. If
+plaintext never lands, there is nothing to overwrite: **destroy the key and the bytes are already
+unreadable** — instant, complete, and immune to wear levelling. Erasing a key is a write of a few
+dozen bytes; erasing a corpus is not.
+
+**What it would actually cost, stated so nobody discovers it late:**
+
+- **RAM, not CPU.** AES-GCM through WebCrypto is hardware-accelerated and fast enough that
+  throughput is not the problem. The problem is that a recording cannot be handed to a player as an
+  encrypted blob — it must be decrypted into memory first, and a 200 MB recording is 200 MB of RAM on
+  a phone that may not have it to spare. ⚠ **This is precisely an audience-one cost**, which is why
+  it is an option and not a default. Streaming decryption per segment would soften it and is the
+  obvious first design question for whoever builds this.
+- **A browser tab cannot honestly promise it.** The runtime decides what is cached, paged or
+  swapped, and a page has no way to pin memory or choose a storage path. ⚠ **So the claim is only
+  makeable inside a native shell** — and the suite already has both (`electron/`, `android/`
+  Capacitor), which is why Seth's instinct that a native wrapper is the enabler is right. In a
+  browser this option should be described as *reducing* what is written, never as a guarantee, per
+  the no-overclaiming rule.
+
+**The seam already exists, and keeping it is the whole ask.** Every media byte in the suite passes
+through `putMedia(docId, record)` / `getMedia(docId)` in `docs/js/db.js`. **Nothing outside that file
+touches the media object store** — verified. So a future implementer encrypts at one layer rather
+than auditing six. ⚠ **The thing this plan must not do is create a second path to media bytes.** That
+is a free win for a capability nobody is building yet, and it costs today's work nothing: it is
+already how the code is arranged.
+
+#### What a native shell actually buys, and what it does not
+
+Seth asked for this to be public rather than buried: *"If native wrappers significantly help us with
+any of these security issues, that's worth documenting."* They do, and the suite already ships both
+shells (`electron/`, `android/` Capacitor) for unrelated archival reasons — so this is an option
+already half-paid-for, not a new dependency.
+
+**Genuinely enabled by a shell, and impossible in a tab:**
+
+| capability | why the shell is required | cost |
+|---|---|---|
+| **key in the OS keychain** — Android Keystore, macOS Keychain, Windows DPAPI/TPM | hardware-backed on most Android; the key can require device unlock and never becomes reachable from JS at all | small |
+| **excluded from device backups** (`allowBackup=false`, iOS backup flags) | ⚠ otherwise corpus audio and consent recordings flow into a cloud backup by default, which is a large exposure nobody chose | **free** |
+| **not shown in the app switcher / not screenshottable** (Android `FLAG_SECURE`) | a tab cannot ask for this; the recents thumbnail of an open text is a real leak | **free** |
+| **choosing where bytes land** — an encrypted volume, a path outside the browser profile | prerequisite for "never write plaintext" above | design work |
+| **resisting swap** (memory locking) | a page cannot pin memory; a shell can, partially | partial at best |
+| **certificate pinning** | control of TLS trust rather than the system trust store | moderate |
+| **no cache, no history, no extensions, no autofill** | a shell simply has none of that surface | **free** |
+
+**Two of those are free and reduce exposure for everyone**, audience one included: backup exclusion
+and screenshot/recents suppression cost nothing, break nothing, and want no setting. ⚠ Backup
+exclusion deserves a decision on its own merits — a recording flowing into a personal cloud backup is
+an exposure the speaker never agreed to, and it is happening today.
+
+#### ⚠ But the install is the constraint, not the capability — and it splits the two audiences
+
+Seth, 2026-09-08: *"native wrappers introduce complexity for low-skilled tech workers in my context.
+Even double clicking on an exe file and running a wizard (or even FINDING the downloaded exe in the
+first place) is often too much to ask. And don't even get me started about figuring out how to
+install an unsigned apk. But for users in more hostile environments, those may be very
+doable/trainable things or helping pre-install things may be doable."*
+
+**For audience one, the URL *is* the onboarding.** Someone opens a link and is working. Every step
+before that is a wall, and they are ordinary walls, not exotic ones: locating a downloaded file in a
+file manager, recognising which of several downloads is the right one, a wizard with choices in a
+second language, a permission prompt that looks like a warning. Any one of them ends in a phone call
+that cannot be made, and this repo already counts that as broken.
+
+⚠ **The unsigned APK is worse than an inconvenience.** Installing one requires enabling installation
+from unknown sources and dismissing a warning designed to be alarming — so the instruction is
+literally *"turn off a safety feature and ignore what your phone tells you"*. Teaching that habit to
+a field team is itself a harm, and it does not stay contained to our app. **If a shell ever becomes a
+recommended path rather than a specialist one, signing and store distribution stop being optional.**
+
+**For audience two the arithmetic reverses.** Installation is plausibly trainable, and a device
+handed over already set up is plausible — which is the case where every capability in the table above
+is actually reachable. That is not a coincidence: the teams who most need the shell's protections are
+the ones for whom the shell's cost is payable.
+
+> **⚠ THE RULE THIS PRODUCES.** The browser path must stay safe enough on its own. Shell-only
+> protections are an **upgrade for those who can install**, never the baseline of safety — because a
+> baseline nobody in audience one can reach is not a baseline. Anything that would be irresponsible
+> to run without a shell must not ship as a browser feature at all.
+
+**What a shell does not buy, stated so nobody assumes it:**
+
+- **not erasure.** Wear levelling applies the same to a shell's files as to IndexedDB. Crypto-erase
+  is still the only real answer.
+- **not protection from a device unlocked and handed over.** No software layer survives that, and
+  claiming otherwise would be exactly the overclaiming `drive-as-truth.md:539-541` forbids.
+- **not a smaller attack surface, for Electron** — it ships a full browser engine that must be kept
+  updated. Tauri is materially smaller here, which is the one point in its favour worth weighing if
+  this is ever built.
 
 ⚠ **Two of these are honesty traps rather than engineering problems**, and both are why they are
 written down before anyone builds them: a wipe on flash is not an erasure, and session-only storage

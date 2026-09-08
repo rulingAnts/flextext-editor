@@ -346,6 +346,18 @@ because the failure mode that matters is a limit that is *silent*.
 The web engine auto-updates; an installed APK does not. So the native layer is kept so thin it
 almost never needs to change, and it exists for exactly one reason.
 
+⚠ **A third reason has since appeared, and it is not archival.** Several protections a team in a
+higher-exposure setting would want *cannot be honestly claimed by a browser tab at all* — the runtime
+decides what is cached, paged or swapped, and a page cannot choose a storage path, reach an OS
+keychain, or keep itself out of a device backup. The shells are where those become possible.
+
+⚠ **This does not make the shells a recommended path.** For the primary audience the URL *is* the
+onboarding: finding a downloaded file, running a wizard, or enabling installation from unknown
+sources are each, on their own, enough to stop the work — and the last of those amounts to teaching a
+field team to switch off a safety feature, which is a harm in itself. So the browser path must stay
+safe on its own, and shell-only protections are an upgrade for those who can install, never the
+baseline. Nothing here is on the roadmap. See `plans/consent-person-based.md` §3.8.
+
 **Why native at all — two independent archival reasons** (full argument in `android/README.md`):
 the WebView's AGC-or-clip dilemma (AGC is processing, which IASA TC-03 and FADGI forbid on a
 preservation master), and the fact that Web Audio is float32 by specification, so a browser can

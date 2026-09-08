@@ -112,32 +112,51 @@ test('on the Gloss tab "move to next" is tested before the edge split', () => {
  * the Gloss tab should hand over to that word's OWN gloss, because fixing a spelling and glossing
  * the same word is one motion. All three are gated on the setting: where Enter still splits, it must
  * keep meaning that. */
-/* ⚠ THE TARGET IS THE LINE BEING PLAYED, NOT THE ONE AFTER IT. v625 sent Enter on the ▶ to the NEXT
- * line, on Seth's earlier instruction; he revised it (2026-09-08): "if you've got a segment playing
- * and you press enter, it should jump to the current segment's textbox, or next player if it's an
- * empty line… I said otherwise earlier." Going past it means hearing one line and typing in
- * another. A blank/silence line has no box, so the walk goes on to the next line's ▶ instead. */
-test('Enter on the play button lands in THAT line, on both tabs', () => {
+/* ⚠ ENTER HAS NO DESTINATION OF ITS OWN — IT REPLAYS THE CARET (Seth, 2026-09-08).
+ *
+ * "For all intents and purposes, having the waveform/player in focus should feel to the user the
+ * same as having text in focus… we want enter to do whatever it would have done at their most
+ * recent cursor position and focused textbox on that audio segment."
+ *
+ * v625 sent Enter on the ▶ to the NEXT line; v635 changed it to THIS line. Both hard-coded a
+ * destination, and both were guesses at an outcome the real rule produces for itself: put the user
+ * back where they left off, then let that box's own handler decide. Next-line falls out of it when
+ * the remembered caret was at the end. These tests pin the RULE, so neither guess can come back. */
+test('Enter replays the remembered caret rather than aiming at a line', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
-  assert.match(STRIPS, /if \(ev\.key !== 'Enter' \|\| !\(deps\.enterAdvances && deps\.enterAdvances\(\)\)\) return;[\s\S]{0,120}?focusStripEnd\(i\);/,
-    'Baseline ▶ lands in its own line, gated on the setting');
-  assert.match(APP, /if \(ev\.key !== 'Enter' \|\| !enterAtEndAdvances\(\)\) return;[\s\S]{0,120}?focusPlayingLine\(true, i\);/,
-    'Gloss ▶ likewise');
-  for (const [name, src, fn] of [['app', APP, 'focusPlayingLine'], ['strips', STRIPS, 'focusStripEnd']]) {
-    const body = src.slice(src.indexOf('function ' + fn), src.indexOf('function ' + fn) + 1200);
-    assert.match(body, /groups\[i \+ 1\]|rows\[i \+ 1\]/, `${name}: a line with no box falls on to the next ▶`);
-  }
+  const replay = /const el = restoreTypingFocus\(\);\s*\n\s*if \(el\) el\.dispatchEvent\(new KeyboardEvent\('keydown', \{ key: 'Enter', bubbles: true, cancelable: true \}\)\);/;
+  assert.equal((APP.match(new RegExp(replay.source, 'g')) || []).length, 2,
+    'both ways in — Enter on a ▶, and Enter outside the boxes — go through the same restore');
+  // ⚠ and no per-button rule survives, on either tab
+  assert.doesNotMatch(APP, /focusPlayingLine/, 'the v635 helper is gone');
+  assert.doesNotMatch(STRIPS, /focusStripEnd/, 'and its Baseline twin');
 });
 
-/* ⚠ AND ENTER OUT HERE IS A CUT ONLY IN CUT MODE. Placing the audio tier divides a line, so it
- * follows the same rule as the boxes: without arming, Enter navigates instead. */
-test('Enter outside the boxes navigates unless the line is armed', () => {
+test('one remembered spot, tagged with the segment AND the tab', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
-  assert.match(APP, /if \(enterAtEndAdvances\(\) && !armedRow\(\)\) \{ focusPlayingLine\(onGloss\); return; \}\s*\n\s*if \(onGloss\) glossPlaceAudio\(\); else stripSplitAtPlayhead\(\);/,
-    'the navigate branch comes first, and the cut is what it guards');
+  const fn = APP.slice(APP.indexOf('function restoreTypingFocus'), APP.indexOf('function focusAtEnd'));
+  assert.match(fn, /lastCaret\.seg === seg && lastCaret\.tab === activeTab/,
+    'same segment and same tab, or the memory is stale');
+  assert.match(fn, /lastCaret\.el\.isConnected/, 'and the box must still exist after any re-render');
+  assert.match(fn, /lastCaret = null;\s*\n\s*if \(!fallback\) return null;\s*\n\s*focusAtEnd\(fallback\);/,
+    'otherwise it is dropped for the line default, at the END');
+  assert.match(APP, /document\.addEventListener\('focusout', \(e\) => rememberCaret\(e\.target\), true\);/,
+    'captured as focus leaves a box — which is the moment the ▶ is pressed');
 });
 
+/* ⚠ WHICH LINE IS "CURRENT" (Seth's answer): the one whose ▶ was pressed — "unless they pushed play
+ * from the big/overview player. In THAT case, current is whichever line the playhead stopped on." */
+test('the current line falls back to the playhead for the overview player', () => {
+  const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  const fn = APP.slice(APP.indexOf('function currentSegForTyping'), APP.indexOf('function rememberCaret'));
+  assert.match(fn, /if \(lastPlayTarget\) return lastPlayTarget;/, 'the line whose ▶ was pressed wins');
+  /* ⚠ playheadMs(), NOT currentTime. The Player is this suite's own object, not a media element;
+   * the first version of this asked the DOM API and silently always returned null. */
+  assert.match(fn, /player\.playheadMs\(\)/, 'the Player\'s own API');
+  assert.match(fn, /segIndexAt\(segs, ms\)/,
+    'and with no per-line target, the line the playhead stopped on');
+});
 test('Enter on a baseline word hands over to that word\'s own gloss', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   const h = APP.slice(APP.indexOf("t2.addEventListener('keydown'"), APP.indexOf("t2.addEventListener('blur'"));

@@ -1233,11 +1233,7 @@ function decorateGlossSegments() {
     /* ⚠ ENTER ON THE ▶ WALKS — the Gloss twin of the Baseline ▶ (Seth, 2026-09-08). It lands in the
      * NEXT line's first word gloss, the box you would actually start typing in; a line with no word
      * boxes at all falls back to its translation. Only in "move to next" mode. */
-    btn.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'Enter' || !enterAtEndAdvances()) return;
-      ev.preventDefault();
-      focusPlayingLine(true, i);   // THIS line — see focusPlayingLine for why not the next one
-    });
+
     btn.setAttribute('aria-label', t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const waveWrap = document.createElement('div');
     waveWrap.className = 'gseg-wavewrap';
@@ -1567,43 +1563,6 @@ function glossPlace(i, tier, value) {
   if (!current || !joinSplitAllowed('gloss')) return 'ignored';
   return splitPlace({ tab: 'gloss', i }, tier, value, glossSpec(i));
 }
-/* ⚠ ENTER WITH A SEGMENT PLAYING PUTS THE CARET IN THE LINE YOU ARE LISTENING TO (Seth, 2026-09-08:
- * "if you've got a segment playing and you press enter, it should jump to the current segment's
- * textbox, or next player if it's an empty line").
- *
- * ⚠ THIS REVISES v625, where Enter on the ▶ went to the NEXT line — Seth: "I said otherwise earlier
- * (though even what I said earlier isn't currently working)." The line you are hearing is the line
- * you want to type into; going past it means listening to one line and typing in another.
- *
- * A line with nothing to type in — a blank/silence line, which on the Gloss tab has no boxes at all
- * — has nowhere to land, so the walk goes on to the NEXT line's ▶ instead. That keeps you moving
- * through the recording rather than stranding the keypress. */
-function focusPlayingLine(onGloss, forIndex) {
-  const doc = current && current.doc;
-  if (!doc) return;
-  let i = forIndex;
-  if (i === undefined) {
-    const ms = player && Number.isFinite(player.currentTime) ? player.currentTime * 1000 : null;
-    if (ms === null) return;
-    i = segIndexAt(docSegments(doc), ms);
-  }
-  if (i < 0) return;
-  const put = (el) => {
-    if (!el) return false;
-    el.focus();
-    try { if (el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); } catch { /* noop */ }
-    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
-    return true;
-  };
-  const groups = onGloss ? $$('#gloss-body .segment') : $$('#segment-strips .seg-strip');
-  const g = groups[i];
-  const box = g && (onGloss ? (g.querySelector('.gloss-input') || g.querySelector('.free-input'))
-                            : g.querySelector('.seg-text'));
-  if (put(box)) return;
-  const nextPlay = groups[i + 1] && groups[i + 1].querySelector(onGloss ? '.gseg-play' : '.seg-play');
-  if (nextPlay) nextPlay.focus();
-}
-
 /* Enter outside the boxes, or the ✂ under the playhead: the AUDIO tier, on the line the playhead is in. */
 /* An EDGE split: the words tier at 0 or at the count, and the translation's tier at the same edge
  * so the whole translation stays with the words — the sound is then the only tier left to place.
@@ -11015,8 +10974,22 @@ function wireCompanionLinks() {
 
 function wirePlaybackKeys() {
   const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
+  /* ⚠ CAPTURED AS FOCUS LEAVES A BOX — which is precisely the moment the ▶ is pressed, or the
+   * waveform clicked (that path blurs the field deliberately; see the pointerdown handler). */
+  document.addEventListener('focusout', (e) => rememberCaret(e.target), true);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.closest && e.target.closest(PLAY_BTNS)) { e.preventDefault(); return; }
+    if (e.key === 'Enter' && e.target.closest && e.target.closest(PLAY_BTNS)) {
+      e.preventDefault();
+      /* ⚠ ONE MECHANISM, NOT A RULE PER BUTTON. Enter on a ▶ is Enter at the caret the user left
+       * behind on that line — restoreTypingFocus puts them back, then the box's own handler decides
+       * what Enter means there. v625 and v635 each hard-coded a destination here (the next line,
+       * then this line); both were guesses at an outcome this produces for itself. */
+      if (enterAtEndAdvances() && !armedRow()) {
+        const el = restoreTypingFocus();
+        if (el) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      }
+      return;
+    }
     // Undo/redo (v323): buttons are primary; keys work when focus is not inside a text field
     // (there the browser's native typing-undo owns Ctrl+Z until the next structural re-render).
     const mod = e.ctrlKey || e.metaKey;
@@ -11051,11 +11024,14 @@ function wirePlaybackKeys() {
      * transport; Shift+Space is decided below, and shortcuts with a modifier are left alone. The
      * keydown is NOT cancelled: focusing during keydown makes the browser deliver the character
      * to the box we just focused, so the first letter is never lost. */
+    /* ⚠ AND NOT ONLY ON A TOUCH SCREEN ANY MORE (Seth, 2026-09-08: "for a non-touch user, focus
+     * should be nearly invisible too, especially if they're brand new to computers"). The Space bar
+     * is the one exception: where Space is the transport it keeps playing rather than typing. */
     if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === 'string' && e.key.length === 1
-        && !(e.key === ' ' && e.shiftKey) && !spaceToggles() && !inTextField(e.target)
+        && !(e.key === ' ' && (e.shiftKey || spaceToggles())) && !inTextField(e.target)
         && !document.querySelector('.modal:not([hidden])')) {
-      const box = typingTargetForLastPlayed();
-      if (box) { focusAtEnd(box); return; }
+      // ⚠ restore, not focusAtEnd: the caret goes back where they left it, not to the end.
+      if (restoreTypingFocus()) return;
     }
     if (e.key !== ' ' || e.repeat) return;
     /* ⚠ SHIFT+SPACE ALWAYS PLAYS OR PAUSES, TEXT BOX OR NOT (Seth, 2026-09-04: "some kind of key to
@@ -11099,6 +11075,69 @@ function inTextField(el) {
  * Range collapsed to false are both LOGICAL ends, so this is the last character typed whether the
  * writing system runs left-to-right or right-to-left — no visual-edge arithmetic here, so
  * right-to-left support (#48) needs nothing from this function. */
+/* ⚠ THE PLAYER MUST NEVER COST THE USER THEIR PLACE (Seth, 2026-09-08).
+ *
+ * "For a touch user — and really for any low-tech-skilled user, new to computers — exactly which UI
+ * control is focused is opaque. So for all intents and purposes, having the waveform/player in
+ * focus should feel to the user the same as having text in focus." They edit, tap ▶, listen, and
+ * the moment they type again the text goes in exactly where they left off.
+ *
+ * So we remember ONE spot: which box, and the caret in it, tagged with the audio segment and the
+ * tab it belonged to. Come back to the same segment on the same tab and we put them back there;
+ * anything else and the memory is stale, so it is dropped for the line's default — the END of the
+ * baseline box, or of the free translation on the Gloss tab.
+ *
+ * ⚠ ENTER HAS NO RULE OF ITS OWN. It does whatever it would have done at the restored caret. That
+ * is why "Enter on the ▶ goes to the next line" (v625) was right as an OUTCOME — the caret was at
+ * the end of that line's box — and wrong as a rule, which is how v635 came to change it and why
+ * this replaces both. The rule is: put them back, then let the box decide. */
+let lastCaret = null;
+
+/* The line the user is working on. Normally the one whose ▶ they pressed; but a play started from
+ * the big/overview player leaves no per-line target, and there Seth's answer is "whichever line the
+ * playhead stopped on when they pushed pause on the big/overview player". */
+function currentSegForTyping() {
+  if (lastPlayTarget) return lastPlayTarget;
+  // ⚠ playheadMs(), not currentTime — the Player is this suite's own object, not a media element.
+  // I guessed the DOM API here first, which made this whole fallback dead code that always
+  // returned null; the browser found it, the tests could not have.
+  const ms = current && player && player.playheadMs ? player.playheadMs() : null;
+  if (!Number.isFinite(ms)) return null;
+  const segs = docSegments(current.doc);
+  const i = segIndexAt(segs, ms);
+  return i >= 0 ? (segs[i] || null) : null;
+}
+
+/* Captured as focus LEAVES a box — which is exactly the moment the ▶ is pressed. */
+function rememberCaret(el) {
+  if (!el || !inTextField(el)) return;
+  const seg = segmentForField(el);
+  if (!seg) return;
+  let start = null, end = null;
+  try { if (typeof el.value === 'string') { start = el.selectionStart; end = el.selectionEnd; } } catch { /* noop */ }
+  lastCaret = { seg, tab: activeTab, el, start, end };
+}
+
+/* Put the user back where they were, or at the line's default. Returns the box that now has focus.
+ * ⚠ The memory is only good for the SAME segment on the SAME tab — Seth: "if they click another
+ * segment's audio or text and then come back to this one, that should reset to default", and a tab
+ * switch drops it too, because the remembered box does not exist on the other tab. */
+function restoreTypingFocus() {
+  const fallback = typingTargetForLastPlayed();
+  const seg = currentSegForTyping();
+  if (lastCaret && seg && lastCaret.seg === seg && lastCaret.tab === activeTab
+      && lastCaret.el && lastCaret.el.isConnected && lastCaret.start !== null) {
+    const el = lastCaret.el;
+    try { el.focus({ preventScroll: false }); } catch { el.focus(); }
+    try { el.setSelectionRange(lastCaret.start, lastCaret.end); } catch { /* noop */ }
+    return el;
+  }
+  lastCaret = null;
+  if (!fallback) return null;
+  focusAtEnd(fallback);
+  return fallback;
+}
+
 function focusAtEnd(el) {
   if (!el) return;
   try { el.focus({ preventScroll: false }); } catch { el.focus(); }
@@ -11124,15 +11163,20 @@ function typingTargetForLastPlayed() {
     const row = $('#mg-rows')?.querySelectorAll('.mg-row')[k];
     return row ? pickEmptyOrLast([...row.querySelectorAll('.mg-edit')]) : null;
   }
-  if (!lastPlayTarget) return null;
-  const i = docSegments(current.doc).indexOf(lastPlayTarget);
+  const segNow = currentSegForTyping();
+  if (!segNow) return null;
+  const i = docSegments(current.doc).indexOf(segNow);
   if (i < 0) return null;
   if (activeTab === 'baseline') return $('#segment-strips')?.querySelectorAll('.seg-text')[i] || null;
   if (activeTab === 'gloss') {
     const g = $('#gloss-body')?.querySelectorAll('.segment')[i];
     if (!g) return null;
-    const glosses = [...g.querySelectorAll('.gloss-input')];
-    return glosses.find((el) => !el.value.trim()) || g.querySelector('.free-input') || glosses[glosses.length - 1] || null;
+    /* ⚠ THE FREE TRANSLATION IS THE DEFAULT HERE, not the first empty gloss box (Seth, 2026-09-08:
+     * "default to cursor at the end of the baseline or free translation box, depending on which tab
+     * you're on"). It used to guess the next box worth filling; a fixed, predictable landing place
+     * is what he asked for instead. The gloss boxes remain the fallback for a line that has no
+     * translation field — with word glossing switched off there are none, and vice versa. */
+    return g.querySelector('.free-input') || [...g.querySelectorAll('.gloss-input')].pop() || null;
   }
   return null;
 }
@@ -11635,7 +11679,11 @@ function setup() {
     e.preventDefault();                          // …and a focused ▶ must not ALSO re-fire
     /* ⚠ PLACING THE AUDIO TIER IS A CUT, and cutting needs cut mode on — the same rule the boxes
      * follow. Without it, Enter out here navigates to the line being played instead. */
-    if (enterAtEndAdvances() && !armedRow()) { focusPlayingLine(onGloss); return; }
+    if (enterAtEndAdvances() && !armedRow()) {
+      const el = restoreTypingFocus();
+      if (el) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      return;
+    }
     if (onGloss) glossPlaceAudio(); else stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());

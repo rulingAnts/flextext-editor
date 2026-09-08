@@ -162,8 +162,16 @@ test('2026-09-06: with Space off, a plain keystroke goes to the last played line
   const gate = keys.indexOf("e.key.length === 1");
   assert.ok(gate > 0 && gate < keys.indexOf("if (e.key !== ' ' || e.repeat) return;"), 'the typing rule runs before the Space-only early return');
   const rule = keys.slice(gate - 200, gate + 500);
-  assert.match(rule, /!\(e\.key === ' ' && e\.shiftKey\) && !spaceToggles\(\) && !inTextField\(e\.target\)/, 'only when Space does not play, only outside a box, never for Shift+Space');
-  assert.match(rule, /const box = typingTargetForLastPlayed\(\);\s*\n\s*if \(box\) \{ focusAtEnd\(box\); return; \}/, 'focus the box and let the keystroke land there (no preventDefault)');
+  /* ⚠ WIDENED 2026-09-08, and the Space exception is what carries the original rule. It used to be
+   * touch-only (`!spaceToggles()`); Seth: "for a non-touch user, focus should be nearly invisible
+   * too, especially if they're brand new to computers". So every printable key now redirects — but
+   * where Space IS the transport it still plays rather than typing, which is the part 2026-09-06
+   * actually cared about. */
+  assert.match(rule, /!\(e\.key === ' ' && \(e\.shiftKey \|\| spaceToggles\(\)\)\) && !inTextField\(e\.target\)/,
+    'Space still plays where Space is the transport; never for Shift+Space; only outside a box');
+  // ⚠ restoreTypingFocus, not focusAtEnd: the caret goes back where the user left it on this line.
+  assert.match(rule, /if \(restoreTypingFocus\(\)\) return;/,
+    'focus the box and let the keystroke land there (no preventDefault)');
   const shift = keys.slice(keys.indexOf('if (e.shiftKey) {'), keys.indexOf('togglePlayFromKey();\n      return;'));
   assert.match(shift, /const own = inTextField\(e\.target\) \? segmentForField\(e\.target\) : null;\s*\n\s*if \(own\) lastPlayTarget = own;/, 'inside a box, Shift+Space targets that box\'s own line');
   assert.doesNotMatch(shift, /spaceToggles\(\)/, 'Shift+Space in a box does not depend on the Space setting');
@@ -179,6 +187,12 @@ test('2026-09-06: with Space off, a plain keystroke goes to the last played line
   assert.doesNotMatch(focus, /getBoundingClientRect|clientWidth|left|right/, 'no visual-edge arithmetic, so right-to-left needs nothing here');
   const target = APP.slice(APP.indexOf('function typingTargetForLastPlayed()'), APP.indexOf('function spaceToggles()'));
   assert.match(target, /if \(activeTab === 'baseline'\) return \$\('#segment-strips'\)\?\.querySelectorAll\('\.seg-text'\)\[i\]/, 'Baseline: that line\'s text box');
-  assert.match(target, /glosses\.find\(\(el\) => !el\.value\.trim\(\)\) \|\| g\.querySelector\('\.free-input'\)/, 'Gloss: first empty gloss, else the free translation');
+  /* ⚠ CHANGED 2026-09-08. This used to guess the next box worth filling — the first EMPTY gloss.
+   * Seth asked for a fixed, predictable landing place instead: "default to cursor at the end of the
+   * baseline or free translation box, depending on which tab you're on". Predictability is the
+   * point, because this is the place the user lands whenever the remembered caret is stale. The
+   * gloss boxes stay as the fallback for a line with no translation field. */
+  assert.match(target, /return g\.querySelector\('\.free-input'\) \|\| \[\.\.\.g\.querySelectorAll\('\.gloss-input'\)\]\.pop\(\)/,
+    'Gloss: the free translation, falling back to a gloss box');
   assert.match(target, /if \(!allowTextEditOn\(\)\) return null;/, 'matcher: only when the researcher allowed text editing');
 });

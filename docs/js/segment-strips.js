@@ -832,11 +832,7 @@ export function renderStrips() {
      * order but a tap still focuses it, and on a phone that is the usual way in: hear the line, then
      * press Enter to carry on typing. Only in "move to next" mode — where Enter still splits, it
      * must keep meaning that. */
-    play.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'Enter' || !(deps.enterAdvances && deps.enterAdvances())) return;
-      ev.preventDefault();
-      focusStripEnd(i);   // THIS line, not the next — see focusPlayingLine in app.js for why
-    });
+
     // aria-label, NOT title (v322): the native tooltip dropped over the text rows (Seth #10).
     play.setAttribute('aria-label', deps.t(isAligned(seg) ? 'seg.playTip' : 'seg.pendingTip'));
     play.textContent = isAligned(seg) ? '▶' : '⋯';
@@ -1142,26 +1138,6 @@ function stripsCaretWant(input, i) {
   if (document.activeElement === input) return true;
   const p = pendingSplit;
   return !!(p && p.tab === 'baseline' && p.i === i && !Object.prototype.hasOwnProperty.call(p.pos, 'text'));
-}
-
-/* The next line's text box, brought into view. Nothing to focus on the last line, so Enter there
- * simply does nothing rather than blurring — a keyboard that closes itself at the end of a text
- * reads as the app quitting on you. */
-/* ⚠ THE LINE YOU ARE LISTENING TO, NOT THE ONE AFTER IT (Seth, 2026-09-08, revising the v625
- * behaviour: "I said otherwise earlier"). Going past it means hearing one line and typing in
- * another. A line with no box — a blank/silence line — has nowhere to land, so the walk goes on to
- * the next line's ▶, which keeps you moving through the recording. Mirrors focusPlayingLine. */
-function focusStripEnd(i) {
-  const el = deps.container.querySelectorAll('.seg-text')[i];
-  if (el) {
-    el.focus();
-    try { el.setSelectionRange(el.value.length, el.value.length); } catch { /* noop */ }
-    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
-    return;
-  }
-  const rows = deps.container.querySelectorAll('.seg-strip');
-  const nextPlay = rows[i + 1] && rows[i + 1].querySelector('.seg-play');
-  if (nextPlay) nextPlay.focus();
 }
 
 function focusStripAfter(i) {

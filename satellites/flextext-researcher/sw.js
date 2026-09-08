@@ -28,8 +28,8 @@
  * test/version-sync.test.mjs asserts the five sites agree, and a bump is still what makes this
  * file byte-different so installed copies fetch the new worker. Nothing here caches by them. */
 
-const VERSION = 'v635';
-const ENGINE = 'v635';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v636';
+const ENGINE = 'v636';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 
 /* ⚠ LEGACY-ORIGIN KILL SWITCH (2026-08-17) — GitHub Pages only.
  *

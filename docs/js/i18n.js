@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v631';
+export const ENGINE_VERSION = 'v632';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1450,6 +1450,8 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.new.editorTabGates': 'Each of the three editor tabs can now be shown or hidden per device, so different steps can go to different people — one cuts the audio, another types the text, another adds glosses — or a beginner starts with one tab and gains the rest as they are ready. At least one tab always remains, whatever the switches say.'
+    ,'panel.rel.new.headerWrap': 'If the top row still cannot fit after the words become pictures, it now breaks in one place: the tabs move down together with Save and Send, rather than the row breaking wherever it happens to run out of room.'
     ,'panel.rel.fix.headerFits': 'The top row now decides between words and pictures by whether the words actually fit, instead of by a screen width that had been measured in English — so a longer language no longer spills onto a second line. A tablet held upright counts as a narrow screen. And the title box gives up its own width first, so the buttons and tabs stay on one line.'
     ,'panel.rel.new.cutModeReadOnly': 'While a line is switched into cutting, its text can no longer be typed into by accident. You can still tap to put the cursor where the cut should go — that is what the cut needs — but the letters themselves stay as they are until you switch cutting off again. On a phone this also keeps the keyboard down, so the sound picture you are cutting against stays in view.'
     ,'panel.rel.new.allowAudioRemove': 'The button that removes a recording from a text is now yours to grant. A device working on its own still has it, as before; a device you manage does not, unless you switch it on for them.'
@@ -2081,6 +2083,9 @@ internet after the first time.</p>
   'cut.no.guessAudio': 'The recording is still loading, so there is nothing to guess from yet.',
   'cut.no.guessLong': 'This recording is {mins} minutes long, and the lines can only be guessed for recordings up to {max} minutes. Cut this one by hand \u2014 or record in shorter pieces.',
   'panel.f.cutTab': 'Show the "Cut" tab',
+  'panel.f.baselineTab': 'Show the Baseline tab',
+  'panel.f.glossTab': 'Show the Gloss tab',
+  'panel.f.editorTabsNote': 'Hand different steps to different people: one coworker cuts the audio, another types the text, a third adds glosses. Useful too while somebody is still learning — give them one tab, add the others as they are ready. At least one tab always stays.',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
   'panel.f.landOnCutNote': 'When a text has a recording and NO WORDS YET, open it on the Cut tab instead of Baseline. Once someone has chosen a tab for a text, that text re-opens on the tab they left it on, whatever this setting says \u2014 and a text with no recording never opens on Cut.',
@@ -3765,6 +3770,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.new.editorTabGates': 'Masing-masing dari tiga tab editor kini dapat ditampilkan atau disembunyikan per perangkat, sehingga langkah yang berbeda dapat diberikan kepada orang yang berbeda — satu memotong audio, yang lain mengetik teks, yang lain menambahkan glos — atau seorang pemula mulai dengan satu tab dan menerima sisanya saat siap. Setidaknya satu tab selalu tersisa, apa pun pengaturannya.'
+    ,'panel.rel.new.headerWrap': 'Jika baris atas tetap tidak muat setelah kata berubah menjadi gambar, kini ia patah di satu tempat: tab berpindah ke bawah bersama Simpan dan Kirim, bukan patah di sembarang tempat saat kehabisan ruang.'
     ,'panel.rel.fix.headerFits': 'Baris atas kini memilih antara kata dan gambar berdasarkan apakah katanya benar-benar muat, bukan berdasarkan lebar layar yang dahulu diukur dalam bahasa Inggris — sehingga bahasa yang lebih panjang tidak lagi tumpah ke baris kedua. Tablet yang dipegang tegak dihitung sebagai layar sempit. Dan kotak judul yang lebih dahulu melepaskan lebarnya, agar tombol dan tab tetap dalam satu baris.'
     ,'panel.rel.new.cutModeReadOnly': 'Selagi sebuah baris dialihkan ke mode potong, teksnya tidak lagi dapat terketik secara tidak sengaja. Anda tetap dapat mengetuk untuk menaruh kursor di tempat potongan seharusnya — itulah yang dibutuhkan pemotongan — tetapi hurufnya tetap seperti semula sampai mode potong dimatikan lagi. Di ponsel, ini juga menahan papan ketik agar gambar suara yang sedang Anda potong tetap terlihat.'
     ,'panel.rel.new.allowAudioRemove': 'Tombol untuk menghapus rekaman dari sebuah teks kini menjadi izin yang Anda berikan. Perangkat yang bekerja sendiri tetap memilikinya seperti sebelumnya; perangkat yang Anda kelola tidak, kecuali Anda menyalakannya untuk mereka.'
@@ -4318,6 +4325,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.no.guessAudio': 'Rekaman masih dimuat, jadi belum ada yang bisa ditebak.',
   'cut.no.guessLong': 'Rekaman ini panjangnya {mins} menit, sedangkan barisnya hanya bisa ditebak untuk rekaman sampai {max} menit. Potonglah yang ini sendiri \u2014 atau rekamlah dalam bagian-bagian yang lebih pendek.',
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
+  'panel.f.baselineTab': 'Tampilkan tab Dasar',
+  'panel.f.glossTab': 'Tampilkan tab Glos',
+  'panel.f.editorTabsNote': 'Bagikan langkah yang berbeda kepada orang yang berbeda: satu rekan memotong audio, yang lain mengetik teks, yang ketiga menambahkan glos. Berguna juga selagi seseorang masih belajar — beri satu tab, tambahkan yang lain saat mereka siap. Setidaknya satu tab selalu tersisa.',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',
   'panel.f.landOnCutNote': 'Bila sebuah teks punya rekaman dan BELUM ADA KATA-KATANYA, buka di tab Potong, bukan Ketik. Setelah seseorang memilih tab untuk sebuah teks, teks itu dibuka lagi di tab terakhir yang dipakai, apa pun pengaturan ini \u2014 dan teks tanpa rekaman tidak pernah dibuka di tab Potong.',

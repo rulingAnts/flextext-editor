@@ -347,7 +347,10 @@ const remember = fn(app, 'rememberTab');
 ok(/current\.lastTab = tab;/.test(remember) && !/current\.doc\.lastTab/.test(app),
    'the memory lives on the RECORD, not on doc — doc is the flextext model and gets serialised');
 ok(/isEditorTab\(tab\)/.test(remember), 'and only editor tabs are remembered');
-const switchHead = (app.match(/function switchTab\(tab, landing\)[\s\S]{0,900}/) || [''])[0];
+// ⚠ 1500, not 900: the per-tab gates (editorTabEnabled, v632) added lines above rememberTab and
+// this window silently stopped reaching it. A fixed slice like this fails by MISSING the thing
+// it checks rather than by finding it wrong, so keep it comfortably wider than the function head.
+const switchHead = (app.match(/function switchTab\(tab, landing\)[\s\S]{0,1500}/) || [''])[0];
 ok(/if \(!landing\) rememberTab\(tab\);/.test(switchHead),
    'switchTab records it — but NOT the landing switch itself');
 /* ⚠ Remembering the tab the APP chose would make rule (2) self-fulfilling: the first auto-land on

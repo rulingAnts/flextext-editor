@@ -111,18 +111,24 @@ main {
   vertical-align: 1px;
 }
 
-/* ⚠ THE TITLE IS THE ONLY THING THAT GIVES (Seth, 2026-09-08: "we want our title textbox to auto
-   resize to make sure all the UI controls stay on one line"). The row used to wrap, so the controls
-   dropped onto a second line while the title kept its width — backwards. Now the row never wraps,
-   every control holds its size, and the title absorbs whatever is left.
+/* ⚠ THREE STAGES, IN ORDER (Seth, 2026-09-08). The row used to wrap wherever it happened to run
+   out of room, which put the CONTROLS on a second line while the title kept its width — backwards.
+   Now:
+     1. the title gives up its slack first, so the controls stay on one line ("we want our title
+        textbox to auto resize to make sure all the UI controls stay on one line");
+     2. failing that, applyHeaderLabels drops the words for icons — measured, not guessed;
+     3. failing THAT, the row wraps, and it wraps in ONE place: "IF wrapping happens (which it may
+        have to), wrapping should happen between the question mark and the tabs so that the tabs end
+        up on the bottom row of the upper UI area with the save and send buttons."
 
-   ⚠ TWO different minimums, deliberately. This 56px is the LAST-RESORT squeeze, so even a narrow
-   phone in icons mode still fits on one line. applyHeaderLabels measures against a COMFORTABLE
-   120px instead, so the switch to icons happens while the title is still readable rather than after
-   it has been crushed. */
-#topbar-editor { flex-wrap: nowrap; }
+   Stage 3 is why .topbar-tail exists. A flex row otherwise breaks wherever it runs out of room;
+   grouping the tabs, Save and Done into a single child makes that one predictable place. And it is
+   why the title keeps its comfortable 120px floor rather than being crushed — wrapping is the
+   better escape valve than an unusable title (Seth: "That's a better idea than always resizing the
+   text title"). */
+#topbar-editor { flex-wrap: wrap; }
 #topbar-editor > *:not(.doc-title) { flex: none; }
-#topbar-editor .doc-title { min-width: 56px; }
+.topbar-tail { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .doc-title {
   flex: 1 1 140px;
   min-width: 120px;

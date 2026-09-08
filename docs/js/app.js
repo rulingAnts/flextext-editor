@@ -1236,7 +1236,7 @@ function decorateGlossSegments() {
       arm.addEventListener('click', (ev) => { ev.stopPropagation(); armLine(g); });
       const gut = document.createElement('div');
       gut.className = 'gseg-gutter';
-      bar.classList.add('has-gutter');   // the bar reserves room for the ✂ that hangs below it
+      g.classList.add('has-gutter');   // indents the interlinear rows past the gutter — see the CSS
       gut.append(btn, arm);
       bar.append(gut, waveWrap);
     } else bar.append(btn, waveWrap);

@@ -1205,15 +1205,24 @@ function decorateGlossSegments() {
     const wave = document.createElement('canvas');
     wave.className = 'gseg-wave';
     waveWrap.appendChild(wave);
-    /* The line's own ✂, beside ▶ — the Gloss tab's half of the arming model (armLine, app.css). */
+    /* ⚠ THE GUTTER: the number, then ▶ with the line's own ✂ DIRECTLY BENEATH IT (Seth, 2026-09-08,
+     * with a screenshot: "Let's have the scissors/cut-mode toggle under the play button… You can put
+     * the number before the play button (on the left of it), but make sure the scissors button aligns
+     * exactly under the play button."). The number is MOVED here out of .word-row rather than
+     * duplicated, so there is still exactly one of it. */
+    const num = g.querySelector('.segnum');
+    if (num) bar.appendChild(num);
     if (joinSplitAllowed('gloss')) {
       const arm = document.createElement('button');
-      arm.type = 'button'; arm.className = 'seg-arm'; arm.tabIndex = -1;
+      arm.type = 'button'; arm.className = 'seg-arm gseg-arm'; arm.tabIndex = -1;
       arm.textContent = '\u2702';
       arm.setAttribute('aria-pressed', 'false');
       arm.title = t('cut.arm'); arm.setAttribute('aria-label', t('cut.arm'));
       arm.addEventListener('click', (ev) => { ev.stopPropagation(); armLine(g); });
-      bar.append(btn, arm, waveWrap);
+      const gut = document.createElement('div');
+      gut.className = 'gseg-gutter';
+      gut.append(btn, arm);
+      bar.append(gut, waveWrap);
     } else bar.append(btn, waveWrap);
     g.prepend(bar);
     wireSegPlay(btn, seg, () => player, (t2) => { lastPlayTarget = t2; });
@@ -1332,7 +1341,9 @@ function decorateGlossSegments() {
       if (fi) {
         fi.addEventListener('keydown', (e) => {
           const atStart = fi.selectionStart === 0 && fi.selectionEnd === 0;
-          const atEnd = fi.selectionStart === fi.value.length && fi.selectionEnd === fi.value.length;
+          // ⚠ End means nothing but whitespace after the caret — see the Baseline note in
+          // segment-strips.js onKey. A trailing space must not turn "move on" into "split here".
+          const atEnd = fi.selectionStart === fi.selectionEnd && !fi.value.slice(fi.selectionStart ?? 0).trim();
           if (e.key === 'Backspace' && atStart && i > 0 && joinSplitAllowed('gloss') && joinKeysEnabled()) {
             e.preventDefault();
             glossJoinLines(i - 1);

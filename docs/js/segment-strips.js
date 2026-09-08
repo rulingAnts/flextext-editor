@@ -835,7 +835,7 @@ export function renderStrips() {
     play.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter' || !(deps.enterAdvances && deps.enterAdvances())) return;
       ev.preventDefault();
-      focusStripAfter(i);
+      focusStripEnd(i);   // THIS line, not the next — see focusPlayingLine in app.js for why
     });
     // aria-label, NOT title (v322): the native tooltip dropped over the text rows (Seth #10).
     play.setAttribute('aria-label', deps.t(isAligned(seg) ? 'seg.playTip' : 'seg.pendingTip'));
@@ -1147,6 +1147,23 @@ function stripsCaretWant(input, i) {
 /* The next line's text box, brought into view. Nothing to focus on the last line, so Enter there
  * simply does nothing rather than blurring — a keyboard that closes itself at the end of a text
  * reads as the app quitting on you. */
+/* ⚠ THE LINE YOU ARE LISTENING TO, NOT THE ONE AFTER IT (Seth, 2026-09-08, revising the v625
+ * behaviour: "I said otherwise earlier"). Going past it means hearing one line and typing in
+ * another. A line with no box — a blank/silence line — has nowhere to land, so the walk goes on to
+ * the next line's ▶, which keeps you moving through the recording. Mirrors focusPlayingLine. */
+function focusStripEnd(i) {
+  const el = deps.container.querySelectorAll('.seg-text')[i];
+  if (el) {
+    el.focus();
+    try { el.setSelectionRange(el.value.length, el.value.length); } catch { /* noop */ }
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
+    return;
+  }
+  const rows = deps.container.querySelectorAll('.seg-strip');
+  const nextPlay = rows[i + 1] && rows[i + 1].querySelector('.seg-play');
+  if (nextPlay) nextPlay.focus();
+}
+
 function focusStripAfter(i) {
   const boxes = [...document.querySelectorAll('.seg-strip .seg-text')];
   const next = boxes[i + 1];
@@ -1171,9 +1188,21 @@ function onKey(e, i, input) {
      * moving on must not quietly edit what they wrote. */
     const caret = input.selectionStart ?? 0;
     const atEnd = caret === (input.selectionEnd ?? 0) && !input.value.slice(caret).trim();
-    if (atEnd && deps.enterAdvances && deps.enterAdvances()) {
-      e.preventDefault();
-      focusStripAfter(i);
+    /* ⚠ SPLITTING ON ENTER NEEDS CUT MODE (Seth, 2026-09-08: "enter splits a line on the baseline
+     * tab, even with cut mode toggled off, which shouldn't be the case"). Arming is the gesture that
+     * says "I am cutting now"; without it Enter is navigation and nothing else, and the scissors are
+     * how a line gets divided. Until now only the END of the line walked — a caret anywhere else
+     * fell straight through and split, which is what Seth hit.
+     *
+     * ⚠ EXCEPT ON A DEVICE STILL SET TO `split`. There Enter has always been how you divide a line,
+     * and quietly taking that away would be a regression on every grandfathered device — so the
+     * requirement applies only where "move to next" is the behaviour, which is where it belongs. */
+    const row = input.closest && input.closest('.seg-strip');
+    const armed = !!(row && row.classList && row.classList.contains('cut-armed'));
+    const advance = !!(deps.enterAdvances && deps.enterAdvances());
+    if (advance && !armed) {
+      // Walk on from the end; mid-text, do nothing — a one-line box has no newline to insert.
+      if (atEnd) { e.preventDefault(); focusStripAfter(i); }
       return;
     }
     if (!joinSplitOk()) return;

@@ -77,7 +77,7 @@ export function installSplitCancel() {
   document.addEventListener('pointerdown', (e) => {
     if (!pendingSplit) return;
     const el = e.target && e.target.closest ? e.target : null;
-    if (el && el.closest('.split-pending, #audio-player, .cut-scissors, .gseg-scissors, .split-here, .split-prompt, .scissor-btn, .pa-cut, .pa-rowcut, .pa-player, .pa-rowplay, #btn-undo, #pa-undo, #mg-undo')) return;   // ⚠ the Undo buttons are excluded so their click cancels the split (doUndo) rather than this pointerdown cancelling it first and the click then undoing the previous edit
+    if (el && el.closest('.split-pending, #audio-player, .cut-scissors, .gseg-scissors, .split-here, .split-prompt, .scissor-btn, .seg-arm, .pa-cut, .pa-rowcut, .pa-player, .pa-rowplay, #btn-undo, #pa-undo, #mg-undo')) return;   // ⚠ the Undo buttons are excluded so their click cancels the split (doUndo) rather than this pointerdown cancelling it first and the click then undoing the previous edit
     splitCancel();
   }, true);
 }
@@ -225,6 +225,25 @@ export function syncCaretScissors() {
     if (prompt) prompt.classList.toggle('has-caret-scissors', !!r.dispose);
   }
 }
+/* ⚠ ONE LINE IS ARMED AT A TIME, ACROSS BOTH TABS (Seth, 2026-09-08 — see the .cut-armed note in
+ * app.css for why cutting is a mode you enter rather than controls that are always there). Exported
+ * so the Gloss tab arms the same way; the class is what the CSS reads, so there is no second source
+ * of truth about which line is armed. Arming a line cancels any pending split on another. */
+export function armLine(row, on) {
+  if (typeof document === 'undefined') return;
+  for (const el of document.querySelectorAll('.cut-armed')) {
+    if (el !== row) { el.classList.remove('cut-armed'); const b = el.querySelector('.seg-arm'); if (b) b.setAttribute('aria-pressed', 'false'); }
+  }
+  if (!row) return;
+  const want = on === undefined ? !row.classList.contains('cut-armed') : !!on;
+  row.classList.toggle('cut-armed', want);
+  const btn = row.querySelector('.seg-arm');
+  if (btn) btn.setAttribute('aria-pressed', want ? 'true' : 'false');
+  if (!want) splitCancel();          // putting the controls away abandons a half-placed split
+  syncCaretScissors();
+}
+export function armedRow() { return typeof document === 'undefined' ? null : document.querySelector('.cut-armed'); }
+
 export function attachCaretScissors(input, host, onCut, label) {
   if (!input || !host) return null;
   const btn = document.createElement('button');
@@ -746,10 +765,6 @@ export function renderStrips() {
    * a year because focusStrip scrolls the next input into view; the playhead-Enter moves no focus
    * on purpose, and the v368 audit measured every chop landing the user back at the top (8021→0 on
    * a 60-line text). Read BEFORE the empty; restored at the end of this function. */
-  /* The ✂ lane below each wave exists only when this tab actually offers splitting — see the
-   * .seg-cutlane rules. Paying ~26px per strip when nobody can split would be a straight loss of
-   * screen on a phone. */
-  host.classList.toggle('seg-cutlane', joinSplitOk());
   const scroller = scrollerFor(host);
   const keepTop = scroller ? scroller.scrollTop : 0;
   host.innerHTML = '';
@@ -791,6 +806,16 @@ export function renderStrips() {
       p.playSpan(from, seg.end, seg.start);   // v332: finishing rewinds to the SEGMENT, not to `from`
     });
 
+    /* The line's own ✂, under ▶ — the only split control visible until it is pressed. */
+    if (joinSplitOk() && !stripsLocked(i)) {
+      const arm = document.createElement('button');
+      arm.type = 'button'; arm.className = 'seg-arm'; arm.tabIndex = -1;
+      arm.textContent = '\u2702';
+      arm.setAttribute('aria-pressed', 'false');
+      arm.title = deps.t('cut.arm'); arm.setAttribute('aria-label', deps.t('cut.arm'));
+      arm.addEventListener('click', (ev) => { ev.stopPropagation(); armLine(row); });
+      row.appendChild(arm);
+    }
     const wave = document.createElement('canvas');
     wave.className = 'seg-wave';
     wave.height = 44;
@@ -1051,6 +1076,9 @@ function renderStripsPending(p) {
  * split still needs the words' side. */
 function stripsCaretWant(input, i) {
   if (!joinSplitOk() || stripsLocked(i)) return false;
+  // Only on the line the user armed — see armLine.
+  const row = input.closest && input.closest('.seg-strip');
+  if (!row || !row.classList.contains('cut-armed')) return false;
   if (document.activeElement === input) return true;
   const p = pendingSplit;
   return !!(p && p.tab === 'baseline' && p.i === i && !Object.prototype.hasOwnProperty.call(p.pos, 'text'));

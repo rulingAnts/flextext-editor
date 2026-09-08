@@ -24,7 +24,7 @@ import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpa
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
-         stripSplitAtPlayhead, segProgress } from './segment-strips.js';
+         stripSplitAtPlayhead, segProgress, armLine} from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -1186,9 +1186,6 @@ function glossDrag() {
 function decorateGlossSegments() {
   if (!segmentationEnabled() || !current) return;
   const segs = docSegments(current.doc);
-  /* The ✂ lane under each wave, only when this tab actually offers splitting — see .gseg-cutlane.
-   * Paying the space when nobody can split would be a straight loss of screen on a phone. */
-  if ($('#gloss-body')) $('#gloss-body').classList.toggle('gseg-cutlane', joinSplitAllowed('gloss'));
   const groups = $('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment') : [];
   const entries = [];
   groups.forEach((g, i) => {
@@ -1208,7 +1205,16 @@ function decorateGlossSegments() {
     const wave = document.createElement('canvas');
     wave.className = 'gseg-wave';
     waveWrap.appendChild(wave);
-    bar.append(btn, waveWrap);
+    /* The line's own ✂, beside ▶ — the Gloss tab's half of the arming model (armLine, app.css). */
+    if (joinSplitAllowed('gloss')) {
+      const arm = document.createElement('button');
+      arm.type = 'button'; arm.className = 'seg-arm'; arm.tabIndex = -1;
+      arm.textContent = '\u2702';
+      arm.setAttribute('aria-pressed', 'false');
+      arm.title = t('cut.arm'); arm.setAttribute('aria-label', t('cut.arm'));
+      arm.addEventListener('click', (ev) => { ev.stopPropagation(); armLine(g); });
+      bar.append(btn, arm, waveWrap);
+    } else bar.append(btn, waveWrap);
     g.prepend(bar);
     wireSegPlay(btn, seg, () => player, (t2) => { lastPlayTarget = t2; });
     attachSpanWave(wave, seg);   // lazy: the gloss tab's per-line strips draw when they are near the screen

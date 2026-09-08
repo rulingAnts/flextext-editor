@@ -1,17 +1,25 @@
-/* Seth, 2026-09-08, in three steps — the middle one is why this file exists rather than a comment.
+/* CUTTING IS A MODE YOU ENTER, NOT CONTROLS THAT ARE ALWAYS THERE.
  *
- * 1. "the scissors icon underneath the play head covers up the baseline textbox so you can't see what
- *    you're typing." The 30px button was anchored by its TOP to the wave's bottom edge, so it hung
- *    28px down over a ~39px text box. MEASURED at 375x812: it covered 26 of those 40 pixels.
- * 2. Moving it ONTO the wave was tried and REJECTED: "Putting the scissors RIGHT on top of the play
- *    head isn't a solution either, because that makes it easy to accidentally split when you meant to
- *    scrub." ⚠ The wave is the scrub surface. A button on it steals the gesture. Do not go back.
- * 3. "We might just need to adjust the line height and the size of the scissors icon. Scissors
- *    underneath the line looks good and makes sense, we just need to make sure we size and space
- *    things so the scissors button icon doesn't cover text."
+ * Seth, 2026-09-08, after three rounds of trying to make the ✂ fit around the text:
+ *   1. "the scissors icon underneath the play head covers up the baseline textbox so you can't see
+ *      what you're typing" — it was 30px anchored by its top to the wave's bottom edge, covering 26
+ *      of a 40px text box (measured at 375x812).
+ *   2. Moving it ONTO the wave was tried and REJECTED: "Putting the scissors RIGHT on top of the play
+ *      head isn't a solution either, because that makes it easy to accidentally split when you meant
+ *      to scrub." ⚠ The wave is the scrub surface. Do not go back.
+ *   3. Shrinking it and reserving a lane per line was tried, and then withdrawn: "We can just have
+ *      button sizes and spacing like we did before. No need for adaptive sizes for different screens,
+ *      extra padding, etc."
  *
- * So: the ✂ stays UNDER the line, the button is smaller, and the line reserves a lane for it — and the
- * lane is only paid for when the tab actually offers splitting.
+ * The answer came from PAT: "all cuts on baseline or gloss tab start with pushing a scissors button
+ * in the left edge of a line and then all the scissors buttons show up. Then spacing/covering up
+ * doesn't matter." And the reason: "Too many scissors buttons on a small touch screen makes for a
+ * lot of accidental pushing the wrong button and then being confused about how to undo cut mode."
+ *
+ * ⚠ WHY THE EARLIER ATTEMPTS ALL FAILED, which is the thing worth keeping: they were trying to find
+ * permanent room for controls that are wanted for a few seconds. Arming one line at a time makes the
+ * idle screen free of them, so the sizes can stay what they were, and the armed line may overlap
+ * freely — in that moment the user is choosing a cut point, not reading.
  *
  * Run: node --test test/playhead-scissors-placement.test.mjs
  */
@@ -21,32 +29,37 @@ import { readFileSync } from 'node:fs';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const STRIPS = rd('../docs/js/segment-strips.js'), CSS = rd('../docs/css/app.css');
-const APP = rd('../docs/js/app.js');
+const APP = rd('../docs/js/app.js'), I18N = rd('../docs/js/i18n.js');
 
-test('the button is small enough to sit in a lane', () => {
-  assert.match(CSS, /\.cut-scissors \{ width: 18px; height: 18px; font-size: 11px; transform: translate\(-50%, -33%\); \}/,
-    'a third above the wave bottom, two thirds below — see the comment for why the overlap is safe here');
-  // the target is bought back sideways, where the lane is empty — never vertically (see the comment)
-  assert.match(CSS, /\.cut-scissors::after \{ content: ''; position: absolute; inset: 0 -12px; \}/,
-    'the target grows sideways into the empty lane, never onto the text or back onto the wave');
-  assert.doesNotMatch(CSS, /\.cut-scissors\.on-wave/, 'the on-the-wave placement was rejected — see step 2 above');
+test('the split controls are hidden until their line is armed', () => {
+  assert.match(CSS, /\.seg-strip:not\(\.cut-armed\) \.cut-scissors,\s*\n\.seg-strip:not\(\.cut-armed\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.cut-scissors,\s*\n\.segment:not\(\.cut-armed\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.chain-btn \{ display: none !important; \}/,
+    'both tabs, and the chain links with them');
 });
 
-test('each tab reserves a lane under the wave, and only when splitting is offered', () => {
-  assert.match(CSS, /\.seg-cutlane \.seg-text \{ padding-top: 16px; \}/, 'Baseline strips');
-  assert.match(CSS, /\.gseg-cutlane \.gseg-wavewrap \{ margin-bottom: 16px; \}/, 'the Gloss tab');
-  assert.match(STRIPS, /host\.classList\.toggle\('seg-cutlane', joinSplitOk\(\)\);/,
-    'no lane, no cost, when the researcher has turned splitting off');
-  assert.match(APP, /classList\.toggle\('gseg-cutlane', joinSplitAllowed\('gloss'\)\);/);
+test('the sizes are the ORIGINAL ones — the shrinking and the lanes were withdrawn', () => {
+  assert.match(CSS, /width: 30px; height: 30px; line-height: 1; font-size: 15px;/, 'the ✂ is 30px again');
+  assert.match(CSS, /\.gseg-wavewrap \.gseg-scissors \{ top: 100%; margin-top: 2px; \}/, 'and hangs below the wave as before');
+  assert.doesNotMatch(CSS, /--cut-btn|cutlane|cut-scissors\.on-wave/, 'no adaptive size, no reserved lane, no on-the-wave placement');
 });
 
-test('the ✂ hangs under the wave on all three tabs', () => {
-  const tops = STRIPS.match(/sc\.style\.top = \((?:wave|w)\.offsetTop \+ (?:wave|w)\.offsetHeight\) \+ 'px';/g) || [];
-  assert.equal(tops.length, 2, 'the Baseline strips and the Cut tab');
-  assert.match(CSS, /\.gseg-wavewrap \.gseg-scissors \{ top: 100%; margin-top: 0; \}/, 'and the Gloss tab');
+test('one line is armed at a time, and the same button disarms', () => {
+  const fn = STRIPS.slice(STRIPS.indexOf('export function armLine(row, on)'), STRIPS.indexOf('export function armedRow()'));
+  assert.match(fn, /for \(const el of document\.querySelectorAll\('\.cut-armed'\)\)/, 'arming one disarms the others');
+  assert.match(fn, /const want = on === undefined \? !row\.classList\.contains\('cut-armed'\) : !!on;/, 'no argument means toggle');
+  assert.match(fn, /if \(!want\) splitCancel\(\);/, 'putting the controls away abandons a half-placed split');
+  assert.match(fn, /btn\.setAttribute\('aria-pressed', want \? 'true' : 'false'\)/);
+  // the button turns red and gains a ✕ when armed — the answer to "how do I undo cut mode"
+  assert.match(CSS, /\.seg-arm\[aria-pressed="true"\]::after \{\s*\n\s*content: '\\00d7';/);
 });
 
-test('the reason each shape was chosen is written where someone would undo it', () => {
-  assert.match(CSS, /covers up the\s*\n?\s*baseline textbox/, "Seth's own words, so the bug is recognisable");
-  assert.match(CSS, /accidentally\s*\n?\s*split when you meant to scrub/, 'and why the obvious alternative is wrong');
+test('both tabs offer the arm button, gated by the researcher switch', () => {
+  assert.match(STRIPS, /if \(joinSplitOk\(\) && !stripsLocked\(i\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'Baseline');
+  assert.match(APP, /if \(joinSplitAllowed\('gloss'\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'Gloss');
+  assert.match(APP, /armLine\(g\)/, 'and the Gloss tab arms through the same helper, so there is one source of truth');
+  assert.equal((I18N.match(/\n {2},?'cut\.arm': '/g) || []).length, 2, 'cut.arm in EN and ID');
+});
+
+test('the caret ✂ obeys the same arming, and arming is not a click that cancels', () => {
+  assert.match(STRIPS, /const row = input\.closest && input\.closest\('\.seg-strip'\);\s*\n\s*if \(!row \|\| !row\.classList\.contains\('cut-armed'\)\) return false;/);
+  assert.match(STRIPS, /\.scissor-btn, \.seg-arm, \.pa-cut/, 'the arm button is exempt from the tap-away cancel');
 });

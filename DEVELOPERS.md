@@ -47,6 +47,25 @@ Design constraints that explain most of the architecture:
   encrypted at rest under a key held in Worker secrets, NOT in D1, so a database-only breach cannot
   open them. See `plans/drive-as-truth.md` §10 for the threat model, what a D1 breach yields, and
   the minimization work queued against it; `notes/connectivity-*` for the design.
+- **Two settings are served, and one of them is primary.** Most of this suite is shaped for
+  **remote, low-infrastructure fieldwork**: unreliable power, intermittent and slow connectivity,
+  users who are barely literate, and an interface that has to behave like the phone apps they
+  already know. That is audience one, it is the default, and every decision above is made for it.
+  There is a second: **teams whose situation makes exposure itself a risk to the people they work
+  with** — where a device leaving trusted hands, or data read in transit, could bring harm to the
+  community members who gave their voices and stories. Those teams need sharper limits on what is
+  ever stored, and faster ways to remove it.
+
+  ⚠ **The second is served entirely by OPTIONS, never by new defaults.** A protection built for it
+  may be switched on by a researcher, or made standard for a project or a region, but it may never
+  become the only way the suite works, and it may never degrade the offline, low-skill,
+  few-taps experience that audience one depends on. Where a protection costs audience one nothing,
+  take it — those are free wins and there are more of them than you would expect. Where it costs
+  something, it is a setting.
+
+  The rationale for both is the same one that governs everything else here: the privacy and
+  research-ethics obligations this suite carries to the communities it serves. See §"How this work is
+  described" in `CLAUDE.md` before writing about it.
 - **Archival honesty.** Preservation masters are never processed (no AGC/NR); lossy→WAV
   conversions are labeled in both filename and BWF `bext` bytes as NOT archival.
 

@@ -632,6 +632,52 @@ Three things to get right:
 
 ---
 
+### 3.8 The second setting: options, never defaults
+
+`DEVELOPERS.md` §1 states the principle; this is what it means for consent data specifically.
+
+Some teams work where **exposure is itself a risk to the people they document** — where a device
+leaving trusted hands, or data read in transit, could bring harm to the community members whose
+voices and stories these are. Those teams need to hold less, and to be able to remove it fast.
+
+> **⚠ THE RULE, AND IT IS NOT NEGOTIABLE.** Everything below is an **option a researcher enables**.
+> It may become standard for a project or a region. It may **never** become the only way the suite
+> works, and it may **never** cost audience one a tap, a second offline, or a moment of confusion.
+> A change that makes the low-infrastructure path worse is not a security win; it is a different
+> product. Where a protection is free for audience one, take it — several below are.
+
+**Free now, and worth taking regardless** (they cost audience one nothing):
+
+- the person id is a random UUID, never derived from a name (§3.4) — pure win, no cost;
+- names never in D1 in any form, only inside the E2EE envelope (§3.3);
+- ids scoped per project, so one dataset cannot be correlated with another (§3.4);
+- the device holds only the speakers it worked with, never a project roster (§3.5) — this one
+  *improves* audience one too, by keeping the collector's list short and relevant;
+- **Strict mode already exists as a switch** (§3.4) and is genuinely usable at field corpus sizes.
+
+**Options to leave room for, not to build now.** Recorded so the design does not accidentally
+foreclose them — none is on the roadmap, and each needs its own plan:
+
+| option | what it means | what it must not break |
+|---|---|---|
+| **session-only storage** | nothing persists past the sitting; packages upload or are discarded | ⚠ collides head-on with *"nothing may ever silently discard field work"*. Only safe where the user explicitly chose it AND upload succeeded — otherwise it is data loss wearing a safety label |
+| **encrypt-at-rest behind a passphrase** | the store opens only with a passphrase, entered each use | audience one must never meet a passphrase; and a forgotten one is unrecoverable by design, which is a support burden the primary audience cannot carry |
+| **a second passphrase that wipes** | typing it erases rather than opens | must be indistinguishable from a wrong passphrase, or it protects nobody |
+| **high-assurance wipe** | overwrite rather than delete | ⚠ on flash storage this is weaker than it sounds — wear levelling means overwriting is not erasure. Do not claim more than is true (`drive-as-truth.md:539-541`) |
+| **no-network mode** | capture only; move data by hand | the assignment and auto-upload system is most of what makes audience one work; this is a different workflow, not a setting on the same one |
+
+⚠ **Two of these are honesty traps rather than engineering problems**, and both are why they are
+written down before anyone builds them: a wipe on flash is not an erasure, and session-only storage
+is indistinguishable from losing someone's afternoon unless the upload is confirmed first. State what
+each actually delivers, or do not ship it.
+
+⚠ **On how this is written**, here and everywhere: describe what a protection safeguards and the
+situation it covers — a device that has left the team's control, data read in transit — never who
+might hold it. That is `CLAUDE.md`'s rule and `test/threat-language.test.mjs` enforces it. It is not
+squeamishness: naming an adversary misdescribes ordinary community language work as something else,
+and that misdescription can itself create risk for the people in the project. Accuracy is the
+protection.
+
 ---
 
 ## 4. The question bank

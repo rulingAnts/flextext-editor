@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v632';
+export const ENGINE_VERSION = 'v633';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1450,6 +1450,7 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.fix.headerLadder': 'The top row now settles on its layout immediately rather than a moment later, so it no longer appears briefly on two lines with its words still showing before deciding to use pictures.'
     ,'panel.rel.new.editorTabGates': 'Each of the three editor tabs can now be shown or hidden per device, so different steps can go to different people — one cuts the audio, another types the text, another adds glosses — or a beginner starts with one tab and gains the rest as they are ready. At least one tab always remains, whatever the switches say.'
     ,'panel.rel.new.headerWrap': 'If the top row still cannot fit after the words become pictures, it now breaks in one place: the tabs move down together with Save and Send, rather than the row breaking wherever it happens to run out of room.'
     ,'panel.rel.fix.headerFits': 'The top row now decides between words and pictures by whether the words actually fit, instead of by a screen width that had been measured in English — so a longer language no longer spills onto a second line. A tablet held upright counts as a narrow screen. And the title box gives up its own width first, so the buttons and tabs stay on one line.'
@@ -3770,6 +3771,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.fix.headerLadder': 'Baris atas kini menetapkan tata letaknya seketika, bukan sesaat kemudian, sehingga tidak lagi tampak sekejap dalam dua baris dengan kata-katanya masih terlihat sebelum memutuskan memakai gambar.'
     ,'panel.rel.new.editorTabGates': 'Masing-masing dari tiga tab editor kini dapat ditampilkan atau disembunyikan per perangkat, sehingga langkah yang berbeda dapat diberikan kepada orang yang berbeda — satu memotong audio, yang lain mengetik teks, yang lain menambahkan glos — atau seorang pemula mulai dengan satu tab dan menerima sisanya saat siap. Setidaknya satu tab selalu tersisa, apa pun pengaturannya.'
     ,'panel.rel.new.headerWrap': 'Jika baris atas tetap tidak muat setelah kata berubah menjadi gambar, kini ia patah di satu tempat: tab berpindah ke bawah bersama Simpan dan Kirim, bukan patah di sembarang tempat saat kehabisan ruang.'
     ,'panel.rel.fix.headerFits': 'Baris atas kini memilih antara kata dan gambar berdasarkan apakah katanya benar-benar muat, bukan berdasarkan lebar layar yang dahulu diukur dalam bahasa Inggris — sehingga bahasa yang lebih panjang tidak lagi tumpah ke baris kedua. Tablet yang dipegang tegak dihitung sebagai layar sempit. Dan kotak judul yang lebih dahulu melepaskan lebarnya, agar tombol dan tab tetap dalam satu baris.'

@@ -11170,7 +11170,7 @@ function applyGlossIcon() {
  * browser only ever paints the answer, not the trial. */
 const ICONS_BELOW_PX = 1000;        // cold-start fallback ONLY — the real rule is the measurement
 const TITLE_COMFORT_PX = 120;       // switch to icons while the title is still readable, not after
-let headerLabelsMql = null, portraitMql = null, lastAutoLabels = null, headerLabelsRaf = 0;
+let headerLabelsMql = null, portraitMql = null, lastAutoLabels = null;
 
 /* true / false / null when it cannot be told. Everything except the title is measured at whatever
  * width it currently has; the title is held to its comfortable minimum rather than its actual one,
@@ -11192,10 +11192,14 @@ function headerRowFits() {
   return need <= w;
 }
 
-function scheduleHeaderLabels() {
-  if (headerLabelsRaf || typeof requestAnimationFrame !== 'function') return;
-  headerLabelsRaf = requestAnimationFrame(() => { headerLabelsRaf = 0; applyHeaderLabels(); });
-}
+/* ⚠ SYNCHRONOUS, NOT DEFERRED TO A FRAME. This waited on requestAnimationFrame, which cost a frame
+ * in which the row was laid out with the OLD answer — and at a width where the words no longer fit,
+ * that frame is the row wrapped to two lines with its words still on, i.e. the ladder running in
+ * the wrong order. Caught in Chrome, where the decision simply never arrived because rAF was not
+ * running in that tab at all; on a real screen it would merely have flickered, which is the kind of
+ * thing nobody reports and everybody sees. applyHeaderLabels forces layout itself, and a handful of
+ * rect reads on a resize is cheap, so there is nothing to defer for. */
+function scheduleHeaderLabels() { applyHeaderLabels(); }
 
 function applyHeaderLabels() {
   const want = settings.headerLabels || 'auto';

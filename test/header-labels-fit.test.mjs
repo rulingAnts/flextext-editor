@@ -46,6 +46,19 @@ test('an unmeasurable row keeps the last answer and re-measures when shown', () 
   assert.match(APP, /window\.addEventListener\('resize', scheduleHeaderLabels/, 'as does a resize');
 });
 
+/* ⚠ AND IT DECIDES IN THE SAME BREATH, NOT NEXT FRAME. This waited on requestAnimationFrame, which
+ * cost a frame laid out with the OLD answer — and at a width where the words no longer fit, that
+ * frame is the row wrapped to two lines with its words still on: the ladder running backwards.
+ * Caught in Chrome, where the decision never arrived at all because rAF was not running in that
+ * tab; on a real screen it would only have flickered, which nobody reports and everybody sees. */
+test('the decision is synchronous', () => {
+  assert.match(APP, /function scheduleHeaderLabels\(\) \{ applyHeaderLabels\(\); \}/,
+    'no frame in between');
+  // ⚠ the CALL, not the word — the comment above scheduleHeaderLabels names rAF to explain why it left
+  assert.doesNotMatch(APP.slice(APP.indexOf('function headerRowFits'), APP.indexOf('function applyUiScale')),
+    /requestAnimationFrame\(/, 'and nothing in this path defers');
+});
+
 /* THREE STAGES, IN ORDER (Seth, 2026-09-08): the title gives up its slack, then the words become
  * icons, then — only then — the row wraps. The row used to wrap first and wherever it liked, which
  * moved the CONTROLS while the title kept its width, exactly backwards. */

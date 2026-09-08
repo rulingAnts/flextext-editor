@@ -60,12 +60,12 @@ test('Gloss uses the same whitespace-tolerant end', () => {
 });
 
 test('Gloss: the same rule, and it takes precedence over trimming an edge line', () => {
-  const i = APP.indexOf("} else if (e.key === 'Enter' && atEnd && enterAtEndAdvances()) {");
+  const i = APP.indexOf("} else if (e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))) {");
   const j = APP.indexOf("} else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {");
   assert.ok(i > -1 && j > -1, 'both branches present');
   assert.ok(i < j, 'the advance branch is first, so it wins when the setting is on');
   assert.match(APP.slice(i, j), /const next = all\[all\.indexOf\(fi\) \+ 1\];/, 'it walks to the next translation');
-  // the start-of-line trim is deliberately untouched
+  // the edge-split branches survive — they are simply out of reach until the line is armed
   assert.match(APP, /e\.key === 'Enter' && atStart && joinSplitAllowed\('gloss'\)/);
 });
 
@@ -92,12 +92,18 @@ test('the strips are given the setting the same way the other gates are', () => 
 test('on the Gloss tab "move to next" is tested before the edge split', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   const handler = APP.slice(APP.indexOf("fi.addEventListener('keydown'"));
-  const advance = handler.indexOf("e.key === 'Enter' && atEnd && enterAtEndAdvances()");
+  const advance = handler.indexOf("e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))");
   const edgeBefore = handler.indexOf("e.key === 'Enter' && atStart && joinSplitAllowed('gloss')");
   assert.ok(advance > -1, 'the advance branch exists');
   assert.ok(edgeBefore > -1, 'the edge-split branch exists');
   assert.ok(advance < edgeBefore,
     'the walk must be reached before the atStart edge split, or a blank box can never advance');
+  /* ⚠ AND IT NO LONGER TESTS atEnd IN THE CONDITION. Without cut mode Enter must not split from ANY
+   * caret position (Seth, 2026-09-08: "enter splits a line on the baseline tab, even with cut mode
+   * toggled off, which shouldn't be the case. Same on the gloss tab"). Mid-text it does nothing;
+   * atEnd is checked INSIDE, to decide whether there is anywhere to walk to. */
+  assert.match(handler.slice(advance, edgeBefore), /if \(!atEnd\) \{ e\.preventDefault\(\); return; \}/,
+    'mid-text Enter is swallowed rather than falling through to a split');
 });
 
 /* ⚠ WHERE "MOVE TO NEXT" REACHES FROM (Seth, 2026-09-08). Enter is not only a thing that happens in
@@ -106,15 +112,30 @@ test('on the Gloss tab "move to next" is tested before the edge split', () => {
  * the Gloss tab should hand over to that word's OWN gloss, because fixing a spelling and glossing
  * the same word is one motion. All three are gated on the setting: where Enter still splits, it must
  * keep meaning that. */
-test('Enter on the play button walks, on both tabs', () => {
+/* ⚠ THE TARGET IS THE LINE BEING PLAYED, NOT THE ONE AFTER IT. v625 sent Enter on the ▶ to the NEXT
+ * line, on Seth's earlier instruction; he revised it (2026-09-08): "if you've got a segment playing
+ * and you press enter, it should jump to the current segment's textbox, or next player if it's an
+ * empty line… I said otherwise earlier." Going past it means hearing one line and typing in
+ * another. A blank/silence line has no box, so the walk goes on to the next line's ▶ instead. */
+test('Enter on the play button lands in THAT line, on both tabs', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
-  assert.match(STRIPS, /play\.addEventListener\('keydown', \(ev\) => \{\s*\n\s*if \(ev\.key !== 'Enter' \|\| !\(deps\.enterAdvances && deps\.enterAdvances\(\)\)\) return;[\s\S]{0,80}?focusStripAfter\(i\);/,
-    'Baseline ▶ hands off to the next line, gated on the setting');
-  assert.match(APP, /btn\.addEventListener\('keydown', \(ev\) => \{\s*\n\s*if \(ev\.key !== 'Enter' \|\| !enterAtEndAdvances\(\)\) return;/,
+  assert.match(STRIPS, /if \(ev\.key !== 'Enter' \|\| !\(deps\.enterAdvances && deps\.enterAdvances\(\)\)\) return;[\s\S]{0,120}?focusStripEnd\(i\);/,
+    'Baseline ▶ lands in its own line, gated on the setting');
+  assert.match(APP, /if \(ev\.key !== 'Enter' \|\| !enterAtEndAdvances\(\)\) return;[\s\S]{0,120}?focusPlayingLine\(true, i\);/,
     'Gloss ▶ likewise');
-  assert.match(APP, /const next = nextG\.querySelector\('\.gloss-input'\) \|\| nextG\.querySelector\('\.free-input'\);/,
-    "and lands in the next line's first word gloss, falling back to its translation");
+  for (const [name, src, fn] of [['app', APP, 'focusPlayingLine'], ['strips', STRIPS, 'focusStripEnd']]) {
+    const body = src.slice(src.indexOf('function ' + fn), src.indexOf('function ' + fn) + 1200);
+    assert.match(body, /groups\[i \+ 1\]|rows\[i \+ 1\]/, `${name}: a line with no box falls on to the next ▶`);
+  }
+});
+
+/* ⚠ AND ENTER OUT HERE IS A CUT ONLY IN CUT MODE. Placing the audio tier divides a line, so it
+ * follows the same rule as the boxes: without arming, Enter navigates instead. */
+test('Enter outside the boxes navigates unless the line is armed', () => {
+  const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  assert.match(APP, /if \(enterAtEndAdvances\(\) && !armedRow\(\)\) \{ focusPlayingLine\(onGloss\); return; \}\s*\n\s*if \(onGloss\) glossPlaceAudio\(\); else stripSplitAtPlayhead\(\);/,
+    'the navigate branch comes first, and the cut is what it guards');
 });
 
 test('Enter on a baseline word hands over to that word\'s own gloss', () => {

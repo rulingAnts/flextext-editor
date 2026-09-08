@@ -24,7 +24,7 @@ import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpa
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
-         stripSplitAtPlayhead, segProgress, armLine} from './segment-strips.js';
+         stripSplitAtPlayhead, segProgress, armLine, armedRow} from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -1236,14 +1236,7 @@ function decorateGlossSegments() {
     btn.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter' || !enterAtEndAdvances()) return;
       ev.preventDefault();
-      const groups = [...document.querySelectorAll('#gloss-body .segment')];
-      const nextG = groups[i + 1];
-      if (!nextG) return;
-      const next = nextG.querySelector('.gloss-input') || nextG.querySelector('.free-input');
-      if (!next) return;
-      next.focus();
-      try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
-      try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); }
+      focusPlayingLine(true, i);   // THIS line — see focusPlayingLine for why not the next one
     });
     btn.setAttribute('aria-label', t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const waveWrap = document.createElement('div');
@@ -1385,7 +1378,15 @@ function decorateGlossSegments() {
            * The caret lands at the end of whatever it reaches, "which will be the start if it's
            * blank". A blank gloss box is atEnd as well, so it walks rather than starting a split
            * nobody asked for — the same trap the blank translation box had. */
-          if (atEnd && enterAtEndAdvances()) {
+          /* ⚠ AND WITHOUT CUT MODE IT NEVER SPLITS AT ALL (Seth, 2026-09-08: "enter splits a line on
+           * the baseline tab, even with cut mode toggled off, which shouldn't be the case. Same on
+           * the gloss tab, at least for empty lines"). Only the END of a box used to walk; a caret
+           * at the START fell through and split. Now, unless the line is armed, Enter walks from the
+           * end and does nothing anywhere else. A device still set to `split` keeps its old
+           * behaviour — see the note in segment-strips.js onKey. */
+          const armed = !!(g.classList && g.classList.contains('cut-armed'));
+          if (enterAtEndAdvances() && !armed) {
+            if (!atEnd) return;
             e.preventDefault();
             const boxes = [...g.querySelectorAll('.gloss-input')];
             const next = boxes[boxes.indexOf(gi) + 1] || g.querySelector('.free-input');
@@ -1412,10 +1413,17 @@ function decorateGlossSegments() {
           if (e.key === 'Backspace' && atStart && i > 0 && joinSplitAllowed('gloss') && joinKeysEnabled()) {
             e.preventDefault();
             glossJoinLines(i - 1);
-          } else if (e.key === 'Enter' && atEnd && enterAtEndAdvances()) {
-            // ⚠ Same rule as the Baseline tab (Seth, 2026-09-08: "I think maybe something similar on
-            // the gloss tab"): at the end, Enter WALKS to the next line's translation rather than
-            // trimming an empty line after this one. Before joinSplitAllowed, for the same reason.
+          } else if (e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))) {
+            /* ⚠ Same rule as the Baseline tab (Seth, 2026-09-08: "I think maybe something similar on
+             * the gloss tab"): at the end, Enter WALKS to the next line's translation rather than
+             * trimming an empty line after this one. Before joinSplitAllowed, for the same reason.
+             *
+             * ⚠ AND IT COVERS EVERY CARET POSITION NOW, NOT ONLY THE END — without cut mode Enter
+             * must not split at all ("enter splits a line on the baseline tab, even with cut mode
+             * toggled off, which shouldn't be the case. Same on the gloss tab"). Mid-text it simply
+             * does nothing; the two edge-split branches below are reached only once the line is
+             * armed, or on a device still set to the old `split` behaviour. */
+            if (!atEnd) { e.preventDefault(); return; }
             e.preventDefault();
             const all = [...document.querySelectorAll('.free-input')];
             const next = all[all.indexOf(fi) + 1];
@@ -1559,6 +1567,43 @@ function glossPlace(i, tier, value) {
   if (!current || !joinSplitAllowed('gloss')) return 'ignored';
   return splitPlace({ tab: 'gloss', i }, tier, value, glossSpec(i));
 }
+/* ⚠ ENTER WITH A SEGMENT PLAYING PUTS THE CARET IN THE LINE YOU ARE LISTENING TO (Seth, 2026-09-08:
+ * "if you've got a segment playing and you press enter, it should jump to the current segment's
+ * textbox, or next player if it's an empty line").
+ *
+ * ⚠ THIS REVISES v625, where Enter on the ▶ went to the NEXT line — Seth: "I said otherwise earlier
+ * (though even what I said earlier isn't currently working)." The line you are hearing is the line
+ * you want to type into; going past it means listening to one line and typing in another.
+ *
+ * A line with nothing to type in — a blank/silence line, which on the Gloss tab has no boxes at all
+ * — has nowhere to land, so the walk goes on to the NEXT line's ▶ instead. That keeps you moving
+ * through the recording rather than stranding the keypress. */
+function focusPlayingLine(onGloss, forIndex) {
+  const doc = current && current.doc;
+  if (!doc) return;
+  let i = forIndex;
+  if (i === undefined) {
+    const ms = player && Number.isFinite(player.currentTime) ? player.currentTime * 1000 : null;
+    if (ms === null) return;
+    i = segIndexAt(docSegments(doc), ms);
+  }
+  if (i < 0) return;
+  const put = (el) => {
+    if (!el) return false;
+    el.focus();
+    try { if (el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); } catch { /* noop */ }
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
+    return true;
+  };
+  const groups = onGloss ? $$('#gloss-body .segment') : $$('#segment-strips .seg-strip');
+  const g = groups[i];
+  const box = g && (onGloss ? (g.querySelector('.gloss-input') || g.querySelector('.free-input'))
+                            : g.querySelector('.seg-text'));
+  if (put(box)) return;
+  const nextPlay = groups[i + 1] && groups[i + 1].querySelector(onGloss ? '.gseg-play' : '.seg-play');
+  if (nextPlay) nextPlay.focus();
+}
+
 /* Enter outside the boxes, or the ✂ under the playhead: the AUDIO tier, on the line the playhead is in. */
 /* An EDGE split: the words tier at 0 or at the count, and the translation's tier at the same edge
  * so the whole translation stays with the words — the sound is then the only tier left to place.
@@ -11588,6 +11633,9 @@ function setup() {
     if (e.key !== 'Enter' || e.repeat) return;
     if (!transportKeysApply(e.target, e.key)) return;   // a focused text box keeps Enter — see onKey
     e.preventDefault();                          // …and a focused ▶ must not ALSO re-fire
+    /* ⚠ PLACING THE AUDIO TIER IS A CUT, and cutting needs cut mode on — the same rule the boxes
+     * follow. Without it, Enter out here navigates to the line being played instead. */
+    if (enterAtEndAdvances() && !armedRow()) { focusPlayingLine(onGloss); return; }
     if (onGloss) glossPlaceAudio(); else stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());

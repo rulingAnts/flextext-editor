@@ -1230,6 +1230,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v627', date: '2026-09-08', items: [
+    { k: 'panel.rel.fix.edgeCutNudge' },
+  ] },
   { v: 'v626', date: '2026-09-08', items: [
     { k: 'panel.rel.fix.baselineSplitAudio' },
   ] },

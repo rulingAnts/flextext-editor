@@ -1502,9 +1502,18 @@ function playheadMs() {
 function glossInfo(i) {
   const doc = current.doc;
   const ph = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
-  /* ⚠ `aligned` here means "the audio tier can actually be PLACED", not "this line has a time" —
-   * the ✂ that places it only exists while the playhead is inside this segment. See
-   * audioTierReachable: requiring a tier with no on-screen control is what left splits stuck. */
+  /* ⚠ `aligned` here is "the audio tier can actually be PLACED", not merely "this line has a time":
+   * the ✂ that places it exists only while the playhead is inside this segment, so a line the
+   * playhead is nowhere near was asking for a click on something that was not on screen.
+   *
+   * ⚠⚠ AND THIS IS SAFE HERE, BUT NOT ON BASELINE — the asymmetry is the whole point. Dropping the
+   * tier means the split commits with no audio position, and what happens then differs by tab:
+   * glossSplitAt passes `fraction: boundary / words.length` to splitSegment, so the sound is still
+   * divided, proportionally, and marked timeEstimated. splitLineAt has no such fallback — it hands
+   * the null straight to boundaryAtPlayhead, which splices in `{ timePending: true }` and the text
+   * divides while the sound does not. That is exactly what Seth hit on Baseline in v625. So the
+   * Baseline side keeps requiring the tier (see stripsInfo); do not "make them consistent" by
+   * copying this line over there without giving splitLineAt an interpolation fallback first. */
   return { tab: 'gloss', aligned: audioTierReachable(docSegments(doc)[i], playheadMs()), words: ph && ph.words ? ph.words.length : 0,
            free: ph ? (ph.free || '') : '', text: getBaselineParagraphs(doc)[i] || '', hasGloss: lineHasAnalysis(doc, i) };
 }

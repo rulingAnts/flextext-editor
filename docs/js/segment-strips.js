@@ -20,7 +20,7 @@
  * DISPLAY of samples, never a modification of them.
  */
 
-import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, audioTierReachable, moveBoundary,
+import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
@@ -1021,11 +1021,14 @@ export function stripSplitAtPlayhead() {
 /* ── the Baseline tab's side of the pending split ──────────────────────────────────────────── */
 function stripsInfo(i) {
   const doc = deps.getDoc();
-  /* ⚠ `aligned` means "the audio tier can be PLACED" — the same rule the Gloss tab uses, and for the
-   * same reason: the ✂ that places it lives under the playhead. See audioTierReachable. */
-  const pl = deps.getPlayer && deps.getPlayer();
-  const ms = pl && Number.isFinite(pl.currentTime) ? pl.currentTime * 1000 : null;
-  return { tab: 'baseline', aligned: audioTierReachable(docSegments(doc)[i], ms), text: deps.getParagraphs(doc)[i] || '',
+  /* ⚠ `aligned` is "this line HAS a time", and the audio tier is required whenever it does — do not
+   * weaken this to "the playhead can reach it" (tried in v624, reverted in v626). Dropping the tier
+   * makes the split commit with no audio position, and splitLineAt hands that to boundaryAtPlayhead,
+   * which splices in a `{ timePending: true }` segment: the text divides and the SOUND DOES NOT, so
+   * the new line comes out untimed. Seth hit it on the Baseline tab within an hour of the deploy.
+   * The Gloss tab interpolates in that situation; this one does not, and silently losing an
+   * alignment is far worse than a split that waits. */
+  return { tab: 'baseline', aligned: isAligned(docSegments(doc)[i]), text: deps.getParagraphs(doc)[i] || '',
            hasGloss: !!(deps.hasGloss && deps.hasGloss(i)) };
 }
 /* Rule A: a line that already carries glosses or a translation is not this tab's to split or join. */

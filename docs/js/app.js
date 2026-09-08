@@ -3998,7 +3998,8 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   const lg = document.createElement('span');
   lg.className = 'line-label line-label-gloss';
   lg.textContent = t('gloss.glossLabel');
-  labels.append(lw, lg);
+  // ⚠ the label goes with the boxes: naming a row that is not there reads as something missing
+  if (wordGlossOn()) labels.append(lw, lg); else labels.append(lw);
   row.appendChild(labels);
 
   seg.words.forEach((w, i) => {
@@ -4117,41 +4118,52 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
   t2.addEventListener('blur', () => { const v = t2.textContent.trim(); if (v && v !== was) glossEditWord(seg, i, v); else t2.textContent = was; });
   cell.appendChild(t2);
 
-  const g = document.createElement('input');
-  g.className = 'gloss-input';
-  g.value = w.gls || '';
-  g.placeholder = '—';
-  g.autocapitalize = 'off';
-  g.autocomplete = 'off';
-  g.spellcheck = false;
-  if (analFont) g.style.fontFamily = analFont;
-  sizeInput(g);
-  g.addEventListener('input', () => { w.gls = g.value; sizeInput(g); schedulePersist(); });
-  g.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      /* ⚠ YIELD AT BOUNDARIES IN SEGMENTATION MODE (v322). decorateGlossSegments attaches a second
-       * keydown on this same input that SPLITS the line when the caret is at the start/end — and
-       * both listeners fire (preventDefault does not stop a sibling listener). Pre-v322 this one
-       * moved focus first and the split then re-rendered, discarding it. Boundary Enter belongs to
-       * the split; mid-text Enter keeps the FLEx-style focus walk. */
-      const atStart = g.selectionStart === 0 && g.selectionEnd === 0;
-      const atEnd = g.selectionStart === g.value.length && g.selectionEnd === g.value.length;
-      if (segmentationEnabled() && (atStart || atEnd)) return;
-      e.preventDefault();
-      focusNextGloss(g, e.shiftKey ? -1 : 1);
-    } else if (e.key === 'Tab') {
-      // Tab / Shift+Tab move between word glosses (skipping free-translation
-      // lines), like FLEx.
-      e.preventDefault();
-      focusNextWordGloss(g, e.shiftKey ? -1 : 1);
-    } else if (e.key === ' ') {
-      // Space advances to the next word's gloss; multi-word glosses use
-      // the FLEx dot convention (am.talking.about).
-      e.preventDefault();
-      focusNextWordGloss(g, 1);
-    }
-  });
-  cell.appendChild(g);
+  /* ⚠ WORD-BY-WORD GLOSSING IS THE RESEARCHER'S TO GRANT (Seth, 2026-09-08: "the ability to disable
+   * word-by-word glossing. If this setting is disabled, then the gloss tab just shows the baseline
+   * text words with the free translation box and no interlinear gloss boxes visible or editable").
+   * A coworker who only writes free translations has no use for them.
+   *
+   * ⚠ THE BOXES ARE NOT BUILT AT ALL, not merely hidden — a hidden input is still memory and still
+   * a tab stop, and this suite runs on devices where that matters (#19). Every consumer of
+   * .gloss-input already copes with a cell that has none, because a punctuation cell never had one.
+   * Existing glosses stay in the DATA untouched: switching this off hides the tool, not the work. */
+  if (wordGlossOn()) {
+    const g = document.createElement('input');
+    g.className = 'gloss-input';
+    g.value = w.gls || '';
+    g.placeholder = '—';
+    g.autocapitalize = 'off';
+    g.autocomplete = 'off';
+    g.spellcheck = false;
+    if (analFont) g.style.fontFamily = analFont;
+    sizeInput(g);
+    g.addEventListener('input', () => { w.gls = g.value; sizeInput(g); schedulePersist(); });
+    g.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        /* ⚠ YIELD AT BOUNDARIES IN SEGMENTATION MODE (v322). decorateGlossSegments attaches a second
+         * keydown on this same input that SPLITS the line when the caret is at the start/end — and
+         * both listeners fire (preventDefault does not stop a sibling listener). Pre-v322 this one
+         * moved focus first and the split then re-rendered, discarding it. Boundary Enter belongs to
+         * the split; mid-text Enter keeps the FLEx-style focus walk. */
+        const atStart = g.selectionStart === 0 && g.selectionEnd === 0;
+        const atEnd = g.selectionStart === g.value.length && g.selectionEnd === g.value.length;
+        if (segmentationEnabled() && (atStart || atEnd)) return;
+        e.preventDefault();
+        focusNextGloss(g, e.shiftKey ? -1 : 1);
+      } else if (e.key === 'Tab') {
+        // Tab / Shift+Tab move between word glosses (skipping free-translation
+        // lines), like FLEx.
+        e.preventDefault();
+        focusNextWordGloss(g, e.shiftKey ? -1 : 1);
+      } else if (e.key === ' ') {
+        // Space advances to the next word's gloss; multi-word glosses use
+        // the FLEx dot convention (am.talking.about).
+        e.preventDefault();
+        focusNextWordGloss(g, 1);
+      }
+    });
+    cell.appendChild(g);
+  }
 
   if (w.phrase) {
     const un = document.createElement('button');
@@ -4280,6 +4292,10 @@ function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankL
  * enterAtEnd there is no grandfathering here, so already-paired devices lose the button too, which
  * is what "starting now" asked for. One switch covers every tab, because there is one player dock. */
 function allowAudioRemoveOn() { return !Sync.hasSession() || settings.allowAudioRemove === true; }
+/* Researcher-controlled: does this device do word-by-word glossing at all? Default ON — absent
+ * means yes, so no existing device changes. Off leaves the Gloss tab showing the words and the free
+ * translation, which is a complete job for somebody who only translates. */
+function wordGlossOn() { return settings.wordGloss !== false; }
 // Researcher-controlled: may this device swap a text's recording for a different file?
 // Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on.
 function allowAudioSwapOn() { return !Sync.hasSession() || settings.allowAudioSwap === true; }
@@ -4768,7 +4784,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -6252,6 +6268,7 @@ const SETUP_GROUPS = [
     // editorTabEnabled brings Baseline back rather than leave a device with nothing.
     { k: 'baselineTab', type: 'checkbox', note: 'panel.f.editorTabsNote' },
     { k: 'glossTab', type: 'checkbox' },
+    { k: 'wordGloss', type: 'checkbox', note: 'panel.f.wordGlossNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
@@ -6521,6 +6538,7 @@ function deviceSetupValues() {
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
+    else if (f.k === 'wordGloss') v.wordGloss = s.wordGloss !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     // Same rule as the panel's twin: an explicit value wins, otherwise a device that has stored

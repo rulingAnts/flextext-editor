@@ -683,6 +683,7 @@ const GROUPS = [
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
     { k: 'baselineTab', type: 'checkbox', note: 'panel.f.editorTabsNote' },
     { k: 'glossTab', type: 'checkbox' },
+    { k: 'wordGloss', type: 'checkbox', note: 'panel.f.wordGlossNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
@@ -1235,6 +1236,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v634', date: '2026-09-08', items: [
+    { k: 'panel.rel.new.wordGlossGate' },
+    { k: 'panel.rel.new.oneTabRule' },
+  ] },
   { v: 'v633', date: '2026-09-08', items: [
     { k: 'panel.rel.fix.headerLadder' },
   ] },
@@ -9056,6 +9061,7 @@ function toFormValues(s) {
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
+    else if (f.k === 'wordGloss') v.wordGloss = s.wordGloss !== false;
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     /* ⚠ A NEW PROJECT GETS THE NEW BEHAVIOUR; an existing one keeps whatever it had (Seth,
@@ -9172,6 +9178,19 @@ function validateDeviceSettings(raw, opts = {}) {
   if (!send.includes('save') && !send.includes('upload')) {
     out.push({ group: 'sending', field: 'sendOptions', msg: t('panel.val.sendNone') });
   }
+  /* ⚠ AT LEAST ONE EDITOR TAB (Seth, 2026-09-08: "let's also have the researcher settings have a
+   * validation rule that at least one tab must be enabled. Your fallback is OK as a fallback, but
+   * let's also not let the researcher disable all three tabs"). app.js does bring Baseline back if
+   * the settings would leave nothing, and that stays as the last line of defence — but a fallback
+   * quietly disagreeing with what the researcher ticked is a poor way for them to find out. Refuse
+   * the save instead, and say so on the field.
+   *
+   * ⚠ The Cut tab only COUNTS while segmentation is on: with segmentation off it is not there to be
+   * the one remaining tab, so ticking it would otherwise satisfy this rule with nothing on screen. */
+  const tabOn = (k) => raw[k] !== false;
+  if (!tabOn('baselineTab') && !tabOn('glossTab') && !(tabOn('segmentation') && tabOn('cutTab'))) {
+    out.push({ group: 'segmentation', field: 'baselineTab', msg: t('panel.val.tabsNone') });
+  }
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
   if (!templateMode && ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
   if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
@@ -9183,6 +9202,8 @@ function settingsToRaw(s) {
   s = s || {};
   return {
     vernLang: s.vernLang, analLang: s.analLang,
+    // the editor tabs, so a STORED or merged snapshot is held to the same one-tab rule as the form
+    segmentation: s.segmentation, cutTab: s.cutTab, baselineTab: s.baselineTab, glossTab: s.glossTab,
     sendOptions: s.sendOptions || [],
     consentAsk: Array.isArray(s.consentAsk) ? s.consentAsk : (s.consentMode && s.consentMode !== 'off' ? [s.consentMode] : []),
     consentConfirm: Array.isArray(s.consentConfirm) ? s.consentConfirm : (s.consentMode && s.consentMode !== 'off' ? [s.consentResp || 'yesno'] : []),

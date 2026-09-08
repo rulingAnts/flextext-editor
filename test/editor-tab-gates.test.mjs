@@ -66,7 +66,7 @@ test('the researcher can reach them, in both languages', () => {
     assert.match(src, /\{ k: 'glossTab', type: 'checkbox' \}/, `${name}: gloss`);
     assert.match(src, /else if \(f\.k === 'glossTab'\) v\.glossTab = s\.glossTab !== false;/, `${name}: unset shows ticked`);
   }
-  assert.match(APP, /'cutTab', 'baselineTab', 'glossTab', 'landOnCut'/, 'and they travel with a setup link');
+  assert.match(APP, /'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'landOnCut'/, 'and they travel with a setup link');
   for (const k of ['panel.f.baselineTab', 'panel.f.glossTab', 'panel.f.editorTabsNote']) {
     assert.equal((I18N.match(new RegExp("'" + k.replace(/\./g, '\\.') + "':", 'g')) || []).length, 2, `${k}: EN + ID`);
   }

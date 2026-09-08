@@ -2785,6 +2785,16 @@ body.rp-standalone main { padding-top: 0; }
   cursor: pointer; padding: 0; color: #c9772a;
 }
 .cut-scissors:hover { background: #f6e9dc; }
+/* ⚠ ON THE WAVE, NOT UNDER IT (Seth, 2026-09-08, on an Android screen: "the scissors icon underneath
+   the play head covers up the baseline textbox so you can't see what you're typing"). The button is
+   30px and was anchored by its TOP to the waveform's bottom edge, so it hung 28px below — straight
+   over the .seg-text box, which is only about 39px tall. On a phone that is most of the line the
+   user is typing into.
+   Anchoring the BOTTOM to the wave's lower edge puts the whole button inside the 44px wave band, so
+   it cannot reach the text at all, and the control still rides the playhead where the gesture
+   expects it. This is what the Paragraph Analysis Tool has always done (.pa-wavewrap .pa-rowcut is
+   centred ON its wave) — the strips were the odd ones out. */
+.cut-scissors.on-wave { transform: translate(-50%, -100%); }
 
 #cut-strips { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 /* Focusable, because this tab has no text box to hold focus and Enter/Backspace must land

@@ -229,14 +229,55 @@ export function syncCaretScissors() {
  * app.css for why cutting is a mode you enter rather than controls that are always there). Exported
  * so the Gloss tab arms the same way; the class is what the CSS reads, so there is no second source
  * of truth about which line is armed. Arming a line cancels any pending split on another. */
+/* ⚠ CUT MODE LOCKS THE TEXT THAT IS NOT PART OF THE CUT (Seth, 2026-09-08: "when cut mode is active
+ * on a line, editing of text fields shouldn't be (except the free translation or baseline, because
+ * the user needs to place the cursor to mark the split position)").
+ *
+ * Arming fills the line with scissors on purpose, and on a small touch screen a stray tap in that
+ * moment landing in a text box is a silent data change nobody asked for — the same class of
+ * accident arming was introduced to stop.
+ *
+ * ⚠ EVERY box locks, INCLUDING the two that serve the cut. Seth, refining it: "we don't need free
+ * to ACCEPT typing, we just need it to accept positioning a cursor… if we can have the one
+ * (positioning) without the other (actually typing), that's better." `readOnly` is exactly that
+ * pair: the box still takes focus, still places a caret and still reports selectionStart — which is
+ * all the `text` and `free` tiers ever read — while typing does nothing. It buys something else on
+ * Android too: a read-only input does not raise the on-screen keyboard, so the waveform you are
+ * cutting against stays on screen instead of being covered by it.
+ *
+ * ⚠ contentEditable is STASHED, not assumed. .word-txt is 'plaintext-only' where the browser takes
+ * it and 'true' where it does not, so restoring a hardcoded value would quietly change paste
+ * behaviour on whichever browser got the other one. It has no readOnly of its own to set. */
+function lockFieldsForCut(row, on) {
+  if (typeof document === 'undefined' || !row || !row.querySelectorAll) return;
+  for (const el of row.querySelectorAll('.gloss-input, .free-input, .seg-text')) el.readOnly = on;
+  for (const el of row.querySelectorAll('.word-txt')) {
+    if (on) {
+      if (el.dataset.cutWas === undefined) el.dataset.cutWas = el.contentEditable;
+      // Blurring first lets the edit in flight commit through its own blur handler, then locks.
+      if (el === document.activeElement) el.blur();
+      el.contentEditable = 'false';
+    } else if (el.dataset.cutWas !== undefined) {
+      el.contentEditable = el.dataset.cutWas;
+      delete el.dataset.cutWas;
+    }
+  }
+  /* A gloss box holding focus as the line arms gives it up — it places nothing, so a caret sitting
+   * there is only a keyboard in the way. The tier boxes KEEP their focus and their caret: that
+   * caret is the whole reason they stay reachable. */
+  const a = on && document.activeElement;
+  if (a && a.classList && a.classList.contains('gloss-input') && row.contains(a)) a.blur();
+}
+
 export function armLine(row, on) {
   if (typeof document === 'undefined') return;
   for (const el of document.querySelectorAll('.cut-armed')) {
-    if (el !== row) { el.classList.remove('cut-armed'); const b = el.querySelector('.seg-arm'); if (b) b.setAttribute('aria-pressed', 'false'); }
+    if (el !== row) { el.classList.remove('cut-armed'); lockFieldsForCut(el, false); const b = el.querySelector('.seg-arm'); if (b) b.setAttribute('aria-pressed', 'false'); }
   }
   if (!row) return;
   const want = on === undefined ? !row.classList.contains('cut-armed') : !!on;
   row.classList.toggle('cut-armed', want);
+  lockFieldsForCut(row, want);
   const btn = row.querySelector('.seg-arm');
   if (btn) btn.setAttribute('aria-pressed', want ? 'true' : 'false');
   if (!want) splitCancel();          // putting the controls away abandons a half-placed split

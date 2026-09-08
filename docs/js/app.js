@@ -4159,9 +4159,17 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
         // lines), like FLEx.
         e.preventDefault();
         focusNextWordGloss(g, e.shiftKey ? -1 : 1);
-      } else if (e.key === ' ') {
-        // Space advances to the next word's gloss; multi-word glosses use
-        // the FLEx dot convention (am.talking.about).
+      } else if (e.key === ' ' && !e.shiftKey) {
+        /* Space advances to the next word's gloss; multi-word glosses use
+         * the FLEx dot convention (am.talking.about).
+         *
+         * ⚠ PLAIN SPACE ONLY (Seth, 2026-09-08: "Shift+Space jumps to the next textbox if an
+         * interlinear gloss textbox is selected, which is not what we want. We want Shift+Space to
+         * JUST affect the player"). This caught the chord too and swallowed it, so the one key that
+         * is supposed to mean "audio" wherever the caret is did the opposite here — it moved the
+         * caret. The free-translation box never had the bug because it intercepts Tab and nothing
+         * else. Letting the chord through hands it to the global handler, which plays THIS box's
+         * own line and leaves focus and caret exactly where they are. */
         e.preventDefault();
         focusNextWordGloss(g, 1);
       }

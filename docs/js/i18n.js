@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v637';
+export const ENGINE_VERSION = 'v638';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1450,6 +1450,8 @@ internet after the first time.</p>
     ,'panel.rel.new.overviewTouch': 'The top player: its cut marks now show on all three tabs (thin and light), follow a grip you drag on a line, and the player zooms in on that spot while you drag. On a touch screen a tap places the playhead, dragging the playhead line scrubs, dragging anywhere else scrolls the zoomed waveform, and pinching zooms; a trackpad pinch zooms too. The exported listening page works the same way.'
     ,'panel.rel.new.splitGuids': 'Splitting a line now gives the second piece its own phrase GUID in the FLExText (both pieces used to share one) and drops the old time offsets from both; a note rides with the piece that keeps the free translation. Words keep their GUIDs, morpheme analyses and glosses through a split or a join whenever their text is unchanged.'
     ,'panel.rel.new.joinChain': 'The join button between two lines is now the chain link \ud83d\udd17, the same picture as the link between two words.'
+    ,'panel.rel.fix.shiftSpaceGloss': 'Shift+Space now plays the line from inside a word gloss too, instead of jumping to the next gloss box. It already behaved this way in the free translation; the word glosses were catching the key combination and moving the cursor rather than letting it reach the player.'
+    ,'panel.rel.new.tasksGroup': 'The device settings group once called “Audio Segmentation” is now “Tasks”, since it decides which steps of the work a device does — not only the audio ones.'
     ,'panel.rel.new.glossLandingSetting': 'New setting “After playing, put the cursor in”: on the Gloss tab, where the cursor goes when somebody plays a line and then starts typing without a box selected. The free translation to begin with, or the next empty word gloss — choose by the job that device has been given. It only applies when they were not already part-way through a box on that same line.'
     ,'panel.rel.new.keepYourPlace': 'Listening no longer costs you your place. Type, tap play, listen — and the next letter you type goes back exactly where the cursor was, instead of jumping to the end of the line. Enter does whatever it would have done at that same spot. Move to a different line and the memory is dropped, so you start cleanly at the end of that line\u2019s text.'
     ,'panel.rel.fix.enterNeedsCutMode': 'Where Enter moves on rather than cutting, it no longer cuts a line by accident. Before, only Enter at the very end moved on — pressing it anywhere else in the line still started a cut, on both the Baseline and Gloss tabs. Now a line is only ever cut once cutting is switched on for it. And pressing Enter while a segment is playing puts the cursor in the line you are listening to, at the end of what is written there; a line with nothing to type in passes you on to the next line\u2019s play button.'
@@ -1966,7 +1968,7 @@ internet after the first time.</p>
   'panel.grp.recording': 'Recording',
   'panel.grp.consent': 'Consent',
   'panel.grp.sending': 'Sending',
-  'panel.grp.segmentation': 'Audio Segmentation',
+  'panel.grp.segmentation': 'Tasks',
   'panel.grp.other': 'Other',
   'panel.f.appLang': 'App language (this device’s menus)',
   'panel.opt.appLang.follow': 'Don’t change it (let the device choose)',
@@ -3783,6 +3785,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.overviewTouch': 'Pemutar atas: tanda potongannya kini tampak di ketiga tab (tipis dan samar), mengikuti pegangan yang Anda seret di sebuah baris, dan pemutar memperbesar tempat itu selama Anda menyeret. Di layar sentuh, ketukan menempatkan kepala putar, menyeret garis kepala putar menggeser posisi, menyeret di tempat lain menggulir gelombang yang diperbesar, dan mencubit memperbesar atau memperkecil; cubitan di trackpad juga memperbesar. Halaman dengar yang diekspor bekerja sama.'
     ,'panel.rel.new.splitGuids': 'Membagi baris kini memberi potongan kedua GUID frasa sendiri di FLExText (dulu keduanya berbagi satu) dan membuang offset waktu lama dari keduanya; catatan ikut potongan yang menyimpan terjemahan bebas. Kata-kata tetap memegang GUID, analisis morfem dan glosnya melalui pembagian atau penggabungan selama teksnya tidak berubah.'
     ,'panel.rel.new.joinChain': 'Tombol gabung di antara dua baris kini berupa rantai \ud83d\udd17, gambar yang sama dengan tautan di antara dua kata.'
+    ,'panel.rel.fix.shiftSpaceGloss': 'Shift+Space kini memutar baris juga dari dalam glos kata, bukan melompat ke kotak glos berikutnya. Di terjemahan bebas hal ini sudah benar; kotak glos kata menangkap kombinasi tombol itu dan memindahkan kursor alih-alih membiarkannya sampai ke pemutar.'
+    ,'panel.rel.new.tasksGroup': 'Kelompok pengaturan perangkat yang dahulu bernama “Segmentasi Audio” kini bernama “Tugas”, karena ia menentukan langkah kerja mana yang dilakukan sebuah perangkat — bukan hanya yang berkaitan dengan audio.'
     ,'panel.rel.new.glossLandingSetting': 'Pengaturan baru “Setelah memutar, taruh kursor di”: di tab Glos, ke mana kursor menuju ketika seseorang memutar sebuah baris lalu mulai mengetik tanpa kotak terpilih. Terjemahan bebas sebagai awalan, atau glos kata kosong berikutnya — pilih sesuai tugas perangkat itu. Ini hanya berlaku bila mereka belum berada di tengah sebuah kotak pada baris yang sama.'
     ,'panel.rel.new.keepYourPlace': 'Mendengarkan tidak lagi membuat Anda kehilangan tempat. Ketik, tekan putar, dengarkan — dan huruf berikutnya yang Anda ketik kembali persis ke tempat kursor tadi, bukan melompat ke akhir baris. Enter melakukan apa pun yang akan dilakukannya di tempat yang sama itu. Pindah ke baris lain dan ingatan itu dilepaskan, sehingga Anda mulai bersih di akhir teks baris tersebut.'
     ,'panel.rel.fix.enterNeedsCutMode': 'Bila Enter berpindah alih-alih memotong, kini ia tidak lagi memotong baris tanpa sengaja. Sebelumnya hanya Enter di ujung baris yang berpindah — menekannya di tempat lain tetap memulai pemotongan, baik di tab Dasar maupun Glos. Kini sebuah baris hanya terpotong setelah mode potong dinyalakan untuknya. Dan menekan Enter saat sebuah segmen sedang diputar akan menaruh kursor di baris yang sedang Anda dengarkan, di akhir tulisan yang ada; baris yang tidak punya tempat mengetik akan meneruskan Anda ke tombol putar baris berikutnya.'
@@ -4227,7 +4231,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.grp.recording': 'Perekaman',
   'panel.grp.consent': 'Izin',
   'panel.grp.sending': 'Pengiriman',
-  'panel.grp.segmentation': 'Segmentasi Audio',
+  'panel.grp.segmentation': 'Tugas',
   'panel.grp.other': 'Lainnya',
   'panel.f.appLang': 'Bahasa aplikasi (menu perangkat ini)',
   'panel.opt.appLang.follow': 'Jangan ubah (biarkan perangkat memilih)',

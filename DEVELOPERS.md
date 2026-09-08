@@ -405,7 +405,13 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
 
 - `node --test "test/*.test.mjs"` runs the whole suite (135 files at v589, static source pins plus
   pure-function runs). Two suites, `worker-projects` and `worker-sessions`, need `wrangler dev` on
-  :8787 and fail otherwise; count `not ok` lines rather than trusting grep's exit status.
+  :8787; with no worker they now SKIP explicitly (a loud line on both stdout and stderr) instead of
+  failing, so a green suite means genuinely green. ⚠ Read a skip as NOT TESTED, never as "tested and
+  fine" — the worker lane is exercised only by `bash test/local-rig.sh`, which is required before any
+  deploy. Anything else going wrong in those suites — a seed that throws, a schema that will not
+  apply — is a real failure now, and that is the point: until 2026-09-08 they failed unconditionally
+  and the ritual was to count two `not ok` lines, so a stale local D1 that broke every seed sat
+  hidden there for six releases. See `test/worker-rig-guard.mjs`.
 - `test/*.test.mjs` — plain node, assertion-style, also run by `check-native-containment.sh`.
   Notable suites: `segments-ordering` (adversarial span-model inputs), `seg-exports`
   (EAF/flextext/preview/bext, includes pinned regressions from adversarial audits),

@@ -32,8 +32,11 @@ const STRIPS = rd('../docs/js/segment-strips.js'), CSS = rd('../docs/css/app.css
 const APP = rd('../docs/js/app.js'), I18N = rd('../docs/js/i18n.js');
 
 test('the split controls are hidden until their line is armed', () => {
-  assert.match(CSS, /\.seg-strip:not\(\.cut-armed\) \.cut-scissors,\s*\n\.seg-strip:not\(\.cut-armed\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.cut-scissors,\s*\n\.segment:not\(\.cut-armed\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.chain-btn \{ display: none !important; \}/,
+  assert.match(CSS, /\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\) \.cut-scissors,\s*\n\.seg-strip:not\(\.cut-armed\):not\(\.cut-row\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.cut-scissors,\s*\n\.segment:not\(\.cut-armed\) \.scissor-btn,\s*\n\.segment:not\(\.cut-armed\) \.chain-btn \{ display: none !important; \}/,
     'both tabs, and the chain links with them');
+  // ⚠ the Cut tab is exempt: cutting is its whole job, so it is always armed
+  assert.match(CSS, /Cut mode should ALWAYS be armed\s*\n\s*on the cut tab/, 'and the exemption says why');
+  assert.doesNotMatch(STRIPS, /cut-row cut-armed/, 'the exemption is declarative, not a class armLine could strip');
 });
 
 test('the sizes are the ORIGINAL ones — the shrinking and the lanes were withdrawn', () => {
@@ -62,4 +65,21 @@ test('both tabs offer the arm button, gated by the researcher switch', () => {
 test('the caret ✂ obeys the same arming, and arming is not a click that cancels', () => {
   assert.match(STRIPS, /const row = input\.closest && input\.closest\('\.seg-strip'\);\s*\n\s*if \(!row \|\| !row\.classList\.contains\('cut-armed'\)\) return false;/);
   assert.match(STRIPS, /\.scissor-btn, \.seg-arm, \.pa-cut/, 'the arm button is exempt from the tap-away cancel');
+});
+
+test('the arm button sits under ▶ in the gutter, not beside the wave', () => {
+  assert.match(CSS, /\.seg-strip\.has-arm \.seg-play \{ grid-row: 1; \}/,
+    'the play button gives up its second row only on a line that has an arm button');
+  assert.match(CSS, /grid-column: 1; grid-row: 2; justify-self: stretch; align-self: center;/);
+  assert.match(STRIPS, /row\.classList\.add\('has-arm'\);/, 'set where the button is made, so the two cannot disagree');
+});
+
+test('the Gloss gutter: number, then ▶ with the ✂ exactly beneath it', () => {
+  assert.match(APP, /const num = g\.querySelector\('\.segnum'\);\s*\n\s*if \(num\) bar\.appendChild\(num\);/,
+    'the number is MOVED into the bar, not duplicated');
+  assert.match(APP, /gut\.className = 'gseg-gutter';\s*\n\s*gut\.append\(btn, arm\);/, '▶ over ✂');
+  assert.match(CSS, /\.gseg-gutter \{ display: flex; flex-direction: column;[^}]*align-items: stretch; \}/,
+    'stretch is what makes the two edges line up rather than merely sit near each other');
+  assert.match(CSS, /\.gseg-arm \{ grid-column: auto; grid-row: auto;/,
+    'the Baseline grid placement is cancelled here — this gutter is flex, not grid');
 });

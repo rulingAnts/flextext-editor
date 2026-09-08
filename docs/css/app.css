@@ -316,6 +316,13 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 /* Gloss-tab per-line bar: the same transport, skinnier clothes — a small ▶/⏸ and a thin waveform
    above each interlinear line-group. */
 .gseg-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+/* ▶ with the arming ✂ exactly beneath it, and the line number to their left — see the note in
+   app.js where this gutter is built. The ✂ takes the play button's width so the two edges line up
+   rather than merely sitting near each other. */
+.gseg-gutter { display: flex; flex-direction: column; gap: 3px; flex: none; align-items: stretch; }
+.gseg-bar .segnum { padding-top: 0; align-self: center; min-width: 1.4em; text-align: right; flex: none; }
+.gseg-arm { grid-column: auto; grid-row: auto; justify-self: auto; align-self: auto;
+            min-width: 30px; width: 100%; height: 22px; font-size: 12px; border-radius: 6px; }
 .gseg-play { appearance: none; border: 1px solid var(--border); background: var(--panel);
              border-radius: 6px; min-width: 30px; height: 26px; font-size: 12px; cursor: pointer; flex: none; }
 .gseg-play:hover { background: #e8ecf2; }
@@ -2800,8 +2807,13 @@ body.rp-standalone main { padding-top: 0; }
 
    Rendered as usual and hidden here, rather than gated at every creation site: the ticker keeps them
    positioned, so arming reveals a button that is already in the right place. */
-.seg-strip:not(.cut-armed) .cut-scissors,
-.seg-strip:not(.cut-armed) .scissor-btn,
+/* ⚠ EXCEPT ON THE CUT TAB, WHICH IS ALWAYS ARMED (Seth, 2026-09-08: "Cut mode should ALWAYS be armed
+   on the cut tab (except for lines that are disabled because they have text data associated with
+   them)"). Cutting IS that tab's job — there is nothing else to be in the way of, and nothing to
+   type. Its rows carry .cut-row, and its own ticker already refuses a row that carries text
+   (.cut-locked / seg-locked), so the exception needs no second rule for the disabled lines. */
+.seg-strip:not(.cut-armed):not(.cut-row) .cut-scissors,
+.seg-strip:not(.cut-armed):not(.cut-row) .scissor-btn,
 .segment:not(.cut-armed) .cut-scissors,
 .segment:not(.cut-armed) .scissor-btn,
 .segment:not(.cut-armed) .chain-btn { display: none !important; }
@@ -2810,10 +2822,17 @@ body.rp-standalone main { padding-top: 0; }
    that line; tapping it again — or arming another — puts everything away. ⚠ It is also the cancel,
    which is the answer to "confused about how to undo cut mode": the button that started it is the
    button that stops it, in the same place, and it says so by turning red. */
+/* ⚠ IT SITS UNDER ▶, IN THE GUTTER (Seth, 2026-09-08, with a screenshot arrowing it down there from
+   where it first landed). .seg-play spans both grid rows by default, so there was no cell beneath it
+   and the button auto-placed beside the wave instead. On a row that HAS an arm button the play button
+   gives up the second row — marked by .has-arm from the JS that creates it, rather than :has(), so
+   the rule says plainly which rows it applies to. */
+.seg-strip.has-arm .seg-play { grid-row: 1; }
 .seg-arm {
+  grid-column: 1; grid-row: 2; justify-self: stretch; align-self: center;
   appearance: none; border: 1px solid var(--border); background: var(--panel);
-  border-radius: 8px; width: 34px; height: 26px; font-size: 13px; line-height: 1;
-  cursor: pointer; padding: 0; color: #c9772a; margin-top: 4px;
+  border-radius: 7px; min-width: 38px; height: 28px; font-size: 14px; line-height: 1;
+  cursor: pointer; padding: 0; color: #c9772a;
 }
 .seg-arm:hover { background: #f6e9dc; }
 .seg-arm[aria-pressed="true"] {

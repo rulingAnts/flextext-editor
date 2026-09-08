@@ -814,6 +814,7 @@ export function renderStrips() {
       arm.setAttribute('aria-pressed', 'false');
       arm.title = deps.t('cut.arm'); arm.setAttribute('aria-label', deps.t('cut.arm'));
       arm.addEventListener('click', (ev) => { ev.stopPropagation(); armLine(row); });
+      row.classList.add('has-arm');   // the play button gives up its second grid row — see .seg-arm
       row.appendChild(arm);
     }
     const wave = document.createElement('canvas');
@@ -1103,8 +1104,14 @@ function onKey(e, i, input) {
      * enterAtEndAdvances in app.js for why, and for why this is a new-devices-only default.
      * Checked BEFORE joinSplitOk deliberately: a researcher who turned splitting off still wants
      * Enter to walk to the next line, and today it does nothing at all for them. */
-    const atEnd = (input.selectionStart ?? 0) === input.value.length
-               && (input.selectionEnd ?? 0) === input.value.length;
+    /* ⚠ "END" MEANS NOTHING LEFT TO TYPE, NOT A CARET ON THE LAST CHARACTER (Seth, 2026-09-08:
+     * "If it's really the end of the line (no non-whitespace characters past the cursor), it should
+     * just move the cursor to the next line's textbox"). A single trailing space — which a typist
+     * leaves constantly — used to make this false and start a split instead. Whitespace after the
+     * caret is not something the user is about to divide. The text itself is never trimmed here:
+     * moving on must not quietly edit what they wrote. */
+    const caret = input.selectionStart ?? 0;
+    const atEnd = caret === (input.selectionEnd ?? 0) && !input.value.slice(caret).trim();
     if (atEnd && deps.enterAdvances && deps.enterAdvances()) {
       e.preventDefault();
       focusStripAfter(i);

@@ -40,8 +40,9 @@ test('Baseline: at the end it advances, and it does so even when splitting is sw
   assert.ok(advanceAt > -1 && gateAt > -1, 'both branches present');
   assert.ok(advanceAt < gateAt,
     'the advance is decided BEFORE the split gate — a researcher who turned splitting off still wants Enter to walk');
-  assert.match(fn, /const atEnd = \(input\.selectionStart \?\? 0\) === input\.value\.length\s*\n\s*&& \(input\.selectionEnd \?\? 0\) === input\.value\.length;/,
-    'end means a collapsed caret at the very end, never a selection');
+  assert.match(fn, /const atEnd = caret === \(input\.selectionEnd \?\? 0\) && !input\.value\.slice\(caret\)\.trim\(\);/,
+    'end means a collapsed caret with nothing but whitespace after it — a trailing space must not start a split');
+  assert.doesNotMatch(fn, /=== input\.value\.length/, 'the strict end-of-string test is gone: it failed on one trailing space');
   assert.match(fn, /focusStripAfter\(i\);/);
   // mid-text Enter is untouched: it still places the text tier of the split
   assert.match(fn, /stripsPlace\(i, 'text', input\.selectionStart \?\? input\.value\.length\);/);
@@ -52,6 +53,10 @@ test('the walk stops at the last line rather than blurring', () => {
   assert.match(fn, /if \(!next\) return;/, 'nothing to focus on the last line');
   assert.doesNotMatch(fn, /\.blur\(\)/, 'a keyboard that closes itself at the end reads as the app quitting');
   assert.match(fn, /setSelectionRange\(next\.value\.length, next\.value\.length\)/, 'caret lands at the end, ready to type');
+});
+
+test('Gloss uses the same whitespace-tolerant end', () => {
+  assert.match(APP, /const atEnd = fi\.selectionStart === fi\.selectionEnd && !fi\.value\.slice\(fi\.selectionStart \?\? 0\)\.trim\(\);/);
 });
 
 test('Gloss: the same rule, and it takes precedence over trimming an edge line', () => {

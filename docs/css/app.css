@@ -1846,13 +1846,13 @@ body.rp-standalone main { padding-top: 0; }
    A closed section is a two-line row — name plus a blurb of what is inside — so the whole tab is
    scannable without opening anything, which is the entire reason for the accordion. */
 .rp-tabpanel { display: flex; flex-direction: column; gap: 8px; }
-.rp-sec { border: 1px solid var(--border); border-radius: 10px; background: var(--card, #fff); overflow: hidden; }
+.rp-sec { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .rp-sec > summary {
   cursor: pointer; padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: baseline;
   gap: 2px 10px; list-style: none; user-select: none;
 }
 .rp-sec > summary::-webkit-details-marker { display: none; }   /* Safari draws its own triangle */
-.rp-sec > summary:hover { background: var(--hover, rgba(0,0,0,.03)); }
+.rp-sec > summary:hover { background: var(--panel); }
 .rp-sec > summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 /* The caret is drawn on ::before rather than left to the native marker so it can rotate and so the
    summary can be a flex row (a list-item summary cannot). */

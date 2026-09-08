@@ -111,6 +111,18 @@ main {
   vertical-align: 1px;
 }
 
+/* ⚠ THE TITLE IS THE ONLY THING THAT GIVES (Seth, 2026-09-08: "we want our title textbox to auto
+   resize to make sure all the UI controls stay on one line"). The row used to wrap, so the controls
+   dropped onto a second line while the title kept its width — backwards. Now the row never wraps,
+   every control holds its size, and the title absorbs whatever is left.
+
+   ⚠ TWO different minimums, deliberately. This 56px is the LAST-RESORT squeeze, so even a narrow
+   phone in icons mode still fits on one line. applyHeaderLabels measures against a COMFORTABLE
+   120px instead, so the switch to icons happens while the title is still readable rather than after
+   it has been crushed. */
+#topbar-editor { flex-wrap: nowrap; }
+#topbar-editor > *:not(.doc-title) { flex: none; }
+#topbar-editor .doc-title { min-width: 56px; }
 .doc-title {
   flex: 1 1 140px;
   min-width: 120px;

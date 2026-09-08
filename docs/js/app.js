@@ -398,6 +398,9 @@ function show(view) {
   // The researcher panel is a full takeover with its own in-view header — hide both bars.
   if (home) home.hidden = inEditor || view === 'researcher';
   if (editor) editor.hidden = !inEditor || view === 'researcher';
+  // ⚠ The row can only be measured while it is visible, so entering the editor is the moment to
+  // decide words-or-icons — at boot on the texts list there is nothing to measure. See applyHeaderLabels.
+  if (editor && !editor.hidden) scheduleHeaderLabels();
   if (!inEditor) {
     $$('#topbar-home .top-tab').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.view === view)));
@@ -11108,17 +11111,77 @@ function applyGlossIcon() {
   svg.innerHTML = GLOSS_ICONS[want];
   svg.dataset.icon = want;
 }
-const ICONS_BELOW_PX = 1000;
-let headerLabelsMql = null;
+/* ⚠ MEASURE THE ROW, DO NOT GUESS A WIDTH (Seth, 2026-09-08: "The 'icons only for screens less than
+ * 1000px' is not good for Indonesian labels (they're longer words)").
+ *
+ * 1000px was calibrated against the ENGLISH words, so the very tablet that fits "Baseline / Gloss /
+ * Save / Done — send…" overflows on "Dasar / Glos / Simpan / Selesai — kirim…". Any fixed number is
+ * a guess about one language and will be wrong for the next translation, and wrong again at a
+ * larger uiScale. So `auto` now asks whether the row ACTUALLY fits — which is language-proof, text-
+ * size-proof, and needs no maintenance when #47 lets translators add a language.
+ *
+ * ⚠ A PORTRAIT TABLET IS NARROW BY DECREE, fit or no fit ("a tablet that is held vertically should
+ * then be treated as a screen smaller than 1000px"). Gated on a coarse pointer so a desktop window
+ * that merely happens to be taller than it is wide keeps its words.
+ *
+ * ⚠ THE MEASUREMENT NEEDS THE ROW ON SCREEN, and it is hidden on the texts list — so when it cannot
+ * be measured we keep the previous answer, and fall back to the old width guess only on a cold
+ * start, where a rough answer beats none. Entering the editor re-measures (see the view switch).
+ *
+ * No flicker: setting the attribute and then READING geometry forces synchronous layout, so the
+ * browser only ever paints the answer, not the trial. */
+const ICONS_BELOW_PX = 1000;        // cold-start fallback ONLY — the real rule is the measurement
+const TITLE_COMFORT_PX = 120;       // switch to icons while the title is still readable, not after
+let headerLabelsMql = null, portraitMql = null, lastAutoLabels = null, headerLabelsRaf = 0;
+
+/* true / false / null when it cannot be told. Everything except the title is measured at whatever
+ * width it currently has; the title is held to its comfortable minimum rather than its actual one,
+ * because the question is "do the words fit WITHOUT crushing the title", not "does anything fit". */
+function headerRowFits() {
+  const row = $('#topbar-editor');
+  if (!row || row.hidden) return null;
+  const w = row.clientWidth;
+  if (!w) return null;
+  const cs = getComputedStyle(row);
+  const gap = parseFloat(cs.columnGap) || parseFloat(cs.gap) || 0;
+  const kids = [...row.children].filter((el) => !el.hidden && el.offsetParent !== null);
+  if (!kids.length) return null;
+  let need = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+           + Math.max(0, kids.length - 1) * gap;
+  for (const el of kids) {
+    need += el.classList.contains('doc-title') ? TITLE_COMFORT_PX : el.getBoundingClientRect().width;
+  }
+  return need <= w;
+}
+
+function scheduleHeaderLabels() {
+  if (headerLabelsRaf || typeof requestAnimationFrame !== 'function') return;
+  headerLabelsRaf = requestAnimationFrame(() => { headerLabelsRaf = 0; applyHeaderLabels(); });
+}
+
 function applyHeaderLabels() {
   const want = settings.headerLabels || 'auto';
   let mode = want;
   if (want === 'auto') {
     if (!headerLabelsMql && typeof matchMedia === 'function') {
       headerLabelsMql = matchMedia(`(max-width: ${ICONS_BELOW_PX - 1}px)`);
-      try { headerLabelsMql.addEventListener('change', () => applyHeaderLabels()); } catch { /* old API: no live follow */ }
+      portraitMql = matchMedia('(orientation: portrait) and (pointer: coarse)');
+      for (const m of [headerLabelsMql, portraitMql]) {
+        try { m.addEventListener('change', () => applyHeaderLabels()); } catch { /* old API: no live follow */ }
+      }
+      try { window.addEventListener('resize', scheduleHeaderLabels, { passive: true }); } catch { /* noop */ }
     }
-    mode = headerLabelsMql && headerLabelsMql.matches ? 'icons' : 'both';
+    if (portraitMql && portraitMql.matches) mode = 'icons';
+    else {
+      const before = document.documentElement.dataset.labels;
+      try { document.documentElement.dataset.labels = 'both'; } catch { /* noop */ }
+      const fits = headerRowFits();
+      if (fits === null) {
+        mode = lastAutoLabels || ((headerLabelsMql && headerLabelsMql.matches) ? 'icons' : 'both');
+        try { document.documentElement.dataset.labels = before || ''; } catch { /* noop */ }
+      } else mode = fits ? 'both' : 'icons';
+    }
+    lastAutoLabels = mode;
   }
   try { document.documentElement.dataset.labels = mode; } catch { /* noop */ }
 }

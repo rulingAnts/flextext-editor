@@ -59,11 +59,21 @@ test('the researcher chooses words, icons, both, or auto; auto is icons only bel
   }
   const fn = APP.slice(APP.indexOf('function applyHeaderLabels()'));
   const body = fn.slice(0, fn.indexOf('\n}\n') + 3);
-  assert.match(APP, /const ICONS_BELOW_PX = 1000;/, 'Seth: less than 1000 px wide = icons only');
-  assert.doesNotMatch(APP.slice(APP.indexOf('function applyHeaderLabels()'), APP.indexOf('function applyUiScale()')), /userAgent|maxTouchPoints|pointer: coarse/, 'width only, never the user agent');
-  assert.match(body, /matchMedia\(`\(max-width: \$\{ICONS_BELOW_PX - 1\}px\)`\)/, 'auto follows the viewport width: 999 px and below');
-  assert.match(body, /headerLabelsMql\.addEventListener\('change', \(\) => applyHeaderLabels\(\)\)/, 'and re-decides live');
-  assert.match(body, /mode = headerLabelsMql && headerLabelsMql\.matches \? 'icons' : 'both';/);
+  /* ⚠ THE WIDTH RULE WAS DEMOTED (Seth, 2026-09-08). 1000px was measured against the ENGLISH words,
+   * and "is not good for Indonesian labels (they're longer words)" — the same tablet fits one and
+   * not the other. `auto` now MEASURES the row (see header-labels-fit.test.mjs); this number
+   * survives only as the cold-start answer, for the boot call where the row is still hidden. */
+  assert.match(APP, /const ICONS_BELOW_PX = 1000;\s*\/\/ cold-start fallback ONLY/,
+    'the width guess is the fallback now, not the rule');
+  assert.match(body, /matchMedia\(`\(max-width: \$\{ICONS_BELOW_PX - 1\}px\)`\)/, 'still the fallback query');
+  assert.match(body, /m\.addEventListener\('change', \(\) => applyHeaderLabels\(\)\)/, 'and re-decides live');
+  /* ⚠ STILL NO DEVICE SNIFFING. The portrait rule Seth added ("a tablet that is held vertically
+   * should then be treated as a screen smaller than 1000px") is a CAPABILITY query, which is a
+   * different thing from asking what device this claims to be — that stays banned. */
+  assert.doesNotMatch(APP.slice(APP.indexOf('function applyHeaderLabels()'), APP.indexOf('function applyUiScale()')),
+    /userAgent|maxTouchPoints/, 'never the user agent');
+  assert.match(body, /matchMedia\('\(orientation: portrait\) and \(pointer: coarse\)'\)/,
+    'a held-vertically tablet counts as narrow');
   assert.match(body, /document\.documentElement\.dataset\.labels = mode;/);
   assert.match(APP, /applyUiScale\(\);\n  applyHeaderLabels\(\);\n  applyI18n\(\);/, 'applied at boot');
   assert.match(APP, /applyUiScale\(\);   \/\/ a pushed text size lands live, in every app\n  applyHeaderLabels\(\);/, 'and on every settings push');

@@ -1221,6 +1221,7 @@ function decorateGlossSegments() {
       arm.addEventListener('click', (ev) => { ev.stopPropagation(); armLine(g); });
       const gut = document.createElement('div');
       gut.className = 'gseg-gutter';
+      bar.classList.add('has-gutter');   // the bar reserves room for the ✂ that hangs below it
       gut.append(btn, arm);
       bar.append(gut, waveWrap);
     } else bar.append(btn, waveWrap);
@@ -1331,6 +1332,24 @@ function decorateGlossSegments() {
             return;
           }
           if (e.key !== 'Enter') return;
+          /* ⚠ "MOVE TO NEXT" WALKS INSTEAD OF SPLITTING (Seth, 2026-09-08) — in this mode the
+           * scissors are how you split, so Enter never starts one here. From the LAST word's gloss
+           * the walk drops to the line's own translation: "enter/return there should jump down to
+           * the end of the free translation box"; from any other word it steps to the next gloss.
+           * The caret lands at the end of whatever it reaches, "which will be the start if it's
+           * blank". A blank gloss box is atEnd as well, so it walks rather than starting a split
+           * nobody asked for — the same trap the blank translation box had. */
+          if (atEnd && enterAtEndAdvances()) {
+            e.preventDefault();
+            const boxes = [...g.querySelectorAll('.gloss-input')];
+            const next = boxes[boxes.indexOf(gi) + 1] || g.querySelector('.free-input');
+            if (next) {
+              next.focus();
+              try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
+              try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); }
+            }
+            return;
+          }
           if (!atStart && !atEnd) return;
           if (!joinSplitAllowed('gloss')) return;
           e.preventDefault();

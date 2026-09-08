@@ -315,16 +315,33 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 .seg-text:focus { outline: 2px solid var(--blue); border-radius: 4px; }
 /* Gloss-tab per-line bar: the same transport, skinnier clothes — a small ▶/⏸ and a thin waveform
    above each interlinear line-group. */
-.gseg-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.gseg-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
+            --gseg-play-size: 34px; --gseg-arm-h: 20px; --gseg-gutter-gap: 3px; }
 /* ▶ with the arming ✂ exactly beneath it, and the line number to their left — see the note in
    app.js where this gutter is built. The ✂ takes the play button's width so the two edges line up
-   rather than merely sitting near each other. */
-.gseg-gutter { display: flex; flex-direction: column; gap: 3px; flex: none; align-items: stretch; }
+   rather than merely sitting near each other.
+   ⚠ ONE LINE THROUGH ▶, THE NUMBER AND THE WAVE (Seth, 2026-09-08): "we want the number and the
+   waveform vertical midline both to be flush with the midline of the play button (and the scissors
+   to be immediately below the play line)". Centring the whole ▶/✂ stack put that shared midline in
+   the GAP between the two buttons, which is what the screenshot showed. So the gutter is pulled up
+   by exactly the ✂'s own height: the bar then centres a box the height of ▶ alone, and the ✂ hangs
+   below it. ▶ is square and bigger than the ✂ on purpose — "easy to hit the play button and not so
+   easy to push the cut toggle button on accident". */
+.gseg-gutter { display: flex; flex-direction: column; gap: var(--gseg-gutter-gap); flex: none; align-items: stretch;
+               margin-bottom: calc(-1 * (var(--gseg-arm-h) + var(--gseg-gutter-gap))); }
+/* ⚠ and the bar must then give that overhang its own room, or the ✂ lands on the word row — the
+   covering-up problem this layout already had once (v618–v621). */
+.gseg-bar.has-gutter { margin-bottom: calc(4px + var(--gseg-arm-h) + var(--gseg-gutter-gap)); }
 .gseg-bar .segnum { padding-top: 0; align-self: center; min-width: 1.4em; text-align: right; flex: none; }
-.gseg-arm { grid-column: auto; grid-row: auto; justify-self: auto; align-self: auto;
-            min-width: 30px; width: 100%; height: 22px; font-size: 12px; border-radius: 6px; }
+/* ⚠ `.gseg-bar .gseg-arm`, not `.gseg-arm`: the Baseline `.seg-arm` rule has the same specificity
+   and comes LATER in this file, so it was winning and the gloss ✂ kept its 38x28. That mattered for
+   more than looks — the gutter's pull-up is computed from --gseg-arm-h, so a ✂ that was really 28px
+   tall left the ▶ sitting 4px above the line it is supposed to share with the number and the wave. */
+.gseg-bar .gseg-arm { grid-column: auto; grid-row: auto; justify-self: auto; align-self: auto;
+            min-width: 0; width: 100%; height: var(--gseg-arm-h); font-size: 12px; border-radius: 6px; }
 .gseg-play { appearance: none; border: 1px solid var(--border); background: var(--panel);
-             border-radius: 6px; min-width: 30px; height: 26px; font-size: 12px; cursor: pointer; flex: none; }
+             border-radius: 6px; min-width: var(--gseg-play-size); width: var(--gseg-play-size);
+             height: var(--gseg-play-size); font-size: 14px; cursor: pointer; flex: none; }
 .gseg-play:hover { background: #e8ecf2; }
 .gseg-wavewrap { position: relative; flex: 1; }
 .gseg-wave { width: 100%; height: 22px; display: block; cursor: crosshair; touch-action: pan-y; }

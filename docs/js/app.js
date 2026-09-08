@@ -30,7 +30,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1347,9 +1347,6 @@ function decorateGlossSegments() {
           if (e.key === 'Backspace' && atStart && i > 0 && joinSplitAllowed('gloss') && joinKeysEnabled()) {
             e.preventDefault();
             glossJoinLines(i - 1);
-          } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
-            e.preventDefault();
-            glossPlaceEdge(i, 0);                    // an empty line BEFORE this one (audio still to place)
           } else if (e.key === 'Enter' && atEnd && enterAtEndAdvances()) {
             // ⚠ Same rule as the Baseline tab (Seth, 2026-09-08: "I think maybe something similar on
             // the gloss tab"): at the end, Enter WALKS to the next line's translation rather than
@@ -1359,6 +1356,14 @@ function decorateGlossSegments() {
             const next = all[all.indexOf(fi) + 1];
             if (next) { next.focus(); try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
                         try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); } }
+          } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
+            /* ⚠ AFTER the advance branch, not before it (Seth, 2026-09-08). A BLANK box satisfies
+             * atStart and atEnd at once, so while this came first it swallowed every Enter on an
+             * empty translation and started an edge split — the stuck "orange border, no scissors"
+             * Seth reported. With "move to next" on, a blank box now simply walks; a box with text
+             * after the caret is not atEnd, so a deliberate split-before-this-line still lands. */
+            e.preventDefault();
+            glossPlaceEdge(i, 0);                    // an empty line BEFORE this one (audio still to place)
           } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
             e.preventDefault();
             glossPlaceEdge(i, wordCount());          // an empty line AFTER this one
@@ -1456,10 +1461,17 @@ function lineHasAnalysis(doc, i) {
   if ((ph.words || []).some((w) => glossesOfWord(w).some((g) => String(g.text || '').trim()))) return true;
   return freesOfPhrase(ph).some((f) => String(f.text || '').trim());
 }
+/* The playhead in ms, or null when no audio is loaded — see audioTierReachable. */
+function playheadMs() {
+  return player && Number.isFinite(player.currentTime) ? player.currentTime * 1000 : null;
+}
 function glossInfo(i) {
   const doc = current.doc;
   const ph = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
-  return { tab: 'gloss', aligned: isAligned(docSegments(doc)[i]), words: ph && ph.words ? ph.words.length : 0,
+  /* ⚠ `aligned` here means "the audio tier can actually be PLACED", not "this line has a time" —
+   * the ✂ that places it only exists while the playhead is inside this segment. See
+   * audioTierReachable: requiring a tier with no on-screen control is what left splits stuck. */
+  return { tab: 'gloss', aligned: audioTierReachable(docSegments(doc)[i], playheadMs()), words: ph && ph.words ? ph.words.length : 0,
            free: ph ? (ph.free || '') : '', text: getBaselineParagraphs(doc)[i] || '', hasGloss: lineHasAnalysis(doc, i) };
 }
 function glossSpec(i) {

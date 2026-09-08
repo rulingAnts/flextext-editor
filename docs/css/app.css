@@ -2812,10 +2812,16 @@ body.rp-standalone main { padding-top: 0; }
    them)"). Cutting IS that tab's job — there is nothing else to be in the way of, and nothing to
    type. Its rows carry .cut-row, and its own ticker already refuses a row that carries text
    (.cut-locked / seg-locked), so the exception needs no second rule for the disabled lines. */
-.seg-strip:not(.cut-armed):not(.cut-row) .cut-scissors,
-.seg-strip:not(.cut-armed):not(.cut-row) .scissor-btn,
-.segment:not(.cut-armed) .cut-scissors,
-.segment:not(.cut-armed) .scissor-btn,
+/* ⚠ A PENDING SPLIT ALWAYS SHOWS ITS SCISSORS (Seth, 2026-09-08): "sometimes pressing enter makes
+ * orange border and cancel button show, but not scissors buttons." Arming is how you ASK for the
+ * scissors, but Enter can start a split without arming anything — and then every control that could
+ * finish it was hidden, leaving the outline and the ✕ as the only things on screen. `.split-pending`
+ * is therefore exempt: once a split is under way, the way to complete it must be visible.
+ * `.chain-btn` stays hidden — joining words is not part of finishing a split. */
+.seg-strip:not(.cut-armed):not(.cut-row):not(.split-pending) .cut-scissors,
+.seg-strip:not(.cut-armed):not(.cut-row):not(.split-pending) .scissor-btn,
+.segment:not(.cut-armed):not(.split-pending) .cut-scissors,
+.segment:not(.cut-armed):not(.split-pending) .scissor-btn,
 .segment:not(.cut-armed) .chain-btn { display: none !important; }
 
 /* The one control that IS always there: a line's own ✂ in its left gutter, under ▶. Tapping it arms

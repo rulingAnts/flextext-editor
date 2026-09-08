@@ -24,13 +24,17 @@ const STRIPS = rd('../docs/js/segment-strips.js'), CSS = rd('../docs/css/app.css
 const APP = rd('../docs/js/app.js');
 
 test('the button is small enough to sit in a lane', () => {
-  assert.match(CSS, /\.cut-scissors \{ width: 24px; height: 24px; font-size: 12px; \}/);
+  assert.match(CSS, /\.cut-scissors \{ width: 18px; height: 18px; font-size: 11px; transform: translate\(-50%, -33%\); \}/,
+    'a third above the wave bottom, two thirds below — see the comment for why the overlap is safe here');
+  // the target is bought back sideways, where the lane is empty — never vertically (see the comment)
+  assert.match(CSS, /\.cut-scissors::after \{ content: ''; position: absolute; inset: 0 -12px; \}/,
+    'the target grows sideways into the empty lane, never onto the text or back onto the wave');
   assert.doesNotMatch(CSS, /\.cut-scissors\.on-wave/, 'the on-the-wave placement was rejected — see step 2 above');
 });
 
 test('each tab reserves a lane under the wave, and only when splitting is offered', () => {
-  assert.match(CSS, /\.seg-cutlane \.seg-text \{ padding-top: 28px; \}/, 'Baseline strips');
-  assert.match(CSS, /\.gseg-cutlane \.gseg-wavewrap \{ margin-bottom: 30px; \}/, 'the Gloss tab');
+  assert.match(CSS, /\.seg-cutlane \.seg-text \{ padding-top: 16px; \}/, 'Baseline strips');
+  assert.match(CSS, /\.gseg-cutlane \.gseg-wavewrap \{ margin-bottom: 16px; \}/, 'the Gloss tab');
   assert.match(STRIPS, /host\.classList\.toggle\('seg-cutlane', joinSplitOk\(\)\);/,
     'no lane, no cost, when the researcher has turned splitting off');
   assert.match(APP, /classList\.toggle\('gseg-cutlane', joinSplitAllowed\('gloss'\)\);/);
@@ -39,7 +43,7 @@ test('each tab reserves a lane under the wave, and only when splitting is offere
 test('the ✂ hangs under the wave on all three tabs', () => {
   const tops = STRIPS.match(/sc\.style\.top = \((?:wave|w)\.offsetTop \+ (?:wave|w)\.offsetHeight\) \+ 'px';/g) || [];
   assert.equal(tops.length, 2, 'the Baseline strips and the Cut tab');
-  assert.match(CSS, /\.gseg-wavewrap \.gseg-scissors \{ top: 100%; margin-top: 1px; \}/, 'and the Gloss tab');
+  assert.match(CSS, /\.gseg-wavewrap \.gseg-scissors \{ top: 100%; margin-top: 0; \}/, 'and the Gloss tab');
 });
 
 test('the reason each shape was chosen is written where someone would undo it', () => {

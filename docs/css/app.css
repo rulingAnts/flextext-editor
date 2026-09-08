@@ -2797,9 +2797,29 @@ body.rp-standalone main { padding-top: 0; }
    make sure we size and space things so the scissors button icon doesn't cover text."
    Hence a smaller button (24px) and a reserved lane below each wave — and the lane is only paid for
    when the tab actually offers splitting, because ~26px per line is real screen on a phone. */
-.cut-scissors { width: 24px; height: 24px; font-size: 12px; }
-.seg-cutlane .seg-text { padding-top: 28px; }
-.gseg-cutlane .gseg-wavewrap { margin-bottom: 30px; }   /* 24px button at +1px leaves ~5px clear of the Word row */
+/* ⚠ SMALL BUTTON, BIG TARGET — the vertical cost is what we are buying down (Seth, 2026-09-08:
+   "making the scissors button a bit smaller (especially on a small screen) is something we can
+   totally do. Can we do that so that we're dealing with a, I dunno, 15-20px cost instead of a 30px
+   cost?"). Every line pays the lane, so 10px per line is 10px × every line on the screen.
+   The visual shrinks to 18px; the TOUCH area is bought back sideways with ::after, where the lane is
+   empty anyway — ±12px horizontally is free, and 3px vertically stays well inside the clearance.
+   ⚠ Do NOT buy it back vertically instead: upward reaches the wave, and a tappable strip of the
+   scrub surface is the thing that got the previous attempt rejected; downward reaches the text. */
+/* ⚠ IT STRADDLES THE WAVE'S BOTTOM EDGE (Seth, 2026-09-08): "the scissors button kind of half
+   hanging off the bottom of the waveform so that the top of the button takes up maybe the bottom
+   third of the playhead and then hangs off the bottom of the waveform just a bit (like 15px-ish??).
+   And then spacing so that doesn't cover text, but also doesn't leave ENORMOUS padding."
+   So a third of the button sits over the very bottom of the wave and two thirds hang below, which is
+   what buys the lane down from ~30px to ~16px. The overlap is deliberate and small: the bottom sliver
+   of a waveform is not where anyone aims to start a scrub, and it is nothing like the earlier attempt
+   that put the whole button on the playhead ("that makes it easy to accidentally split when you meant
+   to scrub").
+   The touch target is widened SIDEWAYS only, into the empty lane — ±12px is free. ⚠ Never widen it
+   downward onto the text, nor upward, which would give back the scrub surface this shape protects. */
+.cut-scissors { width: 18px; height: 18px; font-size: 11px; transform: translate(-50%, -33%); }
+.cut-scissors::after { content: ''; position: absolute; inset: 0 -12px; }
+.seg-cutlane .seg-text { padding-top: 16px; }
+.gseg-cutlane .gseg-wavewrap { margin-bottom: 16px; }
 
 #cut-strips { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 /* Focusable, because this tab has no text box to hold focus and Enter/Backspace must land
@@ -2841,7 +2861,7 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
    `.pa-wavewrap .pa-rowcut` is CENTRED on its wave at 26px. Centred on 22px it overhangs 2px each
    side, which reaches nothing, and it keeps a tappable target on the playhead where the gesture
    expects it. */
-.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 1px; }
+.gseg-wavewrap .gseg-scissors { top: 100%; margin-top: 0; }
 /* A word on the Gloss tab is editable in place (glossEditWord). */
 .word-txt[contenteditable] { cursor: text; border-bottom: 1px dotted transparent; min-width: 1ch; }
 .word-txt[contenteditable]:hover { border-bottom-color: var(--muted); }

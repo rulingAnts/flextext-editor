@@ -10959,6 +10959,33 @@ async function forceUpdateCheck() {
 // the "up to date" toast is reporting that truthfully.
 if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
 
+/* ⚠ DELEGATED, NOT BOUND TO THE ELEMENT. Every app has this button now (Seth, 2026-09-09: "make
+ * sure all of our apps have the refresh button"), and the Paragraph Analysis Tool re-renders its
+ * whole bar on every edit — a listener bound to the button at setup() would be thrown away with
+ * the first re-render and the button would go quietly dead. Delegation costs nothing and makes
+ * placement free: any shell, any re-rendered region, one handler.
+ * The researcher panel is deliberately NOT in that list: its service worker only redirects legacy
+ * installs, it precaches no shell, and an app that cannot work offline anyway cannot go stale in
+ * the way this button exists to fix. Its ↻ is a dashboard refresh and means something else. */
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('#btn-refresh');
+  if (!b) return;
+  b.classList.add('rp-spin'); b.disabled = true;
+  /* ⚠ COMMIT WHAT IS ON SCREEN BEFORE RELOADING (Seth, 2026-09-01: "make sure unfocus and save
+   * changes fires before reload… if there's a risk of the current edit not getting saved").
+   * The home bar is shared by the Settings and Utilities tabs, which have real input fields, so
+   * "no text is open" does NOT mean "nothing is unsaved". Blur first — that is what fires the
+   * change handlers a field's value depends on — then flush the DEBOUNCED save rather than
+   * waiting for its timer, which the reload would otherwise cut off. This is the same loss the
+   * auto-update banner is already filed for; there is no reason to reproduce it in a button. */
+  try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch { /* noop */ }
+  try { clearTimeout(saveTimer); await persist(); } catch { /* nothing open, or save failed — reload anyway */ }
+  try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); }
+  catch { /* no worker, or update refused — reload anyway */ }
+  finally { location.reload(); }
+});
+
+
 
 /* ---------------- Wire-up ---------------- */
 
@@ -11892,22 +11919,6 @@ function setup() {
    * ctrl+shift+r rather than a soft one. The editor's upload queue is persisted in IndexedDB and
    * resumes after a restart, so unlike the panel there is no transfer to lose here; the button is
    * on the HOME bar only, so there is never an open text either. */
-  $('#btn-refresh')?.addEventListener('click', async (e) => {
-    const b = e.currentTarget;
-    if (b) { b.classList.add('rp-spin'); b.disabled = true; }
-    /* ⚠ COMMIT WHAT IS ON SCREEN BEFORE RELOADING (Seth, 2026-09-01: "make sure unfocus and save
-     * changes fires before reload… if there's a risk of the current edit not getting saved").
-     * The home bar is shared by the Settings and Utilities tabs, which have real input fields, so
-     * "no text is open" does NOT mean "nothing is unsaved". Blur first — that is what fires the
-     * change handlers a field's value depends on — then flush the DEBOUNCED save rather than
-     * waiting for its timer, which the reload would otherwise cut off. This is the same loss the
-     * auto-update banner is already filed for; there is no reason to reproduce it in a button. */
-    try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch { /* noop */ }
-    try { clearTimeout(saveTimer); await persist(); } catch { /* nothing open, or save failed — reload anyway */ }
-    try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); }
-    catch { /* no worker, or update refused — reload anyway */ }
-    finally { location.reload(); }
-  });
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);
   $('#btn-help-close').addEventListener('click', closeHelp);

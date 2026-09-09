@@ -10775,7 +10775,23 @@ function setupServiceWorker() {
     doUpdateReload();
   });
 
-  navigator.serviceWorker.register('sw.js').then((reg) => {
+  /* ⚠ updateViaCache: 'none' — ALWAYS GO TO THE NETWORK FOR sw.js ITSELF on an update check.
+   *
+   * The default is 'imports', which leaves the worker SCRIPT subject to the ordinary HTTP cache: a
+   * check can be answered from cache and see the old version, so the app stays on it. Our Cloudflare
+   * origins already close that hole from the server side — wrangler.toml sends `no-store` on sw.js
+   * precisely because "the workers.dev CDN cache pinned a stale /sw.js for an hour-plus after
+   * deploys" — so on app./record./research./pat.flextext.app this flag changes nothing.
+   *
+   * It is not redundant everywhere. The GitHub Pages mirror
+   * (rulingants.github.io/flextext-editor/) serves sw.js with `max-age=600`, a header GitHub sets
+   * and we cannot; there, an update check could be answered from a ten-minute-old copy. This makes
+   * the client refuse that regardless of what any origin says, now or later.
+   *
+   * ⚠ IT COSTS NO EXTRA BANDWIDTH. The check already fetches sw.js (~4 KB gzipped); this only stops
+   * that fetch being served stale. It changes nothing about the atomic install below — a new
+   * version is still downloaded in full before it can ever activate. */
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
     swReg = reg;                                   // expose so bgUpdateCheck() can trigger a fresh check from anywhere
     const check = () => reg.update().catch(() => {});
     // CRITICAL: never post CLEANUP while a new version's COMPLETE cache is waiting/installing — the old

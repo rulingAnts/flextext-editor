@@ -13,6 +13,7 @@
  */
 
 import * as Researcher from './researcher.js';
+import { openExternal } from './external-link.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
@@ -1328,6 +1329,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v650', date: '2026-09-09', items: [
+    { k: 'panel.rel.fix.externalLinks' },
+  ] },
   { v: 'v649', date: '2026-09-09', items: [
     { k: 'panel.rel.fix.retryPatience' },
   ] },
@@ -4935,7 +4939,7 @@ async function inviteModal(instanceId) {
     m.el.querySelectorAll('[data-share]').forEach((b) => { b.onclick = () => {
       const u = urls[b.dataset.share];
       if (navigator.share) navigator.share({ url: u, text: t('panel.invite.shareText') }).catch(() => {});
-      else window.open('https://wa.me/?text=' + encodeURIComponent(u), '_blank');
+      else openExternal('https://wa.me/?text=' + encodeURIComponent(u));
     }; });
   } catch (e) { m.close(); errToast(e); }
 }
@@ -5961,7 +5965,7 @@ function crowdShareModal(rec) {
   m.el.querySelectorAll('[data-share]').forEach((b) => { b.onclick = () => {
     const u = snips[b.dataset.share];
     if (navigator.share) navigator.share({ url: u, text: t('panel.crowd.shareText') }).catch(() => {});
-    else window.open('https://wa.me/?text=' + encodeURIComponent(u), '_blank');
+    else openExternal('https://wa.me/?text=' + encodeURIComponent(u));
   }; });
 }
 

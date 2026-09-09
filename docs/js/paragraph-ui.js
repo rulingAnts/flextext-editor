@@ -11,6 +11,7 @@
  */
 
 import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
+import { openExternal } from './external-link.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { splitTiers, splitPlan, isAligned } from './segments.js';   // the suite's one splitting rule (plans/split-tiers.md)
@@ -329,7 +330,7 @@ function reportEafProblem() {
   const url = 'https://github.com/rulingAnts/flextext-editor/issues/new?title='
     + encodeURIComponent('ELAN import: ' + pendingEaf.name)
     + '&body=' + encodeURIComponent(body);
-  window.open(url, '_blank', 'noopener');
+  openExternal(url);
 }
 
 async function copyEafDiagnostic() {
@@ -655,7 +656,7 @@ function reportSfmProblem() {
   L.push('');
   L.push('(No text from the file is included above — only its structure.)');
   const body = t('para.reportBody') + '\n\n\n---\n```\n' + L.join('\n') + '\n```\n';
-  window.open('https://github.com/rulingAnts/flextext-editor/issues/new?title='
+  openExternal('https://github.com/rulingAnts/flextext-editor/issues/new?title='
     + encodeURIComponent('Toolbox/SFM import: ' + P.name) + '&body=' + encodeURIComponent(body), '_blank', 'noopener');
 }
 
@@ -3726,7 +3727,7 @@ function reportCsvProblem() {
   L.push('');
   L.push('(No text from the file is included above — only its structure.)');
   const body = t('para.reportBody') + '\n\n\n---\n```\n' + L.join('\n') + '\n```\n';
-  window.open('https://github.com/rulingAnts/flextext-editor/issues/new?title='
+  openExternal('https://github.com/rulingAnts/flextext-editor/issues/new?title='
     + encodeURIComponent('CSV/TSV import: ' + P.name) + '&body=' + encodeURIComponent(body), '_blank', 'noopener');
 }
 

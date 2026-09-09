@@ -3415,3 +3415,15 @@ a.rp-app-link { display: block; text-align: center; text-decoration: none; box-s
 .sfm-found { font-weight: 600; color: var(--text); }
 .sfm-msg.sfm-warn { color: #b23c00; }
 
+
+/* ---------------- A paired device has no clickable way off the site (v650) ----------------
+   Seth, 2026-09-09: "paired devices should have NO clickable hyperlinks that lead off the site."
+   The JS interception in external-link.js is what GUARANTEES it; this is so the link never invites
+   the press in the first place. Absolute http(s) URLs are the only offsite ones the suite renders —
+   its own links are relative or on flextext.app — so the selector is exact rather than a guess. */
+body.no-offsite a[href^="http"]:not([href*="flextext.app"]) {
+  pointer-events: none;
+  text-decoration: none;
+  color: inherit;
+  cursor: default;
+}

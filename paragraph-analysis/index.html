@@ -47,18 +47,6 @@
   <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
 </div>
 
-<!-- FORCE A VERSION CHECK + RELOAD (Seth, 2026-09-09: "all of our apps have the refresh button").
-     Same id, glyph and behaviour as every other app; the handler is delegated in app.js.
-
-     ⚠ OUTSIDE #pa-main, and that is the whole reason it is a strip of its own rather than a button
-     on .pa-bar: this app re-renders #pa-main wholesale on every edit, so anything inside it is
-     rebuilt constantly — and it has several screens (open, the import wizards, the work view), only
-     one of which has a bar at all. Out here it survives every render and is present on all of them,
-     which is what "the app is stuck on an old version" needs. Same reasoning as the banners above. -->
-<div id="pa-appbar">
-  <button id="btn-refresh" class="icon-btn" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">&#8635;</button>
-</div>
-
 <main id="pa-main">
 <!-- The paragraph app renders everything here (shared js/app.js → initParagraphApp). -->
 </main>

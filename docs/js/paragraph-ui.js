@@ -1879,6 +1879,18 @@ function renderWorkInner() {
                 title="${esc(t('para.fullEnter'))}" aria-label="${esc(t('para.fullEnter'))}">⛶</button>
         <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
                 aria-label="${esc(t('para.helpTip'))}" aria-expanded="false">?</button>
+        <!-- Force a version check + reload — the same #btn-refresh every other app carries, placed
+             between the ? and Save at Seth's direction (2026-09-09: "UI vertical space is at a
+             premium. Put it between the help button and the save button"). It began as a strip of
+             its own above the tool, which cost a whole band of a header that is already several
+             rows tall.
+             ⚠ TITLE AND ARIA ARE RESOLVED HERE, not left as data-i18n attributes: this bar is
+             re-rendered on every edit and applyI18n() does not run again after each render, so an
+             unresolved attribute would show as a blank tooltip. Every other button on this bar
+             does the same. The CLICK still works across those re-renders because the handler is
+             delegated on document (app.js), not bound to this element. -->
+        <button class="secondary-btn pa-iconbtn" id="btn-refresh" title="${esc(t('btn.refresh'))}"
+                aria-label="${esc(t('btn.refresh'))}">↻</button>
         <button class="primary-btn pa-iconbtn" id="pa-save-icon" title="${esc(t('para.saveTip'))}"
                 aria-label="${esc(t('para.saveTip'))}">${esc(t('para.save'))}</button>
         <!-- ⚠ A BARE ✕ IS ONLY SAFE NOW THAT File > Close document EXISTS. On its own it read as

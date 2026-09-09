@@ -770,11 +770,38 @@ async function setDocDone(docId, wantDone) {
   const isOpen = current && current.id === docId;
   if (wantDone && deleteAfterUpload() && !await confirmDialog(t('done.confirmDelete'))) return;
   let rec;
+  /* ⚠ WAS IT ALREADY IN SYNC BEFORE WE TOUCHED IT? Read this BEFORE persist(), because persist()
+   * bumps `modified` unconditionally — including when nothing changed — and that bump is what makes
+   * the answer unrecoverable a moment later. (#33, Seth 2026-09-04: "it's pretty consistently
+   * registering changes made since marked done… maybe it sends it first and THEN marks it done,
+   * which registers as a change".) */
+  const pre = isOpen ? current : await db.getDoc(docId);
+  const preSig = pre ? uploadContentSig(pre) : null;
+  const wasInSync = !!(pre && pre.uploadedFileId
+    && ((pre.uploadedSig && pre.uploadedSig === preSig) || pre.uploadedModified === pre.modified));
   if (isOpen) { await persist().catch(() => {}); rec = current; }   // flush pending edits first
   else rec = await db.getDoc(docId);
   if (!rec || !!rec.done === wantDone) return;
   rec.done = wantDone;
   rec.doneAt = wantDone ? Date.now() : null;
+  /* ⚠ MARKING DONE IS NOT AN EDIT, so a text that was already backed up must not start reading
+   * "changed" merely because it was finished.
+   *
+   * On a MODERN doc the stored uploadedSig rescues this: done/doneAt are not part of
+   * uploadContentSig (doc + audio + title), so the signature still matches and the tile reads
+   * "uploaded". A doc uploaded before uploadedSig existed has NO such proof — it falls back to
+   * `uploadedModified === modified`, which persist() has just broken — and it then reads "changed"
+   * FOREVER, because nothing will ever re-upload content that has not changed. That is the case
+   * Seth's devices are full of, and the half of #33 that v580 did not reach.
+   *
+   * The realign is gated on the signature being UNCHANGED across persist(): if the coworker typed
+   * something before tapping Done, persist() wrote it, the signature moves, and we correctly leave
+   * the text reading "changed" so it uploads. The uploadedSig backfill means a legacy doc can only
+   * ever need this rescue once. */
+  if (wantDone && wasInSync && uploadContentSig(rec) === preSig) {
+    rec.uploadedModified = rec.modified;
+    if (!rec.uploadedSig) rec.uploadedSig = preSig;
+  }
   try { await db.putDoc(rec); } catch { /* stays in memory; the report below still reflects it */ }
   if (isOpen) applyDoneButton();
   if (wantDone) {

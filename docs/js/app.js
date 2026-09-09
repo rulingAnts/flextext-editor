@@ -10807,14 +10807,19 @@ function setupServiceWorker() {
       });
     });
     // Check for a new version (and apply a ready one, if safe) on load, when the app returns to the
-    // foreground, when the network comes back, and every 5 min while open — so an app that stays open
+    // foreground, when the network comes back, and every 2 min while open — so an app that stays open
     // (a long recording session, a researcher watching the dashboard) self-updates within minutes
     // instead of up to an hour. A failed download just leaves the old version serving and is retried
     // on the next check (the SW install is all-or-nothing); updates apply only at a safe moment.
     check();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); applyUpdateIfSafe(); } });
     window.addEventListener('online', () => { check(); applyUpdateIfSafe(); });
-    setInterval(() => { check(); applyUpdateIfSafe(); }, 5 * 60 * 1000);
+    /* ⚠ TWO MINUTES, NOT FIVE (Seth, 2026-09-09, on the ~48 KB/hour the 5-minute cadence cost:
+     * "well within acceptable. Go ahead and shorten the poll"). This interval is the binding
+     * constraint on how fast an app that is ALREADY OPEN notices a release — the other triggers
+     * (load, foreground, reconnect) only fire on an event. ~4 KB gzipped per check, so ~120 KB/hour
+     * per open app; the shell itself is fetched only when the version actually changed. */
+    setInterval(() => { check(); applyUpdateIfSafe(); }, 2 * 60 * 1000);
     // Manual "check for updates now" — Ctrl/⌃ + Alt/⌥ + U (mirrors the Ctrl+Alt+R research toggle). e.code
     // keys off the physical U so the Mac Option-U dead key (ü) doesn't matter. Forces a check + immediate apply.
     document.addEventListener('keydown', (e) => {

@@ -43,6 +43,18 @@ const CHUNK_START = 16 * CHUNK_UNIT;         // 4 MiB opening guess
 const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* ⚠ PATIENCE MUST OUTLAST A REAL OUTAGE (Seth, 2026-09-09): "My apartment connection, even though
+ * it is starlink (but shared among probably 30+ users) often drops a connection for 2 minutes or
+ * more before coming back." Five strikes capped at 60s gave up after ~62 seconds — inside exactly
+ * the event it exists to survive. Eight strikes capped at 3 minutes ride it out: 2+4+8+16+32+64+128
+ * ≈ 4 minutes before handing back to the queue sweep, which re-enters and resumes from Drive own
+ * byte count.
+ *
+ * The reset-on-progress half was already right and is untouched: every delivered chunk sets
+ * `strikes = 0; waitMs = 2000`, so only a run that moves NOTHING tapers. */
+const UP_STRIKES = 8;
+const UP_WAIT_MAX_MS = 180000;
+
 /* Read a chunk's bytes BEFORE the request starts. fetch() reads a Blob body lazily, DURING
  * transmission — and a read that fails there is invisible to script. Firefox has been seen doing
  * exactly that on the crowd submit path (2026-08-31 HAR): a Blob freshly read back from IndexedDB
@@ -109,13 +121,13 @@ export async function runChunkedUpload(io) {
       await remember(streamId);
     }
     let waitMs = 2000, strikes = 0;
-    while (strikes < 5) {
+    while (strikes < UP_STRIKES) {
       if (io.shouldStop && io.shouldStop()) return { stopped: true };
       // Drive's own byte count is the truth — never this client's idea of where it got to.
       const probe = await io.put(streamId, `bytes */${total}`, null);
       if (probe.done) { say(total); return { done: true, fileId: probe.fileId }; }
       if (probe.gone) { streamId = null; await remember(null); break; }
-      if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); continue; }
+      if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS); continue; }
 
       let offset = probe.received || 0;
       let pushed = true;
@@ -133,7 +145,7 @@ export async function runChunkedUpload(io) {
           // The blob itself is unreadable right now (the Firefox IndexedDB case above) — never
           // put an announced-but-empty body on the wire. Strike, back off, re-probe.
           strikes++; pushed = false;
-          await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
           break;
         }
         const res = await io.put(streamId, `bytes ${offset}-${offset + size - 1}/${total}`, body);
@@ -142,7 +154,7 @@ export async function runChunkedUpload(io) {
         if (res.fail) {
           chunkBytes = shrinkChunk(chunkBytes);      // halve: the retry must risk less than the attempt did
           strikes++; pushed = false;
-          await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
           break;                                     // re-probe rather than guess the offset
         }
         strikes = 0; waitMs = 2000;
@@ -404,7 +416,7 @@ export class DriveUpload {
   //    record, so a reload/crash/offline WEEK later resumes mid-file;
   //  - every retry starts with a probe, so we always continue from Drive's own
   //    count, never a guess;
-  //  - transient failures back off (2s→60s) and shrink the chunk; after a few
+  //  - transient failures back off (2s→3min) and shrink the chunk; after a few
   //    strikes we return to the queue, whose startup/online/timer sweep re-enters
   //    here — pause/cancel behave exactly like the relay path (abort → status).
   // Returns true when the file is fully delivered (status already 'done').
@@ -436,7 +448,7 @@ export class DriveUpload {
     rec.chunkBytes = Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, rec.chunkBytes || CHUNK_START));
     let waitMs = 2000;
     let strikes = 0;
-    while (strikes < 5) {
+    while (strikes < UP_STRIKES) {
       if (this._gen !== run || this.status !== 'uploading') return true;   // paused/cancelled — session persists
       const probe = await this._chunkPut(target, rec, `bytes */${rec.total}`, null);
       if (probe.done) { await this._streamFinish(rec, probe.fileId); return true; }
@@ -444,7 +456,7 @@ export class DriveUpload {
       if (probe.fail) {
         strikes++;
         await new Promise((r) => setTimeout(r, waitMs));
-        waitMs = Math.min(waitMs * 2, 60000);
+        waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
         continue;
       }
       let offset = probe.received || 0;
@@ -466,7 +478,7 @@ export class DriveUpload {
           pushFailed = true;
           await db.putMedia(upKey(this.docId), rec).catch(() => {});
           await new Promise((r) => setTimeout(r, waitMs));
-          waitMs = Math.min(waitMs * 2, 60000);
+          waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
           break;   // re-probe: Drive tells us the true offset, we continue from there
         }
         // Chunk landed: adapt to the measured pace and show REAL byte progress.

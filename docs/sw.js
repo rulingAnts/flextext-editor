@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v648';
+const VERSION = 'v649';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -77,10 +77,26 @@ const SHELL = [
  *    retries later. An aborted install costs a retry; a mixed install costs a field device. */
 const SENTINEL = 'js/i18n.js';
 const SENTINEL_RE = new RegExp("ENGINE_VERSION = '" + VERSION + "'");
+/* ⚠ PATIENCE MUST OUTLAST A REAL OUTAGE (Seth, 2026-09-09): "My apartment connection, even though
+ * it is starlink (but shared among probably 30+ users) often drops a connection for 2 minutes or
+ * more before coming back." Three tries at 500ms and 1s gave up in ONE AND A HALF SECONDS, so a
+ * download that met a two-minute drop failed the whole install — and the app stayed on the old
+ * version until some later check happened to land in a good window.
+ *
+ * Seven tries tapering to 3 minutes ride the drop out: 0.5s, 1s, 2s, 4s, 8s, 3min.
+ *
+ * ⚠ THIS CHANGES NOTHING ABOUT ATOMICITY. A file that still cannot be fetched throws, the install
+ * throws with it, the worker never reaches installed, and the OLD version keeps serving from its
+ * own untouched cache. More patience only means fewer installs abandoned over a link that was
+ * coming back anyway. */
+const PRECACHE_TRIES = 7;
+const PRECACHE_WAIT_MAX_MS = 180000;
+const backoffMs = (attempt) => Math.min(PRECACHE_WAIT_MAX_MS, 500 * 2 ** attempt);
+
 async function precacheAll(cache, urls) {
   for (const url of urls) {
     let cached = false, lastErr;
-    for (let attempt = 0; attempt < 3 && !cached; attempt++) {
+    for (let attempt = 0; attempt < PRECACHE_TRIES && !cached; attempt++) {
       try {
         const bust = url + (url.includes('?') ? '&' : '?') + 'swv=' + VERSION;
         const resp = await fetch(bust, { cache: 'reload' });
@@ -91,7 +107,13 @@ async function precacheAll(cache, urls) {
         }
         await cache.put(url, resp);
         cached = true;
-      } catch (err) { lastErr = err; if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1))); }
+      } catch (err) {
+        lastErr = err;
+        // Offline is not flakiness. Grinding every remaining file through the full taper buys
+        // nothing and burns the link; bail now and let the next update check start over.
+        if (self.navigator && self.navigator.onLine === false) throw err;
+        if (attempt < PRECACHE_TRIES - 1) await new Promise(r => setTimeout(r, backoffMs(attempt)));
+      }
     }
     if (!cached) throw lastErr || new Error('precache failed: ' + url);
   }

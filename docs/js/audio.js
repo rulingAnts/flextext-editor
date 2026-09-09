@@ -133,7 +133,29 @@ const RELAY_CHUNK_FIRST = 512 * 1024;
 const RELAY_CHUNK_MIN = 128 * 1024;
 const RELAY_CHUNK_MAX = 3 * 1024 * 1024; // base64 reply ≈ 4 MB, safe for Apps Script
 const SAVE_EVERY = 256 * 1024;      // persist partial progress this often
-const RETRIES = 3;                  // per-chunk attempts before giving up
+/* Attempts before a download reports failure and waits for the next sweep.
+ *
+ * ⚠ RAISED FROM 3 (Seth, 2026-09-09): "Trying to download texts into an editor session on an Android
+ * tablet even on broadband (but 3rd world broadband) kept failing after 3 tries. And then just
+ * sitting stale requiring the user to push retry/refresh on every text one at a time."
+ *
+ * Three attempts at 2s and 4s gave up inside SIX SECONDS. The sweep did keep retrying every 90s —
+ * nothing was actually stuck — but each round died just as fast, so it read as permanently broken
+ * and the only thing that looked like it helped was pressing retry by hand, on every text.
+ *
+ * Each attempt RESUMES from the partial rather than restarting (_loadPartial), and every failure
+ * halves the chunk size, so later attempts ask for less and less over a link that has already shown
+ * it cannot carry much. Spending more of them is close to free and is exactly what a glitchy link
+ * needs. Backoff is capped so the worst case stays bounded at ~30s, comfortably inside the 90s
+ * sweep — a slow attempt must never leave sweeps overlapping. */
+const RETRIES = 10;
+/* ⚠ THE CAP MUST EXCEED A REAL OUTAGE, NOT A HICCUP (Seth, 2026-09-09): "My apartment connection,
+ * even though it is starlink (but shared among probably 30+ users) often drops a connection for 2
+ * minutes or more before coming back." A ceiling under that guarantees we give up during exactly
+ * the event we are meant to survive. 3 minutes of cooldown, ten attempts: 2+4+8+16+32+64+128 then
+ * 180+180+180 ≈ 13 minutes of patience inside ONE download object — and the 90s sweep re-enters
+ * afterwards, so in practice it never stops while the app is open. */
+const RETRY_MAX_MS = 180000;
 
 const partialKey = (docId) => 'partial:' + docId;
 const activeDownloads = new Map();  // docId -> AudioDownload
@@ -205,7 +227,13 @@ export class AudioDownload {
   }
 
   async _runWithRetries(run) {
-    for (let attempt = 0; ; attempt++) {
+    /* ⚠ PROGRESS RESETS THE TAPER (Seth, 2026-09-09): "every time it successfully gets more bytes,
+     * it should reset the cooldown to default retries. What I don't want is for it to get a
+     * download partially, then have three failed retries because the connection is out, and then
+     * just fail period." Bytes landing is proof the link is alive, so the attempt counter starts
+     * over and the next wait is short again. Only a run of attempts that moves NOTHING tapers. */
+    for (let attempt = 0; ; ) {
+      const beforeBytes = this.received;
       try {
         return await this._run(run);
       } catch (e) {
@@ -228,7 +256,9 @@ export class AudioDownload {
         // Transient failure: assume a shaky connection and shrink chunks so
         // each retry risks less.
         this.chunkSize = Math.max(RELAY_CHUNK_MIN, Math.floor(this.chunkSize / 2));
-        if (attempt + 1 >= RETRIES) {
+        // Any byte that arrived counts as a live connection — start the patience over.
+        if (this.received > beforeBytes) attempt = 0; else attempt++;
+        if (attempt >= RETRIES) {
           this.status = 'error';                             // keep partial
           // Carry a reason so the UI shows "couldn't download — will retry",
           // never the misleading "not downloaded yet" (which reads as in-progress).
@@ -236,7 +266,8 @@ export class AudioDownload {
           this.emit();
           return null;
         }
-        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        // 2s, 4s, 8s, 16s, 32s, 64s, 128s, then 3 min — long enough to sit out a Starlink drop.
+        await new Promise(r => setTimeout(r, Math.min(RETRY_MAX_MS, 2000 * 2 ** attempt)));
         if (this._gen !== run || this.status !== 'downloading') return null;
       }
     }

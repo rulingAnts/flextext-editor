@@ -66,8 +66,8 @@ test('it checks on load, on foreground, on reconnect, and on a timer', () => {
   assert.match(reg, /const check = \(\) => reg\.update\(\)/);
   assert.match(reg, /visibilitychange[\s\S]{0,80}check\(\)/, 'returning to the app checks');
   assert.match(reg, /'online'[\s\S]{0,60}check\(\)/, 'regaining the network checks');
-  assert.match(reg, /setInterval\(\(\) => \{ check\(\); applyUpdateIfSafe\(\); \}, 5 \* 60 \* 1000\)/,
-    'and every 5 minutes while open — the binding constraint on how fast an update is noticed');
+  assert.match(reg, /setInterval\(\(\) => \{ check\(\); applyUpdateIfSafe\(\); \}, 2 \* 60 \* 1000\)/,
+    'and every 2 minutes while open — the binding constraint on how fast an OPEN app notices a release');
 });
 
 /* ── Seth's invariant: a partial or failed download must never cost the working copy ──────────── */
@@ -80,8 +80,10 @@ test('a new version installs into its OWN cache, so the old one is never overwri
 
 test('if any single file fails after retries, the whole install fails and the old version keeps serving', () => {
   const pre = SW.slice(SW.indexOf('async function precacheAll'), SW.indexOf("self.addEventListener('install'"));
-  assert.match(pre, /attempt < 3/, 'each file is retried');
-  assert.match(pre, /setTimeout\(r, 500 \* \(attempt \+ 1\)\)/, 'with backoff');
+  // Depth and cooldown are pinned in never-stuck.test.mjs, against the 2-minute outage they must
+  // outlast; here we only care that a retry loop with backoff exists at all.
+  assert.match(pre, /attempt < PRECACHE_TRIES/, 'each file is retried');
+  assert.match(pre, /setTimeout\(r, backoffMs\(attempt\)\)/, 'with a tapering backoff');
   assert.match(pre, /if \(!cached\) throw lastErr/,
     'and one unrecoverable file throws — so the worker never reaches "installed", and cannot activate');
   // A CDN mid-deploy can serve new and old files together; the sentinel refuses that mixture.

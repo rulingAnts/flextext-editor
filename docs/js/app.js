@@ -11936,14 +11936,43 @@ function setup() {
     if (f) importFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
   $('#baseline-text').addEventListener('blur', () => { applyBaseline(); });
-  // Dummy "Save" (Office-web style): work is ALREADY auto-saved continuously — this just flushes any
-  // pending save and reassures the coworker, so the obsessive Save reflex never triggers an upload.
-  // The real send is the separate "Sudah selesai (Kirim)" button (#btn-share → the send menu).
-  $('#btn-save')?.addEventListener('click', async () => {
+  /* Dummy "Save" (Office-web style): work is ALREADY auto-saved continuously — this just flushes any
+   * pending save and reassures the coworker, so the obsessive Save reflex never triggers an upload.
+   * The real send is the separate "Sudah selesai (Kirim)" button (#btn-share → the send menu). */
+  const flushSave = async () => {
     if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
     try { await persist(); } catch { /* already saved / nothing to flush */ }
     toast(t('toast.autoSaved'), 4000);
-  });
+  };
+  const saveBtn = $('#btn-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', flushSave);
+    /* CTRL+S / CMD+S — the same act from the keyboard (#40, Seth 2026-09-04: "capture CTRL+S
+     * keyboard shortcut (Green saved button, plus 'Auto saved' toast that that triggers)").
+     *
+     * Nothing here needs to save. The point is the OTHER half: without this, Ctrl+S opens the
+     * browser's "Save page as…" download dialog, which is an alarming thing to meet mid-sentence
+     * — and the reflex is universal in anyone who has used a word processor. Answering it with the
+     * reassurance the button gives turns a scare into a confirmation.
+     *
+     * ⚠ THIS ONE FIRES INSIDE TEXT BOXES, unlike every other shortcut in this file. Space and Enter
+     * are gated by inTextField() precisely because a text box owns those keys; Ctrl+S is never a
+     * typing key, and inside a box is exactly where the hand is when the reflex arrives. Gating it
+     * would defeat the whole fix.
+     *
+     * ⚠ CAPTURE PHASE, so the browser dialog is prevented even where something nearer the target
+     * stops propagation first. Bound only where a Save button exists (the editor and the Audio
+     * Segmenter) — the recorder, consent and crowd shells have nothing to flush, and a shortcut
+     * that toasts "saved" in an app with no document would be a lie.
+     *
+     * Alt+Ctrl+S is left alone: it is not this shortcut, and some keyboard layouts use AltGr
+     * (= Ctrl+Alt) to type characters. */
+    document.addEventListener('keydown', (e) => {
+      if ((e.key !== 's' && e.key !== 'S') || !(e.metaKey || e.ctrlKey) || e.altKey) return;
+      e.preventDefault();
+      flushSave();
+    }, true);
+  }
   $('#btn-share').addEventListener('click', openShareMenu);
 
   $('#audio-player .player-dl-pause').addEventListener('click', () => {

@@ -25,7 +25,6 @@ const SHELLS = {
   'consent-collector': '../satellites/consent-collector/index.html',
   'text-recorder': '../satellites/text-recorder/index.html',
   'crowd-recorder': '../satellites/crowd-recorder/index.html',
-  'paragraph-analysis': '../paragraph-analysis/index.html',
 };
 
 test('every app ships the button, exactly once', () => {
@@ -79,13 +78,31 @@ test('it saves before it reloads, and reloads even when a step fails', () => {
   assert.match(h, /finally \{ location\.reload\(\); \}/, 'and reload whatever happened above');
 });
 
-/* PAT's strip sits outside #pa-main because that element is rebuilt on every edit, and because only
- * one of PAT's several screens has a bar at all. */
-test('the Paragraph Analysis Tool keeps it outside the re-rendered region', () => {
-  const html = rd('../paragraph-analysis/index.html');
-  assert.ok(html.indexOf('id="btn-refresh"') < html.indexOf('<main id="pa-main">'),
-    'the button is above #pa-main, so no render can wipe it');
-  assert.match(rd('../docs/css/app.css'), /#pa-appbar \{[^}]*justify-content: flex-end/, 'and it is styled');
+/* PAT IS THE ONE THAT IS NOT A SHELL. Its button lives in its own toolbar markup, between the ? and
+ * Save — Seth, 2026-09-09: "UI vertical space is at a premium. Put it between the help button and
+ * the save button." It first shipped as a strip of its own above the tool, which bought placement
+ * safety with a whole band of a header that is already several rows tall. */
+test('the Paragraph Analysis Tool carries it between the ? and Save', () => {
+  const ui = rd('../docs/js/paragraph-ui.js');
+  const help = ui.indexOf('id="pa-tip-btn"');
+  const mine = ui.indexOf('id="btn-refresh"');
+  const save = ui.indexOf('id="pa-save-icon"');
+  assert.ok(help > 0 && mine > 0 && save > 0, 'all three buttons are in the bar');
+  assert.ok(help < mine && mine < save, 'and in that order: ? → refresh → Save');
+  /* ⚠ RESOLVED AT RENDER, not data-i18n: this bar is rebuilt on every edit and applyI18n() does not
+   * run again afterwards, so a data-i18n-title would leave an empty tooltip. */
+  assert.match(ui.slice(mine - 200, mine + 200), /title="\$\{esc\(t\('btn\.refresh'\)\)\}/);
+  assert.match(ui.slice(mine - 200, mine + 260), /aria-label="\$\{esc\(t\('btn\.refresh'\)\)\}/);
+  // The shell no longer carries one, and neither does the stylesheet.
+  assert.doesNotMatch(rd('../paragraph-analysis/index.html'), /btn-refresh|pa-appbar/);
+  assert.doesNotMatch(rd('../docs/css/app.css'), /pa-appbar/);
+});
+
+/* ⚠ WHY DELEGATION IS LOAD-BEARING HERE SPECIFICALLY: PAT re-renders this whole bar on every edit,
+ * so the button the user clicks is never the one that existed when the app booted. */
+test('PAT re-renders the bar the button sits on', () => {
+  const ui = rd('../docs/js/paragraph-ui.js');
+  assert.match(ui, /root\.innerHTML = `/, 'the tool writes its screens wholesale');
 });
 
 test('the label exists in both languages', () => {

@@ -9,6 +9,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
+import { openExternal, wireExternalLinks } from './external-link.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -7616,6 +7617,12 @@ function isResearchHidden() {
 }
 
 function applyResearchVisibility() {
+  /* ⚠ MAKE THEM NOT LOOK LIKE LINKS EITHER. The click interception is the guarantee; this is so a
+   * coworker on a managed device never presses something that then refuses them. CSS keyed on the
+   * body class — see .no-offsite in app.css — greys the anchor and takes its pointer events away.
+   * Re-evaluated here because this function already runs at startup AND after every live settings
+   * save, which is exactly when a device's paired state can have changed. */
+  try { document.body.classList.toggle('no-offsite', Sync.hasSession()); } catch { /* no body yet */ }
   // Managed installs (claimed via an invite) are remote-managed ONLY: the Settings tab is
   // always hidden and cannot be revealed — settings change only through the researcher panel
   // (passphrase-gated). A non-managed device uses the normal hide toggle.
@@ -10979,6 +10986,25 @@ async function forceUpdateCheck() {
 // NOTE: it cannot bust a stale CDN copy of sw.js — if the SERVER still serves the old version,
 // the "up to date" toast is reporting that truthfully.
 if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
+
+/* ⚠ AT MODULE SCOPE, NOT IN setup(). setup() returns early for crowd, paragraph, researcher, record
+ * and consent mode, and an offsite link that escapes to an in-app browser in ONE of those apps is
+ * the whole bug. Same trap the refresh button fell into; do not move this inside setup(). */
+/* ⚠ A PAIRED DEVICE GETS NO CLICKABLE WAY OFF THE SITE (Seth, 2026-09-09: "paired devices should
+ * have NO clickable hyperlinks that lead off the site… Embedded/linked content, CDN, scripts,
+ * cloudflare, worker back end, Google Drive, whatever else going on in the background is fine. But
+ * nothing the user can click on and get an in app browser to another site as a result").
+ *
+ * Scope is exactly that: this sees <a href> CLICKS and nothing else. Background traffic — the
+ * engine from the CDN, the worker, Drive uploads, the consent prompt — is untouched, because none
+ * of it is a link a person can press.
+ *
+ * The predicate runs per click, so releasing or claiming a device while the page is open is
+ * reflected immediately. */
+wireExternalLinks(document, {
+  allowOffsite: () => !Sync.hasSession(),
+  onBlocked: () => { try { toast(t('link.offsiteBlocked'), 6000); } catch { /* pre-i18n */ } },
+});
 
 /* ⚠ DELEGATED, NOT BOUND TO THE ELEMENT. Every app has this button now (Seth, 2026-09-09: "make
  * sure all of our apps have the refresh button"), and the Paragraph Analysis Tool re-renders its

@@ -9,7 +9,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
-import { openExternal, wireExternalLinks } from './external-link.js';
+import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -7622,7 +7622,18 @@ function applyResearchVisibility() {
    * body class — see .no-offsite in app.css — greys the anchor and takes its pointer events away.
    * Re-evaluated here because this function already runs at startup AND after every live settings
    * save, which is exactly when a device's paired state can have changed. */
-  try { document.body.classList.toggle('no-offsite', Sync.hasSession()); } catch { /* no body yet */ }
+  /* ⚠ TWO MECHANISMS, ON PURPOSE, because "no clickable escape" and "not visible" are different
+   * guarantees and one of them has to survive the other being wrong. enforceNoOffsiteLinks REMOVES
+   * the href (which is what closes middle-click, Ctrl/Cmd+click and the browser's own long-press
+   * "open in new tab" — none of which fire a click event we could intercept) and hides the element;
+   * the body class hides the credit line, whose punctuation would otherwise be left stranded.
+   * Runs here because this function already runs at startup AND after every live settings save,
+   * which is exactly when a device's paired state can change. */
+  try {
+    const paired = Sync.hasSession();
+    document.body.classList.toggle('no-offsite', paired);
+    enforceNoOffsiteLinks(paired);
+  } catch { /* no body yet — re-runs on the next call */ }
   // Managed installs (claimed via an invite) are remote-managed ONLY: the Settings tab is
   // always hidden and cannot be revealed — settings change only through the researcher panel
   // (passphrase-gated). A non-managed device uses the normal hide toggle.

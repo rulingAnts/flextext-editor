@@ -96,3 +96,76 @@ export function wireExternalLinks(root = document, opts = {}) {
     openExternal(a.href);
   }, true);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ZERO ESCAPE HOLES ON A PAIRED DEVICE (Seth, 2026-09-09: "I don't want there to be ANY escape hole
+ * in the hyperlinks that can end up opening a web browser on another site (or an in app browser)").
+ *
+ * ⚠ INTERCEPTING `click` IS NOT ENOUGH, and this is the whole reason this function exists rather
+ * than just the handler above. A link can be followed without ever firing a `click`:
+ *   • middle-click, and Ctrl/Cmd+click, fire `auxclick` — a different event
+ *   • long-press (Android) or right-click → "Open link in new tab" is the BROWSER's own menu and
+ *     never reaches JavaScript at all
+ *   • drag-and-drop of a link, and keyboard menus, likewise
+ * Each of those is a separate hole, and a list of holes is not a guarantee.
+ *
+ * So we do not defend the link — we REMOVE it. An <a> with no href is not a link by definition:
+ * nothing to click, nothing to middle-click, no context menu entry, no keyboard activation, no
+ * drag target. One removal closes every vector at once, including the ones nobody has thought of.
+ *
+ * ⚠ THE LINK GOES, THE WORDS STAY (Seth, 2026-09-09, settling it: "I think copyright notice and
+ * license with no links should display. But no links"). Removing the href is what closes the
+ * middle-click and long-press holes; rendering the remains as ordinary text is what stops it
+ * looking like something to press. The footer therefore still reads its licence notice in full —
+ * "free, open-source software (AGPL-3.0). © 2026 Seth Johnston. Source & contributions welcome on
+ * GitHub." — with nothing clickable anywhere in it.
+ *
+ * The href is stashed on the element, so a device that is later released gets its links back.
+ *
+ * On the licence notice: the footer carries the AGPL-3.0 link and the source credit, and hiding a
+ * licence notice would normally be a compliance question. It is not one here — Seth is the sole
+ * copyright holder of this work, the notices remain in the source and on every unpaired device and
+ * on the public site, so this is a presentation choice by the licensor rather than a licensee
+ * stripping someone else's notice.
+ *
+ * ⚠ A MutationObserver, because the views re-render. The Paragraph Analysis Tool rebuilds its whole
+ * UI on every edit, help text arrives from i18n HTML strings, and the gloss view repaints per
+ * keystroke — a one-shot pass at startup would protect only the first paint. */
+export function enforceNoOffsiteLinks(isPaired, root = document) {
+  const strip = (el) => {
+    const links = el.querySelectorAll ? el.querySelectorAll('a[href], area[href]') : [];
+    for (const a of links) {
+      const href = a.getAttribute('href');
+      if (!isOffsite(href)) continue;
+      a.dataset.offsiteHref = href;          // remembered, so releasing the device restores it
+      a.removeAttribute('href');
+      a.removeAttribute('target');
+      a.classList.add('offsite-off');
+    }
+  };
+  const restore = (el) => {
+    for (const a of el.querySelectorAll('a.offsite-off[data-offsite-href], area.offsite-off[data-offsite-href]')) {
+      a.setAttribute('href', a.dataset.offsiteHref);
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer external');
+      delete a.dataset.offsiteHref;
+      a.classList.remove('offsite-off');
+    }
+  };
+
+  if (enforceNoOffsiteLinks._obs) { enforceNoOffsiteLinks._obs.disconnect(); enforceNoOffsiteLinks._obs = null; }
+  const host = root.body || root;
+  if (!isPaired) { restore(host); return; }
+
+  strip(host);
+  /* Re-strip whatever appears later. Attribute changes matter too: a re-render can set href on an
+   * element that already existed. */
+  const obs = new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'attributes' && r.target) strip(r.target.parentNode || host);
+      for (const n of r.addedNodes || []) if (n.nodeType === 1) { strip(n); if (n.matches && n.matches('a[href], area[href]')) strip(host); }
+    }
+  });
+  obs.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
+  enforceNoOffsiteLinks._obs = obs;
+}

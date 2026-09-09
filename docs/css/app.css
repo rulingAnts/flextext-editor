@@ -3427,3 +3427,19 @@ body.no-offsite a[href^="http"]:not([href*="flextext.app"]) {
   color: inherit;
   cursor: default;
 }
+
+/* Offsite links on a paired device: gone, not merely greyed (Seth, 2026-09-09 — "I actually want
+   all those links hidden on paired devices. So they don't even show and aren't clickable or visible
+   in the first place"). external-link.js strips the href too; that is what closes the middle-click
+   and long-press routes, while this is what stops the link being seen at all. */
+/* ⚠ THE TEXT STAYS, THE LINK GOES (Seth, 2026-09-09: "I think copyright notice and license with no
+   links should display. But no links"). The href is already removed by external-link.js, which is
+   what actually closes middle-click and the browser's long-press menu; this is what stops the
+   remains LOOKING like a link. So the footer still reads "free, open-source software (AGPL-3.0).
+   © 2026 Seth Johnston. Source & contributions welcome on GitHub." — the notice intact, nothing to
+   press. Hiding it outright would have left stranded punctuation AND dropped the licence notice. */
+a.offsite-off, area.offsite-off {
+  text-decoration: none;
+  color: inherit;
+  cursor: default;
+}

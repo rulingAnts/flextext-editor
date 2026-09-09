@@ -3414,3 +3414,9 @@ a.rp-app-link { display: block; text-align: center; text-decoration: none; box-s
 .sfm-row span { font-size: 12px; }
 .sfm-found { font-weight: 600; color: var(--text); }
 .sfm-msg.sfm-warn { color: #b23c00; }
+
+/* The Paragraph Analysis Tool has no header of its own — its screens are all re-rendered into
+   #pa-main — so the version-refresh button rides a slim strip above it (v646). Right-aligned and
+   flat so it reads as chrome, not as one of the tool's own controls. */
+#pa-appbar { display: flex; justify-content: flex-end; padding: 2px 8px 0; }
+#pa-appbar .icon-btn { color: var(--muted); }

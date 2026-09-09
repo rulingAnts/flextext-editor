@@ -37,6 +37,12 @@
 <header id="topbar">
   <div id="topbar-home" class="topbar-row">
     <span class="app-title" data-i18n="consentapp.appName">Flextext Consent Collector</span>
+    <!-- Force a version check + reload (Seth, 2026-09-09: "all of our apps have the refresh button").
+         Same id, glyph and behaviour as the editor's; the handler is delegated in app.js, which every
+         app loads. The apps auto-update when the worker finds a new one, but a cache that has gone
+         stale in the field needs a control a person can press — found on 2026-09-09, when a browser
+         profile was still serving v610 against a v645 site. -->
+    <button id="btn-refresh" class="icon-btn" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">&#8635;</button>
     <select id="lang-select" data-i18n-title="research.lang">
       <option value="en">English</option>
       <option value="id">Indonesia</option>

@@ -541,10 +541,17 @@ path. Publish it before those files are live and `precacheAll()` throws inside
 the old worker, and *new* installs get no precached shell at all, silently
 losing offline support. That happened for real, hence the automation.
 
-Run it by hand (e.g. from a cloud session) with:
+⚠ **RETIRED (2026-08-20) — this is NOT part of a release.** The three legacy GitHub Pages
+mirrors keep serving what they serve, and keep working for whoever is on them, but they no longer
+receive updates. The `push` trigger is gone; the commands below still work and are kept only for
+deliberately republishing a single mirror if one ever has to be.
+
+⚠ Do not add this to a production deploy. It was run as part of releases on 2026-09-07, -08 and
+-10 because this section and `DEVELOPERS.md` still described the pre-retirement trigger. A
+production release is `deploy-production.yml` and nothing else.
 
 ```sh
-gh workflow run sync-satellites.yml            # all three
+gh workflow run sync-satellites.yml            # all three — deliberate republish only
 gh workflow run sync-satellites.yml -f only=text-recorder
 ```
 

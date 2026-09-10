@@ -56,7 +56,9 @@ The item itself is tracked privately.
 
 **The legacy estate stays published.** Retirement is deferred, not cancelled, and nothing in the
 tree needs changing to defer it — the removal was a plan, never an in-flight change. What continues
-unchanged: `sync-satellites.yml` publishes the mirrors on every `productionWeb` push, the
+unchanged (⚠ SUPERSEDED 2026-08-20 — the push trigger was removed and the mirrors now stop
+receiving updates; see README.md): `sync-satellites.yml` published the mirrors on every
+`productionWeb` push, the
 deploy-order law holds (editor live first, every precached path verified 200), and
 `test/version-sync.test.mjs` keeps the satellites' declared ENGINE pinned to the editor's.
 

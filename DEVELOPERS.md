@@ -295,8 +295,13 @@ This is the part that has caused real outages when done wrong — read
   normal SW-update semantics.
 - **Branches:** feature branch → `staging` (`--no-ff`, auto-built to the Cloudflare dev site) →
   after the maintainer's hands-on sign-off, ff into `main` → ff into `productionWeb`.
-  Pushing `productionWeb` triggers `sync-satellites.yml`, which WAITS for the live editor,
-  verifies every precached path returns 200, then publishes the mirrors.
+  Production deploys are `deploy-production.yml`, manual-dispatch, **on `productionWeb` only** —
+  all seven Cloudflare Workers, no app selection by design.
+  ⚠ `sync-satellites.yml` is **RETIRED** (2026-08-20) and must NOT be part of a release. Its
+  `push` trigger was removed so the three legacy GitHub Pages mirrors keep serving but stop
+  receiving updates; only `workflow_dispatch` remains, for deliberately republishing one mirror.
+  This bullet used to say a `productionWeb` push triggered it, which was true before the
+  retirement and is why it kept getting run by hand afterwards (2026-09-07, -08 and -10).
 - **Backend first:** when a change touches `worker/` or D1, deploy the worker (manual-dispatch
   `worker-deploy.yml`) before any client that depends on it — including CORS: a new `x-fx-*`
   header must be in the worker's allow-list before any deployed client sends it.

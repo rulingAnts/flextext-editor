@@ -14,6 +14,7 @@
 
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
+import { syncTypingWarnings } from './typing.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
@@ -788,11 +789,11 @@ const GROUPS = [
      * Ordered by how much damage each can do: marking rewrites nothing, completion offers, and
      * correction takes. Every one defaults to `auto`, which never enables correction anywhere. */
     { k: 'analSpellcheck', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' },
+      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' , bundled: true },
     { k: 'analAutocomplete', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      info: 'panel.f.analAutocompleteInfo' },
+      info: 'panel.f.analAutocompleteInfo' , bundled: true },
     { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      info: 'panel.f.analAutocorrectInfo' },
+      info: 'panel.f.analAutocorrectInfo' , bundled: true },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
@@ -1340,7 +1341,8 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v657', date: '2026-09-10', items: [
+  { v: 'v658', date: '2026-09-10', items: [
+    { k: 'panel.rel.new.typingBundleWarning' },
     { k: 'panel.rel.fix.noAutocorrectVernacular' },
     { k: 'panel.rel.new.analysisTypingDials' },
   ] },
@@ -9111,6 +9113,18 @@ function infoDotHtml(f) {
     + ` aria-expanded="false" aria-controls="info-${f.k}"`
     + ` aria-label="${esc(t('setup.whatThisDoes'))}">i</button>`;
 }
+function warnDotHtml(f) {
+  if (!f.bundled) return '';
+  return ` <button type="button" class="info-dot warn-dot" data-infofor="warn-${f.k}" hidden`
+    + ` aria-expanded="false" aria-controls="info-warn-${f.k}"`
+    + ` aria-label="${esc(t('setup.whyNotOff'))}">!</button>`;
+}
+function warnNoteHtml(f) {
+  if (!f.bundled) return '';
+  return `<p class="note info-note warn-note" id="info-warn-${f.k}" data-infonote="warn-${f.k}" hidden>`
+    + `${esc(t('panel.f.typingBundledWarn'))}</p>`;
+}
+
 function infoNoteHtml(f) {
   if (!f.info) return '';
   return `<p class="note info-note" id="info-${f.k}" data-infonote="${f.k}" hidden>${esc(t(f.info))}</p>`;
@@ -9150,8 +9164,8 @@ function fieldHtml(f) {
     const help = f.k === 'recordFormat'
       ? `<p class="note"><a href="/flextext-editor/help/recording-limits.html" target="_blank" rel="noopener">${esc(t('panel.f.recordFormatHelp'))}</a></p>`
       : '';
-    return `<label class="rp-field"><span>${label}${infoDotHtml(f)}</span><select data-f="${f.k}">${opts}</select></label>`
-      + `${f.note ? `<p class="note">${t(f.note)}</p>` : ''}${infoNoteHtml(f)}${help}`;
+    return `<label class="rp-field"><span>${label}${infoDotHtml(f)}${warnDotHtml(f)}</span><select data-f="${f.k}">${opts}</select></label>`
+      + `${f.note ? `<p class="note">${t(f.note)}</p>` : ''}${infoNoteHtml(f)}${warnNoteHtml(f)}${help}`;
   }
   /* ⚠ PROSE THE RESEARCHER WRITES, NOT LANGUAGE DATA — so it opts back OUT of the blanket policy on
    * <body>. The consent message is a paragraph read aloud to a speaker, usually in Indonesian, and
@@ -9357,6 +9371,9 @@ function fillForm(box, v) {
   });
   syncIconPicks(box);
   paintPromptState(box);
+  /* A device that already has one of these dials on must show the ⚠ before anyone touches the form,
+   * not only after a change event. See typing.js for what the warning is about. */
+  syncTypingWarnings(box, 'data-f');
 }
 
 /* The consent prompt's status line — the visible half of a hidden value carrier. A stored value is

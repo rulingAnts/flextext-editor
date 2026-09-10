@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -6434,11 +6434,11 @@ const SETUP_GROUPS = [
      * Ordered by how much damage each can do: marking rewrites nothing, completion offers, and
      * correction takes. Every one defaults to `auto`, which never enables correction anywhere. */
     { k: 'analSpellcheck', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' },
+      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' , bundled: true },
     { k: 'analAutocomplete', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      info: 'panel.f.analAutocompleteInfo' },
+      info: 'panel.f.analAutocompleteInfo' , bundled: true },
     { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      info: 'panel.f.analAutocorrectInfo' },
+      info: 'panel.f.analAutocorrectInfo' , bundled: true },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     // Whether the plain Space bar plays (automatic = off on a touch screen, where Space is typing).
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
@@ -6586,6 +6586,18 @@ function infoDotHtml(f) {
     + ` aria-expanded="false" aria-controls="info-${f.k}"`
     + ` aria-label="${esc(t('setup.whatThisDoes'))}">i</button>`;
 }
+function warnDotHtml(f) {
+  if (!f.bundled) return '';
+  return ` <button type="button" class="info-dot warn-dot" data-infofor="warn-${f.k}" hidden`
+    + ` aria-expanded="false" aria-controls="info-warn-${f.k}"`
+    + ` aria-label="${esc(t('setup.whyNotOff'))}">!</button>`;
+}
+function warnNoteHtml(f) {
+  if (!f.bundled) return '';
+  return `<p class="note info-note warn-note" id="info-warn-${f.k}" data-infonote="warn-${f.k}" hidden>`
+    + `${esc(t('panel.f.typingBundledWarn'))}</p>`;
+}
+
 function infoNoteHtml(f) {
   if (!f.info) return '';
   return `<p class="note info-note" id="info-${f.k}" data-infonote="${f.k}" hidden>${esc(t(f.info))}</p>`;
@@ -6641,8 +6653,8 @@ function setupFieldHtml(f) {
     // result can be called an archival master at all is not guessable from a name in a dropdown.
     const help = f.help === 'recfmt'
       ? `<p class="note"><button type="button" class="link-btn" data-sact="recfmtHelp">${esc(t('recfmt.helpLink'))}</button></p>` : '';
-    return offWrap(`<label class="rp-field"><span>${label}${f.off ? ' ' + setupOffMark() : ''}${infoDotHtml(f)}</span><select data-sf="${f.k}"${off}>${opts}</select></label>`)
-      + help + note + infoNoteHtml(f);
+    return offWrap(`<label class="rp-field"><span>${label}${f.off ? ' ' + setupOffMark() : ''}${infoDotHtml(f)}${warnDotHtml(f)}</span><select data-sf="${f.k}"${off}>${opts}</select></label>`)
+      + help + note + infoNoteHtml(f) + warnNoteHtml(f);
   }
   /* A field that goes on and off with ANOTHER field on the same form. The wrapper, the mark and the
    * reason line are all rendered up front and toggled by updateSetupConditionals — building them on
@@ -7057,6 +7069,9 @@ function updateSetupConditionals(box) {
    * on restores the text — nothing is cleared, only ignored. */
   const askText = !!box.querySelector('[data-sf="consentAsk"][data-v="text"]:checked');
   setupDynOff(box, 'consentMsg', !askText);
+
+  // The ⚠ on the two typing dials that are not 'on', whenever one of them is. See typing.js.
+  syncTypingWarnings(box, 'data-sf');
 
   const cf = box.querySelector('#ds-consent-file');
   if (cf) {
@@ -11134,6 +11149,19 @@ wireExternalLinks(document, {
  * The sweep also catches fields drawn later: rows are rebuilt as the user scrolls, and a field that
  * arrives unhardened has offered a suggestion before anyone notices. See typing.js. */
 enforceTyping(document);
+
+/* ⚠ ONE HANDLER, BOTH SETTINGS SURFACES. The researcher panel loads this file too, so a delegated
+ * change listener at module scope keeps the Android-coupling warning in step on the panel and on an
+ * unpaired device's own Settings tab without either form needing to know about it. Module scope for
+ * the usual reason: setup() never runs in five of the seven apps. */
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!t || !t.dataset) return;
+  const k = t.dataset.sf || t.dataset.f;
+  if (k !== 'analSpellcheck' && k !== 'analAutocomplete' && k !== 'analAutocorrect') return;
+  const attr = t.dataset.sf ? 'data-sf' : 'data-f';
+  syncTypingWarnings(t.closest('form, #device-setup, .rp-form') || document, attr);
+});
 
 /* ⓘ next to a setting, toggled by click or tap. Delegated at module scope for the same reason
  * enforceTyping is: the Settings tab is rebuilt whenever it opens, so a bound handler would be

@@ -69,7 +69,11 @@ test('they grow to fit instead of scrolling inside themselves', () => {
                          STRIPS.indexOf('export function installKeyboardOverlayGuard'));
   assert.ok(g.indexOf("el.style.height = 'auto';") < g.indexOf('el.scrollHeight'),
     'height:auto first, or the box never shrinks after a deletion');
-  assert.match(APP, /growArea, initCut/, 'app.js imports it rather than keeping a second copy');
+  /* ⚠ MEMBERSHIP, NOT ADJACENCY. This used to pin /growArea, initCut/ — i.e. which name happened to
+   * follow it in the import list — so adding applyEnterKeyHint beside it reported a second copy of
+   * growArea that did not exist. What matters is that app.js imports the shared one and defines none. */
+  assert.match(APP, /import \{[^}]*\bgrowArea\b[^}]*\} from '\.\/segment-strips\.js'/, 'app.js imports it');
+  assert.doesNotMatch(APP, /function growArea\(/, 'rather than keeping a second copy');
   // Grown on first paint AND on every edit, or the box jumps on the first keystroke.
   for (const [src, what] of [[APP, 'free-input'], [STRIPS, 'seg-text']]) {
     const b = block(src, `input.className = '${what}'`, "addEventListener('keydown'");
@@ -168,6 +172,8 @@ test('an empty box is one line tall by CSS alone', () => {
 });
 
 test('focus re-measures as a backstop, but is never required', () => {
-  assert.match(APP, /input\.addEventListener\('focus', \(\) => growArea\(input\)\);/);
-  assert.match(STRIPS, /input\.addEventListener\('focus', \(\) => growArea\(input\)\);/);
+  /* The handler now also refreshes the phone keyboard's Enter label (applyEnterKeyHint), so assert
+   * that focus still GROWS the box — not the exact one-line body it used to have. */
+  for (const [src, name] of [[APP, 'app.js'], [STRIPS, 'segment-strips.js']])
+    assert.match(src, /input\.addEventListener\('focus', \(\) => (?:\{ )?growArea\(input\)/, `${name}: focus re-measures`);
 });

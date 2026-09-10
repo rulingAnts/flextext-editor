@@ -329,6 +329,59 @@ work that has since shipped, and one (`parked-v319-v321`) predates the whole v35
 
 ## Branch hygiene (verified 2026-08-17 — deletion still needs Seth's terminal)
 
+> **✅ DONE 2026-09-11 — the remote is down to 10 branches.** Deleted **25**: every branch whose
+> tip was an ancestor of `productionWeb` (so no commit became unreachable), plus `assign-by-upload`,
+> whose three-dot diff against `productionWeb` was **empty** — its six commits were merges of staging
+> into it, carrying nothing of their own. Checked against open PRs first (there were none).
+> `git push origin --delete` worked from Seth's Mac; the 403 described below was specific to the
+> remote-execution environment. Re-create any of them with `git push origin <sha>:refs/heads/<name>`.
+>
+> ⚠ `claude/cut-tab-waveform-displays-2owdfx` — the branch the warning below calls the *only copy* of
+> the live worker's source — is among them. It became an ancestor of `productionWeb` before this
+> cleanup (0 commits ahead, and production's worker is ahead of it), so the warning had gone stale.
+>
+> **Kept, because each holds commits `productionWeb` lacks:**
+> - `guid-identity-gate`, `v321-hardening`, `parked-v319-v321` — all three carry the **v320 GUID
+>   inheritance fix (`c8e40ac`), still unmerged**, and ~355 releases stale. It matters again: GUID
+>   identity is load-bearing for the lameta/FLEx companion's push-import (see its roadmap issue).
+> - `fix-artifact-kinds-and-fxpa-stamp` (v317/v319), `paired-audio-delete-gate` (do not merge without
+>   Seth's go-ahead), `claude/flextext-import-onestory-1jjm0p` (plan text only).
+> - The trunks `main`, `productionWeb`, `staging`, and the working branch `satellite-apps-v566`.
+>
+> <details><summary>Ledger — names and tips at deletion</summary>
+>
+> | branch | tip | why it was safe |
+> |---|---|---|
+> | `claude/assign-by-upload-build-7d5ee8` | `a2b265545064` | ancestor of productionWeb |
+> | `claude/assign-by-upload-build-uik28u` | `628774836f7f` | ancestor of productionWeb |
+> | `claude/cut-tab-waveform-displays-2owdfx` | `d81d3579b3fa` | ancestor of productionWeb |
+> | `claude/paragraph-analysis-backlog-1bb9bd` | `c02cc0a418d2` | ancestor of productionWeb |
+> | `claude/prompt-too-large-error-d767f1` | `788f27439b2d` | ancestor of productionWeb |
+> | `claude/unpaired-device-setup-w3u9ck` | `f74a21e1aa28` | ancestor of productionWeb |
+> | `claude/worker-cache-poisoning-536b2c` | `a2b265545064` | ancestor of productionWeb |
+> | `crowd-upload-fix` | `35d9bef47c8b` | ancestor of productionWeb |
+> | `cycle-rest` | `c02cc0a418d2` | ancestor of productionWeb |
+> | `editor-dialogs` | `46e52535e219` | ancestor of productionWeb |
+> | `editor-fixes-v322` | `c25ebe50fa23` | ancestor of productionWeb |
+> | `fix/device-nickname-desired-lane` | `934c5f39a14e` | ancestor of productionWeb |
+> | `heads-model` | `7d4b8ac1a7ef` | ancestor of productionWeb |
+> | `issue-4-6` | `9ecc7f59f19d` | ancestor of productionWeb |
+> | `panel-quick-wins` | `0378b6c3a23c` | ancestor of productionWeb |
+> | `paragraph-analysis` | `6831823b8592` | ancestor of productionWeb |
+> | `parked-panel-and-matching` | `9796079543a5` | ancestor of productionWeb |
+> | `preview-player` | `c3b1cfe98804` | ancestor of productionWeb |
+> | `release-notes-ritual` | `e4875738d0cb` | ancestor of productionWeb |
+> | `seg-exports` | `d18e7c7fca90` | ancestor of productionWeb |
+> | `segmentation` | `7baefba0986e` | ancestor of productionWeb |
+> | `segmentation2` | `4da99bba506d` | ancestor of productionWeb |
+> | `tok-pisin-l10n` | `54eb5e7c9416` | ancestor of productionWeb |
+> | `unassigned-inflight` | `526d200da5fe` | ancestor of productionWeb |
+> | `assign-by-upload` | `421185a45e32` | empty three-dot diff (merge commits only) |
+>
+> </details>
+>
+> Everything below is the pre-cleanup record, kept for its reasoning.
+
 `git push origin --delete` returns **403** from the remote-execution environment (re-confirmed
 2026-08-17 with a live attempt): the credentials push but cannot delete refs. Run locally.
 

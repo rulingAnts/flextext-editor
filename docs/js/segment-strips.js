@@ -153,6 +153,23 @@ let caretMirror = null;
 const NATIVE_FIELD_SIZING = typeof CSS !== 'undefined' && CSS.supports
   && CSS.supports('field-sizing', 'content');
 
+/* ⚠ THE ENTER KEY'S LABEL ON A PHONE KEYBOARD, for the two full-line boxes (the #74 follow-up).
+ * v666 made them <textarea>, and a textarea gets Gboard's NEWLINE key by default — a key promising a
+ * line break to a box that refuses line breaks. `enterkeyhint` asks the keyboard for an action label
+ * instead, and the label follows what Enter actually does here, which is one setting:
+ *   enterAtEnd 'advance' (the default for new devices) — at the end of the line Enter walks to the
+ *     next line, so the key says "next";
+ *   enterAtEnd 'split' (grandfathered devices) — Enter divides the line, so it says "enter".
+ * ⚠ CUT MODE DOES NOT ENTER INTO IT. Arming a line makes these boxes readOnly, and a read-only box
+ * does not raise the on-screen keyboard at all — there is no key on screen to label while armed.
+ * The legacy multi-line baseline box is deliberately NOT given one: there Enter starts a paragraph,
+ * and the newline key is the truth. */
+export function applyEnterKeyHint(input, advances) {
+  if (!input || typeof input.setAttribute !== 'function') return;
+  const hint = advances ? 'next' : 'enter';
+  if (input.getAttribute('enterkeyhint') !== hint) input.setAttribute('enterkeyhint', hint);
+}
+
 export function growArea(el) {
   if (!el || el.tagName !== 'TEXTAREA') return;
   if (NATIVE_FIELD_SIZING) return;             // the browser is already doing it; do not fight it
@@ -1088,7 +1105,11 @@ export function renderStrips() {
     });
     input.addEventListener('keydown', (e) => onKey(e, i, input));
     // Backstop for a row rendered while the tab was hidden; the CSS floor covers the empty case.
-    input.addEventListener('focus', () => growArea(input));
+    /* The label is set BEFORE the first focus, which is when a keyboard reads it, and refreshed on
+     * every focus because a researcher's push can change enterAtEnd while the page stays open. */
+    const enterHint = () => applyEnterKeyHint(input, !!(deps.enterAdvances && deps.enterAdvances()));
+    enterHint();
+    input.addEventListener('focus', () => { growArea(input); enterHint(); });
     // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).
     registerCaretScissors(input, row, () => stripsCaretWant(input, i), (at) => stripsPlace(i, 'text', at), deps.t('split.here'));
 

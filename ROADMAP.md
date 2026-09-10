@@ -53,7 +53,7 @@ straight into a lameta project. Format read from real files, not inferred; see
   alongside SayMore and ELAN. The package carries the original recording, a converted
   `.annotations.wav` when the original is not WAV, complete ELAN `.eaf` + `.pfsx` (lameta has no
   built-in annotation editor — it opens ELAN), a `.flextext` serialized at export time from the same
-  state the EAF comes from, the suite's history JSON, and a `.meta` sidecar per file. Verified by
+  state the EAF comes from, and a `.meta` sidecar per file. ⚠ **No per-text history file** — that is planned, not built (`plans/fxed-format-spec.md` §9b), and this line wrongly listed it until 2026-09-11. Verified by
   opening a produced folder in lameta 3.0.21-beta: the `.flextext` types as "FLEx", `fau` resolves
   to Fayu and `id` to Indonesian, and the sidecars are absorbed.
 - **Full-line boxes wrap and grow (v666, fixed v667).** The baseline box in audio-segmentation mode
@@ -80,7 +80,23 @@ DOM, because both earlier failures were logic errors invisible to a suite that r
 
 ## 0c. Released 2026-09-10 (v669 to v673)
 
-## 0d. On staging, awaiting a production push (v676)
+## 0c. On staging, awaiting a production push (v677)
+
+- **Report a problem / Suggest a feature in the Researcher Panel (#69)** — copied from PAT, beside the
+  version in Release notes. ⚠ The bug-report body names nothing but the app version, site and browser:
+  the tracker is public and the panel holds accounts, device nicknames, titles and keys. A test fails
+  if the body ever reaches for any of them.
+- **The phone keyboard's Enter key says what Enter does** on the two full-line boxes: `enterkeyhint`
+  "next" where Enter walks to the next line, "enter" where it splits. v666's `<textarea>` had given them
+  Gboard's new-line key. Cut mode needs no label — it makes the boxes read-only, which keeps the
+  keyboard down. The legacy baseline keeps its new-line key; there Enter starts a paragraph.
+- **The Audio Segmenter never imports a `.fxpa`** — #54 closed as not planned (Seth: PAT's splitting and
+  joining replaced the need). It had no such import, so the decision is pinned by a test that checks
+  every door a file can come in by.
+- **Branches: 25 deleted, 10 remain** — every tip was already in `productionWeb`. Recorded in
+  `plans/PENDING.md`, including the three that still carry the unmerged v320 GUID fix (#76 needs it).
+
+## 0d. Released 2026-09-10 (v676)
 
 **#73 — the ✂ appears at every gap a line can be split at (v676).** Seth: *"when there's punctuation,
 split scissors do not show up between word/gloss pairs where the punctuation sits."*

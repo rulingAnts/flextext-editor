@@ -114,7 +114,7 @@ Sessions/<id>/<id>.session
 Sessions/<id>/<base>.eaf              complete ELAN-for-FLEx hierarchy, all six tiers
 Sessions/<id>/<base>.pfsx             tier display order — vernacular-first, not alphabetical
 Sessions/<id>/<base>.flextext         serialized at export time, from the same doc as the EAF
-Sessions/<id>/<base>.history.json     this text's provenance only  ⚠ not built yet
+Sessions/<id>/<base>.history.json     this text's provenance only  ⚠ not built yet — #75
 Sessions/<id>/<original recording>    the master, in whatever format it was recorded
 Sessions/<id>/<base>.converted-NOT-ARCHIVAL.wav   only when the master is not WAV
 … plus a .meta sidecar per file
@@ -159,7 +159,7 @@ the derived WAV is additional, never a replacement.
 
 - **Panel wiring**: a download that zips these entries. `docs/js/zip.js` (`makeZip`) exists; the panel
   already builds artifact downloads from Drive file ids.
-- **`<base>.history.json`**: the per-text slice of the event log. ⚠ There is no per-text history file
+- **`<base>.history.json`** ([#75](https://github.com/rulingAnts/flextext-editor/issues/75)): the per-text slice of the event log. ⚠ There is no per-text history file
   today — `history.js`'s log is account-wide, so the slice is derived at export time. See
   `plans/fxed-format-spec.md` §9b: when built, it ships in the lameta, SayMore **and** "All" exports,
   not just this one.

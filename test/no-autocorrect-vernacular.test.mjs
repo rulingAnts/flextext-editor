@@ -746,3 +746,18 @@ test('an unset dial reads as off on BOTH surfaces, matching the engine', () => {
           < panel.indexOf("else if (f.type === 'select') v[f.k] = s[f.k] ||"),
     'the specific branch precedes the generic select fallback');
 });
+
+/* ⚠ EVERY RESEARCHER-AUTHORED PROSE FIELD, not just the one in GROUPS. The <body> blanket reaches
+ * all 16 text fields in the suite; 13 of those are codes, names or vernacular and are correctly
+ * silent. Three are prose a researcher writes and reads: consentMsg in the settings form, and the
+ * crowd editor's welcome and consent message, which are hand-written outside GROUPS and were missed
+ * when consentMsg was fixed. Enumerated by script rather than by memory, and pinned here. */
+test('all three researcher-prose fields keep spellcheck and sentence capitals', () => {
+  const panel = rd('../docs/js/researcher-panel.js');
+  for (const id of ['cr-welcome', 'cr-cmsg']) {
+    const tag = panel.match(new RegExp(`<textarea id="${id}"[^>]*>`))[0];
+    assert.match(tag, /spellcheck="true"/, `#${id} keeps spellcheck`);
+    assert.match(tag, /autocapitalize="sentences"/, `#${id} keeps sentence capitals`);
+    assert.doesNotMatch(tag, /autocorrect="on"/, `#${id} still never autocorrects`);
+  }
+});

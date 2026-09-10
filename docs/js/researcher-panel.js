@@ -1342,7 +1342,7 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v662', date: '2026-09-10', items: [
+  { v: 'v663', date: '2026-09-10', items: [
     { k: 'panel.rel.new.typingOffByDefault' },
     { k: 'panel.rel.new.typingWarnVisuals' },
     { k: 'panel.rel.fix.panelScrollChaining' },
@@ -5830,10 +5830,13 @@ function crowdEditModal(rec) {
     <h3>${esc(t('panel.crowd.editTitle', { label: rec.label || '' }))}</h3>
     <p class="banner warn-banner">${esc(t('panel.crowd.publicWarn'))}</p>
     <label class="rp-field"><span>${esc(t('panel.crowd.label'))}</span><input id="cr-label" spellcheck="false"></label>
-    <label class="rp-field"><span>${esc(t('panel.crowd.welcome'))}</span><textarea id="cr-welcome" rows="2"></textarea></label>
+    <!-- ⚠ PROSE THE RESEARCHER WRITES, so it opts back out of the <body> typing blanket, same as
+         consentMsg in the settings form. These two are hand-written here rather than coming from
+         GROUPS, which is exactly why they were missed when consentMsg was fixed. -->
+    <label class="rp-field"><span>${esc(t('panel.crowd.welcome'))}</span><textarea id="cr-welcome" rows="2" spellcheck="true" autocapitalize="sentences"></textarea></label>
     <div class="rp-field"><span>${esc(t('panel.f.consentAsk'))}</span><div class="rp-multi">${['text', 'audio'].map((o) =>
       `<label class="check-label rp-inline"><input type="checkbox" data-ask="${o}"> ${esc(t('panel.opt.ask.' + o))}</label>`).join('')}</div></div>
-    <label class="rp-field"><span>${esc(t('panel.f.consentMsg'))}</span><textarea id="cr-cmsg" rows="2"></textarea></label>
+    <label class="rp-field"><span>${esc(t('panel.f.consentMsg'))}</span><textarea id="cr-cmsg" rows="2" spellcheck="true" autocapitalize="sentences"></textarea></label>
     <div class="rp-field"><span>${esc(t('panel.f.consentAudioUrl'))}</span>
       <input data-f="consentAudioUrl" type="hidden">
       <div class="rp-prompt-state" data-promptstate>${esc(t('panel.f.consentNone'))}</div>

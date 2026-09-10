@@ -17,8 +17,8 @@
  * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
  * browser fetch and install this worker at all. */
 
-const VERSION = 'v662';
-const ENGINE = 'v662';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v663';
+const ENGINE = 'v663';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'text-recorder-' + VERSION;
 const SHELL = [
   './',

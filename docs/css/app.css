@@ -681,6 +681,33 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 #view-research hr { border: none; border-top: 1px solid var(--border); margin: 26px 0; }
 .note { color: var(--muted); font-size: 14px; }
 
+/* ⓘ — an explanation a touch screen can actually reach.
+ *
+ * `title=` is mouse-only, and these devices have no mouse; a tooltip nobody can open is not a
+ * tooltip. So the dot is a real button that toggles the text (js/app.js, delegated at module
+ * scope), collapsed by default because vertical space is at a premium and these notes are long by
+ * necessity — they have platform caveats to state. The hover rule below is a desktop convenience
+ * on top, never the only way in. */
+.info-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15em; height: 1.15em; margin-inline-start: .4em; padding: 0;
+  border: 1px solid var(--muted); border-radius: 50%;
+  background: transparent; color: var(--muted);
+  font: 600 .78em/1 inherit; font-style: italic; cursor: help;
+  vertical-align: middle; flex: none;
+}
+.info-dot:hover, .info-dot:focus-visible { border-color: var(--fg); color: var(--fg); }
+.info-note {
+  margin-block: .25rem 0; padding: .5rem .6rem;
+  border-inline-start: 3px solid var(--muted); border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+/* Desktop reflex: hovering the dot reveals the note without pinning it open. :has() is an
+ * enhancement — where it is unsupported the click above still works, which is the case that
+ * matters on the devices this suite runs on. */
+.rp-field:has(.info-dot:hover) + .info-note,
+.setup-field:has(.info-dot:hover) + .info-note { display: block !important; }
+
 .ws-form fieldset {
   border: 1px solid var(--border);
   border-radius: 9px;

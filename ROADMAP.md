@@ -390,6 +390,12 @@ The web app is the product; the shells exist for archive-quality audio capture, 
 cannot provide (`android/README.md` and `electron/README.md` give the two archival reasons and the
 honesty contract).
 
+**`plans/native-shell-capabilities.md` is the register** of everything a native shell can do better
+than a browser, and the design rule that goes with it: the shell *declares* a capability, the engine
+*decides* what to do about it, so policy ships with the auto-updating engine instead of waiting on
+an APK someone has to carry to a village. Add an entry whenever a limitation turns out to be the
+platform's rather than ours, and put the seam in before the native side exists.
+
 - **Android:** two Capacitor wrappers (recorder, editor) around one auditable plugin, built and
   in use. Open: the update story, since an installed APK pins its engine snapshot while the web app
   auto-updates.

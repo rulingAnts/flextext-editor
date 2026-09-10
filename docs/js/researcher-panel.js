@@ -782,6 +782,17 @@ const GROUPS = [
   /* WHAT THE KEYBOARD DOES. Split across two tabs before this: Enter, the gloss landing box and the
    * Cut-tab landing were under "Tasks", the Space bar under "Other". */
   { id: 'typing', fields: [
+    /* ⚠ THESE THREE GOVERN THE ANALYSIS LANGUAGE ONLY — glosses and free translations. The
+     * vernacular is not a setting and must never become one (Seth, 2026-09-10: "we DEFINITELY don't
+     * want autocorrect ever"); js/typing.js answers all-off for it before reading a preference.
+     * Ordered by how much damage each can do: marking rewrites nothing, completion offers, and
+     * correction takes. Every one defaults to `auto`, which never enables correction anywhere. */
+    { k: 'analSpellcheck', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
+      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' },
+    { k: 'analAutocomplete', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
+      info: 'panel.f.analAutocompleteInfo' },
+    { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
+      info: 'panel.f.analAutocorrectInfo' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
@@ -1329,6 +1340,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v653', date: '2026-09-10', items: [
+    { k: 'panel.rel.fix.noAutocorrectVernacular' },
+    { k: 'panel.rel.new.analysisTypingDials' },
+  ] },
   { v: 'v652', date: '2026-09-10', items: [
     { k: 'panel.rel.fix.doneNotAnEdit' },
   ] },
@@ -9082,6 +9097,25 @@ function driveSection(body) {
 
 /* ---------------- the reusable tabbed settings modal ---------------- */
 
+/* ⚠ AN ⓘ THAT WORKS ON A TOUCH SCREEN. Seth, 2026-09-10: "probably an information tooltip next to
+ * each (mouseover or click/touch) that explains what that setting can and cannot do by platform."
+ *
+ * `title=` — which is what f.tip renders — is mouse-only: on the Android tablets this suite actually
+ * runs on there is no hover, so a title attribute is an explanation nobody can read. So: a real
+ * button that TOGGLES the text, which works with touch, mouse and keyboard alike, and a CSS hover
+ * rule on top for the desktop reflex. Collapsed by default, because vertical space is at a premium
+ * (Seth, 2026-09-09) and these notes are long by necessity — they have platform caveats to state. */
+function infoDotHtml(f) {
+  if (!f.info) return '';
+  return ` <button type="button" class="info-dot" data-infofor="${f.k}"`
+    + ` aria-expanded="false" aria-controls="info-${f.k}"`
+    + ` aria-label="${esc(t('setup.whatThisDoes'))}">i</button>`;
+}
+function infoNoteHtml(f) {
+  if (!f.info) return '';
+  return `<p class="note info-note" id="info-${f.k}" data-infonote="${f.k}" hidden>${esc(t(f.info))}</p>`;
+}
+
 function fieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
   // f.tip → hover tooltip on the label + input (e.g. the WS-code case warning).
@@ -9116,7 +9150,8 @@ function fieldHtml(f) {
     const help = f.k === 'recordFormat'
       ? `<p class="note"><a href="/flextext-editor/help/recording-limits.html" target="_blank" rel="noopener">${esc(t('panel.f.recordFormatHelp'))}</a></p>`
       : '';
-    return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>${help}`;
+    return `<label class="rp-field"><span>${label}${infoDotHtml(f)}</span><select data-f="${f.k}">${opts}</select></label>`
+      + `${f.note ? `<p class="note">${t(f.note)}</p>` : ''}${infoNoteHtml(f)}${help}`;
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
   // f.note → an explanatory line under the input. Generic on purpose: several fields have

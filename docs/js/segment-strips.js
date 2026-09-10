@@ -24,7 +24,7 @@ import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAl
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
-import { tidyOnInput, tidyOnBlur } from './typing.js';
+import { tidyField } from './typing.js';
 
 /* ═══ THE PENDING SPLIT — one edit, one position per tier (Seth, 2026-09-06; plans/split-tiers.md)
  * "any cut that's made starts with a cut executed on any of the active tiers and immediately
@@ -1039,6 +1039,7 @@ export function renderStrips() {
     input.rows = 1;
     input.value = text;
     // ⚠ Deferred: the row is not in the document yet, and growArea cannot measure a detached node.
+    input.__prevVal = input.value;
     queueMicrotask(() => growArea(input));
     /* ⚠ VERNACULAR — protected by inheritance from <body>, not by writes here. There is no
      * dictionary for the language typed in this box, so every suggestion is wrong. See js/typing.js. */
@@ -1061,12 +1062,16 @@ export function renderStrips() {
        * stored. Spaces and tabs only — newlines are the rule above's business. Seth, 2026-09-10:
        * "Only allow one space between words." */
       if (deps.singleSpace && deps.singleSpace()) {
-        const r = tidyOnInput(input.value, input.selectionStart);
+        const r = tidyField(input.value, { kind: 'line', moment: 'input', prev: input.__prevVal }, input.selectionStart);
         if (r.changed) {
           input.value = r.value;
           try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
         }
       }
+      /* ⚠ REMEMBERED UNCONDITIONALLY, AFTER the tidy — undoKeyboardPeriod needs the value as it
+       * stood before this keystroke to recognize the keyboard's "double space -> period" edit, and
+       * keeping it while the setting is off means switching it on works on the very next key. */
+      input.__prevVal = input.value;
       growArea(input);
       commitTexts();
     });
@@ -1074,9 +1079,10 @@ export function renderStrips() {
      * the rewrite (Seth: "on blur, remove duplicated spaces if this behavior is enabled"). */
     input.addEventListener('blur', () => {
       if (!(deps.singleSpace && deps.singleSpace())) return;
-      const tidy = tidyOnBlur(input.value);
+      const tidy = tidyField(input.value, { kind: 'line', moment: 'blur' }).value;
       if (tidy === input.value) return;
       input.value = tidy;
+      input.__prevVal = tidy;
       growArea(input);
       commitTexts();
     });

@@ -393,57 +393,170 @@ export function syncTypingWarnings(box, attr) {
   });
 }
 
-/* ⚠ ONE SPACE BETWEEN WORDS (Seth, 2026-09-10): "prevent them from typing multiple spaces in the
- * baseline or free translation. Only allow one space between words." The audience is the reason —
- * "to help less tech-savvy/illiterate users": a run of spaces is invisible on screen, never
- * intended, and a typist who cannot read back what they typed has no way to notice it.
+/* ============================================================================================
+ * TIDY: what a typist's field is allowed to contain.
  *
- * ⚠⚠ NEWLINES ARE NEVER TOUCHED, and that is not a detail. The legacy baseline box carries a
- * transcription's PARAGRAPHS as newlines (getBaselineParagraphs(doc).join('\n')), and for a
- * time-aligned doc a BLANK line is a real timed span of silence, 1:1 with doc.segments — filtering
- * those once truncated a field recording by half a minute (see applyBaseline). So these collapse
- * runs of SPACES and TABS only, and tidySpaces splits and rejoins on '\n' so the line COUNT is
- * preserved exactly. A \s-based regex here would silently merge paragraphs.
+ * ⚠ ONE TABLE, because these rules arrived one at a time and were starting to hide each other.
+ * Seth, 2026-09-10: "There might be a way to simplify and combine some of these rules..." Right —
+ * there are only ever TWO KINDS OF FIELD and TWO MOMENTS, and every rule is a cell in that grid:
  *
- * Both are pure so the caret arithmetic can be tested without a DOM — the same reason #43's
- * geometry was pulled out of its closure. */
+ *                  while typing (input)                    on the way out (blur)
+ *   line      undo the keyboard's period,          collapse runs, trim each line's edges,
+ *   (baseline  collapse space runs,                 settle periods (2 -> 1, 3+ -> ...)
+ *    & free    collapse , ; : ! ? runs
+ *    transl.)  — periods LEFT ALONE
+ *
+ *   gloss     collapse , ; : ! ? runs,             the same, plus strip trailing punctuation
+ *             periods -> one, separator -> one
+ *
+ * Everything below is either a primitive (pure, one job, testable alone) or the table. The reason
+ * a rule sits in one column and not the other is written at the primitive, because in every case
+ * so far putting it in the wrong column made something UNTYPEABLE.
+ *
+ * WHY THIS IS ALL GATED. Seth: "to help less tech-savvy/illiterate users (though the researcher
+ * should be able to disable this)". A run of spaces or a doubled comma is invisible on screen and
+ * never intended — but only the caller knows whether the researcher asked for the help, and its
+ * default depends on whether the device is paired. See singleSpaceEnabled in app.js.
+ *
+ * WHAT IS NEVER TOUCHED, ANYWHERE. flextext.js: WORD_CHAR = /[\p{L}\p{M}\p{N}'’ʼ‘\-_=ʔ]/u. The
+ * apostrophe family and ʔ write a GLOTTAL STOP; - _ = mark MORPHEME AND CLITIC BOUNDARIES. A
+ * doubled or trailing one may be exactly what a language or a glossing convention wants, and we do
+ * not know every orthography — rewriting them would be the silent vernacular edit this whole area
+ * exists to refuse. The one exception is a character the RESEARCHER has declared to be the gloss
+ * separator: two of those in a row is an accident by definition. That is why `sep` is passed in
+ * per call and never assumed.
+ * ============================================================================================ */
 
-// While typing: collapse runs, and move the caret back by however many characters were removed
-// BEFORE it, because rewriting .value otherwise throws the cursor to the end of the field.
-export function collapseSpaces(value, caret = null) {
-  const src = value == null ? '' : String(value);
-  const out = src.replace(/[ \t]{2,}/g, ' ');
-  if (out === src || caret == null) return { value: out, caret, changed: out !== src };
-  // The head is collapsed by the same rule, so its new length IS the new caret position.
-  const head = src.slice(0, caret).replace(/[ \t]{2,}/g, ' ');
-  return { value: out, caret: head.length, changed: true };
+const RUN_SAFE = ',;:!?';   // never legitimately repeated, and never word-internal
+
+/* ⚠ NEWLINES ARE NEVER TOUCHED BY ANY OF THIS. The legacy baseline box carries a transcription's
+ * PARAGRAPHS as newlines, and on a time-aligned doc a BLANK line is a real timed span of silence,
+ * 1:1 with doc.segments — filtering those once truncated a field recording by half a minute (see
+ * applyBaseline). So every regex here is [ \t] or a single punctuation class, and the blur pass
+ * splits and rejoins on '\n' so the LINE COUNT is preserved exactly. */
+const collapseSpaceRuns = (v) => v.replace(/[ \t]{2,}/g, ' ');
+const trimLineEdges = (v) => v.split('\n').map((l) => l.replace(/^[ \t]+|[ \t]+$/g, '')).join('\n');
+const collapseRuns = (chars) => (v) => {
+  let out = v;
+  for (const ch of chars) out = out.replace(new RegExp(`\\${ch}{2,}`, 'g'), ch);
+  return out;
+};
+
+/* ⚠ PERIODS CANNOT BE SETTLED WHILE TYPING, or an ellipsis becomes untypeable. Walk it: the typist
+ * wants "Yes..." — the second period makes a run of two, a 2->1 rule fires and EATS it, the third
+ * makes two again, eaten again, and they never get past one dot however many times they press the
+ * key. So a full-line box leaves periods alone until blur, where the whole run is finally visible:
+ * two was a slip, three or more was meant. A GLOSS has no ellipsis to protect — a period there
+ * separates parts of one label (1SG.SUBJ) — so it settles on every keystroke. */
+const settlePeriods = (v) => v.replace(/\.{2,}/g, (m) => (m.length === 2 ? '.' : '...'));
+const singlePeriod = (v) => v.replace(/\.{2,}/g, '.');
+
+/* ⚠ A GLOSS DOES NOT END IN PUNCTUATION (Seth) — the everyday case being a trailing separator:
+ * typing "PST " leaves "PST." with nothing after it.
+ *
+ * ⚠⚠ BUT NOT THE HYPHEN OR EQUALS SIGN, and that is linguistics, not caution. Leipzig glossing
+ * marks affixes and clitics with exactly those, positionally:
+ *     PST-  a PREFIX gloss     -PST  a SUFFIX      CLT=  proclitic     =CLT  enclitic
+ * A trailing hyphen is the morpheme's category, not a slip; stripping it would delete real analysis
+ * one invisible character at a time. Nor the apostrophe family or ʔ, which can legitimately end a
+ * form. Hence sentence punctuation plus the underscore, which marks no convention this engine knows.
+ *
+ * ⚠⚠⚠ AND BLUR ONLY. On input this makes a separator untypeable: the moment a space became "PST."
+ * the period would be stripped as trailing, so "PST.SUBJ" could never be assembled. */
+const stripTrailing = (v) => v.replace(/[.,;:!?_]+$/, '');
+
+/* ⚠⚠ THE KEYBOARD'S OWN "DOUBLE SPACE MAKES A PERIOD", UNDONE — the one rule here that is not
+ * about tidying our own input but about reverting someone else's edit.
+ *
+ * Seth, 2026-09-10: "If I type space three times in the free translation it puts a period before
+ * the last word. That looks like a failure of order of operations in your punctuation/space
+ * guards..." The order was fine — our rules alone turn three spaces into one and insert nothing.
+ * The period is GBOARD'S (and iOS's, and macOS's): pressing space when the field already ends in a
+ * space replaces that space with ". ". The typist gets a sentence break in the middle of a clause,
+ * and our space collapse then tidies away the leftover gap, which makes the stray period look
+ * deliberate rather than obviously wrong.
+ *
+ * The substitution has an exact signature, which is what makes undoing it safe: the value BEFORE
+ * this keystroke ended in a space, and the value after is that same text with the final space
+ * replaced by ". ". Nothing a person can type produces that transition — typing a period leaves the
+ * previous value ending in a letter, not a space. So a match is the keyboard, and we put the space
+ * back; the space collapse in the same pass then reduces it to one, which is what pressing space a
+ * third time should have done.
+ *
+ * ⚠ This needs the PREVIOUS value, so the caller keeps it per field. Without `prev` the rule simply
+ * does not fire — it never guesses. */
+export function undoKeyboardPeriod(value, prev) {
+  if (!prev || typeof prev !== 'string' || !/[ \t]$/.test(prev)) return value;
+  const stem = prev.slice(0, -1);
+  for (const dot of ['. ', '.']) {          // Gboard writes ". "; some IMEs commit the "." first
+    if (value === stem + dot) return prev;
+  }
+  return value;
 }
 
-// On the way out: collapse runs AND drop leading/trailing spaces on each line. A leading space is
-// not "between words" at all, so trimming is the same rule applied at the edges; per-line rather
-// than a whole-value trim so a multi-paragraph baseline is tidied line by line. applyBaseline
-// already trims each line before reconciling, so this changes what the typist SEES to match what
-// the document was always going to store.
-export function tidySpaces(value) {
-  return (value == null ? '' : String(value))
-    .split('\n')
-    .map((l) => l.replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+|[ \t]+$/g, ''))
-    .join('\n');
+/* The two kinds of field, and what each does at each moment. Reading this table IS reading the
+ * policy; the primitives above only say how. */
+const TIDY = {
+  line: {
+    input: [collapseSpaceRuns, collapseRuns(RUN_SAFE)],
+    blur: [collapseSpaceRuns, trimLineEdges, collapseRuns(RUN_SAFE), settlePeriods],
+  },
+  gloss: {
+    // A gloss never has its SPACES collapsed: a space there has already become the separator.
+    input: [collapseRuns(RUN_SAFE), singlePeriod],
+    blur: [collapseRuns(RUN_SAFE), singlePeriod, stripTrailing],
+  },
+};
+
+/* ⚠ A SPACE IS NEVER AN OPTION (Seth: "just don't allow space"). A gloss is one label for one word;
+ * a space in it would make the word count disagree with the baseline, which is the whole reason the
+ * space becomes a separator to begin with. */
+export const GLOSS_BREAKS = { period: '.', underscore: '_', hyphen: '-' };
+export function glossBreakChar(pref) { return GLOSS_BREAKS[pref] || GLOSS_BREAKS.period; }
+
+/* THE ONE ENTRY POINT.
+ *   kind    'line' (baseline, free translation) or 'gloss'
+ *   moment  'input' or 'blur'
+ *   sep     the gloss separator, so a run of it collapses — and ONLY because the researcher
+ *           declared it (see the header note on what is never touched)
+ *   prev    the field's value before this keystroke, for undoKeyboardPeriod
+ *   caret   returns the caret moved back by whatever was removed BEFORE it; rewriting .value
+ *           otherwise throws the cursor to the end, which mid-sentence is worse than the slip was
+ */
+export function tidyField(value, { kind = 'line', moment = 'input', sep = null, prev = null } = {}, caret = null) {
+  const steps = (TIDY[kind] || TIDY.line)[moment] || [];
+  const sepRun = kind === 'gloss' && sep && sep !== '.' ? [collapseRuns(sep)] : [];
+  const run = (v) => {
+    /* ⚠ LINE BOXES ONLY. In a gloss a period may BE the separator, so an undo there could delete a
+     * character the typist meant. It happens to be unreachable — a space in a gloss becomes the
+     * separator on the same keystroke, so `prev` never ends in one — but "unreachable" is a fact
+     * about today's code and this is a fact about the rule. */
+    let out = kind === 'line' && moment === 'input' ? undoKeyboardPeriod(v, prev) : v;
+    for (const step of [...steps, ...sepRun]) out = step(out);
+    return out;
+  };
+  const src = value == null ? '' : String(value);
+  const out = run(src);
+  if (out === src) return { value: out, caret, changed: false };
+  if (caret == null) return { value: out, caret, changed: true };
+  // Apply the same rules to the text BEFORE the caret; its new length is the new caret position.
+  return { value: out, caret: run(src.slice(0, caret)).length, changed: true };
 }
 
 /* ⚠⚠ CAP CONSECUTIVE BLANK LINES — AND ONLY EVER ON A DOC THAT CARRIES NO TIME ALIGNMENT.
  *
- * Seth, 2026-09-10: "for legacy baseline, multiple line breaks is OK (at least two), but not
- * multiple spaces… Maybe limit line breaks to max 2 in a row between text lines if this behavior is
- * enabled." Right for a classic transcription, where a blank line is a paragraph separator and
- * applyBaseline discards empties at reconcile anyway, so capping is cosmetic.
+ * Deliberately OUTSIDE the table, because it is the one rule whose safety depends on the DOCUMENT
+ * rather than on the field or the moment. Seth: "for legacy baseline, multiple line breaks is OK
+ * (at least two), but not multiple spaces… limit line breaks to max 2 in a row." Right for a
+ * classic transcription, where a blank line is a paragraph separator and applyBaseline discards
+ * empties at reconcile anyway.
  *
- * ⚠ IT IS DATA LOSS ON AN ALIGNED DOC. There, every blank baseline line is a real timed span of
+ * ⚠ IT IS DATA LOSS ON AN ALIGNED DOC. There every blank baseline line is a real timed span of
  * SILENCE, 1:1 with doc.segments. Dropping them is a corruption already suffered and fixed once
  * (2026-08-16): 53 lines with 23 blanks became 30, the spans then paired positionally against the
- * first 30 — silences included — and the recording "ended" half a minute early. It was reproduced
- * from Seth's own field file. So the CALLER must gate this on doc truth, never on a setting, and
- * this function is deliberately not applied anywhere the alignment is unknown.
+ * first 30 — silences included — and the recording "ended" half a minute early, reproduced from
+ * Seth's own field file. So the CALLER gates this on doc truth, never on a setting, and it is not
+ * in the table precisely so nobody can wire it in by picking a cell.
  *
  * `max` counts NEWLINES in a row, so the default 2 leaves at most one blank line between two lines
  * of text — "at least two" line breaks, as asked. */
@@ -451,96 +564,4 @@ export function capBlankLines(value, max = 2) {
   const src = value == null ? '' : String(value);
   if (max < 1) return src;
   return src.replace(new RegExp(`\\n{${max + 1},}`, 'g'), '\n'.repeat(max));
-}
-
-/* ⚠ AND PUNCTUATION SHOULD NOT DOUBLE EITHER (Seth, 2026-09-10): "Periods, commas, etc, should also
- * not double anywhere if this behavior is enabled." Same accident as a double space and just as
- * invisible to a typist who cannot read back what they typed — a key pressed twice.
- *
- * ⚠⚠ WHICH CHARACTERS, AND WHY NOT THE OTHERS. Only sentence punctuation is collapsed:
- *
- *     . , ; : ! ?
- *
- * Everything else is deliberately left alone, because in THIS engine it is part of a WORD.
- * flextext.js: WORD_CHAR = /[\p{L}\p{M}\p{N}'’ʼ‘\-_=ʔ]/u — the apostrophe family and ʔ write a
- * GLOTTAL STOP, and - _ = mark MORPHEME AND CLITIC BOUNDARIES in interlinear text. A doubled
- * hyphen or apostrophe may be exactly what an orthography wants, and we do not know every
- * orthography. Collapsing those would be us silently rewriting vernacular, which is the one thing
- * this whole area of the app exists to refuse ("we DEFINITELY don't want autocorrect ever").
- * The characters that ARE collapsed are the ones the tokenizer already treats as punctuation
- * tokens, never as part of a word — so no orthography can be riding on them.
- *
- * ⚠ AN ELLIPSIS IS NOT AN ACCIDENT. Three periods is deliberate and common in transcription and in
- * a free translation, and the segmenter recognizes it ([.!?…]+). So for a full-line box a run of
- * periods normalizes to ONE if it was a double and to exactly THREE if it was longer — accidents
- * die, ellipses survive, and a stray four-dot run is tidied into a real ellipsis.
- *
- * A GLOSS gets no ellipsis exemption: there a period is the SEPARATOR between parts of one label
- * (1SG.SUBJ), so every run collapses to one. That is the case Seth hit — two spaces became
- * "PST..PERF" through the space-to-period rule. */
-const DOUBLE_SAFE = ',;:!?';                 // never legitimately repeated, never word-internal
-
-/* ⚠⚠ AND THE PERIOD RULE CANNOT RUN ON EVERY KEYSTROKE, or an ellipsis becomes untypeable. Walk it
- * through: the typist wants "Yes..." — the second period makes a run of two, a 2->1 rule fires and
- * EATS it, the third makes two again, eaten again, and they can never get past one dot no matter how
- * many times they press the key. So `periods` is a three-way choice and the callers split it by
- * moment, not by preference:
- *     'skip'     while typing in a full-line box — leave periods alone so "..." can be built
- *     'ellipsis' on the way OUT of a full-line box, where the whole run is finally visible:
- *                two was a slip -> one, three or more was meant -> exactly three
- *     'single'   in a gloss, on input AND blur. Seth: "in glosses only one period at a time
- *                allowed, no doubles, no tripples." A period there separates parts of one label
- *                (1SG.SUBJ), so there is no ellipsis to protect and nothing to wait for.
- * The other five collapse on input safely — none of them is ever legitimately repeated. */
-export function collapseRepeatedPunct(value, { periods = 'ellipsis', sep = null } = {}) {
-  let out = value == null ? '' : String(value);
-  for (const ch of DOUBLE_SAFE) out = out.replace(new RegExp(`\\${ch}{2,}`, 'g'), ch);
-  if (periods === 'single') out = out.replace(/\.{2,}/g, '.');
-  else if (periods === 'ellipsis') out = out.replace(/\.{2,}/g, (m) => (m.length === 2 ? '.' : '...'));
-  /* ⚠ THE CHOSEN GLOSS WORD-BREAK CHARACTER, when it is not the period already handled above.
-   * A researcher may set it to _ or - (Seth, 2026-09-10: "give the researcher a setting to decide
-   * WHICH word-break character to use between words in gloss fields… Default to period, but
-   * underscore and hyphen are also options"), and both of those are WORD characters that this
-   * function otherwise refuses to touch on purpose — a doubled hyphen is legitimate in vernacular
-   * and in a morpheme gloss. What makes collapsing safe HERE is that the researcher has declared
-   * this character to be the separator in THIS field, so two of them in a row is an accident by
-   * definition. It is passed in per call and never assumed. */
-  if (sep && sep !== '.') out = out.replace(new RegExp(`\\${sep}{2,}`, 'g'), sep);
-  return out;
-}
-
-/* Shared caret arithmetic: apply the same rule to the text BEFORE the caret, and its new length is
- * the new caret position. Same trick collapseSpaces uses, and the same reason — rewriting .value
- * throws the cursor to the end of the field. */
-export function withCaret(fn, value, caret = null) {
-  const src = value == null ? '' : String(value);
-  const out = fn(src);
-  if (out === src) return { value: out, caret, changed: false };
-  if (caret == null) return { value: out, caret, changed: true };
-  return { value: out, caret: fn(src.slice(0, caret)).length, changed: true };
-}
-
-/* THE TWO MOMENTS, so each box makes one call and the rules live in one place.
- *
- * A GLOSS is not just "the same rules minus the ellipsis": spaces are never collapsed there,
- * because a space in a gloss has already become a PERIOD by the time this runs (1SG.SUBJ). Running
- * a space rule after that would find nothing, and running it before would fight the period rule. */
-export function tidyOnInput(value, caret, { gloss = false, sep = null } = {}) {
-  return withCaret((v) => (gloss
-    ? collapseRepeatedPunct(v, { periods: 'single', sep })
-    : collapseRepeatedPunct(collapseSpaces(v).value, { periods: 'skip' })), value, caret);
-}
-
-export function tidyOnBlur(value, { gloss = false, sep = null } = {}) {
-  return gloss
-    ? collapseRepeatedPunct(value, { periods: 'single', sep })
-    : collapseRepeatedPunct(tidySpaces(value), { periods: 'ellipsis' });
-}
-
-/* ⚠ A SPACE IS NEVER AN OPTION HERE (Seth: "just don't allow space"). A gloss is one label for one
- * word; a space in it would make the word count disagree with the baseline, which is the whole
- * reason the space becomes a separator in the first place. */
-export const GLOSS_BREAKS = { period: '.', underscore: '_', hyphen: '-' };
-export function glossBreakChar(pref) {
-  return GLOSS_BREAKS[pref] || GLOSS_BREAKS.period;
 }

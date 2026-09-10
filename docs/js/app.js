@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyOnInput, tidyOnBlur, capBlankLines, glossBreakChar, GLOSS_BREAKS } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -4115,6 +4115,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   input.placeholder = t('gloss.freePlaceholder');
   input.value = seg.free || '';
   // ⚠ Deferred: freeRow is still being built, and growArea cannot measure a detached node.
+  input.__prevVal = input.value;
   queueMicrotask(() => growArea(input));
   if (analFont) input.style.fontFamily = analFont;
   /* ⚠ WRAPPING YES, LINE BREAKS NO. Seth, 2026-09-10: "Do not allow users to enter linefeeds or
@@ -4136,12 +4137,17 @@ function renderSegment(seg, segnum, vernFont, analFont) {
     /* ⚠ AFTER the newline strip, BEFORE seg.free is read — a collapse that ran on a stale value
      * would store the uncollapsed text. Only spaces and tabs; the newline rule above owns newlines. */
     if (singleSpaceEnabled()) {
-      const r = tidyOnInput(input.value, input.selectionStart);
+      const r = tidyField(input.value, { kind: 'line', moment: 'input', prev: input.__prevVal }, input.selectionStart);
       if (r.changed) {
         input.value = r.value;
         try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
       }
     }
+    /* ⚠ REMEMBERED UNCONDITIONALLY, and AFTER the tidy. undoKeyboardPeriod needs the value as it
+     * stood before this keystroke to recognize the keyboard's "double space -> period" edit. Kept
+     * even while the setting is off, so switching it on mid-session works on the very next key
+     * rather than after one free mistake; a JS property, never an attribute (see enforceTyping). */
+    input.__prevVal = input.value;
     seg.free = input.value;
     growArea(input);
     schedulePersist();
@@ -4152,9 +4158,10 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * fighting the rewrite, which is the same reason the gloss period fix tidies on blur. */
   input.addEventListener('blur', () => {
     if (!singleSpaceEnabled()) return;
-    const tidy = tidyOnBlur(input.value);
+    const tidy = tidyField(input.value, { kind: 'line', moment: 'blur' }).value;
     if (tidy === input.value) return;
     input.value = tidy;
+    input.__prevVal = tidy;
     seg.free = tidy;
     growArea(input);
     schedulePersist();
@@ -4285,7 +4292,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
        * separates parts of one label (1SG.SUBJ), so there is nothing to protect and no reason to
        * wait for blur. AFTER the space rule, or it would collapse nothing. */
       if (singleSpaceEnabled()) {
-        const r = tidyOnInput(g.value, g.selectionStart, { gloss: true, sep: glossBreak() });
+        const r = tidyField(g.value, { kind: 'gloss', moment: 'input', sep: glossBreak() }, g.selectionStart);
         if (r.changed) {
           g.value = r.value;
           try { g.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
@@ -4314,7 +4321,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
        * with the setting off it still collapsed periods, and it did so under the FULL-LINE rules,
        * which would have collapsed spaces and normalized ellipses inside a gloss label. */
       const spaced = g.value.split(' ').join(glossBreak());
-      const want = singleSpaceEnabled() ? tidyOnBlur(spaced, { gloss: true, sep: glossBreak() }) : spaced;
+      const want = singleSpaceEnabled() ? tidyField(spaced, { kind: 'gloss', moment: 'blur', sep: glossBreak() }).value : spaced;
       if (want === g.value) return;
       g.value = want;
       w.gls = want;
@@ -12399,12 +12406,12 @@ function setup() {
    * on tab-switch (applyBaseline reads DOM truth). Adding an input handler here would be new
    * machinery in the one place a stale read has already wiped a document's text, so the tidy rides
    * the existing blur instead, BEFORE applyBaseline so the reconcile sees the cleaned value.
-   * tidyOnBlur preserves the line count exactly, which an ALIGNED doc depends on: its blank lines
+   * the blur pass preserves the line count exactly, which an ALIGNED doc depends on: its blank lines
    * are timed spans of silence, 1:1 with doc.segments. */
   $('#baseline-text').addEventListener('blur', () => {
     const ta = $('#baseline-text');
     if (singleSpaceEnabled()) {
-      let v = tidyOnBlur(ta.value);
+      let v = tidyField(ta.value, { kind: 'line', moment: 'blur' }).value;
       /* ⚠ GATED ON DOC TRUTH, NOT ON THE SETTING. On an ALIGNED doc a blank baseline line is a
        * timed span of silence, 1:1 with doc.segments — capping them there deletes real data, which
        * is the 2026-08-16 corruption (see capBlankLines and applyBaseline). Only a doc with no time

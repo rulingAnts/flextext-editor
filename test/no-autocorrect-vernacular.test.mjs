@@ -395,13 +395,55 @@ test('the ⓘ is a real button, reachable by touch, not a title attribute', () =
   assert.match(h, /e\.stopPropagation\(\);/, 'a label-wrapped dot must not toggle its own control');
 });
 
-test('and the note is styled, collapsed by default, with hover only as a bonus', () => {
+test('the note is styled and collapsed, and opens ONLY by click or tap', () => {
   const css = rd('../docs/css/app.css');
   assert.match(css, /\.info-dot \{/, 'the dot is styled');
   assert.match(css, /\.info-note \{/, 'so is the note');
-  assert.match(css, /:has\(\.info-dot:hover\) \+ \.info-note/, 'hover is an enhancement on top');
+  assert.match(css, /\.warn-dot \{/, 'and the ⚠ variant');
+  /* ⚠ NO HOVER REVEAL. There was a :has(.info-dot:hover) rule that opened a note on mouseover.
+   * Seth, 2026-09-10: "It's a little glitchy and we don't actually need it." Notes appearing and
+   * vanishing as the pointer crosses the form made the panel feel unstable, and click/tap already
+   * works everywhere — including the touch screens these apps actually run on. */
+  assert.doesNotMatch(css, /info-dot:hover\) \+ \.info-note/, 'no hover-reveal rule');
 });
 
+/* ⚠ THE ANDROID COUPLING HAS TO BE VISIBLE, not buried in a tooltip nobody opens. Seth, 2026-09-10:
+ * "if one of them is 'on', then the other two have a small exclamation point icon tip warning the
+ * researcher that this cannot be turned off on Android." */
+test('the ⚠ shows on the other two dials whenever one is on, on both surfaces', () => {
+  const typing = rd('../docs/js/typing.js');
+  const fn = typing.slice(typing.indexOf('export function syncTypingWarnings'));
+  assert.match(fn, /const anyOn = vals\.some\(\(v\) => v === ON\)/, 'any dial on triggers it');
+  assert.match(fn, /anyOn && vals\[i\] !== ON/, 'and it marks the ones that are NOT on');
+  assert.match(fn, /dot\.hidden = !show/, 'hidden, not styled away');
+
+  /* ⚠ NOT GATED ON THE CURRENT DEVICE. A researcher configures a tablet from a laptop, so asking
+   * canMarkWithoutReplacing() here would hide the warning exactly where it is needed. Devices do
+   * report their UA, but a device being set up for the first time has not reported yet — and that
+   * is precisely when settings are chosen. The warning names Android in its text instead. */
+  assert.doesNotMatch(fn, /canMarkWithoutReplacing|isAndroid/,
+    'the warning must not depend on what the researcher happens to be using');
+
+  for (const [f, attr] of [['../docs/js/app.js', 'data-sf'], ['../docs/js/researcher-panel.js', 'data-f']]) {
+    const src = rd(f);
+    assert.match(src, /warnDotHtml\(f\)/, `${f} renders the ⚠`);
+    assert.match(src, /warnNoteHtml\(f\)/, `${f} renders what it opens`);
+    assert.ok(src.includes(`syncTypingWarnings(box, '${attr}')`)
+           || src.includes(`syncTypingWarnings(t.closest`), `${f} keeps it in step`);
+  }
+  // All three dials are flagged as bundled, or the ⚠ never renders for them.
+  for (const f of ['../docs/js/app.js', '../docs/js/researcher-panel.js']) {
+    assert.equal((rd(f).match(/bundled: true/g) || []).length, 3, `${f}: all three dials flagged`);
+  }
+  // And the warning text exists in both languages.
+  const i18n = rd('../docs/js/i18n.js');
+  for (const k of ['panel.f.typingBundledWarn', 'setup.whyNotOff']) {
+    assert.equal((i18n.match(new RegExp(`'${k}':`, 'g')) || []).length, 2, `${k} needs EN and ID`);
+  }
+  const en = i18n.match(/'panel\.f\.typingBundledWarn': '([^']*)'/)[1];
+  assert.match(en, /Android/, 'the text names the platform it is about');
+  assert.match(en, /computer/, 'and says where they do work separately');
+});
 /* Every tooltip has to say what the dial cannot do, per platform — that is the whole point of
  * having them. A tooltip that only restates the label would be worse than none. */
 test('every tooltip names the platform it behaves differently on', () => {

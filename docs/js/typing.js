@@ -284,3 +284,42 @@ export function enforceTyping(root = document) {
     doc.removeEventListener('focusin', on, true);
   };
 }
+
+/* ─── THE ANDROID COUPLING, MADE VISIBLE ──────────────────────────────────────
+ *
+ * Seth, 2026-09-10: "If our three spelling related settings really ride as one for Android, make
+ * sure that if one of them is 'on', then the other two have a small exclamation point icon tip
+ * warning the researcher that this cannot be turned off on Android if one of the other two settings
+ * is on."
+ *
+ * ⚠ NOT CONDITIONAL ON THE CURRENT DEVICE, deliberately. A researcher configures a tablet from a
+ * laptop, so asking canMarkWithoutReplacing() here would hide the warning in exactly the place it
+ * is needed — the panel, on a desktop, setting up an Android device. The warning states which
+ * platform it is about, and shows wherever these dials are edited.
+ *
+ * Lives here rather than in either renderer because the fact it encodes is this module's: on Android
+ * `spellcheck` is the only lever, so raising it for one dial raises it for all three. Both settings
+ * surfaces import this, so the rule cannot drift between them. */
+export const TYPING_DIALS = ['analSpellcheck', 'analAutocomplete', 'analAutocorrect'];
+
+/** Show the ⚠ on every dial that is not itself 'on', whenever any of them is. */
+export function syncTypingWarnings(box, attr) {
+  if (!box || typeof box.querySelector !== 'function') return;
+  const val = (k) => {
+    const el = box.querySelector(`[${attr}="${k}"]`);
+    return el ? el.value : null;
+  };
+  const vals = TYPING_DIALS.map(val);
+  const anyOn = vals.some((v) => v === ON);
+  TYPING_DIALS.forEach((k, i) => {
+    const dot = box.querySelector(`[data-infofor="warn-${k}"]`);
+    if (!dot) return;
+    const show = anyOn && vals[i] !== ON && vals[i] !== null;
+    dot.hidden = !show;
+    if (!show) {
+      const note = box.querySelector(`[data-infonote="warn-${k}"]`);
+      if (note) note.hidden = true;
+      dot.setAttribute('aria-expanded', 'false');
+    }
+  });
+}

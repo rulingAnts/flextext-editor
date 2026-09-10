@@ -702,11 +702,16 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
   border-inline-start: 3px solid var(--muted); border-radius: 0 4px 4px 0;
   background: color-mix(in srgb, var(--muted) 10%, transparent);
 }
-/* Desktop reflex: hovering the dot reveals the note without pinning it open. :has() is an
- * enhancement — where it is unsupported the click above still works, which is the case that
- * matters on the devices this suite runs on. */
-.rp-field:has(.info-dot:hover) + .info-note,
-.setup-field:has(.info-dot:hover) + .info-note { display: block !important; }
+/* ⚠ NO HOVER REVEAL. There was a :has(.info-dot:hover) rule here that opened a note on mouseover.
+ * Seth, 2026-09-10: "It's a little glitchy and we don't actually need it." It is — notes appearing
+ * and vanishing as the pointer crosses the form makes the whole panel feel unstable, and click/tap
+ * already works everywhere including the touch screens these apps run on. */
+
+/* The ⚠ variant: same control, different weight. Hidden until the Android coupling actually bites,
+ * so it is not decoration — its presence means something. */
+.warn-dot { border-color: var(--warn, #b45309); color: var(--warn, #b45309); font-weight: 700; }
+.warn-dot:hover, .warn-dot:focus-visible { border-color: var(--warn, #b45309); color: var(--warn, #b45309); }
+.warn-note { border-inline-start-color: var(--warn, #b45309); }
 
 .ws-form fieldset {
   border: 1px solid var(--border);

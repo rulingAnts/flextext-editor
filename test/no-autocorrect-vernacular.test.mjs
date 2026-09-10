@@ -23,13 +23,16 @@ const APPS = ['../docs/index.html', '../satellites/audio-segmenter/index.html',
   '../satellites/consent-collector/index.html', '../satellites/crowd-recorder/index.html',
   '../satellites/text-recorder/index.html'];
 
+/* Records every write, because "did it write at all?" is the question behind the v653 loop. */
 function fakeEl() {
   const attrs = new Map();
+  const writes = [];
   return {
-    dataset: {}, spellcheck: undefined,
-    setAttribute: (k, v) => attrs.set(k, String(v)),
-    removeAttribute: (k) => attrs.delete(k),
+    nodeType: 1, dataset: {}, spellcheck: undefined, writes,
+    setAttribute: (k, v) => { writes.push(k); attrs.set(k, String(v)); },
+    removeAttribute: (k) => { if (attrs.has(k)) writes.push(k); attrs.delete(k); },
     getAttribute: (k) => (attrs.has(k) ? attrs.get(k) : null),
+    hasAttribute: (k) => attrs.has(k),
     attrs,
   };
 }
@@ -214,7 +217,7 @@ function fakeDom(fields) {
 }
 
 test('the sweep hardens fields that are already on the page', () => {
-  const f = Object.assign(fakeEl(), { nodeType: 1 });
+  const f = fakeEl();
   f.dataset.typing = VERN;
   f.spellcheck = true;                       // a hostile starting state
   const real = globalThis.MutationObserver;
@@ -226,7 +229,7 @@ test('the sweep hardens fields that are already on the page', () => {
   } finally { globalThis.MutationObserver = real; }
 });
 
-test('and it watches for fields that arrive later, and for a stray spellcheck', () => {
+test('and it watches for fields that arrive later', () => {
   let opts = null, cb = null;
   const real = globalThis.MutationObserver;
   globalThis.MutationObserver = function (fn) {
@@ -238,11 +241,15 @@ test('and it watches for fields that arrive later, and for a stray spellcheck', 
     assert.ok(opts, 'it observes');
     assert.equal(opts.childList, true, 'new fields');
     assert.equal(opts.subtree, true, 'however deep they are nested');
-    assert.deepEqual(opts.attributeFilter, ['data-typing', 'spellcheck'],
-      'and a stray el.spellcheck = true anywhere in the suite loses, rather than quietly winning');
 
-    // A row rebuilt mid-scroll: the field arrives unhardened and must not stay that way.
-    const born = Object.assign(fakeEl(), { nodeType: 1 });
+    /* ⚠ NEVER `attributes`. Watching data-typing/spellcheck meant every applyTyping() write woke the
+     * observer, which called applyTyping() again — an infinite loop that pinned the main thread.
+     * It shipped as v653 to staging: "this page is slowing down Firefox", with audio and waveforms
+     * starved along with everything else. */
+    assert.ok(!opts.attributes, 'and NOT attributes — that was an infinite loop');
+    assert.equal(opts.attributeFilter, undefined);
+
+    const born = fakeEl();
     born.dataset.typing = VERN;
     born.spellcheck = true;
     cb([{ type: 'childList', addedNodes: [born] }]);
@@ -251,6 +258,49 @@ test('and it watches for fields that arrive later, and for a stray spellcheck', 
 
     assert.equal(typeof stop, 'function', 'and it can be torn down');
   } finally { globalThis.MutationObserver = real; }
+});
+
+/* ⚠ THE TEST THAT WOULD HAVE CAUGHT IT. The old fake observer was fed one batch of records by hand
+ * and never saw its own writes, so a self-feeding loop was invisible to it. This one records every
+ * attribute write applyTyping makes and feeds them back exactly as a real MutationObserver would. */
+test('applying the policy generates no further work — the loop must converge', () => {
+  const el = fakeEl();
+  el.dataset.typing = ANAL;
+
+  applyTyping(el, ANAL);
+  assert.ok(el.writes.length > 0, 'the first pass does real work');
+
+  /* A real observer would now fire with those records. Every subsequent pass must write NOTHING, or
+   * the observer feeds itself forever — which is precisely what v653 shipped. */
+  for (let round = 0; round < 5; round++) {
+    el.writes.length = 0;
+    applyTyping(el, ANAL);
+    assert.deepEqual(el.writes, [], `pass ${round + 2} rewrote attributes — this is the v653 loop`);
+  }
+  assert.equal(el.spellcheck, canMarkWithoutReplacing(), 'and it settled on the right answer');
+});
+
+test('and it converges for the vernacular too, which is on far more fields', () => {
+  const el = fakeEl();
+  applyTyping(el, VERN);
+  el.writes.length = 0;
+  applyTyping(el, VERN);
+  assert.deepEqual(el.writes, [], 'a settled vernacular field is left completely alone');
+  assert.equal(el.spellcheck, false);
+});
+
+/* The idempotence test above proves nothing if a value legitimately CHANGES — a settings push must
+ * still take effect on the next render. */
+test('but a changed setting still writes, or a settings push would do nothing', () => {
+  const el = fakeEl();
+  setTypingPrefs(() => ({ spell: 'off' }));
+  applyTyping(el, ANAL);
+  assert.equal(el.spellcheck, false);
+  el.writes.length = 0;
+  setTypingPrefs(() => ({ spell: 'on' }));       // the researcher just changed it
+  applyTyping(el, ANAL);
+  assert.equal(el.spellcheck, true, 'the new value lands');
+  setTypingPrefs(() => ({}));
 });
 
 /* ─── THE THREE DIALS ON THE SETTINGS SURFACES ────────────────────────────────

@@ -492,11 +492,20 @@ const DOUBLE_SAFE = ',;:!?';                 // never legitimately repeated, nev
  *                allowed, no doubles, no tripples." A period there separates parts of one label
  *                (1SG.SUBJ), so there is no ellipsis to protect and nothing to wait for.
  * The other five collapse on input safely — none of them is ever legitimately repeated. */
-export function collapseRepeatedPunct(value, { periods = 'ellipsis' } = {}) {
+export function collapseRepeatedPunct(value, { periods = 'ellipsis', sep = null } = {}) {
   let out = value == null ? '' : String(value);
   for (const ch of DOUBLE_SAFE) out = out.replace(new RegExp(`\\${ch}{2,}`, 'g'), ch);
   if (periods === 'single') out = out.replace(/\.{2,}/g, '.');
   else if (periods === 'ellipsis') out = out.replace(/\.{2,}/g, (m) => (m.length === 2 ? '.' : '...'));
+  /* ⚠ THE CHOSEN GLOSS WORD-BREAK CHARACTER, when it is not the period already handled above.
+   * A researcher may set it to _ or - (Seth, 2026-09-10: "give the researcher a setting to decide
+   * WHICH word-break character to use between words in gloss fields… Default to period, but
+   * underscore and hyphen are also options"), and both of those are WORD characters that this
+   * function otherwise refuses to touch on purpose — a doubled hyphen is legitimate in vernacular
+   * and in a morpheme gloss. What makes collapsing safe HERE is that the researcher has declared
+   * this character to be the separator in THIS field, so two of them in a row is an accident by
+   * definition. It is passed in per call and never assumed. */
+  if (sep && sep !== '.') out = out.replace(new RegExp(`\\${sep}{2,}`, 'g'), sep);
   return out;
 }
 
@@ -516,14 +525,22 @@ export function withCaret(fn, value, caret = null) {
  * A GLOSS is not just "the same rules minus the ellipsis": spaces are never collapsed there,
  * because a space in a gloss has already become a PERIOD by the time this runs (1SG.SUBJ). Running
  * a space rule after that would find nothing, and running it before would fight the period rule. */
-export function tidyOnInput(value, caret, { gloss = false } = {}) {
+export function tidyOnInput(value, caret, { gloss = false, sep = null } = {}) {
   return withCaret((v) => (gloss
-    ? collapseRepeatedPunct(v, { periods: 'single' })
+    ? collapseRepeatedPunct(v, { periods: 'single', sep })
     : collapseRepeatedPunct(collapseSpaces(v).value, { periods: 'skip' })), value, caret);
 }
 
-export function tidyOnBlur(value, { gloss = false } = {}) {
+export function tidyOnBlur(value, { gloss = false, sep = null } = {}) {
   return gloss
-    ? collapseRepeatedPunct(value, { periods: 'single' })
+    ? collapseRepeatedPunct(value, { periods: 'single', sep })
     : collapseRepeatedPunct(tidySpaces(value), { periods: 'ellipsis' });
+}
+
+/* ⚠ A SPACE IS NEVER AN OPTION HERE (Seth: "just don't allow space"). A gloss is one label for one
+ * word; a space in it would make the word count disagree with the baseline, which is the whole
+ * reason the space becomes a separator in the first place. */
+export const GLOSS_BREAKS = { period: '.', underscore: '_', hyphen: '-' };
+export function glossBreakChar(pref) {
+  return GLOSS_BREAKS[pref] || GLOSS_BREAKS.period;
 }

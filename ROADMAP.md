@@ -78,7 +78,7 @@ keyboard while the focused box stayed buried. The arithmetic now lives in two pu
 functions (`visibleBandBottom`, `revealScrollBy`) tested across all three viewport modes with no
 DOM, because both earlier failures were logic errors invisible to a suite that reads source as text.
 
-## 0c. On staging, awaiting a production push (v669)
+## 0c. On staging, awaiting a production push (v669 to v671)
 
 **One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
 or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
@@ -95,6 +95,28 @@ also caps a gap at one blank line.
   turned 53 lines into 30 and ended a recording half a minute early. The cap is gated on **doc
   truth**, never on the setting, and `docCarriesTime()` is now the single definition of alignment
   shared with `applyBaseline` — two notions drifting apart is how that bug returns.
+**Repeated punctuation too (v670).** Seth: *"Two dashes allowed, three periods OK, but not two. Two
+commas definitely not OK. And in glosses only one period at a time allowed, no doubles, no
+tripples."*
+
+- ⚠⚠ **An ellipsis would have been untypeable** if the period rule ran on every keystroke: a 2→1
+  rule eats the second dot, the third makes two again, eaten again. So periods are left alone while
+  typing in a full-line box and settled on blur (two → one, three or more → exactly three). A gloss
+  takes no ellipsis exemption — a period there separates parts of one label.
+- ⚠⚠⚠ **Never the characters an orthography is built from.** `WORD_CHAR` counts the apostrophe
+  family, `ʔ`, and `-` `_` `=` as word characters — glottal stops and morpheme boundaries. Only
+  characters the tokenizer already treats as punctuation are collapsed, which is why "two dashes
+  allowed" needed no special case.
+- ⚠ And it never touches a key event — every path is `input` or `blur`, reading the value, because
+  an Android IME commits with `keyCode 229` and no usable `key`. A test walks every listener that
+  calls into the feature and fails if any is a `keydown`.
+
+**The gloss word-break character is a setting (v671).** A space typed in a gloss becomes a
+separator; a researcher now chooses which — period (default), underscore or hyphen. A space is not
+offered, since a gloss containing one would make the word count disagree with the baseline. ⚠ A
+hyphen or underscore is collapsed **only when it has been declared the separator** — otherwise it
+may be marking a morpheme boundary, and is left alone.
+
 - Fixed in passing: the three typing dials were **missing from the settings snapshot** the panel
   prefills from, so the panel could push them but never read back what a device actually held.
 

@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { collapseSpaces, tidySpaces, capBlankLines, tidyOnInput, tidyOnBlur, collapseRepeatedPunct } from '../docs/js/typing.js';
+import { collapseSpaces, tidySpaces, capBlankLines, tidyOnInput, tidyOnBlur, collapseRepeatedPunct, GLOSS_BREAKS, glossBreakChar } from '../docs/js/typing.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const APP = rd('../docs/js/app.js'), STRIPS = rd('../docs/js/segment-strips.js');
@@ -97,12 +97,12 @@ test('each box gets the rules its own content can take', () => {
    * time allowed, no doubles, no tripples." So the gloss passes { gloss: true }, which skips the
    * space collapse entirely (a space there has already become a period) and takes no ellipsis
    * exemption (a period separates parts of one label). */
-  assert.match(APP, /tidyOnInput\(g\.value, g\.selectionStart, \{ gloss: true \}\)/, 'gloss on input');
-  assert.match(APP, /tidyOnBlur\(spaced, \{ gloss: true \}\)/, 'gloss on blur');
+  assert.match(APP, /tidyOnInput\(g\.value, g\.selectionStart, \{ gloss: true, sep: glossBreak\(\) \}\)/, 'gloss on input');
+  assert.match(APP, /tidyOnBlur\(spaced, \{ gloss: true, sep: glossBreak\(\) \}\)/, 'gloss on blur');
 
   // ⚠ AND WITH THE SETTING OFF, A GLOSS IS ONLY SPACE-TO-PERIOD — no tidying at all. Getting this
   // wrong meant periods collapsed with the setting disabled, under full-line rules at that.
-  assert.match(APP, /const want = singleSpaceEnabled\(\) \? tidyOnBlur\(spaced, \{ gloss: true \}\) : spaced;/,
+  assert.match(APP, /const want = singleSpaceEnabled\(\) \? tidyOnBlur\(spaced, \{ gloss: true, sep: glossBreak\(\) \}\) : spaced;/,
     'the off path rewrites nothing beyond what it always did');
 });
 
@@ -205,4 +205,49 @@ test('the rule fires on the VALUE, never on a key press', () => {
       assert.doesNotMatch(chunk, /tidyOnInput|tidyOnBlur|singleSpaceEnabled\(\)/,
         `${name}: a keydown handler must not carry this rule`);
   }
+});
+
+/* The gloss word-break character (v671). Seth: "give the researcher a setting to decide WHICH
+ * word-break character to use between words in gloss fields (just don't allow space). Default to
+ * period, but underscore and hyphen are also options." */
+test('the gloss word-break character is a setting, and a space is never one of the options', () => {
+  assert.deepEqual(GLOSS_BREAKS, { period: '.', underscore: '_', hyphen: '-' });
+  assert.equal(glossBreakChar('underscore'), '_');
+  assert.equal(glossBreakChar('hyphen'), '-');
+  assert.equal(glossBreakChar('period'), '.');
+  assert.equal(glossBreakChar(undefined), '.', 'default is the period');
+  assert.equal(glossBreakChar('space'), '.', 'and an unknown value falls back, never to a space');
+  for (const v of Object.values(GLOSS_BREAKS)) assert.notEqual(v, ' ');
+
+  // the field exists on both surfaces, with the same default (this one does NOT depend on pairing)
+  for (const [src, name] of [[APP, 'app.js'], [PANEL, 'researcher-panel.js']]) {
+    assert.match(src, /\{ k: 'glossBreak', type: 'select', opts: \['period', 'underscore', 'hyphen'\]/, name);
+    assert.match(src, /v\.glossBreak = GLOSS_BREAKS\[s\.glossBreak\] \? s\.glossBreak : 'period';/, `${name} default`);
+  }
+  // and the panel can read back what a device actually has
+  const snap = APP.slice(APP.indexOf('const snap = {};'), APP.indexOf('if (settings[k] !== undefined) snap[k] = settings[k];'));
+  assert.match(snap, /'glossBreak'/);
+  // labelled in both languages, options included
+  for (const k of ['panel.f.glossBreak', 'panel.f.glossBreakNote', 'panel.opt.glossBreak.period',
+                   'panel.opt.glossBreak.underscore', 'panel.opt.glossBreak.hyphen'])
+    assert.equal((I18N.match(new RegExp(`'${k}':`, 'g')) || []).length, 2, `${k} in en and id`);
+});
+
+/* ⚠⚠ AND A HYPHEN OR UNDERSCORE IS ONLY EVER COLLAPSED WHEN THE RESEARCHER DECLARED IT THE
+ * SEPARATOR. Both are WORD characters in flextext.js — a hyphen marks an affix boundary in a
+ * morpheme gloss (go-PST) and may be doubled legitimately. What makes collapsing safe is the
+ * declaration, not the character. */
+test('only the chosen separator collapses; the other word characters are left alone', () => {
+  const gl = (v, sep) => tidyOnBlur(v, { gloss: true, sep });
+  assert.equal(gl('PST..PERF', '.'), 'PST.PERF');
+  assert.equal(gl('PST__PERF', '_'), 'PST_PERF');
+  assert.equal(gl('PST--PERF', '-'), 'PST-PERF');
+  // not chosen -> untouched
+  assert.equal(gl('go--PST', '_'), 'go--PST', 'a hyphen that is not the separator survives');
+  assert.equal(gl('go__PST', '.'), 'go__PST', 'and so does an underscore');
+  // ⚠ a full-line box never collapses either of them, whatever the gloss separator is
+  assert.equal(tidyOnBlur('ka--i be__na'), 'ka--i be__na');
+  // periods still collapse in a gloss even when the separator is something else — a gloss label
+  // has no ellipsis, so a doubled period there is an accident either way
+  assert.equal(gl('PST..PERF', '_'), 'PST.PERF');
 });

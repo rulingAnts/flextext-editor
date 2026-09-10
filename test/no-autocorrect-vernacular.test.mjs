@@ -37,6 +37,24 @@ function fakeEl() {
   };
 }
 
+
+/* Several tests below are about what a DIAL decides, not about dictionary availability. This puts a
+ * usable analysis language and a matching browser language in place so `auto` is free to mark, and
+ * the assertion stays on the thing it is actually testing. */
+function withDictionary(tag, fn) {
+  const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { userAgent: (real && real.value && real.value.userAgent) || 'node', languages: [tag] },
+    configurable: true,
+  });
+  setAnalysisLang(() => tag);
+  try { return fn(); } finally {
+    setAnalysisLang(() => '');
+    if (real) Object.defineProperty(globalThis, 'navigator', real);
+    else delete globalThis.navigator;
+  }
+}
+
 /* The three behaviours the platform bundles together and this module keeps apart:
  * REPLACE (silent swap) — never, anywhere. SUGGEST (a strip of choices) — never on the web layer.
  * MARK (a squiggle, nothing rewritten) — the analysis language only. */
@@ -84,10 +102,12 @@ test('each dial is honoured independently where the platform separates them', ()
 /* ⚠ `auto` differs per dial, and that asymmetry is the design, not an oversight. */
 test('auto means the most the device can do safely, dial by dial', () => {
   setTypingPrefs(() => ({ spell: 'auto', complete: 'auto', correct: 'auto' }));
-  const r = resolveTyping(ANAL);
-  assert.equal(r.correct, false, 'replacement: never, on any platform');
-  assert.equal(r.spell, canMarkWithoutReplacing(), 'marking: where it costs nothing');
-  assert.equal(r.complete, canSuggestWithoutReplacing(), 'choices: where they are only choices');
+  withDictionary('id', () => {
+    const r = resolveTyping(ANAL);
+    assert.equal(r.correct, false, 'replacement: never, on any platform');
+    assert.equal(r.spell, canMarkWithoutReplacing(), 'marking: where it costs nothing');
+    assert.equal(r.complete, canSuggestWithoutReplacing(), 'choices: where they are only choices');
+  });
   setTypingPrefs(() => ({}));
 });
 
@@ -100,11 +120,11 @@ test('MARK is off for the vernacular — no dictionary means every word underlin
 /* Seth's own examples: "fedahu" for perahu, "tudu" for turun — a Fayu speaker writing Indonesian by
  * ear. Real words, spelled wrong, in a language the device HAS a dictionary for. */
 test('MARK is on for the analysis language, where a squiggle means something', () => {
-  setAnalysisLang(() => 'id');
-  const el = applyTyping(fakeEl(), ANAL);
-  assert.equal(el.spellcheck, canMarkWithoutReplacing());
-  if (canMarkWithoutReplacing()) assert.equal(el.getAttribute('lang'), 'id');
-  setAnalysisLang(() => '');
+  withDictionary('id', () => {
+    const el = applyTyping(fakeEl(), ANAL);
+    assert.equal(el.spellcheck, canMarkWithoutReplacing());
+    if (canMarkWithoutReplacing()) assert.equal(el.getAttribute('lang'), 'id');
+  });
 });
 
 /* ⚠ THE FACT THAT DECIDES THE ANDROID DEFAULT: `spellcheck` is the only lever there, and true hands
@@ -307,7 +327,7 @@ test('applying the policy generates no further work — the loop must converge',
     applyTyping(el, ANAL);
     assert.deepEqual(el.writes, [], `pass ${round + 2} rewrote attributes — this is the v653 loop`);
   }
-  assert.equal(el.spellcheck, canMarkWithoutReplacing(), 'and it settled on the right answer');
+  assert.equal(el.spellcheck, false, 'and it settled — no dictionary here, so no marking');
 });
 
 test('and it converges for the vernacular too, which is on far more fields', () => {
@@ -535,6 +555,11 @@ test('a native shell can declare better capabilities without any caller changing
 
     // What #62 buys, expressed as a declaration rather than a code change.
     setTypingPlatform({ markWithoutReplacing: true, suggestWithoutReplacing: true, dialsAreIndependent: true });
+    setAnalysisLang(() => 'id');
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) Chrome/120', languages: ['id'] },
+      configurable: true,
+    });
     const el = applyTyping(fakeEl(), ANAL);
     assert.equal(el.spellcheck, true, 'native on Android: marks');
     assert.equal(el.getAttribute('autocomplete'), 'on', 'and offers choices');
@@ -585,4 +610,64 @@ test('and the writing-system code fields do not', () => {
   const setupText = app.slice(app.indexOf('  return offWrap(`<label class="rp-field"${tip}><span>${label}'));
   assert.match(setupText.slice(0, 260), /spellcheck="false"/, 'Settings-tab code fields too');
   assert.doesNotMatch(setupText.slice(0, 260), /autocapitalize="sentences"/, 'and uncapitalised');
+});
+
+/* ⚠ MARKING AGAINST A DICTIONARY THE BROWSER DOES NOT HAVE IS WORSE THAN NOT MARKING AT ALL.
+ * Seth, 2026-09-10, having watched it happen in Firefox with an Indonesian analysis language:
+ * "if the browser has no indonesian dictionary, then it shouldn't fall back on English."
+ *
+ * Firefox given lang="id" with no Indonesian dictionary checks against ENGLISH — so every Indonesian
+ * word is flagged, the flags carry no information, and it looks like a working feature. Same
+ * 100%-false-positive noise that MARK is off for on the vernacular. There is no web API to ask which
+ * dictionaries exist, so this uses navigator.languages as a proxy that fails toward silence. */
+test('auto does not mark when the browser probably lacks that dictionary', () => {
+  const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const setNav = (languages) => Object.defineProperty(globalThis, 'navigator',
+    { value: { userAgent: 'Mozilla/5.0 (Macintosh) Chrome/120', languages }, configurable: true });
+  try {
+    setTypingPrefs(() => ({ spell: 'auto' }));
+
+    // A researcher's laptop set to English only, glossing into Indonesian: the exact reported case.
+    setNav(['en-US', 'en']);
+    setAnalysisLang(() => 'id');
+    assert.equal(resolveTyping(ANAL).spell, false, 'no Indonesian dictionary ⇒ no squiggles');
+    assert.equal(applyTyping(fakeEl(), ANAL).getAttribute('lang'), null, 'and no lang is claimed');
+
+    // The same laptop with Indonesian configured: the feature works as intended.
+    setNav(['id-ID', 'en-US']);
+    assert.equal(resolveTyping(ANAL).spell, true, 'Indonesian configured ⇒ mark in Indonesian');
+    assert.equal(applyTyping(fakeEl(), ANAL).getAttribute('lang'), 'id');
+
+    // Region variants must not defeat the match — id-ID satisfies a request for id.
+    setAnalysisLang(() => 'id-ID');
+    setNav(['id']);
+    assert.equal(resolveTyping(ANAL).spell, true, 'base language is what matters');
+
+    // No analysis language at all ⇒ nothing to check against ⇒ silence.
+    setAnalysisLang(() => '');
+    setNav(['id', 'en']);
+    assert.equal(resolveTyping(ANAL).spell, false, 'no tag ⇒ no marking');
+
+    /* But the researcher can still overrule: they have read the ⓘ and it is their call. */
+    setTypingPrefs(() => ({ spell: 'on' }));
+    setAnalysisLang(() => 'id');
+    setNav(['en-US']);
+    assert.equal(resolveTyping(ANAL).spell, true, 'an explicit on is still honoured');
+  } finally {
+    setTypingPrefs(() => ({}));
+    setAnalysisLang(() => '');
+    if (real) Object.defineProperty(globalThis, 'navigator', real);
+    else delete globalThis.navigator;
+  }
+});
+
+/* The removed fallback, pinned: app.js used to hand navigator.language to the spellchecker when the
+ * analysis code was not a usable tag, which checked Indonesian glosses against the researcher's
+ * laptop language. */
+test('no analysis code means no language, not the browser language', () => {
+  const fn = rd('../docs/js/app.js');
+  const block = fn.slice(fn.indexOf('setAnalysisLang(() => {'), fn.indexOf('setAnalysisLang(() => {') + 900);
+  assert.doesNotMatch(block.replace(/\/\*[\s\S]*?\*\//g, ''), /navigator\.language/,
+    'the browser-language fallback must stay gone');
+  assert.match(block, /return '';/, 'an unusable code yields no tag at all');
 });

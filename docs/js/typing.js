@@ -125,6 +125,27 @@ export function canMarkWithoutReplacing() { return !!caps.markWithoutReplacing; 
  * the two diverge the moment the native shell lands, which is why they are separate questions. */
 export function canSuggestWithoutReplacing() { return !!caps.suggestWithoutReplacing; }
 
+/* ⚠ MARKING AGAINST A DICTIONARY THE BROWSER DOES NOT HAVE IS WORSE THAN NOT MARKING. Seth,
+ * 2026-09-10: "if the browser has no indonesian dictionary, then it shouldn't fall back on English."
+ * That is exactly what happens — Firefox given lang="id" with no Indonesian dictionary checks
+ * against ENGLISH, so every Indonesian word is flagged and the flags carry no information. It is the
+ * same 100%-false-positive noise that MARK is switched off for on the vernacular, and it arrives
+ * silently, looking like a working feature.
+ *
+ * ⚠ AND THERE IS NO WEB API TO ASK. Nothing exposes which dictionaries are installed. So this is a
+ * proxy, and it is the best one available: browsers ship or fetch dictionaries for the languages the
+ * user has configured, which `navigator.languages` reports. Not a guarantee — a proxy that fails
+ * toward silence, which is the right direction.
+ *
+ * An explicit `on` from the researcher still overrides this. They have read the ⓘ; it is their call. */
+function browserLikelyHasDictionary(tag) {
+  if (!tag) return false;
+  const base = String(tag).toLowerCase().split('-')[0];
+  const langs = (typeof navigator !== 'undefined'
+    && (navigator.languages || (navigator.language ? [navigator.language] : []))) || [];
+  return langs.some((l) => String(l).toLowerCase().split('-')[0] === base);
+}
+
 /** What the three dials come to for this field class, on this device, right now. */
 export function resolveTyping(kind) {
   // ⚠ NOT NEGOTIABLE, AND DELIBERATELY BEFORE THE PREFERENCE LOOKUP.
@@ -133,7 +154,7 @@ export function resolveTyping(kind) {
   return {
     correct: tri(p.correct, false),
     complete: tri(p.complete, canSuggestWithoutReplacing()),
-    spell: tri(p.spell, canMarkWithoutReplacing()),
+    spell: tri(p.spell, canMarkWithoutReplacing() && browserLikelyHasDictionary(analLangTag())),
   };
 }
 

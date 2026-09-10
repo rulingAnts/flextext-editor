@@ -6219,7 +6219,12 @@ setTypingPrefs(() => ({
 setAnalysisLang(() => {
   const raw = String(settings.analLang || '').trim();
   if (/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(raw)) return raw;
-  return (typeof navigator !== 'undefined' && navigator.language) || '';
+  /* ⚠ NO FALLBACK TO THE BROWSER'S LANGUAGE. It used to return navigator.language here, which meant
+   * a project whose analysis code is not a usable tag had its glosses checked against whatever the
+   * researcher's laptop happened to be set to — the exact silent wrong-language bug this is meant to
+   * avoid. No usable tag now means no tag, and `auto` therefore does not mark at all. #68 replaces
+   * this guesswork with a real ISO language picker, separate from the FLEx writing-system code. */
+  return '';
 });
 
 function uploadContentSig(rec) {

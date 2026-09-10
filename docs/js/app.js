@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { applyTyping, enforceTyping, setAnalysisLang, setTypingPrefs, VERN, ANAL } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -4080,7 +4080,6 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   label.textContent = t('gloss.freeLabel');
   const input = document.createElement('input');
   input.className = 'free-input';
-  applyAnalysisTyping(input);   // ⚠ this box had NO protection at all until 2026-09-10
   input.placeholder = t('gloss.freePlaceholder');
   input.value = seg.free || '';
   if (analFont) input.style.fontFamily = analFont;
@@ -4120,7 +4119,6 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
    * gloss stays with its word — see glossEditWord. Enter commits, Escape reverts, Tab is untouched. */
   try { t2.contentEditable = 'plaintext-only'; } catch { /* below */ }
   if (t2.contentEditable !== 'plaintext-only') t2.contentEditable = 'true';
-  applyTyping(t2, VERN);          // a baseline word IS the vernacular — Seth: "baseline, baseline words"
   t2.title = t('gloss.editWordTip');
   let was = w.txt;
   t2.addEventListener('focus', () => { was = t2.textContent; });
@@ -4171,7 +4169,6 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
     g.className = 'gloss-input';
     g.value = w.gls || '';
     g.placeholder = '—';
-    applyAnalysisTyping(g);
     if (analFont) g.style.fontFamily = analFont;
     sizeInput(g);
     g.addEventListener('input', () => { w.gls = g.value; sizeInput(g); schedulePersist(); });
@@ -6205,8 +6202,10 @@ setTypingPrefs(() => ({
   correct: settings.analAutocorrect,
 }));
 
-const hardenTyping = (el) => applyTyping(el, VERN);
-const applyAnalysisTyping = (el) => applyTyping(el, ANAL);
+/* ⚠ NOTHING CALLS applyTyping PER FIELD ANY MORE, deliberately. Every field inherits the safe
+ * vernacular policy from <body> in the markup, and typing.js applies the researcher's analysis
+ * policy to the ONE field being touched. See its header for the three mechanisms this replaced and
+ * what each of them cost. */
 
 /* The tag a desktop spellchecker judges the analysis language by.
  *
@@ -9214,7 +9213,6 @@ function mgWireEditable(el, ln, wi, field) {
   // commit strips whatever formatting a paste might carry.
   try { el.contentEditable = 'plaintext-only'; } catch { /* below */ }
   if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
-  applyTyping(el, field === 'txt' ? VERN : ANAL);   // the word is vernacular; its gloss is not
   el.classList.add('mg-edit');
   el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
   let was = el.textContent;

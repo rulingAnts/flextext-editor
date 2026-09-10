@@ -202,62 +202,85 @@ export function applyTyping(el, kind) {
   return el;
 }
 
-/* ⚠ THE SWEEP EXISTS BECAUSE ONE MISSED FIELD IS A CORRUPTED TEXT. Fields are drawn by six apps and
- * a dozen render paths, several of which rebuild rows as the user scrolls; a policy applied only at
- * the call sites is one new `createElement` away from a hole. So the same shape that closed the
- * offsite-link hole closes this one: sweep what is here, observe what arrives.
+/* ─── ENFORCEMENT: STATIC FIRST, THEN ONE FIELD AT A TIME ─────────────────────
  *
- * ⚠ AND IT MUST RUN BEFORE FIRST FOCUS, not after — the IME reads a field's attributes when it
- * attaches to it, so a field hardened after the keyboard is already up has offered a round of
- * suggestions before we said a word. That is why marked-up fields carry the attributes in the HTML
- * too, and why this observes rather than polls. */
+ * Seth, 2026-09-10, after v653–v655 each cost real performance: "Seems like though it shouldn't be
+ * necessary for us to be live-monitoring and changing fields as we go. Seems like we should be able
+ * to make that almost static to the browser." He is right, and there are two facts that make it so.
+ *
+ * ⚠ FACT ONE: THESE ATTRIBUTES INHERIT. `spellcheck`, `autocorrect`, `autocapitalize` and
+ * `writingsuggestions` are inherited from any ancestor that sets them — verified in-browser, three
+ * levels deep, on both <input> and contenteditable. So each app's <body> carries the safe vernacular
+ * policy in its MARKUP, and every field in every app is born with it: no script, no observer, no
+ * per-field writes, and it is in force from parse time — before any script runs and before any IME
+ * can attach. That is as static as the platform allows, and it is the whole vernacular guarantee.
+ *
+ * ⚠ FACT TWO: ONLY THE FOCUSED FIELD CAN BE REWRITTEN. A keyboard rewrites what is being typed in.
+ * So the researcher's analysis-language policy is applied to ONE field, when it is touched, instead
+ * of to every field on every render. Empty gloss boxes nobody has touched have nothing to correct
+ * and nothing to underline, so this loses exactly nothing.
+ *
+ * What that replaces, and why each had to go:
+ *   - a MutationObserver on attributes — an infinite loop, because applyTyping wrote the attributes
+ *     it was watching (v653: "this page is slowing down Firefox")
+ *   - a synchronous childList sweep — a querySelectorAll inside every insertion, ~12ms a time on an
+ *     M3 (v654)
+ *   - a rAF-deferred sweep — rAF does not run in a hidden tab, so the queue grew while the tab was
+ *     backgrounded and burst on return, freezing the UI on tab switch (v655)
+ *   - applyTyping at every call site — 88ms per 602 fields on an M3, and these apps run on Android
+ *     tablets several times slower
+ * ⚠ AND SETTING spellcheck=true ON HUNDREDS OF FIELDS IS ITSELF THE COST, not just the writes:
+ * Firefox spellchecks eagerly where Chrome is lazy, which is why this was far worse in Firefox. At
+ * most ONE field is ever spellchecked now.
+ *
+ * pointerdown fires BEFORE focus — that is the touch path, which is the Android path. focusin
+ * catches Tab and programmatic focus (the gloss "move to next" walk). Both are capture-phase and
+ * delegated once, so no per-field listeners either. */
+
+const SEL_ANAL = '.free-input, .gloss-input, .mg-g, .mg-ft';
+const SEL_VERN = '#baseline-text, .word-txt, .seg-text, .mg-w, .pa-pastebox, #consent-name';
+const SEL_ANY = `${SEL_ANAL}, ${SEL_VERN}, [data-typing]`;
+
+/** Which language a field is in, from what the DOM already carries. No writes, no bookkeeping. */
+export function kindOf(el) {
+  if (!el || el.nodeType !== 1 || typeof el.matches !== 'function') return null;
+  const explicit = el.dataset && el.dataset.typing;
+  if (KINDS.has(explicit)) return explicit;
+  if (el.matches(SEL_ANAL)) return ANAL;
+  if (el.matches(SEL_VERN)) return VERN;
+  return null;
+}
+
+/* The resolved policy, as a short string. Stamped on the element as a JS PROPERTY — not an
+ * attribute, so it is not a DOM mutation, costs no reflow, and cannot be observed into a loop.
+ * Re-touching a settled field is one string compare; a settings push changes the signature, so the
+ * next touch re-applies without any invalidation plumbing. */
+function policySig(kind) {
+  const r = resolveTyping(kind);
+  const tag = r.spell && kind === ANAL ? analLangTag() : '';
+  return `${kind}|${+r.spell}${+r.complete}${+r.correct}|${tag}`;
+}
+
 export function enforceTyping(root = document) {
-  const sweep = (node) => {
-    if (!node || node.nodeType !== 1) return;
-    if (node.dataset && KINDS.has(node.dataset.typing)) applyTyping(node, node.dataset.typing);
-    if (!node.querySelectorAll) return;
-    for (const el of node.querySelectorAll('[data-typing]')) {
-      if (KINDS.has(el.dataset.typing)) applyTyping(el, el.dataset.typing);
-    }
+  const doc = root.ownerDocument || root;
+  if (!doc || typeof doc.addEventListener !== 'function') return () => {};
+
+  const touch = (node) => {
+    const el = node && typeof node.closest === 'function' ? node.closest(SEL_ANY) : null;
+    if (!el) return;
+    const kind = kindOf(el);
+    if (!kind) return;
+    const sig = policySig(kind);
+    if (el.__typing === sig) return;
+    applyTyping(el, kind);
+    el.__typing = sig;
   };
-  sweep(root.documentElement || root);
-  const target = root.body || root.documentElement || root;
-  if (!target || typeof MutationObserver !== 'function') return () => {};
-  /* ⚠ THE NET RUNS OFF THE CRITICAL PATH, COALESCED. Sweeping synchronously inside the observer
-   * callback put a querySelectorAll into the middle of every insertion, which delayed paint: a
-   * 40-line gloss render measured ~430ms on v652 and ~690ms with a synchronous sweep, and the
-   * devices this suite actually runs on are far slower than the laptop that was measured on.
-   *
-   * Deferring costs nothing real, because this is only a NET: every field the engine draws is
-   * already hardened by its own call site before it is ever inserted. The net exists for a path
-   * nobody thought of, and catching that one frame later is entirely soon enough — a person cannot
-   * focus a field that has not been painted yet, and the IME reads attributes when it attaches. */
-  let pending = null;
-  const flush = () => {
-    const batch = pending; pending = null;
-    for (const n of batch) sweep(n);
+  const on = (e) => touch(e.target);
+
+  doc.addEventListener('pointerdown', on, true);
+  doc.addEventListener('focusin', on, true);
+  return () => {
+    doc.removeEventListener('pointerdown', on, true);
+    doc.removeEventListener('focusin', on, true);
   };
-  const schedule = () => {
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
-    else setTimeout(flush, 0);
-  };
-  const mo = new MutationObserver((recs) => {
-    for (const r of recs) {
-      for (const n of r.addedNodes) {
-        if (!n || n.nodeType !== 1) continue;
-        if (pending) { pending.push(n); continue; }
-        pending = [n];
-        schedule();
-      }
-    }
-  });
-  /* ⚠ childList ONLY — NEVER attributes. Watching `data-typing` and `spellcheck` here meant every
-   * applyTyping() write woke the observer, which called applyTyping() again: an infinite loop that
-   * saturated the main thread. It shipped to staging as v653 and made every app crawl.
-   *
-   * The thing it was guarding — a stray `el.spellcheck = true` somewhere else in the suite — was
-   * never asked for, and is already covered by the test that no module outside this one touches
-   * typing attributes. Not worth re-earning at this price. */
-  mo.observe(target, { childList: true, subtree: true });
-  return () => { mo.disconnect(); pending = null; };
 }

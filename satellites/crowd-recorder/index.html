@@ -23,7 +23,13 @@
      runs before the deferred module executes. -->
 <script>window.__MODE = 'crowd';</script>
 </head>
-<body>
+<!-- ⚠ THE VERNACULAR TYPING POLICY, IN THE MARKUP. These four attributes INHERIT, so every
+     field below is born with them: no script, no observer, no per-field writes, and in force
+     from parse time — before any script runs and before an IME can attach. Autocorrect on a
+     language no device has a dictionary for is silent data corruption; see js/typing.js and
+     plans/typing-policy.md. The analysis-language fields override this at focus, one at a
+     time, which is the only field a keyboard can rewrite anyway. -->
+<body spellcheck="false" autocapitalize="none" autocorrect="off" writingsuggestions="false">
   <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated rather
        than shared: it is inline with no engine dependency, so it still shows when app.js fails to
        load, which is exactly when knowing which site you are on matters most. Runtime hostname

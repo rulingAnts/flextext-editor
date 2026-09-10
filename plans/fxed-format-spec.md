@@ -206,6 +206,39 @@ the wrong font and export wrongly to FLEx, and nothing downstream will notice.
 ⚠ Steps 1–2 are pure and node-testable, and together they are most of the risk. Do not start at
 step 3.
 
+## 9b. ⚠ A per-text history file goes in EVERY export target, not just one
+
+Seth, 2026-09-10, while specifying the lameta session export (#71):
+
+> "If and when we build that, we'll include it in our lameta and SayMore and 'All' export."
+
+So when a per-text history/provenance file is built — the derived slice of `history.js`'s event log
+for one text, covering creation, assignment, upload, movement and deletion — it is **not** a lameta
+feature. It ships in:
+
+- the **lameta** session export (#71)
+- the **SayMore** export
+- the **"All"** export
+
+⚠ The reason this needs saying: #71 is where the requirement was first written down, so the obvious
+mistake is to build it inside the lameta assembler where nothing else can reach it. It belongs
+wherever the shared bundle assembly lives — the same place `wants.eaf` / `wants.saymore` /
+`wants.fxpa` are already decided in `seg-exports.js` — so all three targets pick it up from one
+implementation.
+
+⚠ And it is a DERIVED artifact, not a stored file. There is no per-text history file today: the
+event log in `docs/js/history.js` is account-wide, a flat array with `docId` on each event, held in
+panel localStorage. The per-text version is that array filtered by one `docId` at export time.
+Deriving it is also what keeps a deposit from carrying other coworkers' texts and devices, which
+shipping the whole log would do.
+
+⚠ Distinct from `fxed.json` above, and both are wanted eventually. The event log answers *what
+happened to this text* — the archival provenance question, and the only part that cannot be
+reconstructed afterwards, since a deletion produces no event. `fxed.json` answers *what this text
+was* — the re-import question.
+
+---
+
 ## 10. Open questions
 
 1. **Extension**: `.fxed` or `.fxpe`? Both have been used. `.fxed` reads as "FlexText EDitor", which

@@ -101,7 +101,13 @@ console.log('\nthe controls between the text boxes are not tab stops');
 
 console.log('\nand the free translation is part of the same walk');
 {
-  const freeBlock = app.slice(app.indexOf("input.className = 'free-input'"), app.indexOf("input.className = 'free-input'") + 1400);
+  /* ⚠ BOUNDED BY THE FUNCTION, NOT BY A CHARACTER COUNT. This was `+ 1400`, and adding one line
+   * above the Tab handler silently pushed it out of the window and failed a test about focus for a
+   * reason that had nothing to do with focus. The block ends where the next top-level function
+   * starts. */
+  const freeAt = app.indexOf("input.className = 'free-input'");
+  const freeEnd = app.indexOf('\nfunction ', freeAt);
+  const freeBlock = app.slice(freeAt, freeEnd > 0 ? freeEnd : undefined);
   ok(/e\.key !== 'Tab'/.test(freeBlock) && /focusNextWordGloss\(input, e\.shiftKey \? -1 : 1\)/.test(freeBlock),
      'Tab and Shift+Tab from the free translation walk the same list as the glosses');
   ok(!/e\.key === ' '/.test(freeBlock),

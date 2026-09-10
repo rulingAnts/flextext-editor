@@ -511,7 +511,7 @@ function renderSfmPaste(errors, opts = {}) {
       ${opts.droppedName ? `<div class="banner warn-banner"><span>${esc(t('para.sfmDropped', { file: opts.droppedName }))}</span></div>` : ''}
       <p class="tab-hint">${esc(t('para.sfmPasteHelp'))}</p>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
-      <textarea id="pa-paste-box" class="pa-pastebox" spellcheck="false"
+      <textarea id="pa-paste-box" class="pa-pastebox" data-typing="vern" spellcheck="false"
                 placeholder="${esc(t('para.sfmPastePh'))}">${esc(prior)}</textarea>
       <details class="pa-help">
         <summary>${esc(t('para.sfmPasteHowTitle'))}</summary>

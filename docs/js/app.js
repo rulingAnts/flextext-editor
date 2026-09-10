@@ -10,6 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
+import { applyTyping, enforceTyping, setAnalysisLang, canMarkWithoutReplacing, VERN, ANAL } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -4079,6 +4080,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   label.textContent = t('gloss.freeLabel');
   const input = document.createElement('input');
   input.className = 'free-input';
+  applyAnalysisTyping(input);   // ⚠ this box had NO protection at all until 2026-09-10
   input.placeholder = t('gloss.freePlaceholder');
   input.value = seg.free || '';
   if (analFont) input.style.fontFamily = analFont;
@@ -4118,7 +4120,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
    * gloss stays with its word — see glossEditWord. Enter commits, Escape reverts, Tab is untouched. */
   try { t2.contentEditable = 'plaintext-only'; } catch { /* below */ }
   if (t2.contentEditable !== 'plaintext-only') t2.contentEditable = 'true';
-  t2.spellcheck = false;
+  applyTyping(t2, VERN);          // a baseline word IS the vernacular — Seth: "baseline, baseline words"
   t2.title = t('gloss.editWordTip');
   let was = w.txt;
   t2.addEventListener('focus', () => { was = t2.textContent; });
@@ -4169,9 +4171,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
     g.className = 'gloss-input';
     g.value = w.gls || '';
     g.placeholder = '—';
-    g.autocapitalize = 'off';
-    g.autocomplete = 'off';
-    g.spellcheck = false;
+    applyAnalysisTyping(g);
     if (analFont) g.style.fontFamily = analFont;
     sizeInput(g);
     g.addEventListener('input', () => { w.gls = g.value; sizeInput(g); schedulePersist(); });
@@ -6181,6 +6181,36 @@ function cheapHash(str) {
   for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
   return h.toString(36);
 }
+/* ─────────────────────────────────────────────────────────────────────────────
+ * TYPING POLICY LIVES IN typing.js — READ ITS HEADER BEFORE CHANGING ANY FIELD.
+ *
+ * It is engine-wide on purpose (Seth, 2026-09-10: "This is an engine wide change we're
+ * implementing. For all our apps."), and all seven apps load this file, so wiring it here reaches
+ * every one of them without touching a single satellite.
+ *
+ * The two aliases below exist only to name a field's language class at the call site:
+ *   VERN — the language being documented. Never rewritten, never suggested at, by anything.
+ *   ANAL — the language it is being documented IN. Gets the spellchecker's help where the platform
+ *          can give help without also giving silent rewrites; never gets the rewrites.
+ * ───────────────────────────────────────────────────────────────────────────── */
+const hardenTyping = (el) => applyTyping(el, VERN);
+const applyAnalysisTyping = (el) => applyTyping(el, ANAL);
+
+/* The tag a desktop spellchecker judges the analysis language by.
+ *
+ * ⚠ A FLEx WRITING-SYSTEM CODE IS NOT A BCP-47 LANGUAGE TAG, and the two must never be conflated:
+ * `fau-x-iyarike` is a perfectly good writing system and is meaningless to a spellchecker, and
+ * aiming a dictionary at the wrong language is worse than aiming it at none. So only a plain 2–3
+ * letter code (with an optional region) is passed through; anything carrying a private-use or
+ * custom subtag falls back to the device's own language, which is what its keyboard is most likely
+ * set to anyway. The researcher-facing picker that turns a writing system into a real language
+ * name is still to be built — see plans/typing-policy.md. */
+setAnalysisLang(() => {
+  const raw = String(settings.analLang || '').trim();
+  if (/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(raw)) return raw;
+  return (typeof navigator !== 'undefined' && navigator.language) || '';
+});
+
 function uploadContentSig(rec) {
   try { return cheapHash(JSON.stringify(rec.doc) + '|' + (rec.audioId || rec.audioSource || '') + '|' + (rec.title || '')); }
   catch { return 'x' + Date.now(); }   // unstringifiable → never matches → always (re)uploads (safe)
@@ -9138,7 +9168,7 @@ function mgWireEditable(el, ln, wi, field) {
   // commit strips whatever formatting a paste might carry.
   try { el.contentEditable = 'plaintext-only'; } catch { /* below */ }
   if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
-  el.spellcheck = false;
+  applyTyping(el, field === 'txt' ? VERN : ANAL);   // the word is vernacular; its gloss is not
   el.classList.add('mg-edit');
   el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
   let was = el.textContent;
@@ -11043,6 +11073,15 @@ wireExternalLinks(document, {
   allowOffsite: () => !Sync.hasSession(),
   onBlocked: () => { try { toast(t('link.offsiteBlocked'), 6000); } catch { /* pre-i18n */ } },
 });
+
+/* ⚠ MODULE SCOPE, NOT setup(). setup() returns early for CROWD, PARAGRAPH, RESEARCHER, RECORD and
+ * CONSENT modes, so anything registered inside it is dead in five of the seven apps — the trap that
+ * already caught the refresh button and the offsite links. Typing policy is engine-wide, so it is
+ * wired out here where every app reaches it.
+ *
+ * The sweep also catches fields drawn later: rows are rebuilt as the user scrolls, and a field that
+ * arrives unhardened has offered a suggestion before anyone notices. See typing.js. */
+enforceTyping(document);
 
 /* ⚠ DELEGATED, NOT BOUND TO THE ELEMENT. Every app has this button now (Seth, 2026-09-09: "make
  * sure all of our apps have the refresh button"), and the Paragraph Analysis Tool re-renders its

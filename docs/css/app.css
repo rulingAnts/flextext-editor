@@ -1445,6 +1445,19 @@ body.rp-standalone main { padding-top: 0; }
    without it, a phone user scrolling a device's texts jumps the whole dashboard instead. */
 .rp-inv { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px;
   max-height: 26rem; overflow-y: auto; overscroll-behavior: contain; }
+/* ⚠ THE SAME PROPERTY SERVES TOUCH AND TRACKPAD OPPOSITELY, which is why `contain` above was both
+   right and wrong. On a phone it does what the note says: a flick that bottoms out stays put instead
+   of throwing the dashboard. On a trackpad it traps the gesture — Seth, 2026-09-10: "when the mouse
+   gesture scrolling gets captured by a device text-list frame, it can get trapped there... a LITTLE
+   bit glitchy feeling rather than smooth."
+   It is worst when the list only just overflows: measured 18px of scroll range on a real account, so
+   a whole two-finger gesture is swallowed to move the list 18px and then nothing happens.
+   A pointer query separates the two cleanly, because they ARE two different behaviours: coarse
+   pointers keep containment, fine pointers get the browser's normal chaining and the page picks up
+   where the list leaves off. Neither original intent is given up. */
+@media (pointer: fine) {
+  .rp-inv { overscroll-behavior-y: auto; }
+}
 /* The scrollbar sits flush against the actions; a little room keeps it off the buttons. */
 .rp-inv > li { padding-right: 2px; }
 .rp-inv li { display: flex; align-items: center; gap: 8px; }

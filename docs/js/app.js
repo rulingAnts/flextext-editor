@@ -11155,6 +11155,13 @@ wireExternalLinks(document, {
  * arrives unhardened has offered a suggestion before anyone notices. See typing.js. */
 enforceTyping(document);
 
+/* ⚠ MODULE SCOPE, NOT setup() — WHICH IS WHERE THIS USED TO BE, AND WHY #43 WAS ONLY HALF FIXED.
+ * setup() returns early for CROWD_MODE and PARAGRAPH_MODE before it ever got here, so the Android
+ * keyboard guard never ran in the Paragraph Analysis Tool or the crowd recorder — and PAT is used on
+ * tablets and is full of text fields. The same trap has now caught the refresh button, the offsite
+ * links, the typing policy and this. Anything that must work in every app belongs out here. */
+installKeyboardOverlayGuard();   // the Android keyboard covers the page; keep the focused box visible (#43)
+
 /* ⚠ ONE HANDLER, BOTH SETTINGS SURFACES. The researcher panel loads this file too, so a delegated
  * change listener at module scope keeps the Android-coupling warning in step on the panel and on an
  * unpaired device's own Settings tab without either form needing to know about it. Module scope for
@@ -11893,7 +11900,6 @@ function setup() {
   applyI18n();
   applyGlossIcon();
   installSplitCancel();   // Escape and a tap away cancel a pending split (plans/split-tiers.md)
-  installKeyboardOverlayGuard();   // the Android keyboard covers the page; keep the focused box visible (#43)
 
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render
   // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.

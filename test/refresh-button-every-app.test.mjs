@@ -108,3 +108,37 @@ test('PAT re-renders the bar the button sits on', () => {
 test('the label exists in both languages', () => {
   assert.equal((rd('../docs/js/i18n.js').match(/'btn\.refresh':/g) || []).length, 2);
 });
+
+/* ─── THE setup() TRAP, AS A STANDING RULE ────────────────────────────────────
+ * setup() returns early for CROWD_MODE and PARAGRAPH_MODE (and redirects for researcher), so
+ * anything registered inside it is DEAD in those apps. This trap has now caught four separate
+ * things: the refresh button, the offsite-link sweep, the typing policy, and the Android keyboard
+ * guard — which was called from setup() and therefore never ran in the Paragraph Analysis Tool or
+ * the crowd recorder, leaving #43 half fixed on the tablet-heavy app that needed it most.
+ *
+ * Everything that must work in EVERY app is asserted here to sit at column 0. */
+test('engine-wide installers are at module scope, not inside setup()', () => {
+  const src = rd('../docs/js/app.js');
+  for (const [call, why] of [
+    ['installKeyboardOverlayGuard();', 'the Android keyboard guard (#43) — PAT is used on tablets'],
+    ['enforceTyping(document);', 'the typing policy — every app types language data'],
+  ]) {
+    /* Column 0 is the tell: a call inside setup() is indented. Trailing comments are allowed —
+     * anchoring hard at the semicolon failed on the guard's own explanatory comment. */
+    const esc = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const atModuleScope = new RegExp('^' + esc + '\\s*(//.*)?$', 'm');
+    assert.match(src, atModuleScope, `${why} must be at module scope`);
+    // And must not ALSO be called from inside a function, which would double-register.
+    const indented = new RegExp('^\\s+' + esc, 'm');
+    assert.doesNotMatch(src, indented, `${call} must not also be called from inside a function`);
+  }
+});
+
+/* ⚠ The guard itself has to be safe to call before anything is rendered, since module scope runs
+ * once at load. It is: it no-ops without the viewport APIs and guards against double-install. */
+test('the keyboard guard is safe to install at load', () => {
+  const seg = rd('../docs/js/segment-strips.js');
+  const fn = seg.slice(seg.indexOf('export function installKeyboardOverlayGuard'));
+  assert.match(fn.slice(0, 400), /window\.__fxKbGuard/, 'it refuses to install twice');
+  assert.match(fn.slice(0, 400), /if \(!vv && !vk\) return;/, 'and no-ops where the APIs are absent');
+});

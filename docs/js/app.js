@@ -6642,7 +6642,8 @@ function setupFieldHtml(f) {
     // result can be called an archival master at all is not guessable from a name in a dropdown.
     const help = f.help === 'recfmt'
       ? `<p class="note"><button type="button" class="link-btn" data-sact="recfmtHelp">${esc(t('recfmt.helpLink'))}</button></p>` : '';
-    return offWrap(`<label class="rp-field"><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><select data-sf="${f.k}"${off}>${opts}</select></label>`) + help + note;
+    return offWrap(`<label class="rp-field"><span>${label}${f.off ? ' ' + setupOffMark() : ''}${infoDotHtml(f)}</span><select data-sf="${f.k}"${off}>${opts}</select></label>`)
+      + help + note + infoNoteHtml(f);
   }
   /* A field that goes on and off with ANOTHER field on the same form. The wrapper, the mark and the
    * reason line are all rendered up front and toggled by updateSetupConditionals — building them on

@@ -288,6 +288,17 @@ test('all three dials exist on both settings tables, tri-state, in both language
  * an explanation — which is why f.tip was not good enough here and f.info exists. */
 test('the ⓘ is a real button, reachable by touch, not a title attribute', () => {
   const app = rd('../docs/js/app.js');
+  /* ⚠ ASSERT IT IS CALLED, NOT MERELY DEFINED. The first version of this test checked the helper's
+   * source and passed while app.js never invoked it — so the unpaired Settings tab rendered three
+   * settings with no ⓘ at all, and only a real click in a real browser found it. */
+  for (const [f, renderer] of [['../docs/js/app.js', 'setupFieldHtml'],
+                               ['../docs/js/researcher-panel.js', 'fieldHtml']]) {
+    const src = rd(f);
+    const fn = src.slice(src.indexOf(`function ${renderer}(f) {`));
+    const sel = fn.slice(fn.indexOf("f.type === 'select'"), fn.indexOf("f.type === 'select'") + 1600);
+    assert.match(sel, /\$\{infoDotHtml\(f\)\}/, `${renderer} renders the ⓘ button`);
+    assert.match(sel, /infoNoteHtml\(f\)/, `${renderer} renders the note it opens`);
+  }
   const dot = app.slice(app.indexOf('function infoDotHtml'), app.indexOf('function infoNoteHtml'));
   assert.match(dot, /<button type="button" class="info-dot"/, 'a button, so a tap works');
   assert.match(dot, /aria-expanded=/, 'and it reports its state');

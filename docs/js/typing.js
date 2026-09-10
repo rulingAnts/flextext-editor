@@ -76,7 +76,22 @@ let prefs = () => ({});
 /** Host app supplies { correct, complete, spell }, each 'auto' | 'on' | 'off'. */
 export function setTypingPrefs(fn) { prefs = typeof fn === 'function' ? fn : () => ({}); }
 
-const tri = (v, whenAuto) => (v === ON ? true : v === OFF ? false : whenAuto);
+/* ⚠ UNSET MEANS OFF. Only the literal 'auto' gets the automatic answer; absent, 'off', or anything
+ * unrecognised is off. Seth, 2026-09-10, on what this release is actually for:
+ *
+ *   "The main thing we need for this release is all off by default, because it's not so much that we
+ *    definitely want spell-checking as we don't want it when we don't want it."
+ *
+ *   "We don't want it autocorrecting and tripping up vernacular or really bad Indonesian when a
+ *    native speaker is a very slow reader, not-tech-savvy, spelling may be way off, and autocorrect
+ *    will make it worse and not better, and especially auto-correcting or auto-completing
+ *    vernacular."
+ *
+ * That is the whole design in two sentences. The value of these dials is not the help they can give;
+ * it is that nothing helps uninvited. A person who reads slowly and spells uncertainly cannot audit
+ * a silent rewrite, so the default has to be silence and every exception has to be chosen by
+ * someone who understands what they are choosing. */
+const tri = (v, whenAuto) => (v === ON ? true : v === AUTO ? whenAuto : false);
 
 /* ─── THE PLATFORM SEAM ───────────────────────────────────────────────────────
  *
@@ -125,20 +140,47 @@ export function canMarkWithoutReplacing() { return !!caps.markWithoutReplacing; 
  * the two diverge the moment the native shell lands, which is why they are separate questions. */
 export function canSuggestWithoutReplacing() { return !!caps.suggestWithoutReplacing; }
 
-/* ⚠ MARKING AGAINST A DICTIONARY THE BROWSER DOES NOT HAVE IS WORSE THAN NOT MARKING. Seth,
- * 2026-09-10: "if the browser has no indonesian dictionary, then it shouldn't fall back on English."
- * That is exactly what happens — Firefox given lang="id" with no Indonesian dictionary checks
- * against ENGLISH, so every Indonesian word is flagged and the flags carry no information. It is the
- * same 100%-false-positive noise that MARK is switched off for on the vernacular, and it arrives
- * silently, looking like a working feature.
+/* ⚠ `auto` MARKS ONLY WHEN THE BROWSER LISTS THE ANALYSIS LANGUAGE — and the history of this one
+ * line is worth keeping, because it was got wrong twice in both directions.
  *
- * ⚠ AND THERE IS NO WEB API TO ASK. Nothing exposes which dictionaries are installed. So this is a
- * proxy, and it is the best one available: browsers ship or fetch dictionaries for the languages the
- * user has configured, which `navigator.languages` reports. Not a guarantee — a proxy that fails
- * toward silence, which is the right direction.
+ * The rule: a browser ships or fetches dictionaries for the languages the user has configured, and
+ * `navigator.languages` reports them. If the analysis language is not among them, marking would be
+ * done against some other language — every word of an Indonesian gloss underlined against English,
+ * silently, looking like a working feature. That is the same 100%-false-positive noise MARK is
+ * switched off for on the vernacular.
  *
- * An explicit `on` from the researcher still overrides this. They have read the ⓘ; it is their call. */
-function browserLikelyHasDictionary(tag) {
+ * ⚠ IT DOES WORK. Verified by Seth in Firefox, 2026-09-10: a fresh gloss box with lang="id" is
+ * spell-checked in Indonesian. An earlier field of his showed ENGLISH and briefly looked like proof
+ * that browsers ignore `lang` — they do not. That field had a REMEMBERED per-field dictionary
+ * override from a manual context-menu choice, and Firefox keeps those. A stale override on one
+ * field is not a platform limit, and treating it as one nearly threw the feature away.
+ *
+ * ⚠ AND THE FIELD DEVICES SATISFY IT BY CONSTRUCTION. Seth: "we researchers can [...] configure
+ * devices we give to mother-tongue speakers to use their LWC by default in the OS and browser
+ * interface. Android devices WILL be configured this way." A tablet set up in Indonesian lists
+ * Indonesian, so marking is on and correct there — while a researcher's English Windows machine
+ * ("Windows devices not so much") lists no Indonesian and stays quiet.
+ *
+ * Still a proxy: a language can be accepted without its dictionary being installed. It fails toward
+ * silence, and `on` overrides it for a researcher who has set their dictionary themselves.
+ *
+ * ⚠ AND THE SAME PROXY IS GENUINELY STRONGER IN CHROMIUM THAN IN FIREFOX — Chrome downloads a
+ * dictionary automatically when a language is enabled in its settings, whereas Firefox needs a
+ * dictionary add-on installed by hand per language. So `navigator.languages` containing `id` almost
+ * certainly means Chrome can check Indonesian, and only might mean Firefox can.
+ *
+ * ⚠ NO PER-BROWSER ALLOW-LIST, AND THIS WAS CONSIDERED TWICE. Chromium fetches a dictionary when a
+ * language is enabled in its settings; Firefox needs a per-language add-on installed by hand; Safari
+ * is not Chromium at all and uses the macOS system spellchecker; Edge is Chromium but layers
+ * Microsoft Editor and Windows language packs on top. Four mechanisms, none of them reportable to a
+ * web page.
+ *
+ * So an engine list would be a guess with a UA string holding it up — brittle against version
+ * changes, against Brave and Vivaldi presenting as Chrome, and against every engine's own settings
+ * changing under it. And it buys almost nothing now that the dials are OFF by default: `auto` is
+ * only ever reached by a researcher who chose it and read the dialog explaining exactly this
+ * dependency. The warning carries the caveat; the code stays one rule for every browser. */
+function browserListsLanguage(tag) {
   if (!tag) return false;
   const base = String(tag).toLowerCase().split('-')[0];
   const langs = (typeof navigator !== 'undefined'
@@ -154,7 +196,7 @@ export function resolveTyping(kind) {
   return {
     correct: tri(p.correct, false),
     complete: tri(p.complete, canSuggestWithoutReplacing()),
-    spell: tri(p.spell, canMarkWithoutReplacing() && browserLikelyHasDictionary(analLangTag())),
+    spell: tri(p.spell, canMarkWithoutReplacing() && browserListsLanguage(analLangTag())),
   };
 }
 

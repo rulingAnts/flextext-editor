@@ -99,10 +99,31 @@ so a field hardened after first focus has already offered a round of suggestions
 > and then autocorrect, autocomplete, and spell check toggles for analysis language that the
 > researcher can toggle on and off (also clarifying that this depends on device capabilities)"
 
+**Which code system, settled (2026-09-10, issue #68).** BCP-47 is what browsers and spelling
+dictionaries match on — and it is not a rival to ISO 639-3, because a BCP-47 tag's primary subtag
+*is* an ISO 639 code, shortest-available: 639-1 where a two-letter code exists, otherwise 639-3.
+
+| language | 639-3 | BCP-47 |
+|---|---|---|
+| Fayu | `fau` | `fau` |
+| Indonesian | `ind` | `id` |
+
+Only the ~180 languages with a 639-1 code diverge, and those are exactly the LWCs used as analysis
+languages — every minority language being documented has no 639-1 code, so its 639-3 code already
+*is* its BCP-47 tag. So: **show** Ethnologue name + 639-3 (what a linguist recognises), **store**
+639-3 as identity, **derive and store** the BCP-47 tag from a ~180-entry table, **send** only the
+tag to the device. ⚠ Derive in the PANEL, so the code table never ships to a field device — these
+install over poor connections and must work offline.
+
+Three stored values per language, each with one job: the FLEx writing-system code (the export), the
+639-3 code (identity), the BCP-47 tag (the only one a device sees).
+
 ⚠ **A FLEx writing-system code is not a BCP-47 language tag.** `fau-x-iyarike` is a perfectly good
 writing system and is meaningless to a spellchecker, and aiming a dictionary at the wrong language is
-worse than aiming it at none. Today `app.js` screens the code and passes through only a plain 2–3
-letter tag, falling back to the device language. The picker needs to pair the writing system with a
+worse than aiming it at none. Fayu's own code is the proof: `iau_tmu` has an underscore and an unregistered subtag, so it is not a
+tag at all — under the design above it becomes `iau-x-tmu` for the device while the FLEx code stays
+`iau_tmu` for the export. Today `app.js` screens the code, and anything that is not a usable tag
+yields NO tag: `auto` then declines to mark rather than guessing a language (v659). The picker needs to pair the writing system with a
 real ISO lookup yielding a language name, plus an `auto` option, plus copy saying plainly that
 whether any of it takes effect depends on the device.
 

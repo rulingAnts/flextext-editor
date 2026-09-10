@@ -1062,7 +1062,7 @@ export function renderStrips() {
        * stored. Spaces and tabs only — newlines are the rule above's business. Seth, 2026-09-10:
        * "Only allow one space between words." */
       if (deps.singleSpace && deps.singleSpace()) {
-        const r = tidyField(input.value, { kind: 'line', moment: 'input', prev: input.__prevVal }, input.selectionStart);
+        const r = tidyField(input.value, { kind: 'vern', moment: 'input', prev: input.__prevVal }, input.selectionStart);
         if (r.changed) {
           input.value = r.value;
           try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
@@ -1079,7 +1079,7 @@ export function renderStrips() {
      * the rewrite (Seth: "on blur, remove duplicated spaces if this behavior is enabled"). */
     input.addEventListener('blur', () => {
       if (!(deps.singleSpace && deps.singleSpace())) return;
-      const tidy = tidyField(input.value, { kind: 'line', moment: 'blur' }).value;
+      const tidy = tidyField(input.value, { kind: 'vern', moment: 'blur' }).value;
       if (tidy === input.value) return;
       input.value = tidy;
       input.__prevVal = tidy;

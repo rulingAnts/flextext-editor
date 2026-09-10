@@ -401,13 +401,20 @@ export function syncTypingWarnings(box, attr) {
  * there are only ever TWO KINDS OF FIELD and TWO MOMENTS, and every rule is a cell in that grid:
  *
  *                  while typing (input)                    on the way out (blur)
- *   line      undo the keyboard's period,          collapse runs, trim each line's edges,
+ *   vern      undo the keyboard's period,          collapse runs, trim each line's edges,
  *   (baseline  collapse space runs,                 settle periods (2 -> 1, 3+ -> ...)
- *    & free    collapse , ; : ! ? runs
- *    transl.)  — periods LEFT ALONE
+ *    text)     collapse , ; : ! ? runs
+ *             — periods LEFT ALONE
  *
- *   gloss     collapse , ; : ! ? runs,             the same, plus strip trailing punctuation
- *             periods -> one, separator -> one
+ *   free      the same, PLUS punctuation           the same, plus that
+ *   (transl.)  pulled tight against the word
+ *
+ *   gloss     only Leipzig-approved punctuation,   the same, plus strip trailing punctuation
+ *             runs of the same char -> one
+ *
+ * ⚠ vern AND free ARE SEPARATE ROWS ON PURPOSE. They are the same kind of box and NOT the same kind
+ * of content: the baseline is vernacular, and vernacular is never corrected. Only the free
+ * translation, being prose in the analysis language, gets typographic tidying.
  *
  * Everything below is either a primitive (pure, one job, testable alone) or the table. The reason
  * a rule sits in one column and not the other is written at the primitive, because in every case
@@ -436,6 +443,19 @@ const RUN_SAFE = ',;:!?';   // never legitimately repeated, and never word-inter
  * splits and rejoins on '\n' so the LINE COUNT is preserved exactly. */
 const collapseSpaceRuns = (v) => v.replace(/[ \t]{2,}/g, ' ');
 const trimLineEdges = (v) => v.split('\n').map((l) => l.replace(/^[ \t]+|[ \t]+$/g, '')).join('\n');
+/* ⚠ NO SPACE BETWEEN A WORD AND ITS PUNCTUATION (Seth, 2026-09-10): "We also don't want a space
+ * between a word and a period or comma." A full-line box is prose, and "the man ." is a typing slip
+ * in every language this app's analysis languages are drawn from — English and Indonesian both set
+ * punctuation tight against the word.
+ *
+ * ⚠ FRENCH IS THE KNOWN EXCEPTION and is not currently a concern: French typography puts a thin
+ * space before ; : ! and ?. If an analysis language ever needs that, this is the rule to make
+ * conditional — which is why it names its characters here rather than hiding behind \p{P}.
+ *
+ * Runs before the space collapse would also work, but after is cheaper and identical: any run of
+ * spaces has already become one by the time this sees it. */
+const tightenPunct = (v) => v.replace(/[ \t]+([.,;:!?])/g, '$1');
+
 const collapseRuns = (chars) => (v) => {
   let out = v;
   for (const ch of chars) out = out.replace(new RegExp(`\\${ch}{2,}`, 'g'), ch);
@@ -449,7 +469,49 @@ const collapseRuns = (chars) => (v) => {
  * two was a slip, three or more was meant. A GLOSS has no ellipsis to protect — a period there
  * separates parts of one label (1SG.SUBJ) — so it settles on every keystroke. */
 const settlePeriods = (v) => v.replace(/\.{2,}/g, (m) => (m.length === 2 ? '.' : '...'));
-const singlePeriod = (v) => v.replace(/\.{2,}/g, '.');
+
+/* ⚠ A GLOSS ADMITS ONLY LEIPZIG-APPROVED PUNCTUATION. Seth, 2026-09-10, after a screenshot of a
+ * gloss reading "mau,.bilang" — "two different punctuation marks in a row" — and then the general
+ * rule: "when , and . go together . (or word-breaking character the researcher put) should win. I
+ * think in glosses, we only want leipzig-approved punctuation allowed in gloss boxes."
+ *
+ * That is a better rule than "no two in a row", and simpler: a comma has no job in a gloss at all,
+ * so the question is not what to do when it sits next to a separator but what it is doing there in
+ * the first place. Anything outside the approved set BECOMES THE SEPARATOR — not deleted, because
+ * the typist who wrote "mau,bilang" wanted a break between two glosses, and deleting would fuse
+ * them into "maubilang". Seth's pair then falls out for free: the comma becomes a period, the
+ * period beside it makes a run, and the run reduces to one. The separator wins because it is the
+ * only thing left.
+ *
+ * THE APPROVED SET, with the rule each character comes from (Leipzig Glossing Rules):
+ *     -   Rule 2    affix boundary                    =   Rule 2    clitic boundary
+ *     .   Rule 4A   one form, several gloss parts     :   Rule 4B   same, boundary not segmentable
+ *     \   Rule 4C   morphophonological change         >   Rule 4D   person hierarchy (1>3)
+ *     <>  Rule 9    infix                             ~   Rule 10   reduplication
+ *     []            covert or inherent category       Ø             zero morpheme
+ * plus two in wide use outside the rules: _ for a multi-word gloss (and one of our separator
+ * options) and + for a compound. Letters, digits and combining marks are always fine, as are the
+ * apostrophe family and ʔ — those write a GLOTTAL STOP and are word characters in flextext.js.
+ *
+ * ⚠⚠ AND A PAIR OF TWO APPROVED CHARACTERS IS NEVER REDUCED. "PST-.SUBJ" keeps both: the hyphen is
+ * the morpheme's category and the period separates gloss parts, so they are two marks doing two
+ * jobs, not a slip. Only a run of the SAME character reduces, and even then not `-` or `=` unless
+ * the researcher declared it the separator — a doubled hyphen may be exactly what a convention
+ * wants. This is the same line Seth endorsed for the trailing strip: leave the Leipzig characters
+ * open, because eating one deletes analysis invisibly.
+ *
+ * ⚠⚠⚠ NONE OF THIS APPLIES TO A FULL-LINE BOX, where the text is ordinary prose in the analysis
+ * language: "apples, oranges, etc., and pears" is a period against a comma and is CORRECT, and
+ * "?!" is deliberate. Commas there are not accidents. */
+const GLOSS_ALLOWED = /[\p{L}\p{M}\p{N}'’ʼ‘ʔØ\-=.:\\><~\[\]_+]/u;
+const glossAllowedOnly = (sep) => (v) => {
+  const to = sep || '.';
+  let out = '';
+  for (const ch of v) out += GLOSS_ALLOWED.test(ch) ? ch : to;
+  return out;
+};
+// Runs of the SAME character. `-` and `=` only when declared the separator (see above).
+const glossRuns = (sep) => collapseRuns('.:_' + (sep && !'.:_'.includes(sep) ? sep : ''));
 
 /* ⚠ A GLOSS DOES NOT END IN PUNCTUATION (Seth) — the everyday case being a trailing separator:
  * typing "PST " leaves "PST." with nothing after it.
@@ -497,14 +559,29 @@ export function undoKeyboardPeriod(value, prev) {
 /* The two kinds of field, and what each does at each moment. Reading this table IS reading the
  * policy; the primitives above only say how. */
 const TIDY = {
-  line: {
+  /* ⚠ THE BASELINE IS VERNACULAR, AND VERNACULAR IS NOT CORRECTED. This row exists separately from
+   * `free` for that reason alone — the two look identical as boxes and are not the same content.
+   * Seth, scoping the tighten rule: "In the free translation, I mean." So the baseline gets only
+   * what he asked for everywhere — one space between words, and no doubled punctuation ("Periods,
+   * commas, etc, should also not double anywhere") — and NOT the space-before-punctuation rule,
+   * because "word ." may be how an orthography sets punctuation and we do not know every
+   * orthography. This is the same line that keeps autocorrect off vernacular entirely. */
+  vern: {
     input: [collapseSpaceRuns, collapseRuns(RUN_SAFE)],
     blur: [collapseSpaceRuns, trimLineEdges, collapseRuns(RUN_SAFE), settlePeriods],
   },
+  /* The free translation is prose in the ANALYSIS language, so ordinary typographic tidying is
+   * safe here and only here. */
+  free: {
+    input: [collapseSpaceRuns, tightenPunct, collapseRuns(RUN_SAFE)],
+    blur: [collapseSpaceRuns, tightenPunct, trimLineEdges, collapseRuns(RUN_SAFE), settlePeriods],
+  },
   gloss: {
-    // A gloss never has its SPACES collapsed: a space there has already become the separator.
-    input: [collapseRuns(RUN_SAFE), singlePeriod],
-    blur: [collapseRuns(RUN_SAFE), singlePeriod, stripTrailing],
+    /* A gloss never has its SPACES collapsed: a space there has already become the separator. The
+     * punctuation rules are added per call in tidyField, since both need `sep`: anything outside
+     * the Leipzig-approved set becomes the separator, then runs of the same character reduce. */
+    input: [],
+    blur: [stripTrailing],
   },
 };
 
@@ -524,15 +601,20 @@ export function glossBreakChar(pref) { return GLOSS_BREAKS[pref] || GLOSS_BREAKS
  *           otherwise throws the cursor to the end, which mid-sentence is worse than the slip was
  */
 export function tidyField(value, { kind = 'line', moment = 'input', sep = null, prev = null } = {}, caret = null) {
-  const steps = (TIDY[kind] || TIDY.line)[moment] || [];
-  const sepRun = kind === 'gloss' && sep && sep !== '.' ? [collapseRuns(sep)] : [];
+  // ⚠ An unknown kind falls back to `vern`, the row that rewrites the LEAST — a mistake there tidies
+  // too little rather than correcting vernacular text nobody asked us to touch.
+  const steps = (TIDY[kind] || TIDY.vern)[moment] || [];
+  /* ⚠ BEFORE the column's steps, so the trailing strip on blur sees the already-reduced text:
+   * "mau,." must become "mau." and then "mau", not have its final character removed while the
+   * comma survives. */
+  const glossPunct = kind === 'gloss' ? [glossAllowedOnly(sep), glossRuns(sep)] : [];
   const run = (v) => {
     /* ⚠ LINE BOXES ONLY. In a gloss a period may BE the separator, so an undo there could delete a
      * character the typist meant. It happens to be unreachable — a space in a gloss becomes the
      * separator on the same keystroke, so `prev` never ends in one — but "unreachable" is a fact
      * about today's code and this is a fact about the rule. */
-    let out = kind === 'line' && moment === 'input' ? undoKeyboardPeriod(v, prev) : v;
-    for (const step of [...steps, ...sepRun]) out = step(out);
+    let out = kind !== 'gloss' && moment === 'input' ? undoKeyboardPeriod(v, prev) : v;
+    for (const step of [...glossPunct, ...steps]) out = step(out);
     return out;
   };
   const src = value == null ? '' : String(value);

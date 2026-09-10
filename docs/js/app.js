@@ -4137,7 +4137,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
     /* ⚠ AFTER the newline strip, BEFORE seg.free is read — a collapse that ran on a stale value
      * would store the uncollapsed text. Only spaces and tabs; the newline rule above owns newlines. */
     if (singleSpaceEnabled()) {
-      const r = tidyField(input.value, { kind: 'line', moment: 'input', prev: input.__prevVal }, input.selectionStart);
+      const r = tidyField(input.value, { kind: 'free', moment: 'input', prev: input.__prevVal }, input.selectionStart);
       if (r.changed) {
         input.value = r.value;
         try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
@@ -4158,7 +4158,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * fighting the rewrite, which is the same reason the gloss period fix tidies on blur. */
   input.addEventListener('blur', () => {
     if (!singleSpaceEnabled()) return;
-    const tidy = tidyField(input.value, { kind: 'line', moment: 'blur' }).value;
+    const tidy = tidyField(input.value, { kind: 'free', moment: 'blur' }).value;
     if (tidy === input.value) return;
     input.value = tidy;
     input.__prevVal = tidy;
@@ -12411,7 +12411,7 @@ function setup() {
   $('#baseline-text').addEventListener('blur', () => {
     const ta = $('#baseline-text');
     if (singleSpaceEnabled()) {
-      let v = tidyField(ta.value, { kind: 'line', moment: 'blur' }).value;
+      let v = tidyField(ta.value, { kind: 'vern', moment: 'blur' }).value;
       /* ⚠ GATED ON DOC TRUTH, NOT ON THE SETTING. On an ALIGNED doc a blank baseline line is a
        * timed span of silence, 1:1 with doc.segments — capping them there deletes real data, which
        * is the 2026-08-16 corruption (see capBlankLines and applyBaseline). Only a doc with no time

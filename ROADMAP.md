@@ -53,7 +53,7 @@ straight into a lameta project. Format read from real files, not inferred; see
   alongside SayMore and ELAN. The package carries the original recording, a converted
   `.annotations.wav` when the original is not WAV, complete ELAN `.eaf` + `.pfsx` (lameta has no
   built-in annotation editor — it opens ELAN), a `.flextext` serialized at export time from the same
-  state the EAF comes from, the suite's history JSON, and a `.meta` sidecar per file. Verified by
+  state the EAF comes from, and a `.meta` sidecar per file. ⚠ **No per-text history file** — that is planned, not built (`plans/fxed-format-spec.md` §9b), and this line wrongly listed it until 2026-09-11. Verified by
   opening a produced folder in lameta 3.0.21-beta: the `.flextext` types as "FLEx", `fau` resolves
   to Fayu and `id` to Indonesian, and the sidecars are absorbed.
 - **Full-line boxes wrap and grow (v666, fixed v667).** The baseline box in audio-segmentation mode

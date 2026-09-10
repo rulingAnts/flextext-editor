@@ -6798,9 +6798,9 @@ function deviceSetupValues() {
     else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
     else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
-    /* Unset means 'auto', which never enables correction anywhere — so an existing device that has
-     * never seen these fields cannot silently start rewriting its glosses on upgrade. */
-    else if (TYPING_DIALS.includes(f.k)) v[f.k] = TRI.includes(s[f.k]) ? s[f.k] : 'auto';
+    /* ⚠ THE FORM SHOWS 'off' WHEN UNSET, matching what the engine does (tri() in typing.js). A form
+     * reading 'Automatic' while the engine treated absence as off would misreport the device. */
+    else if (TYPING_DIALS.includes(f.k)) v[f.k] = TRI.includes(s[f.k]) ? s[f.k] : 'off';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
@@ -11196,10 +11196,25 @@ document.addEventListener('change', (e) => {
   const others = ['analSpellcheck', 'analAutocomplete', 'analAutocorrect']
     .filter((x) => x !== k)
     .map((x) => { const el = box.querySelector(`[${attr}="${x}"]`); return el ? el.value : null; });
-  const firstOne = t.value === 'on' && !others.includes('on');
+  const firstOn = t.value === 'on' && !others.includes('on');
+  /* ⚠ AND A SEPARATE WARNING FOR `auto`, because it promises less than its name suggests. Seth,
+   * 2026-09-10: "if the user sets it to automatic, warn them this will only work correctly if the
+   * user's device is set up with the analysis language as its language. Or if a spelling dictionary
+   * is installed, which it usually isn't."
+   *
+   * ⚠ AND NOTHING CAN BE DONE ABOUT THAT FROM HERE. There is no web API to install a dictionary or
+   * even to ask which are installed — Firefox's are user-installed add-ons, Chrome fetches them from
+   * its own language settings, and a page may do neither. So saying so is the whole remedy: a
+   * researcher who picks Automatic and then sees nothing underlined should know why before they go
+   * looking for a bug.
+   *
+   * The two warnings never collide: on Android `auto` resolves to off, so the bundling warning is
+   * only ever reached by an explicit `on`. */
+  const firstAuto = t.value === 'auto' && !others.includes('auto');
 
   syncTypingWarnings(box, attr);
-  if (firstOne) noticeDialog(t('panel.f.typingBundledWarn')).catch(() => {});
+  if (firstOn) noticeDialog(t('panel.f.typingBundledWarn')).catch(() => {});
+  else if (firstAuto) noticeDialog(t('panel.f.typingAutoWarn')).catch(() => {});
 });
 
 /* ⓘ next to a setting, toggled by click or tap. Delegated at module scope for the same reason

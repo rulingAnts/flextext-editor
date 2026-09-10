@@ -38,18 +38,15 @@ function fakeEl() {
 }
 
 
-/* Several tests below are about what a DIAL decides, not about dictionary availability. This puts a
- * usable analysis language and a matching browser language in place so `auto` is free to mark, and
- * the assertion stays on the thing it is actually testing. */
-function withDictionary(tag, fn) {
+
+/* Sets what the browser reports about its languages, so each test says which case it is about. */
+function withBrowserLanguages(primary, langs, fn) {
   const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', {
-    value: { userAgent: (real && real.value && real.value.userAgent) || 'node', languages: [tag] },
+    value: { userAgent: 'Mozilla/5.0 (Macintosh) Chrome/120', language: primary, languages: langs || [primary] },
     configurable: true,
   });
-  setAnalysisLang(() => tag);
   try { return fn(); } finally {
-    setAnalysisLang(() => '');
     if (real) Object.defineProperty(globalThis, 'navigator', real);
     else delete globalThis.navigator;
   }
@@ -102,12 +99,25 @@ test('each dial is honoured independently where the platform separates them', ()
 /* ⚠ `auto` differs per dial, and that asymmetry is the design, not an oversight. */
 test('auto means the most the device can do safely, dial by dial', () => {
   setTypingPrefs(() => ({ spell: 'auto', complete: 'auto', correct: 'auto' }));
-  withDictionary('id', () => {
-    const r = resolveTyping(ANAL);
-    assert.equal(r.correct, false, 'replacement: never, on any platform');
-    assert.equal(r.spell, canMarkWithoutReplacing(), 'marking: where it costs nothing');
-    assert.equal(r.complete, canSuggestWithoutReplacing(), 'choices: where they are only choices');
-  });
+  setAnalysisLang(() => 'id');
+  const r = withBrowserLanguages('en-US', ['en-US', 'en'], () => resolveTyping(ANAL));
+  assert.equal(r.correct, false, 'replacement: never, on any platform');
+  /* ⚠ MARKING DECLINES TOO, and the reason is measured. v659 enabled it when navigator.languages
+   * suggested the browser had the dictionary; Seth tested that in Firefox with Indonesian installed
+   * AND listed, and the field was still checked against English. `lang` is a hint the browser may
+   * override with the user's own dictionary choice, and no API reports which one it will use. Wrong
+   * dictionary = every word flagged, silently, looking like it works. So auto declines. */
+  // A browser that lists no Indonesian at all: marking would be done against something else.
+  assert.equal(r.spell, false, 'marking: declines when the browser does not list that language');
+  assert.equal(r.complete, canSuggestWithoutReplacing(), 'choices: where they are only choices');
+
+  /* ⚠ AND IT DOES WORK WHERE IT IS LISTED — verified by Seth in Firefox: a fresh gloss box with
+   * lang="id" is checked in Indonesian. Covers both the researcher who added the language and the
+   * field devices, which are configured in the LWC by construction. */
+  const listed = withBrowserLanguages('en-US', ['en-US', 'en', 'id'], () => resolveTyping(ANAL));
+  assert.equal(listed.spell, canMarkWithoutReplacing(),
+    'marking: on when the browser lists the analysis language');
+  setAnalysisLang(() => '');
   setTypingPrefs(() => ({}));
 });
 
@@ -119,12 +129,17 @@ test('MARK is off for the vernacular — no dictionary means every word underlin
 
 /* Seth's own examples: "fedahu" for perahu, "tudu" for turun — a Fayu speaker writing Indonesian by
  * ear. Real words, spelled wrong, in a language the device HAS a dictionary for. */
-test('MARK is on for the analysis language, where a squiggle means something', () => {
-  withDictionary('id', () => {
+test('MARK on the analysis language is opt-in, and then it carries a language', () => {
+  setTypingPrefs(() => ({ spell: 'on' }));
+  setAnalysisLang(() => 'id');
+  try {
     const el = applyTyping(fakeEl(), ANAL);
-    assert.equal(el.spellcheck, canMarkWithoutReplacing());
-    if (canMarkWithoutReplacing()) assert.equal(el.getAttribute('lang'), 'id');
-  });
+    assert.equal(el.spellcheck, true, 'an explicit on is honoured');
+    assert.equal(el.getAttribute('lang'), 'id', 'and the language is named, as a hint');
+    /* ⚠ A HINT, NOT A CHOICE. Firefox overrode lang="id" with the user's own dictionary selection —
+     * measured, not assumed. Naming the language is still worth doing (Chrome honours it more
+     * often, and it drives font and screen-reader behaviour), but the tooltip must not promise it. */
+  } finally { setTypingPrefs(() => ({})); setAnalysisLang(() => ''); }
 });
 
 /* ⚠ THE FACT THAT DECIDES THE ANDROID DEFAULT: `spellcheck` is the only lever there, and true hands
@@ -615,53 +630,29 @@ test('and the writing-system code fields do not', () => {
   assert.doesNotMatch(setupText.slice(0, 260), /autocapitalize="sentences"/, 'and uncapitalised');
 });
 
-/* ⚠ MARKING AGAINST A DICTIONARY THE BROWSER DOES NOT HAVE IS WORSE THAN NOT MARKING AT ALL.
- * Seth, 2026-09-10, having watched it happen in Firefox with an Indonesian analysis language:
- * "if the browser has no indonesian dictionary, then it shouldn't fall back on English."
- *
- * Firefox given lang="id" with no Indonesian dictionary checks against ENGLISH — so every Indonesian
- * word is flagged, the flags carry no information, and it looks like a working feature. Same
- * 100%-false-positive noise that MARK is off for on the vernacular. There is no web API to ask which
- * dictionaries exist, so this uses navigator.languages as a proxy that fails toward silence. */
-test('auto does not mark when the browser probably lacks that dictionary', () => {
-  const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  const setNav = (languages) => Object.defineProperty(globalThis, 'navigator',
-    { value: { userAgent: 'Mozilla/5.0 (Macintosh) Chrome/120', languages }, configurable: true });
+/* ⚠ NO HEURISTIC MAY DECIDE THIS AGAIN. A navigator.languages proxy was tried in v659 and was
+ * wrong on the exact case it was written for: Indonesian installed, Indonesian listed, field still
+ * checked against English. Anything that looks like it can infer dictionary availability is a
+ * repeat of that mistake. */
+/* ⚠ THIS RULE WAS CHANGED TWICE ON BAD EVIDENCE AND CHANGED BACK. One field of Seth's showed
+ * ENGLISH with lang="id" and looked like proof that browsers ignore `lang`; it was a REMEMBERED
+ * per-field dictionary override from a manual context-menu choice, which Firefox keeps for that
+ * field forever. Fresh fields honour `lang` correctly. A stale override on one field is not a
+ * platform limit — the test below is what stops that conclusion being drawn a third time. */
+test('auto marks when the browser lists the analysis language, and not otherwise', () => {
+  const src = rd('../docs/js/typing.js').replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+  assert.match(src, /browserListsLanguage\(analLangTag\(\)\)/, 'auto consults the browser list');
+
+  // Region variants must not defeat the match: an id-ID browser satisfies an `id` analysis language.
+  setTypingPrefs(() => ({ spell: 'auto' }));
+  setAnalysisLang(() => 'id');
   try {
-    setTypingPrefs(() => ({ spell: 'auto' }));
-
-    // A researcher's laptop set to English only, glossing into Indonesian: the exact reported case.
-    setNav(['en-US', 'en']);
-    setAnalysisLang(() => 'id');
-    assert.equal(resolveTyping(ANAL).spell, false, 'no Indonesian dictionary ⇒ no squiggles');
-    assert.equal(applyTyping(fakeEl(), ANAL).getAttribute('lang'), null, 'and no lang is claimed');
-
-    // The same laptop with Indonesian configured: the feature works as intended.
-    setNav(['id-ID', 'en-US']);
-    assert.equal(resolveTyping(ANAL).spell, true, 'Indonesian configured ⇒ mark in Indonesian');
-    assert.equal(applyTyping(fakeEl(), ANAL).getAttribute('lang'), 'id');
-
-    // Region variants must not defeat the match — id-ID satisfies a request for id.
-    setAnalysisLang(() => 'id-ID');
-    setNav(['id']);
-    assert.equal(resolveTyping(ANAL).spell, true, 'base language is what matters');
-
-    // No analysis language at all ⇒ nothing to check against ⇒ silence.
-    setAnalysisLang(() => '');
-    setNav(['id', 'en']);
-    assert.equal(resolveTyping(ANAL).spell, false, 'no tag ⇒ no marking');
-
-    /* But the researcher can still overrule: they have read the ⓘ and it is their call. */
-    setTypingPrefs(() => ({ spell: 'on' }));
-    setAnalysisLang(() => 'id');
-    setNav(['en-US']);
-    assert.equal(resolveTyping(ANAL).spell, true, 'an explicit on is still honoured');
-  } finally {
-    setTypingPrefs(() => ({}));
-    setAnalysisLang(() => '');
-    if (real) Object.defineProperty(globalThis, 'navigator', real);
-    else delete globalThis.navigator;
-  }
+    // Region variants must not defeat the match: an id-ID entry satisfies an `id` analysis language.
+    assert.equal(withBrowserLanguages('id-ID', ['id-ID'], () => resolveTyping(ANAL)).spell,
+      canMarkWithoutReplacing(), 'id-ID counts as id');
+    assert.equal(withBrowserLanguages('en-GB', ['en-GB'], () => resolveTyping(ANAL)).spell, false,
+      'and a browser listing no Indonesian does not');
+  } finally { setTypingPrefs(() => ({})); setAnalysisLang(() => ''); }
 });
 
 /* The removed fallback, pinned: app.js used to hand navigator.language to the spellchecker when the
@@ -673,4 +664,69 @@ test('no analysis code means no language, not the browser language', () => {
   assert.doesNotMatch(block.replace(/\/\*[\s\S]*?\*\//g, ''), /navigator\.language/,
     'the browser-language fallback must stay gone');
   assert.match(block, /return '';/, 'an unusable code yields no tag at all');
+});
+
+/* ─── OFF BY DEFAULT, AND BOTH WARNINGS ──────────────────────────────────────
+ * Seth, 2026-09-10: "let's have all spellchecking for all devices off by default. Automatic still
+ * behaves the way we set it up, but is off by default." */
+test('an unconfigured device types in complete silence', () => {
+  setTypingPrefs(() => ({}));                 // nothing stored anywhere
+  setAnalysisLang(() => 'id');
+  try {
+    const r = resolveTyping(ANAL);
+    assert.deepEqual(r, { correct: false, complete: false, spell: false },
+      'absent must mean off, not auto — an unconfigured device surprises nobody');
+    const el = applyTyping(fakeEl(), ANAL);
+    assert.equal(el.spellcheck, false);
+    assert.equal(el.getAttribute('autocomplete'), 'off');
+    assert.equal(el.getAttribute('autocorrect'), 'off');
+  } finally { setAnalysisLang(() => ''); }
+});
+
+test('only the literal "auto" gets the automatic answer', () => {
+  setAnalysisLang(() => 'id');
+  const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { userAgent: 'Mozilla/5.0 (Macintosh) Chrome/120', languages: ['id'] }, configurable: true,
+  });
+  try {
+    // Anything unrecognised is off, so a value written by a future version cannot enable marking.
+    for (const v of [undefined, '', 'off', 'On', 'AUTO', 'yes', 'true', null]) {
+      setTypingPrefs(() => ({ spell: v }));
+      assert.equal(resolveTyping(ANAL).spell, false, `spell=${JSON.stringify(v)} must be off`);
+    }
+    setTypingPrefs(() => ({ spell: 'auto' }));
+    assert.equal(resolveTyping(ANAL).spell, true, "but 'auto' still does what it says");
+  } finally {
+    setTypingPrefs(() => ({})); setAnalysisLang(() => '');
+    if (real) Object.defineProperty(globalThis, 'navigator', real); else delete globalThis.navigator;
+  }
+});
+
+/* ⚠ AND THE FORM MUST SHOW WHAT THE ENGINE DOES. A form displaying 'Automatic' while the engine
+ * treated absence as off would misreport the device's state. */
+test('the form shows off when nothing is stored, matching the engine', () => {
+  const app = rd('../docs/js/app.js');
+  assert.match(app, /TYPING_DIALS\.includes\(f\.k\)\) v\[f\.k\] = TRI\.includes\(s\[f\.k\]\) \? s\[f\.k\] : 'off';/,
+    'the read loop defaults to off');
+});
+
+/* Two warnings, two different transitions, and neither fires on a value going back off. */
+test('picking Automatic warns that it depends on the device, separately from the Android warning', () => {
+  const app = rd('../docs/js/app.js');
+  const h = app.slice(app.indexOf("const k = t.dataset.sf || t.dataset.f;"));
+  assert.match(h, /const firstOn = t\.value === 'on' && !others\.includes\('on'\)/, 'on → bundling');
+  assert.match(h, /const firstAuto = t\.value === 'auto' && !others\.includes\('auto'\)/, 'auto → dictionary');
+  assert.match(h, /if \(firstOn\) noticeDialog\(t\('panel\.f\.typingBundledWarn'\)\)/);
+  assert.match(h, /else if \(firstAuto\) noticeDialog\(t\('panel\.f\.typingAutoWarn'\)\)/,
+    'else-if, so one change never raises two dialogs');
+
+  const i18n = rd('../docs/js/i18n.js');
+  assert.equal((i18n.match(/'panel\.f\.typingAutoWarn':/g) || []).length, 2, 'EN and ID');
+  const en = i18n.match(/'panel\.f\.typingAutoWarn': '([^']*(?:\\'[^']*)*)'/)[1];
+  /* ⚠ It must say the app CANNOT install a dictionary. There is no web API for it — Firefox's are
+   * user-installed add-ons, Chrome fetches them from its own language settings — so a researcher
+   * seeing nothing underlined needs to know that is expected, not a bug to chase. */
+  assert.match(en, /cannot install/i, 'it says we cannot install a dictionary');
+  assert.match(en, /set up in the analysis language/i, 'and what would make it work');
 });

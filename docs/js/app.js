@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, collapseSpaces, tidySpaces, capBlankLines } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -1057,6 +1057,18 @@ function cutTabEnabled() { return editorTabEnabled('cut'); }
 function baselineTabEnabled() { return editorTabEnabled('baseline'); }
 function glossTabEnabled() { return editorTabEnabled('gloss'); }
 function landOnCutEnabled() { return cutTabEnabled() && settings.landOnCut !== false; }
+/* ⚠ THE DEFAULT DEPENDS ON PAIRING, and that asymmetry is the point (Seth, 2026-09-10): "enabled by
+ * default on paired devices, but disabled by default on unpaired devices." A PAIRED device is a
+ * field worker's, configured by a researcher who asked for this guard precisely because the typist
+ * may not be able to read back what they typed. An UNPAIRED device is the researcher's OWN — they
+ * are the typist, and silently rewriting their input is not a favour. One key, two defaults,
+ * decided by whether there is a session; an explicit stored value always wins over both. */
+function singleSpaceEnabled() {
+  if (settings.singleSpace === true) return true;
+  if (settings.singleSpace === false) return false;
+  return Sync.hasSession();
+}
+
 function joinSplitAllowed(tab) {
   if (!segmentationEnabled()) return true;   // classic mode has its own rules; this is not its gate
   return tab === 'gloss' ? settings.joinSplitGloss !== false : settings.joinSplitBaseline !== false;
@@ -1964,6 +1976,7 @@ function switchTab(tab, landing) {
         joinKeys: () => joinKeysEnabled(),
         enterAdvances: () => enterAtEndAdvances(),
         joinSplit: () => joinSplitAllowed('baseline'),
+        singleSpace: () => singleSpaceEnabled(),
         allowAdjust: () => adjustBoundariesAllowed(),
         // Rule A (plans/split-tiers.md): a line with glosses or a translation is the Gloss tab's.
         hasGloss: (i) => lineHasAnalysis(current && current.doc, i),
@@ -3923,6 +3936,17 @@ async function tryDownloadFlextext(rec) {
   return true;
 }
 
+/* ⚠ ONE DEFINITION OF "DOES THIS DOC CARRY TIME", used by applyBaseline's blank-line rule and by
+ * the blank-line cap on the same box. Two separate notions of aligned drifting apart is precisely
+ * how the 2026-08-16 round-trip corruption would come back — one of them would start filtering
+ * blank lines that are timed silences. */
+function docCarriesTime(doc) {
+  if (!doc) return false;
+  return (doc.segments || []).length > 0
+    || (doc.paragraphs || []).some((p) => (p.segments || []).some(
+      (sg) => sg.attrs && sg.attrs['begin-time-offset'] != null));
+}
+
 function applyBaseline() {
   if (!current) return;
   // Apply from the textarea only when the textarea IS the live editor — DOM truth, not setting
@@ -3945,9 +3969,7 @@ function applyBaseline() {
    * Gate on DOC truth (does it carry spans/offsets), not on the segmentation setting — the same
    * rule the ta.hidden guard above follows, and it protects an aligned doc on a device where
    * segmentation is OFF just the same. */
-  const aligned = (current.doc.segments || []).length > 0
-    || current.doc.paragraphs.some((p) => (p.segments || []).some(
-      (s) => s.attrs && s.attrs['begin-time-offset'] != null));
+  const aligned = docCarriesTime(current.doc);
   const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => aligned || s || arr.length === 1);
   const before = JSON.stringify(getBaselineParagraphs(current.doc));
   if (JSON.stringify(paras) === before) return;
@@ -4107,7 +4129,29 @@ function renderSegment(seg, segnum, vernFont, analFont) {
       input.value = input.value.replace(/[\r\n]+/g, ' ');
       try { input.setSelectionRange(before, before); } catch { /* detached: nothing to restore */ }
     }
+    /* ⚠ AFTER the newline strip, BEFORE seg.free is read — a collapse that ran on a stale value
+     * would store the uncollapsed text. Only spaces and tabs; the newline rule above owns newlines. */
+    if (singleSpaceEnabled()) {
+      const r = collapseSpaces(input.value, input.selectionStart);
+      if (r.changed) {
+        input.value = r.value;
+        try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
+      }
+    }
     seg.free = input.value;
+    growArea(input);
+    schedulePersist();
+  });
+  /* ⚠ AND AGAIN ON THE WAY OUT (Seth: "on blur, remove duplicated spaces if this behavior is
+   * enabled"). Blur is where the edges get tidied too — a leading or trailing space is not
+   * "between words" — and it is the one moment the keyboard's own autocorrect cannot be mid-flight
+   * fighting the rewrite, which is the same reason the gloss period fix tidies on blur. */
+  input.addEventListener('blur', () => {
+    if (!singleSpaceEnabled()) return;
+    const tidy = tidySpaces(input.value);
+    if (tidy === input.value) return;
+    input.value = tidy;
+    seg.free = tidy;
     growArea(input);
     schedulePersist();
   });
@@ -4926,7 +4970,13 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon',
+                   /* ⚠ THE TYPING SETTINGS WERE MISSING FROM THIS LIST since they shipped in v663,
+                    * so the panel could push them but never READ BACK what a device actually had —
+                    * its form fell through to defaults and showed the researcher a value the device
+                    * might not hold. That is the same class of lie as the v663 bug where the form
+                    * read "Automatic" while the engine treated unset as off. */
+                   'analSpellcheck', 'analAutocomplete', 'analAutocorrect', 'singleSpace']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -6526,6 +6576,11 @@ const SETUP_GROUPS = [
       info: 'panel.f.analAutocompleteInfo' , bundled: true },
     { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
       info: 'panel.f.analAutocorrectInfo' , bundled: true },
+    /* ⚠ NOT one of the three dials above and not `bundled` — those govern what the KEYBOARD may do
+     * to a field and are coupled on Android; this one is our own rule about what the field accepts,
+     * with no platform caveat. It sits here because a typist meets it as the same kind of thing.
+     * DEFAULTS ON for a paired device and OFF for an unpaired one — see singleSpaceEnabled. */
+    { k: 'singleSpace', type: 'checkbox', note: 'panel.f.singleSpaceNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     // Whether the plain Space bar plays (automatic = off on a touch screen, where Space is typing).
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
@@ -6882,6 +6937,11 @@ function deviceSetupValues() {
     /* ⚠ THE FORM SHOWS 'off' WHEN UNSET, matching what the engine does (tri() in typing.js). A form
      * reading 'Automatic' while the engine treated absence as off would misreport the device. */
     else if (TYPING_DIALS.includes(f.k)) v[f.k] = TRI.includes(s[f.k]) ? s[f.k] : 'off';
+    /* ⚠ THIS SURFACE IS THE UNPAIRED DEVICE'S OWN SETTINGS TAB, so unset means OFF — the mirror of
+     * the panel's twin, which configures a PAIRED device and shows it on. Same key, opposite
+     * default, exactly as singleSpaceEnabled resolves it at runtime; a form that showed `on` here
+     * would misreport the device and then SAVE that true on the first push. */
+    else if (f.k === 'singleSpace') v.singleSpace = s.singleSpace === true;
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
@@ -12301,7 +12361,25 @@ function setup() {
     e.target.value = '';
     if (f) importFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
-  $('#baseline-text').addEventListener('blur', () => { applyBaseline(); });
+  /* ⚠ BLUR ONLY, because this box has no per-keystroke handler at all — it reconciles on blur and
+   * on tab-switch (applyBaseline reads DOM truth). Adding an input handler here would be new
+   * machinery in the one place a stale read has already wiped a document's text, so the tidy rides
+   * the existing blur instead, BEFORE applyBaseline so the reconcile sees the cleaned value.
+   * tidySpaces preserves the line count exactly, which an ALIGNED doc depends on: its blank lines
+   * are timed spans of silence, 1:1 with doc.segments. */
+  $('#baseline-text').addEventListener('blur', () => {
+    const ta = $('#baseline-text');
+    if (singleSpaceEnabled()) {
+      let v = tidySpaces(ta.value);
+      /* ⚠ GATED ON DOC TRUTH, NOT ON THE SETTING. On an ALIGNED doc a blank baseline line is a
+       * timed span of silence, 1:1 with doc.segments — capping them there deletes real data, which
+       * is the 2026-08-16 corruption (see capBlankLines and applyBaseline). Only a doc with no time
+       * gets its blank runs capped, and there applyBaseline discards empties anyway. */
+      if (!docCarriesTime(current && current.doc)) v = capBlankLines(v, 2);
+      if (v !== ta.value) ta.value = v;
+    }
+    applyBaseline();
+  });
   /* Dummy "Save" (Office-web style): work is ALREADY auto-saved continuously — this just flushes any
    * pending save and reassures the coworker, so the obsessive Save reflex never triggers an upload.
    * The real send is the separate "Sudah selesai (Kirim)" button (#btn-share → the send menu). */

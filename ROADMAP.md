@@ -47,7 +47,7 @@ no web-level lever remains — see #62, and #72 for the provisioning step that d
 straight into a lameta project. Format read from real files, not inferred; see
 `plans/lameta-session-export.md`.
 
-## 0b. On staging, awaiting a production push (v665 to v667)
+## 0b. Released 2026-09-10 (v665 to v668)
 
 - **lameta session export, wired (v665).** The Researcher panel's export menu now offers it
   alongside SayMore and ELAN. The package carries the original recording, a converted
@@ -69,9 +69,50 @@ straight into a lameta project. Format read from real files, not inferred; see
   space — so it also covers the suggestion strip, dictation and pasting. It tidies once more on blur,
   where the keyboard's own autocorrect cannot fight it.
 
-**Known, deferred:** **#73** — no split ✂ appears at a word gap containing punctuation, because the
-scissors are hung off the chain-link button and `canMerge` (rightly) refuses to chain a word to a
-comma. The keyboard route still splits there; only the click target is missing.
+**#43 is closed** (v668) — the Android keyboard no longer buries the box you tap, and nothing else
+moves when it is revealed. Confirmed on real hardware. ⚠ The bug was ONE LINE, wrong twice the same
+way: `overlays-content` resizes neither viewport, so a check that only subtracted the keyboard "if
+there is no visualViewport" never subtracted it at all. v615 fixed exactly that mistake in
+`coveredPx` and left `visibleBottom` holding it — which is why the bottom furniture rode above the
+keyboard while the focused box stayed buried. The arithmetic now lives in two pure exported
+functions (`visibleBandBottom`, `revealScrollBy`) tested across all three viewport modes with no
+DOM, because both earlier failures were logic errors invisible to a suite that reads source as text.
+
+## 0c. On staging, awaiting a production push (v669)
+
+**One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
+or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
+and the edges are tidied on blur, on the baseline and the free translation only — a word gloss keeps
+its own rule, where a space becomes a period. The plain baseline box used when segmentation is off
+also caps a gap at one blank line.
+
+- ⚠ **DEFAULT DEPENDS ON PAIRING** — on for a paired device, off for an unpaired one. Seth's reason:
+  a paired device is a field worker's, configured by a researcher who wants the guard; an unpaired
+  device is the researcher's own, and rewriting their input is not a favor. One key, two defaults,
+  and both surfaces' forms had to be told separately so neither misreports the device.
+- ⚠⚠ **A TEXT WITH RECORDING TIMES NEVER HAS ITS BLANK LINES CAPPED.** There a blank baseline line is
+  a timed span of silence, 1:1 with `doc.segments`; capping them is the 2026-08-16 corruption that
+  turned 53 lines into 30 and ended a recording half a minute early. The cap is gated on **doc
+  truth**, never on the setting, and `docCarriesTime()` is now the single definition of alignment
+  shared with `applyBaseline` — two notions drifting apart is how that bug returns.
+- Fixed in passing: the three typing dials were **missing from the settings snapshot** the panel
+  prefills from, so the panel could push them but never read back what a device actually held.
+
+**Known, deferred:**
+
+- **#73** — no split ✂ appears at a word gap containing punctuation, because the scissors are hung
+  off the chain-link button and `canMerge` (rightly) refuses to chain a word to a comma. The
+  keyboard route still splits there; only the click target is missing.
+- **#74** — Enter/Backspace handlers assume a physical key. Scoped by Seth to keys Gboard actually
+  has (Enter in its Go/Next/Done/newline guises, and Backspace); Tab and Shift+Space are out of
+  scope because Gboard has neither. ⚠ NOT YET REPRODUCED — space needed value-watching because it is
+  a text-producing key committed through the IME, but Enter and Backspace are control keys that
+  Chromium does dispatch, so the issue leads with a device test rather than a patch. Two things are
+  certain regardless: `enterkeyhint` is set nowhere, so Gboard guesses the label and a key reading
+  **Next** performs a line split; and v666's textarea conversion means Gboard now offers a newline
+  key on the two prose boxes where we `preventDefault()` it, so it looks live and does nothing.
+- **#62 / #72** — Gboard ignores the page's request to stop suggesting words; the mitigation is the
+  on-device toggle during provisioning.
 
 ## 1. Recently released (v585 to v602)
 

@@ -148,10 +148,18 @@ export function resolveTyping(kind) {
  *   writingsuggestions="false"  — the 2024 attribute for browser-offered writing suggestions
  *   data-gramm* / data-enable-grammarly — Grammarly, which no attribute above reaches: it is an
  *                                 extension reading the DOM, not a browser feature. */
+/* ⚠ WRITE ONLY WHAT IS NOT ALREADY THERE. Setting an attribute to the value it already has still
+ * queues a mutation record — which, with an observer watching these same attributes, was an infinite
+ * loop that pinned the main thread (v653 on staging: "this page is slowing down Firefox", and audio
+ * and waveforms starved along with everything else). The observer no longer watches attributes at
+ * all, and these guards mean applyTyping is genuinely free on the re-renders that call it per row. */
+function setAttr(el, k, v) { if (el.getAttribute(k) !== v) el.setAttribute(k, v); }
+function dropAttr(el, k) { if (el.hasAttribute(k)) el.removeAttribute(k); }
+
 function grammarlyOff(el) {
-  el.setAttribute('data-gramm', 'false');
-  el.setAttribute('data-gramm_editor', 'false');
-  el.setAttribute('data-enable-grammarly', 'false');
+  setAttr(el, 'data-gramm', 'false');
+  setAttr(el, 'data-gramm_editor', 'false');
+  setAttr(el, 'data-enable-grammarly', 'false');
 }
 
 /* The language a spellchecker should judge this field in. Honoured by desktop browsers, which pick a
@@ -169,27 +177,28 @@ export function applyTyping(el, kind) {
   if (!el || !KINDS.has(kind)) return el;
   const r = resolveTyping(kind);
 
-  el.setAttribute('autocapitalize', 'none');   // always: a capital is never ours to invent
-  grammarlyOff(el);                            // always: it rewrites, and it is an extension
+  setAttr(el, 'autocapitalize', 'none');   // always: a capital is never ours to invent
+  grammarlyOff(el);                        // always: it rewrites, and it is an extension
 
-  el.setAttribute('autocomplete', r.complete ? 'on' : 'off');
-  el.setAttribute('writingsuggestions', r.complete ? 'true' : 'false');
-  if (r.correct) el.removeAttribute('autocorrect');
-  else el.setAttribute('autocorrect', 'off');
+  setAttr(el, 'autocomplete', r.complete ? 'on' : 'off');
+  setAttr(el, 'writingsuggestions', r.complete ? 'true' : 'false');
+  if (r.correct) dropAttr(el, 'autocorrect');
+  else setAttr(el, 'autocorrect', 'off');
 
   /* ⚠ WHERE THE DIALS ARE NOT INDEPENDENT, `spellcheck` IS THE ONLY LEVER, so anything the
    * researcher asked for needs it raised — and raising it hands the keyboard all three at once.
    * That is the platform's doing, not ours; each dial's tooltip says so in plain language before
    * anyone turns one on, because a setting that silently does nothing is worse. Where the platform
    * does separate them, every dial gets exactly what it asked for and nothing more. */
-  el.spellcheck = caps.dialsAreIndependent ? r.spell : (r.spell || r.complete || r.correct);
+  const spell = caps.dialsAreIndependent ? r.spell : (r.spell || r.complete || r.correct);
+  if (el.spellcheck !== spell) el.spellcheck = spell;
 
   // A dictionary is worth naming only when something will actually consult one.
-  const tag = el.spellcheck && kind === ANAL ? analLangTag() : '';
-  if (tag) el.setAttribute('lang', tag);
-  else el.removeAttribute('lang');
+  const tag = spell && kind === ANAL ? analLangTag() : '';
+  if (tag) setAttr(el, 'lang', tag);
+  else dropAttr(el, 'lang');
 
-  el.dataset.typing = kind;
+  if (el.dataset.typing !== kind) el.dataset.typing = kind;
   return el;
 }
 
@@ -215,16 +224,15 @@ export function enforceTyping(root = document) {
   const target = root.body || root.documentElement || root;
   if (!target || typeof MutationObserver !== 'function') return () => {};
   const mo = new MutationObserver((recs) => {
-    for (const r of recs) {
-      if (r.type === 'attributes') { sweep(r.target); continue; }
-      for (const n of r.addedNodes) sweep(n);
-    }
+    for (const r of recs) for (const n of r.addedNodes) sweep(n);
   });
-  /* `spellcheck` is watched too: a stray el.spellcheck = true anywhere in the suite gets corrected
-   * rather than quietly winning. */
-  mo.observe(target, {
-    childList: true, subtree: true,
-    attributes: true, attributeFilter: ['data-typing', 'spellcheck'],
-  });
+  /* ⚠ childList ONLY — NEVER attributes. Watching `data-typing` and `spellcheck` here meant every
+   * applyTyping() write woke the observer, which called applyTyping() again: an infinite loop that
+   * saturated the main thread. It shipped to staging as v653 and made every app crawl.
+   *
+   * The thing it was guarding — a stray `el.spellcheck = true` somewhere else in the suite — was
+   * never asked for, and is already covered by the test that no module outside this one touches
+   * typing attributes. Not worth re-earning at this price. */
+  mo.observe(target, { childList: true, subtree: true });
   return () => mo.disconnect();
 }

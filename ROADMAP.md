@@ -78,7 +78,9 @@ keyboard while the focused box stayed buried. The arithmetic now lives in two pu
 functions (`visibleBandBottom`, `revealScrollBy`) tested across all three viewport modes with no
 DOM, because both earlier failures were logic errors invisible to a suite that reads source as text.
 
-## 0c. On staging, awaiting a production push (v669 to v673)
+## 0c. Released 2026-09-10 (v669 to v673)
+
+## 0d. On staging, awaiting a production push (v674)
 
 **One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
 or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
@@ -132,6 +134,26 @@ may be marking a morpheme boundary, and is left alone.
   signature — the previous value ended in a space, the new one is that text with the final space
   replaced by `". "` — and nothing a person can type produces it, so it is safe to undo. A period
   typed by hand is untouched. Needs the field's previous value, kept per element.
+
+**Only text boxes are tab stops on the Gloss tab (v674).** Seth, from real Android hardware:
+*"enter/next on Gboard goes from gloss to next vernacular word. Which isn't what I want… I don't want
+baseline words on the gloss tab to be in the tab stop at all. Editable only by deliberately clicking
+on or touching them."*
+
+- ⚠⚠ **Gboard's "Next" is not Tab.** Our Tab handler was never wrong — `focusNextWordGloss` walks
+  `.gloss-input, .free-input` and skips the word. But Next performs the browser's **native** focus
+  advance, which no `keydown` handler is consulted about, and a `contenteditable` element is in that
+  order by default as though it carried `tabindex="0"`. So the fix takes the non-text controls out of
+  the native order instead of guessing how an IME dispatches keys — it then holds for Tab, for Next,
+  and for anything else that walks focus, with no interception at all. `tabindex="-1"` keeps click
+  and touch focus, so the word is as editable as before, just deliberately.
+- The chain link was the last control in a gloss row still in the order; its own sibling
+  `.unchain-btn`, the ✂, and the segment tab's 🔗 all already set `tabIndex = -1` under the house rule
+  *"Tab walks TEXT BOXES on this tab"*. Correcting an inconsistency, not setting a policy.
+- Verified in a browser: the gloss tab's native order now contains only `gloss-input` and
+  `free-input`, and the word still takes focus and typing from a tap.
+
+## 0e. Released earlier on 2026-09-10 (v669 to v673)
 
 **A gloss admits only Leipzig-approved punctuation (v673).** Seth, with a screenshot of a gloss
 reading `mau,.bilang`: *"two different punctuation marks in a row"*, then the general rule — *"in

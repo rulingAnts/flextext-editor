@@ -4083,6 +4083,11 @@ function renderSegment(seg, segnum, vernFont, analFont) {
     if (canMerge(seg, i)) {
       const link = document.createElement('button');
       link.className = 'chain-btn';
+      /* ⚠ NOT A TAB STOP EITHER, and it was the only control in this row that still was — its own
+       * sibling .unchain-btn, the ✂, and the segment tab's 🔗 all set this already ("Tab walks TEXT
+       * BOXES on this tab"). Left in the order it was a second place Gboard's Next could land
+       * between two glosses. Correcting an inconsistency, not setting a new policy. */
+      link.tabIndex = -1;
       link.title = t('gloss.chainTitle');
       link.textContent = '🔗';
       link.addEventListener('click', async () => {
@@ -4211,6 +4216,24 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
    * gloss stays with its word — see glossEditWord. Enter commits, Escape reverts, Tab is untouched. */
   try { t2.contentEditable = 'plaintext-only'; } catch { /* below */ }
   if (t2.contentEditable !== 'plaintext-only') t2.contentEditable = 'true';
+  /* ⚠⚠ BUT NOT A TAB STOP — REACHED BY TAP ONLY (Seth, 2026-09-10, from real Android hardware:
+   * "enter/next on Gboard goes from gloss to next vernacular word. Which isn't what I want… I don't
+   * want baseline words on the gloss tab to be in the tab stop at all. Editable only by deliberately
+   * clicking on or touching them.")
+   *
+   * ⚠ A contenteditable element is focusable and IN THE SEQUENTIAL TAB ORDER by default, as though
+   * it carried tabindex="0". Our own Tab handler never had this problem — focusNextWordGloss walks
+   * '.gloss-input, .free-input' and skips the word entirely — but GBOARD'S "Next" KEY IS NOT TAB.
+   * It performs the browser's NATIVE focus advance, which no keydown handler of ours is consulted
+   * about, so it landed on the vernacular word sitting between two glosses. Fixing it by
+   * intercepting the key would be guesswork about how an IME dispatches; removing the element from
+   * the native order fixes Tab and Next and anything else that walks focus, with no interception at
+   * all. tabindex="-1" still allows click and touch focus, so the word stays editable exactly as
+   * Seth asked — just deliberately.
+   *
+   * This also makes the NATIVE order finally agree with focusNextWordGloss, so the app behaves the
+   * same whether our handler runs or not. */
+  t2.tabIndex = -1;
   t2.title = t('gloss.editWordTip');
   let was = w.txt;
   t2.addEventListener('focus', () => { was = t2.textContent; });

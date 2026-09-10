@@ -112,9 +112,16 @@ test('the giant baseline textarea keeps its Enter and its newlines', () => {
  * writing. The input-time pass is feedback; this one is correctness. */
 test('the gloss normalises again on blur, after the keyboard has finished with it', () => {
   const b = block(APP, "g.addEventListener('blur'", 'cell.appendChild(g)');
-  assert.match(b, /if \(!g\.value\.includes\(' '\)\) return;/, 'a no-op when there is nothing to fix');
+  /* ⚠ The guard moved from "is there a space?" to "did anything change?" when the repeated-period
+   * rule joined this pass (v670). It had to: a gloss holding "PST..PERF" and no space at all still
+   * needs tidying, and that is the likeliest state after Gboard has had its way with the box. The
+   * property under test is unchanged — write nothing when there is nothing to fix. */
+  assert.match(b, /if \(want === g\.value\) return;/, 'a no-op when there is nothing to fix');
+  assert.match(b, /const spaced = g\.value\.replace\(\/ \/g, '\.'\);/, 'space-to-period still runs unconditionally');
   assert.match(b, /g\.value\.replace\(\/ \/g, '\.'\)/, 'the same substitution');
-  assert.match(b, /w\.gls = g\.value;/, 'and the doc is updated, not just the box');
+  // the doc gets the SAME value the box got — asserted as that identity rather than as a literal,
+  // since what is assigned is now the tidied string rather than a re-read of g.value
+  assert.match(b, /g\.value = want;\s*\n\s*w\.gls = want;/, 'and the doc is updated, not just the box');
   assert.match(b, /schedulePersist\(\);/, 'and saved');
 });
 

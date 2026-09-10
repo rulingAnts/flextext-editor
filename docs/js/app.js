@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, collapseSpaces, tidySpaces, capBlankLines } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyOnInput, tidyOnBlur, capBlankLines } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -4132,7 +4132,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
     /* ⚠ AFTER the newline strip, BEFORE seg.free is read — a collapse that ran on a stale value
      * would store the uncollapsed text. Only spaces and tabs; the newline rule above owns newlines. */
     if (singleSpaceEnabled()) {
-      const r = collapseSpaces(input.value, input.selectionStart);
+      const r = tidyOnInput(input.value, input.selectionStart);
       if (r.changed) {
         input.value = r.value;
         try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
@@ -4148,7 +4148,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * fighting the rewrite, which is the same reason the gloss period fix tidies on blur. */
   input.addEventListener('blur', () => {
     if (!singleSpaceEnabled()) return;
-    const tidy = tidySpaces(input.value);
+    const tidy = tidyOnBlur(input.value);
     if (tidy === input.value) return;
     input.value = tidy;
     seg.free = tidy;
@@ -4275,6 +4275,18 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
         g.value = g.value.replace(/ /g, '.');
         try { g.setSelectionRange(at, at); } catch { /* detached: nothing to restore */ }
       }
+      /* ⚠ AND THEN THE PERIODS, because the rule above is what CREATES the doubles: two spaces in a
+       * row become "PST..PERF". Seth hit exactly that, and then: "in glosses only one period at a
+       * time allowed, no doubles, no tripples." No ellipsis exemption here — a period in a gloss
+       * separates parts of one label (1SG.SUBJ), so there is nothing to protect and no reason to
+       * wait for blur. AFTER the space rule, or it would collapse nothing. */
+      if (singleSpaceEnabled()) {
+        const r = tidyOnInput(g.value, g.selectionStart, { gloss: true });
+        if (r.changed) {
+          g.value = r.value;
+          try { g.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
+        }
+      }
       w.gls = g.value; sizeInput(g); schedulePersist();
     });
     /* ⚠ AND AGAIN ON BLUR, WHICH IS THE PASS THAT CANNOT BE FOUGHT. Seth, 2026-09-10: "our period
@@ -4289,9 +4301,19 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
      * So the input-time replacement is for FEEDBACK (the typist sees the period as they go) and this
      * one is for CORRECTNESS. Keeping both means a fight mid-word cannot leave a space behind. */
     g.addEventListener('blur', () => {
-      if (!g.value.includes(' ')) return;
-      g.value = g.value.replace(/ /g, '.');
-      w.gls = g.value;
+      /* ⚠ NOT `if (!includes(' ')) return` ANY MORE. That early exit was right when spaces were the
+       * only thing this pass fixed; with the period rule here too, a gloss holding "PST..PERF" and
+       * no space at all still needs tidying — and that is the likeliest state after Gboard has had
+       * its way with the box. Compute both, write once, and leave if nothing moved. */
+      /* ⚠ WITH THE SETTING OFF, NOTHING IS TIDIED — only the space-to-period rule runs, exactly as
+       * before this feature existed. Passing `{ gloss: singleSpaceEnabled() }` was wrong twice over:
+       * with the setting off it still collapsed periods, and it did so under the FULL-LINE rules,
+       * which would have collapsed spaces and normalized ellipses inside a gloss label. */
+      const spaced = g.value.replace(/ /g, '.');
+      const want = singleSpaceEnabled() ? tidyOnBlur(spaced, { gloss: true }) : spaced;
+      if (want === g.value) return;
+      g.value = want;
+      w.gls = want;
       sizeInput(g);
       schedulePersist();
     });
@@ -12365,12 +12387,12 @@ function setup() {
    * on tab-switch (applyBaseline reads DOM truth). Adding an input handler here would be new
    * machinery in the one place a stale read has already wiped a document's text, so the tidy rides
    * the existing blur instead, BEFORE applyBaseline so the reconcile sees the cleaned value.
-   * tidySpaces preserves the line count exactly, which an ALIGNED doc depends on: its blank lines
+   * tidyOnBlur preserves the line count exactly, which an ALIGNED doc depends on: its blank lines
    * are timed spans of silence, 1:1 with doc.segments. */
   $('#baseline-text').addEventListener('blur', () => {
     const ta = $('#baseline-text');
     if (singleSpaceEnabled()) {
-      let v = tidySpaces(ta.value);
+      let v = tidyOnBlur(ta.value);
       /* ⚠ GATED ON DOC TRUTH, NOT ON THE SETTING. On an ALIGNED doc a blank baseline line is a
        * timed span of silence, 1:1 with doc.segments — capping them there deletes real data, which
        * is the 2026-08-16 corruption (see capBlankLines and applyBaseline). Only a doc with no time

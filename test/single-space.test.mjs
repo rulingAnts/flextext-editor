@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { collapseSpaces, tidySpaces, capBlankLines } from '../docs/js/typing.js';
+import { collapseSpaces, tidySpaces, capBlankLines, tidyOnInput, tidyOnBlur, collapseRepeatedPunct } from '../docs/js/typing.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const APP = rd('../docs/js/app.js'), STRIPS = rd('../docs/js/segment-strips.js');
@@ -76,23 +76,65 @@ test('the blank-line cap is gated on DOC TRUTH, never on the setting', () => {
     'only one place still knows how alignment is detected');
 });
 
-test('it applies to the full-line boxes and NOT to word glosses', () => {
+test('each box gets the rules its own content can take', () => {
   // baseline rows in segmentation mode, through the deps seam the strips already use for policy
   const seg = STRIPS.slice(STRIPS.indexOf("input.addEventListener('input'"), STRIPS.indexOf("input.addEventListener('keydown'"));
-  assert.match(seg, /deps\.singleSpace && deps\.singleSpace\(\)/, '.seg-text collapses on input');
-  assert.match(STRIPS, /const tidy = tidySpaces\(input\.value\);/, 'and tidies on blur');
+  assert.match(seg, /deps\.singleSpace && deps\.singleSpace\(\)/, '.seg-text tidies on input');
+  assert.match(seg, /tidyOnInput\(input\.value, input\.selectionStart\)/);
+  assert.match(STRIPS, /const tidy = tidyOnBlur\(input\.value\);/, 'and on blur');
   assert.match(APP, /singleSpace: \(\) => singleSpaceEnabled\(\),/, 'passed as a predicate, read fresh each time');
 
-  // the free translation, both on input and on blur
-  const free = APP.slice(APP.indexOf("  input.addEventListener('input', () => {"), APP.indexOf("input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });"));
-  assert.match(free, /if \(singleSpaceEnabled\(\)\) \{/, '.free-input collapses on input');
-  assert.match(free, /input\.addEventListener\('blur'/, 'and tidies on blur');
+  // the free translation, both moments
+  assert.match(APP, /const r = tidyOnInput\(input\.value, input\.selectionStart\);/, '.free-input on input');
+  assert.match(APP, /const tidy = tidyOnBlur\(input\.value\);/, 'and on blur');
 
-  // ⚠ a word gloss has its OWN rule — a space becomes a PERIOD there (1SG.SUBJ) — and must not
-  // also be space-collapsed. Seth drew this line himself: "One should apply to individual word
-  // glosses only and the other should apply to free translation and baseline full-line fields".
-  const gloss = APP.slice(APP.indexOf("    g.addEventListener('input', () => {"), APP.indexOf("    g.addEventListener('input', () => {") + 1200);
-  assert.doesNotMatch(bare(gloss), /collapseSpaces|singleSpaceEnabled/, 'the gloss box keeps space-to-period only');
+  // the legacy box, blur only — it has no per-keystroke handler at all
+  assert.match(APP, /let v = tidyOnBlur\(ta\.value\);/);
+
+  /* ⚠ A GLOSS TAKES THE PERIOD RULE BUT NEVER THE SPACE RULE. Seth drew the line himself — "One
+   * should apply to individual word glosses only and the other should apply to free translation and
+   * baseline full-line fields" — and then asked for periods too: "in glosses only one period at a
+   * time allowed, no doubles, no tripples." So the gloss passes { gloss: true }, which skips the
+   * space collapse entirely (a space there has already become a period) and takes no ellipsis
+   * exemption (a period separates parts of one label). */
+  assert.match(APP, /tidyOnInput\(g\.value, g\.selectionStart, \{ gloss: true \}\)/, 'gloss on input');
+  assert.match(APP, /tidyOnBlur\(spaced, \{ gloss: true \}\)/, 'gloss on blur');
+
+  // ⚠ AND WITH THE SETTING OFF, A GLOSS IS ONLY SPACE-TO-PERIOD — no tidying at all. Getting this
+  // wrong meant periods collapsed with the setting disabled, under full-line rules at that.
+  assert.match(APP, /const want = singleSpaceEnabled\(\) \? tidyOnBlur\(spaced, \{ gloss: true \}\) : spaced;/,
+    'the off path rewrites nothing beyond what it always did');
+});
+
+test('punctuation: two dashes allowed, three periods OK, two not, two commas never', () => {
+  const line = (v) => tidyOnBlur(v);
+  // ⚠ Seth's four rules, verbatim: "Two dashes allowed, three periods OK, but not two. Two commas
+  // definitely not OK. And in glosses only one period at a time allowed, no doubles, no tripples."
+  assert.equal(line('ka--i'), 'ka--i', 'two dashes allowed');
+  assert.equal(line('a... b'), 'a... b', 'three periods OK');
+  assert.equal(line('a.. b'), 'a. b', 'but not two');
+  assert.equal(line('a,, b'), 'a, b', 'two commas never');
+  assert.equal(tidyOnBlur('PST..PERF', { gloss: true }), 'PST.PERF');
+  assert.equal(tidyOnBlur('PST...PERF', { gloss: true }), 'PST.PERF', 'no triples in a gloss either');
+
+  /* ⚠⚠ AN ELLIPSIS MUST STAY TYPEABLE. A 2-to-1 rule firing on every keystroke eats the second
+   * period, so the third makes two again, eaten again — the typist can never get past one dot.
+   * Hence periods are left alone while typing in a full-line box and settled on blur. */
+  let v = 'Yes';
+  for (let i = 0; i < 3; i++) v = tidyOnInput(v + '.', null).value;
+  assert.equal(v, 'Yes...', 'three keystrokes actually produce three periods');
+  assert.equal(tidyOnBlur(v), 'Yes...', 'and blur keeps them');
+  assert.equal(tidyOnBlur(tidyOnInput('Yes..', null).value), 'Yes.', 'while a real double is still fixed');
+  // commas need no such wait — they are never legitimately repeated
+  assert.equal(tidyOnInput('a,, b', null).value, 'a, b', 'so they collapse immediately');
+
+  /* ⚠⚠⚠ AND NOT THE CHARACTERS AN ORTHOGRAPHY IS BUILT FROM. flextext.js counts the apostrophe
+   * family, ʔ, and - _ = as WORD characters: glottal stops and morpheme/clitic boundaries. A
+   * doubled one may be exactly what a language wants, and we do not know every orthography —
+   * rewriting them would be the silent vernacular edit this whole area exists to refuse. */
+  for (const [v2, why] of [["fa''u", 'apostrophe'], ['faʔʔu', 'glottal stop'], ['ka--i', 'hyphen'],
+                           ['be==na', 'equals'], ['a__b', 'underscore']])
+    assert.equal(line(v2), v2, `${why} untouched`);
 });
 
 /* ⚠ ONE KEY, TWO OPPOSITE DEFAULTS, and the surfaces must not disagree with the engine. A form
@@ -125,7 +167,42 @@ test('the setting is explained in both languages', () => {
   for (const k of ['panel.f.singleSpace', 'panel.f.singleSpaceNote'])
     assert.equal((I18N.match(new RegExp(`'${k}':`, 'g')) || []).length, 2, `${k} in en and id`);
   // the note has to say the two things a researcher would otherwise get wrong
-  const note = I18N.slice(I18N.indexOf("'panel.f.singleSpaceNote':"), I18N.indexOf("'panel.f.singleSpaceNote':") + 900);
+  // ⚠ slice to the NEXT KEY, not a fixed character count — the note grows as rules are added, and a
+  // magic window silently stops covering the end of it.
+  const noteStart = I18N.indexOf("'panel.f.singleSpaceNote':");
+  const note = I18N.slice(noteStart, I18N.indexOf("\n  '", noteStart));
+  assert.ok(note.length > 400 && note.length < 4000, 'the slice really is just this one note');
   assert.match(note, /never to word glosses/, 'that glosses are excluded');
   assert.match(note, /timed silence/, 'and that an aligned text is never touched');
+});
+
+/* ⚠⚠ THIS RULE MUST NEVER DEPEND ON A KEY EVENT. Seth, 2026-09-10: "Remember our issue with soft
+ * keyboard vs physical keyboard with event triggers we use for this..." — the lesson the gloss
+ * space-to-period fix was rewritten for. An Android soft keyboard commits through the IME: keydown
+ * arrives as keyCode 229 with no usable `key`, or does not arrive at all. Watching the VALUE on
+ * `input` catches every route into the box — typing, the suggestion strip, dictation, paste,
+ * autofill — and `blur` is the pass no IME can be mid-flight against.
+ *
+ * So: every place this feature fires is asserted to be an input or blur listener, and no keydown
+ * handler is allowed to reach for it. */
+test('the rule fires on the VALUE, never on a key press', () => {
+  for (const [src, name] of [[APP, 'app.js'], [STRIPS, 'segment-strips.js']]) {
+    // walk every listener block and check which ones mention the feature
+    const re = /addEventListener\('(\w+)'[\s\S]{0,1400}?\n(?=\s{0,6}(?:input|g|ta|\$\('#baseline-text'\))?\.?addEventListener|\s{0,4}\}\);)/g;
+    let m, seen = [];
+    while ((m = re.exec(src)) !== null) {
+      if (/tidyOnInput|tidyOnBlur/.test(m[0])) seen.push(m[1]);
+    }
+    assert.ok(seen.length > 0, `${name}: found the listeners`);
+    for (const ev of seen)
+      assert.ok(ev === 'input' || ev === 'blur', `${name}: fires on '${ev}' — must be input or blur only`);
+  }
+  // and belt-and-braces: no keydown handler anywhere calls into it
+  for (const [src, name] of [[APP, 'app.js'], [STRIPS, 'segment-strips.js']]) {
+    const kd = bare(src).split(/addEventListener\('keydown'/).slice(1)
+      .map((chunk) => chunk.slice(0, 1200));
+    for (const chunk of kd)
+      assert.doesNotMatch(chunk, /tidyOnInput|tidyOnBlur|singleSpaceEnabled\(\)/,
+        `${name}: a keydown handler must not carry this rule`);
+  }
 });

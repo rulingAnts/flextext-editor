@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { applyTyping, enforceTyping, setAnalysisLang, canMarkWithoutReplacing, VERN, ANAL } from './typing.js';
+import { applyTyping, enforceTyping, setAnalysisLang, setTypingPrefs, VERN, ANAL } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -6193,6 +6193,18 @@ function cheapHash(str) {
  *   ANAL — the language it is being documented IN. Gets the spellchecker's help where the platform
  *          can give help without also giving silent rewrites; never gets the rewrites.
  * ───────────────────────────────────────────────────────────────────────────── */
+const TRI = ['auto', 'on', 'off'];
+const TYPING_DIALS = ['analSpellcheck', 'analAutocomplete', 'analAutocorrect'];
+
+/* The researcher's three dials, read live so a settings push takes effect on the next render
+ * rather than the next reload. ⚠ These reach the ANALYSIS language only — resolveTyping() answers
+ * all-off for the vernacular before it ever consults them. */
+setTypingPrefs(() => ({
+  spell: settings.analSpellcheck,
+  complete: settings.analAutocomplete,
+  correct: settings.analAutocorrect,
+}));
+
 const hardenTyping = (el) => applyTyping(el, VERN);
 const applyAnalysisTyping = (el) => applyTyping(el, ANAL);
 
@@ -6417,6 +6429,17 @@ const SETUP_GROUPS = [
     { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
   ] },
   { id: 'typing', fields: [
+    /* ⚠ THESE THREE GOVERN THE ANALYSIS LANGUAGE ONLY — glosses and free translations. The
+     * vernacular is not a setting and must never become one (Seth, 2026-09-10: "we DEFINITELY don't
+     * want autocorrect ever"); js/typing.js answers all-off for it before reading a preference.
+     * Ordered by how much damage each can do: marking rewrites nothing, completion offers, and
+     * correction takes. Every one defaults to `auto`, which never enables correction anywhere. */
+    { k: 'analSpellcheck', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
+      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' },
+    { k: 'analAutocomplete', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
+      info: 'panel.f.analAutocompleteInfo' },
+    { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
+      info: 'panel.f.analAutocorrectInfo' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     // Whether the plain Space bar plays (automatic = off on a touch screen, where Space is typing).
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
@@ -6550,6 +6573,25 @@ function setupOffMark() { return `<span class="setup-off-mark">${esc(t('setup.of
 
 // One field → its markup. `data-sf` (not the panel's `data-f`) so the two forms can never select
 // into each other if the researcher panel is opened while the Settings tab is in the DOM.
+/* ⚠ AN ⓘ THAT WORKS ON A TOUCH SCREEN. Seth, 2026-09-10: "probably an information tooltip next to
+ * each (mouseover or click/touch) that explains what that setting can and cannot do by platform."
+ *
+ * `title=` — which is what f.tip renders — is mouse-only: on the Android tablets this suite actually
+ * runs on there is no hover, so a title attribute is an explanation nobody can read. So: a real
+ * button that TOGGLES the text, which works with touch, mouse and keyboard alike, and a CSS hover
+ * rule on top for the desktop reflex. Collapsed by default, because vertical space is at a premium
+ * (Seth, 2026-09-09) and these notes are long by necessity — they have platform caveats to state. */
+function infoDotHtml(f) {
+  if (!f.info) return '';
+  return ` <button type="button" class="info-dot" data-infofor="${f.k}"`
+    + ` aria-expanded="false" aria-controls="info-${f.k}"`
+    + ` aria-label="${esc(t('setup.whatThisDoes'))}">i</button>`;
+}
+function infoNoteHtml(f) {
+  if (!f.info) return '';
+  return `<p class="note info-note" id="info-${f.k}" data-infonote="${f.k}" hidden>${esc(t(f.info))}</p>`;
+}
+
 function setupFieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
   const tip = f.tip ? ` title="${esc(t(f.tip))}"` : '';
@@ -6716,6 +6758,9 @@ function deviceSetupValues() {
     else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
     else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
     else if (f.k === 'spacePlays') v.spacePlays = s.spacePlays || 'auto';
+    /* Unset means 'auto', which never enables correction anywhere — so an existing device that has
+     * never seen these fields cannot silently start rewriting its glosses on upgrade. */
+    else if (TYPING_DIALS.includes(f.k)) v[f.k] = TRI.includes(s[f.k]) ? s[f.k] : 'auto';
     else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
     else if (f.k === 'baselineTab') v.baselineTab = s.baselineTab !== false;
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
@@ -11082,6 +11127,23 @@ wireExternalLinks(document, {
  * The sweep also catches fields drawn later: rows are rebuilt as the user scrolls, and a field that
  * arrives unhardened has offered a suggestion before anyone notices. See typing.js. */
 enforceTyping(document);
+
+/* ⓘ next to a setting, toggled by click or tap. Delegated at module scope for the same reason
+ * enforceTyping is: the Settings tab is rebuilt whenever it opens, so a bound handler would be
+ * stale, and setup() never runs in five of the seven apps. Hover is a CSS enhancement on top —
+ * this is the path that works on a touch screen, which is where these devices live. */
+document.addEventListener('click', (e) => {
+  const dot = e.target.closest?.('.info-dot');
+  if (!dot) return;
+  e.preventDefault();
+  e.stopPropagation();                       // a label-wrapped dot must not toggle its own control
+  const k = dot.dataset.infofor;
+  const note = document.querySelector(`[data-infonote="${k}"]`);
+  if (!note) return;
+  const open = note.hidden;
+  note.hidden = !open;                       // [hidden] is what CSS keys on, not style.display
+  dot.setAttribute('aria-expanded', String(open));
+});
 
 /* ⚠ DELEGATED, NOT BOUND TO THE ELEMENT. Every app has this button now (Seth, 2026-09-09: "make
  * sure all of our apps have the refresh button"), and the Paragraph Analysis Tool re-renders its

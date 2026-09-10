@@ -423,6 +423,7 @@ en: {
    * disabled control that does not say why reads as broken; that is the whole reason they exist.
    * Write them as an explanation of what is missing, never as a refusal. */
   'setup.offMark': '(not relevant for a standalone app)',
+  'setup.whatThisDoes': 'What this does',
   // A field switched off by ANOTHER field on this same form, rather than by what this app is.
   'setup.offMarkDyn': '(not in use)',
   'setup.off.consentMsg': '“Written reminder” above is not ticked, so no message is shown to the speaker. Tick it to use this text — whatever you have written here is kept either way.',
@@ -2085,6 +2086,19 @@ internet after the first time.</p>
   'panel.opt.scale.1.5': 'Largest',
   'panel.f.spacePlays': 'The Space bar plays / pauses the audio',
   'panel.f.spacePlaysNote': 'Automatic = off on a mobile device (an Android phone or tablet), where Space is for typing; on a laptop, touch screen or not, Space plays. Shift+Space always plays or pauses, even inside a text box; so does the \u25b6 button.',
+  // ── The three typing dials: analysis language only. plans/typing-policy.md has the reasoning.
+  // Each tooltip has to state a platform caveat, because each dial can do less on Android than a
+  // researcher would reasonably assume from its name.
+  'panel.f.analSpellcheck': 'Spell-check the analysis language',
+  'panel.f.analAutocomplete': 'Suggest words in the analysis language',
+  'panel.f.analAutocorrect': 'Autocorrect the analysis language',
+  'panel.f.analTypingNote': 'These three apply to glosses and free translations only. Vernacular text is never spell-checked, completed or corrected \u2014 no device has a dictionary for it, so every suggestion it could offer would be wrong.',
+  'panel.f.analSpellcheckInfo': 'Underlines words that are not in the analysis language. Changes nothing by itself. This is the useful one when a speaker writes the analysis language by ear: \u201cfedahu\u201d gets a red line under it, and they can think again about how it is spelled. On a computer it works and is safe. On Android it cannot be had on its own \u2014 the keyboard treats underlining, suggesting and replacing as one feature, so switching this on there also lets the keyboard replace words. Automatic therefore means on for computers, off for phones and tablets.',
+  'panel.f.analAutocompleteInfo': 'Offers a list of words to choose from, and replaces nothing unless the person typing picks one. On a computer the list comes from what has been typed into that box before. On Android the keyboard cannot show its suggestion strip without also being allowed to replace words on its own, so Automatic switches this off there; a future version of the Android app will be able to offer choices without ever replacing.',
+  'panel.f.analAutocorrectInfo': 'Lets the device replace a word as it is typed, without asking. Automatic never switches this on, on any device: a wrong replacement happens silently, and the person typing usually does not notice it. Switch it on only if the analysis language is one the device knows well AND the person typing reads it fluently enough to catch a bad guess. On Android there is a single control behind all three of these settings, so switching this one on there also switches on underlining and suggestions.',
+  'panel.opt.typing.auto': 'Automatic \u2014 the most the device can do safely',
+  'panel.opt.typing.on': 'On',
+  'panel.opt.typing.off': 'Off',
   'panel.opt.space.auto': 'Automatic (off on mobile devices)',
   'panel.opt.space.on': 'Always',
   'panel.opt.space.off': 'Never \u2014 use \u25b6 or Shift+Space',
@@ -2941,6 +2955,7 @@ id: {
   'setup.tabWarn': 'Perangkat ini belum siap dipakai: {n} pengaturan perlu diperhatikan.',
   'panel.f.consentAudioFile': 'Pengingat lisan \u2014 berkas suara di perangkat ini',
   'setup.offMark': '(tidak berlaku untuk aplikasi mandiri)',
+  'setup.whatThisDoes': 'Apa fungsinya',
   'setup.offMarkDyn': '(tidak dipakai)',
   'setup.off.consentMsg': '“Pengingat tertulis” di atas belum dicentang, jadi tidak ada pesan yang ditampilkan kepada penutur. Centang untuk memakai teks ini — apa pun yang Anda tulis di sini tetap disimpan.',
   'setup.off.appLang': 'Ubah bahasa aplikasi ini lewat pemilih di bagian atas layar. Kotak ini adalah cara peneliti mengirim bahasa ke perangkat yang mereka kelola.',
@@ -4387,6 +4402,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.scale.1.5': 'Paling besar',
   'panel.f.spacePlays': 'Tombol Spasi memutar / menjeda audio',
   'panel.f.spacePlaysNote': 'Otomatis = mati di perangkat seluler (ponsel atau tablet Android), tempat Spasi dipakai untuk mengetik; di laptop, dengan atau tanpa layar sentuh, Spasi memutar. Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks; begitu pula tombol \u25b6.',
+  // ── Tiga tombol pengetikan: hanya bahasa analisis. Lihat plans/typing-policy.md.
+  'panel.f.analSpellcheck': 'Periksa ejaan bahasa analisis',
+  'panel.f.analAutocomplete': 'Sarankan kata dalam bahasa analisis',
+  'panel.f.analAutocorrect': 'Koreksi otomatis bahasa analisis',
+  'panel.f.analTypingNote': 'Ketiga pengaturan ini hanya berlaku untuk gloss dan terjemahan bebas. Teks vernakular tidak pernah diperiksa ejaannya, dilengkapi, atau dikoreksi \u2014 tidak ada perangkat yang memiliki kamusnya, jadi setiap saran yang bisa ditawarkan pasti salah.',
+  'panel.f.analSpellcheckInfo': 'Menggarisbawahi kata yang tidak ada dalam bahasa analisis. Dengan sendirinya tidak mengubah apa pun. Inilah yang berguna ketika penutur menulis bahasa analisis berdasarkan pendengaran: \u201cfedahu\u201d akan digarisbawahi merah, lalu mereka bisa memikirkan kembali ejaannya. Di komputer ini berfungsi dan aman. Di Android tidak bisa dipakai sendiri \u2014 papan ketik menganggap menggarisbawahi, menyarankan, dan mengganti sebagai satu fitur, jadi mengaktifkannya di sana juga mengizinkan papan ketik mengganti kata. Karena itu Otomatis berarti aktif di komputer, mati di ponsel dan tablet.',
+  'panel.f.analAutocompleteInfo': 'Menawarkan daftar kata untuk dipilih, dan tidak mengganti apa pun kecuali pengetik memilih salah satunya. Di komputer, daftar itu berasal dari apa yang pernah diketik di kotak tersebut. Di Android papan ketik tidak dapat menampilkan barisan sarannya tanpa sekaligus diizinkan mengganti kata sendiri, jadi Otomatis mematikannya di sana; versi aplikasi Android mendatang akan dapat menawarkan pilihan tanpa pernah mengganti.',
+  'panel.f.analAutocorrectInfo': 'Mengizinkan perangkat mengganti kata saat diketik, tanpa bertanya. Otomatis tidak pernah mengaktifkan ini di perangkat mana pun: penggantian yang salah terjadi tanpa suara, dan orang yang mengetik biasanya tidak menyadarinya. Aktifkan hanya jika bahasa analisis memang dikenal baik oleh perangkat DAN orang yang mengetik cukup lancar membacanya untuk menangkap tebakan yang salah. Di Android hanya ada satu kendali di belakang ketiga pengaturan ini, jadi mengaktifkan yang satu ini di sana juga mengaktifkan penggarisbawahan dan saran.',
+  'panel.opt.typing.auto': 'Otomatis \u2014 sebanyak yang aman di perangkat ini',
+  'panel.opt.typing.on': 'Aktif',
+  'panel.opt.typing.off': 'Mati',
   'panel.opt.space.auto': 'Otomatis (mati di perangkat seluler)',
   'panel.opt.space.on': 'Selalu',
   'panel.opt.space.off': 'Tidak pernah \u2014 pakai \u25b6 atau Shift+Spasi',

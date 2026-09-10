@@ -730,3 +730,34 @@ test('picking Automatic warns that it depends on the device, separately from the
   assert.match(en, /cannot install/i, 'it says we cannot install a dictionary');
   assert.match(en, /set up in the analysis language/i, 'and what would make it work');
 });
+
+/* ⚠ BOTH SETTINGS SURFACES MUST AGREE WITH THE ENGINE ABOUT AN UNSET DIAL. They did not: app.js's
+ * form was fixed to show 'off' while the panel's generic select fallback still took opts[0], which
+ * is 'auto'. So the panel reported "Automatic" for a device the engine was treating as silent.
+ * Found by opening the real panel and reading the values back — no test had covered it. */
+test('an unset dial reads as off on BOTH surfaces, matching the engine', () => {
+  const app = rd('../docs/js/app.js'), panel = rd('../docs/js/researcher-panel.js');
+  assert.match(app, /TYPING_DIALS\.includes\(f\.k\)\) v\[f\.k\] = TRI\.includes\(s\[f\.k\]\) \? s\[f\.k\] : 'off';/,
+    "the device's own Settings tab defaults to off");
+  assert.match(panel, /TYPING_DIALS\.includes\(f\.k\)\) v\[f\.k\] = \['auto', 'on', 'off'\]\.includes\(s\[f\.k\]\) \? s\[f\.k\] : 'off';/,
+    'and so does the researcher panel');
+  /* ⚠ AND THE PANEL'S BRANCH MUST COME BEFORE THE GENERIC ONE, or opts[0] wins again. */
+  assert.ok(panel.indexOf("TYPING_DIALS.includes(f.k)) v[f.k]")
+          < panel.indexOf("else if (f.type === 'select') v[f.k] = s[f.k] ||"),
+    'the specific branch precedes the generic select fallback');
+});
+
+/* ⚠ EVERY RESEARCHER-AUTHORED PROSE FIELD, not just the one in GROUPS. The <body> blanket reaches
+ * all 16 text fields in the suite; 13 of those are codes, names or vernacular and are correctly
+ * silent. Three are prose a researcher writes and reads: consentMsg in the settings form, and the
+ * crowd editor's welcome and consent message, which are hand-written outside GROUPS and were missed
+ * when consentMsg was fixed. Enumerated by script rather than by memory, and pinned here. */
+test('all three researcher-prose fields keep spellcheck and sentence capitals', () => {
+  const panel = rd('../docs/js/researcher-panel.js');
+  for (const id of ['cr-welcome', 'cr-cmsg']) {
+    const tag = panel.match(new RegExp(`<textarea id="${id}"[^>]*>`))[0];
+    assert.match(tag, /spellcheck="true"/, `#${id} keeps spellcheck`);
+    assert.match(tag, /autocapitalize="sentences"/, `#${id} keeps sentence capitals`);
+    assert.doesNotMatch(tag, /autocorrect="on"/, `#${id} still never autocorrects`);
+  }
+});

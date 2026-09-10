@@ -78,7 +78,7 @@ keyboard while the focused box stayed buried. The arithmetic now lives in two pu
 functions (`visibleBandBottom`, `revealScrollBy`) tested across all three viewport modes with no
 DOM, because both earlier failures were logic errors invisible to a suite that reads source as text.
 
-## 0c. On staging, awaiting a production push (v669 to v671)
+## 0c. On staging, awaiting a production push (v669 to v672)
 
 **One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
 or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
@@ -116,6 +116,29 @@ separator; a researcher now chooses which — period (default), underscore or hy
 offered, since a gloss containing one would make the word count disagree with the baseline. ⚠ A
 hyphen or underscore is collapsed **only when it has been declared the separator** — otherwise it
 may be marking a morpheme boundary, and is left alone.
+
+**A gloss does not end in punctuation, and the keyboard's period is undone (v672).**
+
+- Typing a space at the end of a gloss left a separator with nothing after it (`PST.`), tidied on
+  blur. ⚠ A trailing **hyphen or equals sign is kept** — in Leipzig glossing those mark what the
+  morpheme *is* (`PST-` a prefix, `CLT=` a proclitic, as `-PST` is a suffix), so stripping one would
+  delete real analysis a character at a time. Blur only, because on input it would make a separator
+  untypeable.
+- ⚠⚠ **The stray period was the keyboard's, not ours.** Seth: *"If I type space three times in the
+  free translation it puts a period before the last word. That looks like a failure of order of
+  operations…"* The order was fine — our rules alone turn three spaces into one and insert nothing.
+  Gboard (and iOS, and macOS) replaces a second space with `". "`, and our space collapse then tidied
+  the leftover gap, which made the stray period look deliberate. The substitution has an exact
+  signature — the previous value ended in a space, the new one is that text with the final space
+  replaced by `". "` — and nothing a person can type produces it, so it is safe to undo. A period
+  typed by hand is untouched. Needs the field's previous value, kept per element.
+
+**The rules are now one table (v672).** Seth: *"There might be a way to simplify and combine some of
+these rules..."* There are only ever two kinds of field (line, gloss) and two moments (input, blur),
+and every rule is a cell in that grid — `tidyField` is the single entry point, and reading the table
+is reading the policy. The primitives behind it are internal, and the tests go through the real path
+rather than the internals. ⚠ `capBlankLines` stays deliberately **outside** the table, because its
+safety depends on the *document*, not the field or the moment.
 
 - Fixed in passing: the three typing dials were **missing from the settings snapshot** the panel
   prefills from, so the panel could push them but never read back what a device actually held.

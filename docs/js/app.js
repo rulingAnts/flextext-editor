@@ -25,7 +25,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
+         growArea, initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
          stripSplitAtPlayhead, segProgress, armLine, armedRow} from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -4078,12 +4078,42 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   const label = document.createElement('span');
   label.className = 'free-label';
   label.textContent = t('gloss.freeLabel');
-  const input = document.createElement('input');
+  /* ⚠ A TEXTAREA, NOT AN INPUT — and that was the bug. An <input> cannot wrap, so a free
+   * translation of any length scrolled sideways and the typist could not see the sentence they were
+   * writing. On a phone that is the difference between usable and not. The class is unchanged
+   * (`.free-input`), which matters: typing.js finds analysis-language fields by that selector, and
+   * the focus walk, the caret scissors and the tests all key on it too. */
+  const input = document.createElement('textarea');
   input.className = 'free-input';
+  input.rows = 1;
   input.placeholder = t('gloss.freePlaceholder');
   input.value = seg.free || '';
+  growArea(input);
   if (analFont) input.style.fontFamily = analFont;
-  input.addEventListener('input', () => { seg.free = input.value; schedulePersist(); });
+  /* ⚠ WRAPPING YES, LINE BREAKS NO. Seth, 2026-09-10: "Do not allow users to enter linefeeds or
+   * carriage returns or manual line breaks though in those boxes, just word wrapping." A free
+   * translation is one run of prose; a literal newline in it would travel into the .flextext and the
+   * EAF as part of the text.
+   *
+   * ⚠ STRIPPED ON INPUT, NOT ONLY ON THE ENTER KEY. Enter is one of several ways a newline arrives —
+   * paste, dictation, an IME commit, autofill — and blocking the key alone would let every other
+   * route through. The caret is restored because rewriting .value otherwise throws it to the end,
+   * mid-sentence, which is worse than the newline was. */
+  input.addEventListener('input', () => {
+    if (/[\r\n]/.test(input.value)) {
+      const at = input.selectionStart;
+      const before = input.value.slice(0, at).replace(/[\r\n]+/g, ' ').length;
+      input.value = input.value.replace(/[\r\n]+/g, ' ');
+      try { input.setSelectionRange(before, before); } catch { /* detached: nothing to restore */ }
+    }
+    seg.free = input.value;
+    growArea(input);
+    schedulePersist();
+  });
+  /* And the key itself, so pressing Enter does nothing visible rather than inserting a character the
+   * handler above then removes. preventDefault only — never stopPropagation — so anything else that
+   * acts on Enter still sees it. */
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
   // The ✂ under the caret, whenever Enter here would place a split (plans/split-tiers.md).
   registerCaretScissors(input, freeRow, () => glossCaretWant(input, seg), (at) => {
     const i = current ? current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg) : -1;
@@ -4171,7 +4201,49 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
     g.placeholder = '—';
     if (analFont) g.style.fontFamily = analFont;
     sizeInput(g);
-    g.addEventListener('input', () => { w.gls = g.value; sizeInput(g); schedulePersist(); });
+    /* ⚠ SPACE BECOMES A PERIOD HERE TOO, NOT ONLY IN THE keydown BELOW — because on Android the
+     * keydown never arrives usefully. Seth, 2026-09-10: "On Android with on-screen keyboard, our fix
+     * to automatically insert '.' on spacebar doesn't work." A soft keyboard commits text through the
+     * IME, so the physical-key branch below simply never fires and a coworker got spaces in glosses.
+     *
+     * His own suggestion, and it is the right shape: "Maybe auto-replace when ' ' is added to the
+     * text string value of the field, replace it with period, rather than capturing key presses."
+     * Watching the VALUE catches every route in — soft keyboard, paste, dictation, autofill — where
+     * watching the key catches one.
+     *
+     * The keydown stays: on a physical keyboard it is more precise (it replaces a SELECTION, and it
+     * keeps Shift+Space free for the transport). This is the net beneath it, not a replacement.
+     *
+     * ⚠ GLOSS FIELDS ONLY. Seth: "On free translation and baseline, spaces are allowed." A gloss is
+     * one morpheme label, where `.` joins the parts (1SG.SUBJ); prose boxes are prose.
+     *
+     * The caret index survives untouched because the substitution is one character for one. */
+    g.addEventListener('input', () => {
+      if (g.value.includes(' ')) {
+        const at = g.selectionStart;
+        g.value = g.value.replace(/ /g, '.');
+        try { g.setSelectionRange(at, at); } catch { /* detached: nothing to restore */ }
+      }
+      w.gls = g.value; sizeInput(g); schedulePersist();
+    });
+    /* ⚠ AND AGAIN ON BLUR, WHICH IS THE PASS THAT CANNOT BE FOUGHT. Seth, 2026-09-10: "our period
+     * auto-replace and Android auto-correct might be fighting each other. So could also be good to
+     * change it after lost focus. Gboard wouldn't be able to fight that."
+     *
+     * Right: while the box has focus the IME owns a composition over it, and a substitution made
+     * mid-composition can be re-applied, re-ordered or undone by the keyboard's own correction pass —
+     * two things editing the same string, with the IME holding the newer copy. Once focus leaves, the
+     * composition is committed and nothing else is writing: whatever we normalise here stands.
+     *
+     * So the input-time replacement is for FEEDBACK (the typist sees the period as they go) and this
+     * one is for CORRECTNESS. Keeping both means a fight mid-word cannot leave a space behind. */
+    g.addEventListener('blur', () => {
+      if (!g.value.includes(' ')) return;
+      g.value = g.value.replace(/ /g, '.');
+      w.gls = g.value;
+      sizeInput(g);
+      schedulePersist();
+    });
     g.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         /* ⚠ YIELD AT BOUNDARIES IN SEGMENTATION MODE (v322). decorateGlossSegments attaches a second
@@ -4243,6 +4315,8 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
   return cell;
 }
 
+/* Width, for the short single-line boxes (a word gloss). The height twin is growArea, in
+ * segment-strips.js — shared because the segmenter rows need it too. */
 function sizeInput(input) {
   const len = Math.max(input.value.length, input.placeholder.length, 3);
   input.style.width = (len + 2) + 'ch';

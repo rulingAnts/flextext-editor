@@ -144,3 +144,57 @@ test('lameta recognises our annotation formats, and .flextext is one of them', (
     'nothing here emits the SayMore-managed filename');
 });
 import { readFileSync } from 'node:fs';
+
+/* ─── THE PANEL BUTTON ────────────────────────────────────────────────────────
+ * One more download kind beside ELAN and SayMore, asking for the same annotation payload and
+ * wrapping it in a session folder. */
+const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+
+test('the panel offers a lameta session folder, and asks for the ELAN payload', () => {
+  assert.match(PANEL, /conv\('lameta', 'lametaZip', true\)/, 'the menu row exists');
+  assert.match(PANEL, /lameta: \{ eaf: true \}/,
+    'it asks for the complete six-tier EAF, exactly what ELAN asks for');
+  /* ⚠ NEVER the SayMore profile: lameta has no annotation editor and just opens ELAN, so the
+   * two-tier file would be a downgrade in the tool the researcher lands in. */
+  const branch = PANEL.slice(PANEL.indexOf("if (kind === 'lameta') {"),
+                             PANEL.indexOf("} else if (kind === 'elan' || kind === 'saymore') {"));
+  assert.doesNotMatch(branch, /saymore/, 'the SayMore profile does not appear in this package');
+  assert.match(branch, /lametaSessionEntries\(/, 'entries go through the session-folder writer');
+  assert.match(branch, /saveBlobAs\(await makeZip\(sessionEntries\)/, 'and are zipped');
+});
+
+test('the package carries the recording and the .flextext beside the annotation', () => {
+  const branch = PANEL.slice(PANEL.indexOf("if (kind === 'lameta') {"),
+                             PANEL.indexOf("} else if (kind === 'elan' || kind === 'saymore') {"));
+  assert.match(branch, /src\.media && src\.media\.blob/, 'the original recording rides along');
+  /* ⚠ THE .flextext IS THE FETCHED XML, NOT A RE-SERIALIZATION. #71 required it to come from the
+   * same doc state as the EAF so the package cannot hold two annotations that disagree. The EAF was
+   * built from parseFlextext(src.xml) in this same operation, so shipping src.xml satisfies that AND
+   * avoids round-trip loss through our own parser. */
+  assert.match(branch, /entries\.push\(\{ name: base \+ '\.flextext', data: new Blob\(\[src\.xml\]/,
+    'the .flextext is the same XML the EAF was parsed from');
+  assert.doesNotMatch(branch, /serializeFlextext/, 'not re-serialized — no round-trip loss');
+});
+
+test('only fields we actually know are written; the rest are left for lameta', () => {
+  const branch = PANEL.slice(PANEL.indexOf("if (kind === 'lameta') {"),
+                             PANEL.indexOf("} else if (kind === 'elan' || kind === 'saymore') {"));
+  // `title` is a shorthand property, the rest are explicit — accept either form.
+  for (const f of ['title', 'done', 'vernLang', 'analLang']) {
+    assert.match(branch, new RegExp('\\b' + f + '\\s*[:,]'), `${f} is supplied`);
+  }
+  for (const f of ['genre', 'location', 'access', 'keywords']) {
+    assert.doesNotMatch(branch, new RegExp('\\b' + f + ':', 'i'),
+      `${f} is NOT invented — the researcher chooses it from lameta's own list`);
+  }
+});
+
+test('both menu labels exist in English and Indonesian', () => {
+  const i18n = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+  for (const k of ['panel.dl.lametaZip', 'panel.dl.lametaZipSub']) {
+    assert.equal((i18n.match(new RegExp(`'${k}':`, 'g')) || []).length, 2, `${k} needs EN and ID`);
+  }
+  // The sub-line has to say what to DO with it — unzipping over the project is the whole trick.
+  const en = i18n.match(/'panel\.dl\.lametaZipSub': '([^']*(?:\\'[^']*)*)'/)[1];
+  assert.match(en, /Unzip over your lameta project/i, 'it says how to use it');
+});

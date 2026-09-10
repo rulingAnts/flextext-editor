@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v677';
+export const ENGINE_VERSION = 'v678';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -992,6 +992,7 @@ internet after the first time.</p>
 <li><b>Add a device</b> — choose Editor (transcribe &amp; gloss) or Recorder (record audio only) and give it a name.</li>
 <li><b>Send the invite link</b> — copy it to the coworker (e.g. by WhatsApp). Each link works once.</li>
 <li><b>Approve it</b> — when they open the link the device shows as "pending." Approve it; to be sure it is really their device, check that the short <b>device code</b> it shows them matches the one in your panel.</li>
+<li><b>Turn off the keyboard's suggestion strip</b> — on an Android phone, open <b>Settings → System → Keyboard → On-screen keyboard → Gboard → Text correction</b> and switch off <b>Show suggestion strip</b> (next-word suggestions and auto-correction too, while you are there; the wording varies a little by phone). The app asks the keyboard not to suggest words, but Gboard ignores that request on Android, so this switch is the only thing that removes the strip. It applies to every app on that phone. Do it on the phone itself: on current versions of Gboard, the same setting pushed from an MDM does not take effect.</li>
 <li>From then on you see that device's texts and can manage it.</li>
 </ol>
 <h3>Managing a device</h3>
@@ -1474,6 +1475,8 @@ internet after the first time.</p>
     ,'panel.rel.fix.retryPatience': 'Downloads, uploads and app updates no longer give up during a short outage. They used to stop after three quick tries — a few seconds — so a connection that dropped for a minute or two left a text half-downloaded and apparently dead, and the only thing that looked like it helped was tapping retry on each text by hand. Now they keep trying with a gradually longer wait between attempts, up to three minutes apart, and any progress at all resets that wait to short again. Work already transferred is never re-fetched — each attempt picks up where the last one stopped. Nothing waits for anyone to remember to press anything.'
     ,'panel.rel.fix.externalLinks': 'Links that lead outside the app now hand the address to the phone itself, so it opens in the normal browser as a separate app — and if that browser is blocked on a managed device, nothing opens at all. Before, tapping a link such as the GitHub credit could raise a small browser INSIDE the app, which is not something a managed device is supposed to allow. Nothing about the links themselves changed; only where they open.'
     ,'panel.rel.fix.noOffsiteWhenPaired': 'A device linked to a researcher now shows no links to other websites at all — the licence and “source on GitHub” credits, and the archive links in the help text, are simply not there. They come back if the device is ever unlinked. On an app working alone nothing changes. This closes the way a coworker could reach a web browser from inside the app, including by long-pressing a link or opening it with a middle-click, which do not go through the app at all.'
+    ,'panel.rel.new.gboardSetupStep': 'Setting up a coworker, in Help, has a new step: turn off Gboard\u2019s suggestion strip on the phone itself. The app asks the keyboard not to suggest words, but Gboard ignores that request on Android, so the switch on the phone is the only thing that removes the strip \u2014 and on current versions of Gboard, the same setting pushed from an MDM does not take effect.'
+    ,'panel.rel.new.reportChooseApp': 'Report a problem and Suggest a feature now ask which app the report is about before they open GitHub. Coworkers\u2019 devices do not show these links, so what goes wrong on a phone reaches us through you \u2014 and the app you choose goes into the title, which is how reports are found later. There is no default and the last choice is not remembered, so each report names its app on purpose. If you genuinely cannot tell, choose "Not sure / more than one app".'
     ,'panel.rel.new.reportLinks': 'The Researcher Panel now has Report a problem and Suggest a feature links, the same as the Paragraph Analysis Tool has. They are in Release notes, beside the version. A problem report fills in the app version, which site you are on and your browser \u2014 and nothing else: no account, device, text or key information, because the issue tracker is public.'
     ,'panel.rel.fix.enterKeyHint': 'On a phone keyboard, the Enter key in the baseline and free-translation boxes now says what it will do. Since those boxes began wrapping long lines, Android\u2019s keyboard had been showing its new-line key there \u2014 a key promising a line break in a box that does not allow one. It now shows Next where Enter moves on to the next line, which is the usual setting, and the ordinary Enter key where it splits the line instead. The plain baseline box used when audio segmentation is off keeps its new-line key, because there Enter really does start a new paragraph.'
     ,'panel.rel.fix.splitAtPunctuation': 'On the Gloss tab, the \u2702 now appears at every gap a line can actually be split at, including the ones next to punctuation. It used to sit under the chain link that joins two words, so it only appeared where two words met \u2014 and a comma or a full stop between them meant no \u2702 at all, even though just after a comma is often exactly where a sentence wants to break. Joining and splitting are now asked separately. \u26a0 Punctuation still travels with the word it belongs to: a comma or full stop never starts the new line, and an opening bracket or quote never ends the old one \u2014 so \u201c(bar)\u201d moves as one piece. A straight quote gets no \u2702 on either side, because the same character opens and closes and nothing in the text says which this one is; the typographic quotes do not have that problem. Pressing Enter at the edge of a box splits as it always did.'
@@ -1832,6 +1835,20 @@ internet after the first time.</p>
   'panel.rel.prioritise': 'Which of these gets in your way most? That is what decides the order they are fixed in — say so, and it moves up.',
   'panel.reportBug': 'Report a problem',
   'panel.reportFeature': 'Suggest a feature',
+  'panel.report.appLabel': 'Which app is this about?',
+  'panel.report.appPlaceholder': 'Choose an app…',
+  'panel.report.why': 'Field devices do not show this link, so problems and ideas from them come through you. The app you choose goes into the title, which is how reports are found later — so choose the app it actually happened in, even if you noticed it here.',
+  'panel.report.goNote': 'This opens a new GitHub issue in your browser with the app filled in. You still describe what happened, and nothing is sent until you submit it there.',
+  'panel.report.go': 'Continue to GitHub',
+  'panel.report.cancel': 'Cancel',
+  'panel.report.app.editor': 'Flextext Editor',
+  'panel.report.app.recorder': 'Text Recorder',
+  'panel.report.app.crowd': 'Crowd Recorder',
+  'panel.report.app.consent': 'Consent Collector',
+  'panel.report.app.segmenter': 'Audio Segmenter',
+  'panel.report.app.paragraph': 'Paragraph Analysis Tool',
+  'panel.report.app.panel': 'Researcher Panel',
+  'panel.report.app.unsure': 'Not sure / more than one app',
   'panel.rel.new.share': 'You can share a project with another researcher and choose what they may do — manage devices, invite devices, work with texts, download files. They never get access to your Google Drive.',
   'panel.rel.new.memberFiles': 'A researcher with “download files” can open a text’s Files menu and build the ELAN, SayMore, listening-page and paragraph-analysis outputs, the same as you.',
   'panel.rel.new.projectLifecycle': 'You can delete a project once it has no devices left in it, and a researcher can leave a project they were added to.',
@@ -3506,6 +3523,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <li><b>Tambah perangkat</b> — pilih Editor (transkripsi &amp; terjemahan) atau Perekam (rekam audio saja) dan beri nama.</li>
 <li><b>Kirim tautan undangan</b> — salin ke rekan kerja (mis. lewat WhatsApp). Tiap tautan hanya berlaku sekali.</li>
 <li><b>Setujui</b> — saat mereka membuka tautan, perangkat tampil sebagai "menunggu." Setujui; untuk memastikan itu benar-benar perangkat mereka, periksa bahwa <b>kode perangkat</b> singkat yang ditampilkan cocok dengan yang ada di panel Anda.</li>
+<li><b>Matikan baris saran papan ketik</b> — di ponsel Android, buka <b>Setelan → Sistem → Papan ketik → Papan ketik di layar → Gboard → Koreksi teks</b> lalu matikan <b>Tampilkan baris saran</b> (sekalian juga saran kata berikutnya dan koreksi otomatis; namanya bisa sedikit berbeda di tiap ponsel). Aplikasi meminta papan ketik agar tidak menyarankan kata, tetapi Gboard mengabaikan permintaan itu di Android, jadi sakelar ini satu-satunya cara menghilangkan baris saran. Setelan ini berlaku untuk semua aplikasi di ponsel itu. Lakukan di ponselnya langsung: pada versi Gboard saat ini, setelan yang sama yang dikirim dari MDM tidak berpengaruh.</li>
 <li>Sejak itu Anda bisa melihat teks perangkat itu dan mengelolanya.</li>
 </ol>
 <h3>Mengelola perangkat</h3>
@@ -3906,6 +3924,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.retryPatience': 'Unduhan, unggahan, dan pembaruan aplikasi tidak lagi menyerah saat sambungan terputus sebentar. Sebelumnya semuanya berhenti setelah tiga percobaan cepat — hanya beberapa detik — sehingga sambungan yang putus satu atau dua menit membuat sebuah teks terunduh separuh dan tampak mati, dan satu-satunya yang terasa membantu adalah menekan coba lagi pada tiap teks satu per satu. Kini percobaan terus berlanjut dengan jeda yang makin panjang, hingga tiga menit, dan setiap kemajuan sekecil apa pun mengembalikan jeda itu menjadi singkat lagi. Data yang sudah terkirim tidak pernah diunduh ulang — tiap percobaan melanjutkan dari tempat terakhir berhenti. Tidak ada yang menunggu seseorang ingat untuk menekan apa pun.'
     ,'panel.rel.fix.externalLinks': 'Tautan yang menuju ke luar aplikasi kini menyerahkan alamatnya kepada ponsel itu sendiri, sehingga terbuka di peramban biasa sebagai aplikasi terpisah — dan bila peramban itu diblokir pada perangkat yang dikelola, tidak ada yang terbuka sama sekali. Sebelumnya, menekan tautan seperti kredit GitHub bisa memunculkan peramban kecil DI DALAM aplikasi, yang seharusnya tidak diizinkan pada perangkat yang dikelola. Tautannya sendiri tidak berubah; hanya tempat terbukanya.'
     ,'panel.rel.fix.noOffsiteWhenPaired': 'Perangkat yang tertaut ke peneliti kini sama sekali tidak menampilkan tautan ke situs lain — kredit lisensi dan “sumber di GitHub”, serta tautan arsip di teks bantuan, tidak ada di sana. Semuanya kembali bila perangkat dilepas tautannya. Pada aplikasi yang bekerja sendiri tidak ada yang berubah. Ini menutup jalan bagi rekan kerja untuk membuka peramban dari dalam aplikasi, termasuk lewat tekan-lama pada tautan atau klik tengah, yang tidak melewati aplikasi sama sekali.'
+    ,'panel.rel.new.gboardSetupStep': 'Menyiapkan rekan kerja, di Bantuan, punya langkah baru: matikan baris saran Gboard langsung di ponselnya. Aplikasi meminta papan ketik agar tidak menyarankan kata, tetapi Gboard mengabaikan permintaan itu di Android, jadi sakelar di ponsel satu-satunya cara menghilangkan baris saran \u2014 dan pada versi Gboard saat ini, setelan yang sama yang dikirim dari MDM tidak berpengaruh.'
+    ,'panel.rel.new.reportChooseApp': 'Laporkan masalah dan Usulkan fitur sekarang menanyakan aplikasi mana yang dimaksud sebelum membuka GitHub. Perangkat rekan kerja tidak menampilkan tautan ini, jadi apa yang salah di ponsel sampai kepada kami melalui Anda \u2014 dan aplikasi yang Anda pilih dimasukkan ke judul, dari situlah laporan dicari kemudian. Tidak ada pilihan bawaan dan pilihan terakhir tidak diingat, jadi setiap laporan menyebut aplikasinya dengan sengaja. Jika Anda benar-benar tidak tahu, pilih "Tidak yakin / lebih dari satu aplikasi".'
     ,'panel.rel.new.reportLinks': 'Panel Peneliti sekarang memiliki tautan Laporkan masalah dan Usulkan fitur, sama seperti Alat Analisis Paragraf. Tautannya ada di Catatan rilis, di samping versi. Laporan masalah mengisi versi aplikasi, situs yang Anda pakai, dan peramban Anda \u2014 tidak ada yang lain: tidak ada informasi akun, perangkat, teks, atau kunci, karena pelacak masalah bersifat publik.'
     ,'panel.rel.fix.enterKeyHint': 'Di papan ketik ponsel, tombol Enter di kotak teks dasar dan terjemahan bebas sekarang menunjukkan apa yang akan dilakukannya. Sejak kotak-kotak itu membungkus baris panjang, papan ketik Android menampilkan tombol baris baru di sana \u2014 tombol yang menjanjikan pemutus baris di kotak yang tidak mengizinkannya. Sekarang tombol itu menampilkan Berikutnya ketika Enter berpindah ke baris berikutnya, yaitu setelan yang biasa, dan tombol Enter biasa ketika Enter memisah baris. Kotak teks dasar biasa yang dipakai saat segmentasi audio dimatikan tetap memakai tombol baris baru, karena di sana Enter memang memulai paragraf baru.'
     ,'panel.rel.fix.splitAtPunctuation': 'Di tab Gloss, \u2702 sekarang muncul di setiap celah tempat sebuah baris benar-benar dapat dipisah, termasuk celah di sebelah tanda baca. Sebelumnya \u2702 berada di bawah tautan rantai yang menggabungkan dua kata, jadi hanya muncul di tempat dua kata bertemu \u2014 dan koma atau titik di antaranya berarti tidak ada \u2702 sama sekali, padahal tepat setelah koma justru sering menjadi tempat kalimat ingin dipisah. Menggabungkan dan memisah sekarang ditanyakan secara terpisah. \u26a0 Tanda baca tetap menyertai kata pemiliknya: koma atau titik tidak pernah mengawali baris baru, dan tanda kurung atau kutip pembuka tidak pernah mengakhiri baris lama \u2014 sehingga \u201c(bar)\u201d berpindah sebagai satu kesatuan. Tanda kutip lurus tidak mendapat \u2702 di kedua sisinya, karena karakter yang sama dipakai untuk membuka dan menutup dan tidak ada dalam teks yang menunjukkan yang mana; tanda kutip tipografis tidak punya masalah itu. Menekan Enter di tepi kotak tetap memisah seperti biasa.'
@@ -4220,6 +4240,20 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.prioritise': 'Mana di antara ini yang paling menghambat pekerjaan Anda? Itulah yang menentukan urutan perbaikannya — sampaikan saja, dan prioritasnya naik.',
   'panel.reportBug': 'Laporkan masalah',
   'panel.reportFeature': 'Usulkan fitur',
+  'panel.report.appLabel': 'Aplikasi mana yang dimaksud?',
+  'panel.report.appPlaceholder': 'Pilih aplikasi…',
+  'panel.report.why': 'Perangkat lapangan tidak menampilkan tautan ini, jadi masalah dan usulan dari sana disampaikan melalui Anda. Aplikasi yang Anda pilih dimasukkan ke judul, dan dari situlah laporan dicari kemudian — jadi pilih aplikasi tempat hal itu benar-benar terjadi, meskipun Anda melihatnya di sini.',
+  'panel.report.goNote': 'Ini membuka isu GitHub baru di peramban Anda dengan aplikasi sudah terisi. Anda tetap menjelaskan apa yang terjadi, dan tidak ada yang terkirim sampai Anda mengirimkannya di sana.',
+  'panel.report.go': 'Lanjut ke GitHub',
+  'panel.report.cancel': 'Batal',
+  'panel.report.app.editor': 'Flextext Editor',
+  'panel.report.app.recorder': 'Text Recorder',
+  'panel.report.app.crowd': 'Crowd Recorder',
+  'panel.report.app.consent': 'Pengumpul Izin',
+  'panel.report.app.segmenter': 'Pemotong Audio',
+  'panel.report.app.paragraph': 'Alat Analisis Paragraf',
+  'panel.report.app.panel': 'Panel Peneliti',
+  'panel.report.app.unsure': 'Tidak yakin / lebih dari satu aplikasi',
   'panel.rel.new.share': 'Anda dapat berbagi proyek dengan peneliti lain dan memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Mereka tidak pernah mendapat akses ke Google Drive Anda.',
   'panel.rel.new.memberFiles': 'Peneliti dengan “mengunduh berkas” dapat membuka menu Berkas sebuah teks dan membuat keluaran ELAN, SayMore, halaman simak, dan analisis paragraf, sama seperti Anda.',
   'panel.rel.new.projectLifecycle': 'Anda dapat menghapus proyek setelah tidak ada perangkat di dalamnya, dan peneliti lain dapat keluar dari proyek yang dibagikan kepada mereka.',

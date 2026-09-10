@@ -551,8 +551,7 @@ deliberately republishing a single mirror if one ever has to be.
 production release is `deploy-production.yml` and nothing else.
 
 ```sh
-gh workflow run sync-satellites.yml            # all three — deliberate republish only
-gh workflow run sync-satellites.yml -f only=text-recorder
+# sync-satellites.yml was deleted on 2026-09-11 — the GitHub Pages mirrors stopped receiving updates in v432
 ```
 
 ### Guards you will meet

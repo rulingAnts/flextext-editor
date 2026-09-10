@@ -76,9 +76,22 @@ export async function makeZip(entries) {
 
   for (const entry of entries) {
     const nameBytes = enc.encode(entry.name);
+    /* ⚠ A STRING IS A VALID ENTRY, encoded as UTF-8. This existed as a real bug: the lameta session
+     * export built its .session file and every .meta sidecar as XML STRINGS — lameta.js is a pure
+     * format module and stays node-testable by returning text — and handed them straight here,
+     * where `entry.data.arrayBuffer is not a function` killed the whole download with a bare
+     * "failed" (Seth, 2026-09-10).
+     *
+     * Fixed at the SINK rather than at that one caller on purpose. Every other caller wraps its own
+     * text (`new Blob([JSON.stringify(...)])`), so the convention was five-to-one — and that is
+     * precisely the shape where the next author makes the same mistake. Accepting text here closes
+     * the class instead of the instance, and a string is unambiguous: it is UTF-8 text, never
+     * bytes-that-might-be-text. */
     const data = entry.data instanceof Uint8Array
       ? entry.data
-      : new Uint8Array(await entry.data.arrayBuffer());
+      : typeof entry.data === 'string'
+        ? enc.encode(entry.data)
+        : new Uint8Array(await entry.data.arrayBuffer());
     const crc = crc32(data);
 
     const local = new Uint8Array([

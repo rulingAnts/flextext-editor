@@ -198,3 +198,93 @@ test('both menu labels exist in English and Indonesian', () => {
   const en = i18n.match(/'panel\.dl\.lametaZipSub': '([^']*(?:\\'[^']*)*)'/)[1];
   assert.match(en, /Unzip over your lameta project/i, 'it says how to use it');
 });
+
+/* ⚠⚠ THE SEAM THAT WAS NEVER TESTED, AND THE ONE THAT BROKE. Seth, 2026-09-10, from the staging
+ * Researcher panel: the lameta download "just says failed", with
+ *
+ *     TypeError: entry.data.arrayBuffer is not a function
+ *         makeZip .../js/zip.js:81
+ *         runMenuConversion .../js/researcher-panel.js:3881
+ *
+ * lametaSessionEntries builds the .session file and every .meta sidecar as XML STRINGS — deliberately,
+ * because lameta.js is a pure format module and returning text is what keeps it testable in node —
+ * and makeZip accepted only a Uint8Array or a Blob. FOUR of the five entries in a typical session are
+ * strings, the .session file among them, so it threw on the FIRST entry: the panel button never
+ * worked from the day it shipped.
+ *
+ * ⚠ AND EVERY EXISTING TEST PASSED. The 19 above exercise the format module alone; the panel tests
+ * read researcher-panel.js as source text. Both halves were correct and did not fit together, which
+ * is invisible to any test that does not RUN one into the other. Hence this: build real entries and
+ * put them through the real zip writer, then read the archive back.
+ *
+ * Seth's format verification was real but came from a different producer — "your coworker session
+ * produced a whole bunch of them today in bulk and they work fine" — so the panel path was confirmed
+ * by nothing. */
+test('lameta session entries actually go through the real zip writer', async () => {
+  const { makeZip } = await import('../docs/js/zip.js');
+  const entries = lametaSessionEntries(
+    { id: 'Fayu_001', title: 'Kaisou fedahu', done: true, vernLang: 'fau', analLang: 'id' },
+    [{ name: 'Fayu_001.flextext', data: '<document/>' },
+     { name: 'Fayu_001.wav', data: new Uint8Array([1, 2, 3, 4]) }]);
+
+  // the pre-condition that made this a bug: most entries ARE strings, and that is intended
+  assert.ok(entries.filter((e) => typeof e.data === 'string').length >= 3,
+    'the format module returns text, which is what keeps it node-pure');
+
+  const zip = await makeZip(entries);          // this threw before the fix
+  const buf = new Uint8Array(await zip.arrayBuffer());
+
+  // read the local file headers back, so this asserts a real archive and not just "no throw"
+  const dv = new DataView(buf.buffer);
+  const found = [];
+  let i = 0;
+  while (i < buf.length - 4 && dv.getUint32(i, true) === 0x04034b50) {
+    const nlen = dv.getUint16(i + 26, true);
+    const elen = dv.getUint16(i + 28, true);
+    const clen = dv.getUint32(i + 18, true);
+    found.push({
+      name: new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nlen)),
+      bytes: clen,
+      body: new TextDecoder().decode(buf.subarray(i + 30 + nlen + elen, i + 30 + nlen + elen + clen)),
+    });
+    i += 30 + nlen + elen + clen;
+  }
+
+  const names = found.map((f) => f.name);
+  assert.deepEqual(names, [
+    'Sessions/Fayu_001/Fayu_001.session',
+    'Sessions/Fayu_001/Fayu_001.flextext',
+    'Sessions/Fayu_001/Fayu_001.flextext.meta',
+    'Sessions/Fayu_001/Fayu_001.wav',
+    'Sessions/Fayu_001/Fayu_001.wav.meta',
+  ], 'every file lameta expects, under Sessions/<id>/');
+
+  // the text entries survived the UTF-8 encoding as real XML, not as "[object Object]" or empty
+  const session = found.find((f) => f.name.endsWith('.session'));
+  assert.match(session.body, /^<\?xml/, 'the .session file is XML');
+  assert.match(session.body, /Fayu_001|Kaisou fedahu/, 'and carries the session it describes');
+  assert.ok(session.bytes > 100, 'and is not empty');
+  for (const m of found.filter((f) => f.name.endsWith('.meta')))
+    assert.match(m.body, /minimum_lameta_version_to_read/, `${m.name} is a real sidecar`);
+  // and the binary entry is untouched
+  assert.equal(found.find((f) => f.name.endsWith('.wav')).bytes, 4);
+});
+
+test('the zip writer takes text as well as bytes and blobs, so no caller can repeat this', async () => {
+  const { makeZip } = await import('../docs/js/zip.js');
+  const zip = await makeZip([
+    { name: 'a.txt', data: 'plain text' },
+    { name: 'b.bin', data: new Uint8Array([9, 9]) },
+    { name: 'c.txt', data: new Blob(['from a blob']) },
+  ]);
+  const buf = new Uint8Array(await zip.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  assert.equal(dv.getUint32(0, true), 0x04034b50, 'a real archive');
+  const text = new TextDecoder().decode(buf);
+  for (const expect of ['plain text', 'from a blob'])
+    assert.ok(text.includes(expect), `${expect} is in the archive`);
+  // ⚠ non-ASCII must round-trip as UTF-8, since session titles and Fayu text are not ASCII
+  const zip2 = await makeZip([{ name: 'é.txt', data: 'kaisou fedahu — mémé ʔ' }]);
+  const text2 = new TextDecoder().decode(new Uint8Array(await zip2.arrayBuffer()));
+  assert.ok(text2.includes('kaisou fedahu — mémé ʔ'), 'UTF-8 text survives');
+});

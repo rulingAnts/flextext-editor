@@ -1355,6 +1355,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v677', date: '2026-09-11', items: [
+    { k: 'panel.rel.new.reportLinks', issue: 69 },
+    { k: 'panel.rel.fix.enterKeyHint' },
+  ] },
   { v: 'v676', date: '2026-09-10', items: [
     { k: 'panel.rel.fix.splitAtPunctuation' },
   ] },
@@ -1799,6 +1803,44 @@ function releaseNotesLink() {
   if (!RELEASES.length && !KNOWN_ISSUES.length) return '';
   return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.rel.btn'))}</button>`;
 }
+/* "Report a problem" and "Suggest a feature" (#69) — copied from PAT's renderReportLinks/issueUrl
+ * rather than invented (Seth: "just like we have in PAT"). Beside the version, as PAT has them: the
+ * release notes are where a researcher already looks to see what is known and what changed, so the
+ * route to say "and here is one you don't know about" belongs on that screen.
+ *
+ * ⚠ THE DIAGNOSTICS NAME NOTHING. The issue tracker is PUBLIC, and this panel holds an account,
+ * device nicknames, text titles and E2EE keys. A bug report carries only what the app is and where it
+ * runs — engine version, build tag, which site, browser — and says so in the body. A feature request
+ * carries none (PAT's rule: "feature suggestions don't need diagnostics").
+ *
+ * ⚠ ROUTED LIKE EVERY OTHER OFFSITE LINK: a plain <a target="_blank">, which the module-scope
+ * wireExternalLinks in app.js hands to the OS browser (external-link.js), never an in-app view. This
+ * is a researcher's own unpaired device, so the link is allowed rather than stripped.
+ *
+ * Only labels that exist are requested: the repo has `bug` and `enhancement`. (PAT also asks for a
+ * `paragraph-analysis` label that does not exist; GitHub ignores it.) */
+function panelIssueUrl(kind) {
+  const bug = kind === 'bug';
+  const body = bug ? [
+    '', '', '',
+    '--------- diagnostic info (please keep) ---------',
+    `app: Researcher Panel ${ENGINE_VERSION}${BUILD_TAG ? ' (' + BUILD_TAG + ')' : ''}`,
+    `site: ${onStagingEstate() ? 'staging' : 'production'}`,
+    `browser: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'}`,
+    '(no account, device, text or key information is included)',
+  ].join('\n') : '';
+  const q = new URLSearchParams({
+    labels: bug ? 'bug' : 'enhancement',
+    title: bug ? '[Researcher Panel] ' : '[Researcher Panel] Feature: ',
+    body,
+  });
+  return `${ISSUES_URL}new?${q}`;
+}
+function reportLinksHtml() {
+  return `<a class="rp-report-link" href="${esc(panelIssueUrl('bug'))}" target="_blank" rel="noopener">${esc(t('panel.reportBug'))}</a>`
+    + ` · <a class="rp-report-link" href="${esc(panelIssueUrl('feature'))}" target="_blank" rel="noopener">${esc(t('panel.reportFeature'))}</a>`;
+}
+
 function releaseNotesModal() {
   // One section per release, newest first — a version heading with its date, then its changes.
   // An item resolving a submitted GitHub issue links to it (repo is public); target=_blank so the
@@ -1816,6 +1858,7 @@ function releaseNotesModal() {
   modal(`<h3>${esc(t('panel.rel.title'))}</h3>
     <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
+    <p class="note rp-report-links">${reportLinksHtml()}</p>
     ${KNOWN_ISSUES.length ? `<h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
       <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
       <p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}

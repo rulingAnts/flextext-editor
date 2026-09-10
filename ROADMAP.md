@@ -80,7 +80,23 @@ DOM, because both earlier failures were logic errors invisible to a suite that r
 
 ## 0c. Released 2026-09-10 (v669 to v673)
 
-## 0d. On staging, awaiting a production push (v676)
+## 0c. On staging, awaiting a production push (v677)
+
+- **Report a problem / Suggest a feature in the Researcher Panel (#69)** — copied from PAT, beside the
+  version in Release notes. ⚠ The bug-report body names nothing but the app version, site and browser:
+  the tracker is public and the panel holds accounts, device nicknames, titles and keys. A test fails
+  if the body ever reaches for any of them.
+- **The phone keyboard's Enter key says what Enter does** on the two full-line boxes: `enterkeyhint`
+  "next" where Enter walks to the next line, "enter" where it splits. v666's `<textarea>` had given them
+  Gboard's new-line key. Cut mode needs no label — it makes the boxes read-only, which keeps the
+  keyboard down. The legacy baseline keeps its new-line key; there Enter starts a paragraph.
+- **The Audio Segmenter never imports a `.fxpa`** — #54 closed as not planned (Seth: PAT's splitting and
+  joining replaced the need). It had no such import, so the decision is pinned by a test that checks
+  every door a file can come in by.
+- **Branches: 25 deleted, 10 remain** — every tip was already in `productionWeb`. Recorded in
+  `plans/PENDING.md`, including the three that still carry the unmerged v320 GUID fix (#76 needs it).
+
+## 0d. Released 2026-09-10 (v676)
 
 **#73 — the ✂ appears at every gap a line can be split at (v676).** Seth: *"when there's punctuation,
 split scissors do not show up between word/gloss pairs where the punctuation sits."*

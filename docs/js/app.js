@@ -25,7 +25,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
-         growArea, initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
+         growArea, applyEnterKeyHint, initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
          stripSplitAtPlayhead, segProgress, armLine, armedRow} from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
@@ -4205,7 +4205,9 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * explicit that focus must not be REQUIRED — "we also want empty text fields to be one text line
    * tall, not zero pixels tall until the user starts typing. Or focuses the field" — which the
    * min-height floor guarantees. This only fixes a PRE-FILLED box that needed more than one line. */
-  input.addEventListener('focus', () => growArea(input));
+  // The phone keyboard's Enter label — see applyEnterKeyHint. Before the first focus, and on each one.
+  applyEnterKeyHint(input, enterAtEndAdvances());
+  input.addEventListener('focus', () => { growArea(input); applyEnterKeyHint(input, enterAtEndAdvances()); });
   // The ✂ under the caret, whenever Enter here would place a split (plans/split-tiers.md).
   registerCaretScissors(input, freeRow, () => glossCaretWant(input, seg), (at) => {
     const i = current ? current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg) : -1;

@@ -65,7 +65,13 @@ test('both forms carry the field as a picture picker, with the same default line
 });
 
 test('each editor device reports its picture; the dashboard tallies one vote per device', () => {
-  assert.match(APP, /'exportPreview', 'exportJson', 'glossIcon'\]\) \{/, 'in the settings snapshot the panel prefills from');
+  /* ⚠ ASSERT MEMBERSHIP, NOT POSITION. This used to pin /'exportJson', 'glossIcon'\]\)/ — i.e. that
+   * glossIcon was the LAST key in the list — so it broke the moment another setting was appended,
+   * reporting a glossIcon regression that had not happened. What matters is that the key is in the
+   * snapshot at all. */
+  const snapKeys = APP.slice(APP.indexOf("const snap = {};"), APP.indexOf("if (settings[k] !== undefined) snap[k] = settings[k];"));
+  assert.match(snapKeys, /'glossIcon'/, 'in the settings snapshot the panel prefills from');
+  assert.ok(snapKeys.length > 200 && snapKeys.includes("for (const k of ["), 'and the slice really is that key list');
   assert.match(APP, /platform: nativePlatform\(\), nativeEngine: nativeEngineInfo\(\),\n[\s\S]{0,400}glossIcon: \(!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE && !CROWD_MODE\)/, 'top-level, editor shell only');
   assert.match(PANEL, /const iconUse = \{\};/);
   assert.match(PANEL, /if \(newest\) \{ const k = newest\.inventory\.glossIcon; iconUse\[k\] = \(iconUse\[k\] \|\| 0\) \+ 1; \}/, 'one vote per device, from its newest install');

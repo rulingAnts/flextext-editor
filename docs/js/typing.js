@@ -392,3 +392,63 @@ export function syncTypingWarnings(box, attr) {
     }
   });
 }
+
+/* ⚠ ONE SPACE BETWEEN WORDS (Seth, 2026-09-10): "prevent them from typing multiple spaces in the
+ * baseline or free translation. Only allow one space between words." The audience is the reason —
+ * "to help less tech-savvy/illiterate users": a run of spaces is invisible on screen, never
+ * intended, and a typist who cannot read back what they typed has no way to notice it.
+ *
+ * ⚠⚠ NEWLINES ARE NEVER TOUCHED, and that is not a detail. The legacy baseline box carries a
+ * transcription's PARAGRAPHS as newlines (getBaselineParagraphs(doc).join('\n')), and for a
+ * time-aligned doc a BLANK line is a real timed span of silence, 1:1 with doc.segments — filtering
+ * those once truncated a field recording by half a minute (see applyBaseline). So these collapse
+ * runs of SPACES and TABS only, and tidySpaces splits and rejoins on '\n' so the line COUNT is
+ * preserved exactly. A \s-based regex here would silently merge paragraphs.
+ *
+ * Both are pure so the caret arithmetic can be tested without a DOM — the same reason #43's
+ * geometry was pulled out of its closure. */
+
+// While typing: collapse runs, and move the caret back by however many characters were removed
+// BEFORE it, because rewriting .value otherwise throws the cursor to the end of the field.
+export function collapseSpaces(value, caret = null) {
+  const src = value == null ? '' : String(value);
+  const out = src.replace(/[ \t]{2,}/g, ' ');
+  if (out === src || caret == null) return { value: out, caret, changed: out !== src };
+  // The head is collapsed by the same rule, so its new length IS the new caret position.
+  const head = src.slice(0, caret).replace(/[ \t]{2,}/g, ' ');
+  return { value: out, caret: head.length, changed: true };
+}
+
+// On the way out: collapse runs AND drop leading/trailing spaces on each line. A leading space is
+// not "between words" at all, so trimming is the same rule applied at the edges; per-line rather
+// than a whole-value trim so a multi-paragraph baseline is tidied line by line. applyBaseline
+// already trims each line before reconciling, so this changes what the typist SEES to match what
+// the document was always going to store.
+export function tidySpaces(value) {
+  return (value == null ? '' : String(value))
+    .split('\n')
+    .map((l) => l.replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+|[ \t]+$/g, ''))
+    .join('\n');
+}
+
+/* ⚠⚠ CAP CONSECUTIVE BLANK LINES — AND ONLY EVER ON A DOC THAT CARRIES NO TIME ALIGNMENT.
+ *
+ * Seth, 2026-09-10: "for legacy baseline, multiple line breaks is OK (at least two), but not
+ * multiple spaces… Maybe limit line breaks to max 2 in a row between text lines if this behavior is
+ * enabled." Right for a classic transcription, where a blank line is a paragraph separator and
+ * applyBaseline discards empties at reconcile anyway, so capping is cosmetic.
+ *
+ * ⚠ IT IS DATA LOSS ON AN ALIGNED DOC. There, every blank baseline line is a real timed span of
+ * SILENCE, 1:1 with doc.segments. Dropping them is a corruption already suffered and fixed once
+ * (2026-08-16): 53 lines with 23 blanks became 30, the spans then paired positionally against the
+ * first 30 — silences included — and the recording "ended" half a minute early. It was reproduced
+ * from Seth's own field file. So the CALLER must gate this on doc truth, never on a setting, and
+ * this function is deliberately not applied anywhere the alignment is unknown.
+ *
+ * `max` counts NEWLINES in a row, so the default 2 leaves at most one blank line between two lines
+ * of text — "at least two" line breaks, as asked. */
+export function capBlankLines(value, max = 2) {
+  const src = value == null ? '' : String(value);
+  if (max < 1) return src;
+  return src.replace(new RegExp(`\\n{${max + 1},}`, 'g'), '\n'.repeat(max));
+}

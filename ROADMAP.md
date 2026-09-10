@@ -78,6 +78,26 @@ keyboard while the focused box stayed buried. The arithmetic now lives in two pu
 functions (`visibleBandBottom`, `revealScrollBy`) tested across all three viewport modes with no
 DOM, because both earlier failures were logic errors invisible to a suite that reads source as text.
 
+## 0c. On staging, awaiting a production push (v669)
+
+**One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
+or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
+and the edges are tidied on blur, on the baseline and the free translation only — a word gloss keeps
+its own rule, where a space becomes a period. The plain baseline box used when segmentation is off
+also caps a gap at one blank line.
+
+- ⚠ **DEFAULT DEPENDS ON PAIRING** — on for a paired device, off for an unpaired one. Seth's reason:
+  a paired device is a field worker's, configured by a researcher who wants the guard; an unpaired
+  device is the researcher's own, and rewriting their input is not a favor. One key, two defaults,
+  and both surfaces' forms had to be told separately so neither misreports the device.
+- ⚠⚠ **A TEXT WITH RECORDING TIMES NEVER HAS ITS BLANK LINES CAPPED.** There a blank baseline line is
+  a timed span of silence, 1:1 with `doc.segments`; capping them is the 2026-08-16 corruption that
+  turned 53 lines into 30 and ended a recording half a minute early. The cap is gated on **doc
+  truth**, never on the setting, and `docCarriesTime()` is now the single definition of alignment
+  shared with `applyBaseline` — two notions drifting apart is how that bug returns.
+- Fixed in passing: the three typing dials were **missing from the settings snapshot** the panel
+  prefills from, so the panel could push them but never read back what a device actually held.
+
 **Known, deferred:**
 
 - **#73** — no split ✂ appears at a word gap containing punctuation, because the scissors are hung

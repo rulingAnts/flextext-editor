@@ -24,6 +24,7 @@ import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAl
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
+import { collapseSpaces, tidySpaces } from './typing.js';
 
 /* ═══ THE PENDING SPLIT — one edit, one position per tier (Seth, 2026-09-06; plans/split-tiers.md)
  * "any cut that's made starts with a cut executed on any of the active tiers and immediately
@@ -1056,6 +1057,26 @@ export function renderStrips() {
         input.value = input.value.replace(/[\r\n]+/g, ' ');
         try { input.setSelectionRange(before, before); } catch { /* detached */ }
       }
+      /* ⚠ AFTER the newline strip and BEFORE commitTexts, or the collapsed text is not what gets
+       * stored. Spaces and tabs only — newlines are the rule above's business. Seth, 2026-09-10:
+       * "Only allow one space between words." */
+      if (deps.singleSpace && deps.singleSpace()) {
+        const r = collapseSpaces(input.value, input.selectionStart);
+        if (r.changed) {
+          input.value = r.value;
+          try { input.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
+        }
+      }
+      growArea(input);
+      commitTexts();
+    });
+    /* And again on the way out, where the edges get tidied too and no IME can be mid-commit fighting
+     * the rewrite (Seth: "on blur, remove duplicated spaces if this behavior is enabled"). */
+    input.addEventListener('blur', () => {
+      if (!(deps.singleSpace && deps.singleSpace())) return;
+      const tidy = tidySpaces(input.value);
+      if (tidy === input.value) return;
+      input.value = tidy;
       growArea(input);
       commitTexts();
     });

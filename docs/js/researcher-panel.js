@@ -27,6 +27,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
 import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, driveFolderLink, recordingSince, HISTORY_KINDS } from './history.js';
 import { makeZip } from './zip.js';
+import { lametaSessionEntries } from './lameta.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
@@ -1342,6 +1343,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v665', date: '2026-09-10', items: [
+    { k: 'panel.rel.new.lametaSession' },
+  ] },
   { v: 'v664', date: '2026-09-10', items: [
     { k: 'panel.rel.fix.moveNoGhost' },
   ] },
@@ -3526,6 +3530,12 @@ async function populateFilesMenu(wrap) {
     const convOff = (labelKey, why) => rows.push(`<span class="rp-dl-item rp-dl-pending" role="menuitem" aria-disabled="true">
       <span class="rp-dl-name">${esc(t('panel.dl.' + labelKey))}</span><span class="rp-dl-sub">${esc(why)}</span></span>`);
     if (audioF) conv('elan', 'elanZip', true);
+    /* ⚠ A LAMETA SESSION FOLDER, not another flavour of the ELAN zip. Same annotation payload — the
+     * complete six-tier EAF and its .pfsx — wrapped in `Sessions/<id>/` with a `.session` file, so a
+     * researcher unzips it over their lameta project and the session simply appears. lameta
+     * DISCOVERS sessions by scanning for `Sessions/<dir>/<dir>.session`; the .sprj holds no session
+     * list, which is exactly what makes a drop-in work. See plans/lameta-session-export.md. */
+    if (audioF) conv('lameta', 'lametaZip', true);
     /* ⚠ THE ONLY CONVERSION ROW THAT IS NOT GATED ON AUDIO, and loosePlan says why: "THE EAF NEEDS
      * TIMES, NOT AUDIO". serializeEaf omits the MEDIA_DESCRIPTOR when there is no media name and is
      * otherwise a perfectly legal ELAN file, so a text with offsets and no recording on this device
@@ -3799,6 +3809,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
      * is built — so the .eaf a researcher gets here is byte-for-byte the one inside the ELAN zip.
      * A second, slimmer EAF path would be a second EAF implementation, and the two would drift. */
     const wants = { elan: { eaf: true }, eaf: { eaf: true }, saymore: { saymore: true },
+                    lameta: { eaf: true },
                     preview: { preview: true }, fxpa: { fxpa: true } }[kind];
     if (!wants) return;
     /* An oversized .fxpa is built WITHOUT audio rather than refused — the grouping analysis is the
@@ -3809,7 +3820,35 @@ async function runMenuConversion(wrap, kind, itemEl) {
     // full: preview + fxpa are the embedded-audio outputs (the same full-bundle-only rule the
     // device applies); the ELAN/SayMore zips match what an upload bundle carries.
     const entries = await buildSegEntriesFor(useSrc, { title, base, wants, full: kind === 'preview' || kind === 'fxpa' });
-    if (kind === 'elan' || kind === 'saymore') {
+    if (kind === 'lameta') {
+      /* The original recording rides along for the same reason it does in the ELAN zip (Seth,
+       * 2026-09-04: "even if it's not the recording used by ELAN/SayMore, the original does need to
+       * be saved and included"). */
+      if (src.media && src.media.blob && !entries.some((x) => x.name === src.media.name)) {
+        entries.push({ name: src.media.name, data: src.media.blob });
+      }
+      /* ⚠ THE .flextext IS THE XML WE FETCHED, NOT A RE-SERIALIZATION. #71 asked for the .flextext to
+       * come from the same doc state as the EAF, so the package can never contain two annotations
+       * that disagree. That holds here by construction and better than re-serializing would: the EAF
+       * was built from parseFlextext(src.xml) in this same operation, so shipping src.xml is both
+       * consistent AND free of round-trip loss through our own parser. lameta counts .flextext among
+       * its annotation extensions, so it is a first-class file there rather than a passenger. */
+      if (src.xml) entries.push({ name: base + '.flextext', data: new Blob([src.xml], { type: 'application/xml' }) });
+      /* Only what we actually know. Everything else — Genre, Date, Location, Access — is left out
+       * for the researcher to complete in lameta, which is what lameta is for; an empty element
+       * would read as answered. ⚠ And a value outside lameta's vocabulary is DROPPED silently, so
+       * nothing is approximated. */
+      const sessionEntries = lametaSessionEntries({
+        id: base,
+        title,
+        done: wrap.dataset.done === '1' || wrap.dataset.done === 'true',
+        vernLang: src.vern || '',
+        analLang: src.anal || '',
+      }, entries);
+      saveBlobAs(await makeZip(sessionEntries), `${base} lameta session.zip`);
+      saved = true;
+      if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);
+    } else if (kind === 'elan' || kind === 'saymore') {
       /* The ORIGINAL recording rides beside the timeline WAV (Seth, 2026-09-04: "even if it's not
        * the recording used by ELAN/SayMore, the original does need to be saved and included").
        * Here, not in buildSegEntriesFor: Download All already carries the folder's original and
@@ -4826,12 +4865,30 @@ async function instanceActionInner(el) {
         pendingCmds.delete(docId);
         savePending(Researcher.currentAccountId());
         serverPending.delete(spKey(id, docId));
-        /* ⚠ CANCELLING THE ASSIGNMENT MUST CANCEL THE REMOVAL WITH IT — the one place the move's two
-         * halves are NOT independent, and the direction that would lose data. A removal whose
-         * delivery never happened must never fire: the source would delete a text the destination
-         * never received. (Cancelling the removal alone is fine and stays independent — the text
-         * simply ends up on both devices.) Dropping the record also releases a move that would
-         * otherwise wedge at stage 'assigned' forever, holding the source row struck through. */
+        /* ⚠ SUPERSEDED BY #70 — READ THIS BEFORE "RESTORING" THE OLD BEHAVIOUR. This used to say
+         * cancelling the assignment must cancel the removal with it, because "the source would
+         * delete a text the destination never received". That was right while the removal waited for
+         * the destination to report: dropping this record was enough to stop it ever firing.
+         *
+         * Since #70 the removal fires on the next poll, and cancelling is DELIBERATELY allowed to
+         * let it complete. Seth, 2026-09-10: "if we trigger a move, it uploads it and removes it from
+         * the original device and puts it as pending on the target device. 'Cancel assignment' would
+         * move it to the Google Drive (Unassigned) folder. In an ideal world there'd be some kind of
+         * 'undo move' option, but we don't need that kind of complexity/entropy right now. Cancel
+         * assignment kicking it to Google Drive Unassigned is acceptable." — "As a consistent
+         * behavior."
+         *
+         * Consistency is the point: one outcome, never "it depends how fast you clicked". A version
+         * of this that withdrew the source's removal when it happened to still be queued was written
+         * and removed again for exactly that reason.
+         *
+         * ⚠ SAFE ONLY BECAUSE uploadDelete IS UPLOAD-FIRST. The text is in Drive before the source
+         * releases it, so the worst outcome is a text no device owns — recoverable from Unassigned,
+         * never lost. If uploadDelete ever stops proving backup before deleting, this becomes data
+         * loss; test/move-no-ghost.test.mjs pins that dependency.
+         *
+         * Dropping the record also releases a move that would otherwise wedge at 'assigned' forever,
+         * holding the source row struck through. */
         if (pendingMoves.has(docId)) saveMoves((cur) => { delete cur[docId]; return cur; });
         const hit = blobCache.get(id);
         if (hit) hit.cmds = (hit.cmds || []).filter((c) => c && c.seq !== p.seq);

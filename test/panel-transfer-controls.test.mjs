@@ -407,9 +407,13 @@ test('a conversion that produced no file does not tell the researcher it was sav
   const fn = PANEL.slice(PANEL.indexOf('async function runMenuConversion('), PANEL.indexOf('// The current inventory item for a doc'));
   assert.match(fn, /let saved = false;/);
   assert.match(fn, /jobEnd\(job, saved \? t\('panel\.dl\.savedShort'\) : t\('panel\.dl\.failedShort'\)\);/);
-  // and `saved` is set only where a blob actually reaches the disk
-  const sets = fn.match(/saved = true;/g) || [];
-  assert.equal(sets.length, 2, 'the zip path and the single-file path, and nowhere else');
-  for (const m of fn.matchAll(/saveBlobAs\([^\n]*\n\s*saved = true;/g)) assert.ok(m);
+  /* ⚠ `saved` is set ONLY where a blob actually reaches the disk. This used to assert a count of 2
+   * and broke when a third output was added (the lameta session folder) — a change that satisfied
+   * the rule perfectly. The count was never the property; the pairing is. So: every `saved = true`
+   * must be immediately preceded by a `saveBlobAs`, whatever the number of outputs. */
+  const sets = (fn.match(/saved = true;/g) || []).length;
+  const paired = (fn.match(/saveBlobAs\([^\n]*\n\s*saved = true;/g) || []).length;
+  assert.ok(sets > 0, 'something sets it');
+  assert.equal(paired, sets, 'every saved = true immediately follows a saveBlobAs — no bare flags');
   assert.ok(fn.indexOf('saveBlobAs') < fn.indexOf('saved = true;'), 'the flag follows the save, never precedes it');
 });

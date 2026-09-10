@@ -187,3 +187,41 @@ console.log('\nSpace outranks the speed picker; Enter and Backspace do not');
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);
+
+/* ⚠⚠ THE NATIVE TAB ORDER MUST AGREE WITH focusNextWordGloss, because Gboard's "Next" key is not
+ * Tab. Seth, 2026-09-10, from real Android hardware: "enter/next on Gboard goes from gloss to next
+ * vernacular word. Which isn't what I want… I don't want baseline words on the gloss tab to be in
+ * the tab stop at all. Editable only by deliberately clicking on or touching them."
+ *
+ * Our Tab handler was never wrong — it walks '.gloss-input, .free-input' and skips the word. But
+ * Gboard's Next performs the browser's NATIVE focus advance, which no keydown handler is consulted
+ * about, and a contenteditable element is in that order by default as though it carried
+ * tabindex="0". So the fix is to take the non-text controls OUT of the native order rather than to
+ * guess at how an IME dispatches keys: it then works for Tab, for Next, and for anything else that
+ * walks focus, with no interception. tabindex="-1" keeps click and touch focus, so the word stays
+ * editable — deliberately, as asked. */
+test('on the gloss tab only text boxes are tab stops; the word and the chain link are tap-only', () => {
+  const APPSRC = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  const cell = APPSRC.slice(APPSRC.indexOf('function renderWordCell('), APPSRC.indexOf('function glossEditWord('));
+
+  // the vernacular word: still editable, but out of the sequential order
+  assert.match(cell, /t2\.contentEditable = 'plaintext-only'/, 'still editable in place');
+  assert.match(cell, /t2\.tabIndex = -1;/, 'and not a tab stop');
+  // ⚠ the reason is recorded where someone would undo it
+  assert.match(cell, /GBOARD'S "Next" KEY IS NOT TAB/);
+
+  // the chain link, which was the last control in the row still in the order
+  const chain = APPSRC.slice(APPSRC.indexOf("link.className = 'chain-btn'"), APPSRC.indexOf("link.className = 'chain-btn'") + 700);
+  assert.match(chain, /link\.tabIndex = -1;/);
+
+  // ⚠ EVERY non-text control in a gloss row is now consistent — this is the house rule stated in
+  // segment-strips as "Tab walks TEXT BOXES on this tab", and the row had one exception left.
+  for (const [name, marker] of [['unchain', "un.className = 'unchain-btn'"], ['scissors', "sc.className = 'scissor-btn'"]]) {
+    const blk = APPSRC.slice(APPSRC.indexOf(marker), APPSRC.indexOf(marker) + 400);
+    assert.match(blk, /tabIndex = -1;/, `${name} already did this`);
+  }
+
+  // and the walk Tab uses is unchanged: text boxes only, in DOM order
+  assert.match(APPSRC, /const all = \$\$\('#gloss-body \.gloss-input, #gloss-body \.free-input'\);/,
+    'so the native order and our handler now agree');
+});

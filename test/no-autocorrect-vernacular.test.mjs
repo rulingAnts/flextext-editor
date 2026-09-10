@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyTyping, enforceTyping, setAnalysisLang, setTypingPrefs, resolveTyping,
-  canMarkWithoutReplacing, canSuggestWithoutReplacing, setTypingPlatform, VERN, ANAL,
+  canMarkWithoutReplacing, canSuggestWithoutReplacing, setTypingPlatform, kindOf, VERN, ANAL,
 } from '../docs/js/typing.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -183,107 +183,111 @@ test('every app ships its vernacular fields already marked, in the HTML', () => 
   }
 });
 
-test('the fields the engine draws go through the policy, not their own attributes', () => {
-  const app = rd('../docs/js/app.js');
-  for (const [what, near] of [
-    ['free translation', "input.className = 'free-input'"],
-    ['word gloss', "g.className = 'gloss-input'"],
+/* ⚠ THE FIELDS THE ENGINE DRAWS ARE COVERED BY SELECTOR, NOT BY A CALL AT EVERY RENDER — which is
+ * the whole performance fix. This test pins the coupling that replaces those calls: if a render path
+ * renames a class, the selector in typing.js has to move with it or the field silently loses its
+ * policy. That is the one fragility this design introduces, so it gets its own test. */
+test('every field the engine draws still matches a selector typing.js knows', () => {
+  const typing = rd('../docs/js/typing.js');
+  const sel = typing.slice(typing.indexOf('const SEL_ANAL'), typing.indexOf('const SEL_ANY'));
+  const app = rd('../docs/js/app.js'), seg = rd('../docs/js/segment-strips.js');
+
+  for (const [cls, where, src] of [
+    ['free-input', 'the free translation', app],
+    ['gloss-input', 'the word gloss', app],
+    ['mg-g', 'the mini-gloss gloss', app],
+    ['mg-ft', 'the mini-gloss free translation', app],
+    ['word-txt', 'the editable baseline word', app],
+    ['mg-w', 'the mini-gloss word', app],
+    ['seg-text', 'the segmenter row', seg],
   ]) {
-    const i = app.indexOf(near);
-    assert.ok(i > 0, `${what} still exists`);
-    assert.match(app.slice(i, i + 700), /applyAnalysisTyping\(|applyTyping\(/, `${what} is covered`);
+    assert.ok(src.includes(`'${cls}'`) || src.includes(`"${cls}"`) || src.includes(`.${cls}`),
+      `${where} (.${cls}) still exists in the engine`);
+    assert.ok(sel.includes(`.${cls}`), `${where} (.${cls}) is missing from typing.js's selectors`);
   }
-  // The baseline WORD — Seth named it: "baseline, baseline words".
-  const w = app.indexOf("t2.className = 'word-txt';");
-  assert.match(app.slice(w, w + 900), /applyTyping\(t2, VERN\)/, 'the editable baseline word');
-  // Both halves of the mini-gloss editor, each in its own language.
-  assert.match(app, /applyTyping\(el, field === 'txt' \? VERN : ANAL\)/, 'mini-gloss word vs gloss');
-  // The segmenter row.
-  const seg = rd('../docs/js/segment-strips.js');
-  const s = seg.indexOf("input.className = 'seg-text'");
-  assert.match(seg.slice(s, s + 600), /applyTyping\(input, VERN\)/, 'the segmenter row input');
+  assert.ok(sel.includes('#baseline-text'), 'and the baseline box');
+  assert.ok(sel.includes('.pa-pastebox'), "and PAT's paste box");
+  assert.ok(sel.includes('#consent-name'), 'and the consent name');
 });
 
-/* ⚠ THE SWEEP IS THE PART THAT HAS TO HOLD. Fields are drawn by six apps across a dozen render
- * paths, several of which rebuild rows as the user scrolls; a policy applied only at the call sites
- * is one new createElement() away from a hole, and one missed field is a corrupted text. Same shape
- * that closed the offsite-link hole: sweep what is here, observe what arrives. */
-function fakeDom(fields) {
-  const body = {
-    nodeType: 1, dataset: {},
-    querySelectorAll: () => fields.filter((f) => f.dataset.typing),
-  };
-  return { documentElement: body, body, _fields: fields };
-}
+/* ─── ENFORCEMENT IS STATIC FIRST, THEN ONE FIELD AT A TIME ──────────────────
+ * Seth, 2026-09-10, after three separate performance regressions from live enforcement: "Seems like
+ * though it shouldn't be necessary for us to be live-monitoring and changing fields as we go. Seems
+ * like we should be able to make that almost static to the browser." */
 
-test('the sweep hardens fields that are already on the page', () => {
-  const f = fakeEl();
-  f.dataset.typing = VERN;
-  f.spellcheck = true;                       // a hostile starting state
-  const real = globalThis.MutationObserver;
-  globalThis.MutationObserver = function () { return { observe() {}, disconnect() {} }; };
-  try {
-    enforceTyping(fakeDom([f]));
-    assert.equal(f.spellcheck, false, 'the stray true is corrected');
-    assert.equal(f.getAttribute('autocorrect'), 'off');
-  } finally { globalThis.MutationObserver = real; }
-});
-
-test('and it watches for fields that arrive later, without delaying the paint', async () => {
-  let opts = null, cb = null;
-  const real = globalThis.MutationObserver;
-  globalThis.MutationObserver = function (fn) {
-    cb = fn;
-    return { observe: (_t, o) => { opts = o; }, disconnect() {} };
-  };
-  try {
-    const stop = enforceTyping(fakeDom([]));
-    assert.ok(opts, 'it observes');
-    assert.equal(opts.childList, true, 'new fields');
-    assert.equal(opts.subtree, true, 'however deep they are nested');
-
-    /* ⚠ NEVER `attributes`. Watching data-typing/spellcheck meant every applyTyping() write woke the
-     * observer, which called applyTyping() again — an infinite loop that pinned the main thread.
-     * It shipped as v653 to staging: "this page is slowing down Firefox", with audio and waveforms
-     * starved along with everything else. */
-    assert.ok(!opts.attributes, 'and NOT attributes — that was an infinite loop');
-    assert.equal(opts.attributeFilter, undefined);
-
-    const born = fakeEl();
-    born.dataset.typing = VERN;
-    born.spellcheck = true;
-    cb([{ type: 'childList', addedNodes: [born] }]);
-
-    /* ⚠ DEFERRED ON PURPOSE, and this is the assertion that keeps it that way. Sweeping inside the
-     * observer callback puts a querySelectorAll in the middle of every insertion and delays paint:
-     * measured ~430ms vs ~690ms on a 40-line gloss render, on a fast laptop. The net can catch a
-     * straggler one frame later — every field the engine draws is hardened by its own call site
-     * before insertion, and nobody can focus a field that has not been painted. */
-    assert.equal(born.spellcheck, true, 'not swept synchronously — that would delay the paint');
-
-    await new Promise((r) => setTimeout(r, 0));
-    assert.equal(born.spellcheck, false, 'but swept on the very next turn');
-    assert.equal(born.getAttribute('writingsuggestions'), 'false');
-
-    // Many arrivals in one burst must schedule ONE pass, not one per node.
-    let scheduled = 0;
-    const realRaf = globalThis.requestAnimationFrame;
-    globalThis.requestAnimationFrame = (fn) => { scheduled++; return setTimeout(fn, 0); };
-    try {
-      const many = Array.from({ length: 50 }, () => {
-        const e = fakeEl(); e.dataset.typing = VERN; return e;
-      });
-      cb([{ type: 'childList', addedNodes: many }]);
-      assert.equal(scheduled, 1, '50 arrivals coalesce into a single deferred pass');
-      await new Promise((r) => setTimeout(r, 0));
-      assert.ok(many.every((e) => e.spellcheck === false), 'and every one of them is swept');
-    } finally {
-      if (realRaf) globalThis.requestAnimationFrame = realRaf;
-      else delete globalThis.requestAnimationFrame;
+test('every app carries the vernacular policy in its MARKUP, where it costs nothing', () => {
+  /* ⚠ THESE FOUR ATTRIBUTES INHERIT — verified in-browser, three levels deep, on both <input> and
+   * contenteditable. That is what makes one <body> attribute replace writes on 1200+ fields, and it
+   * is in force from parse time: before any script runs, before an IME can attach. */
+  for (const p of ['../docs/index.html', '../paragraph-analysis/index.html',
+                   '../satellites/audio-segmenter/index.html', '../satellites/consent-collector/index.html',
+                   '../satellites/crowd-recorder/index.html', '../satellites/text-recorder/index.html',
+                   '../satellites/flextext-researcher/index.html']) {
+    const body = rd(p).match(/<body[^>]*>/)[0];
+    for (const a of ['spellcheck="false"', 'autocapitalize="none"',
+                     'autocorrect="off"', 'writingsuggestions="false"']) {
+      assert.ok(body.includes(a), `${p} <body> is missing ${a}`);
     }
+  }
+});
 
-    assert.equal(typeof stop, 'function', 'and it can be torn down');
-  } finally { globalThis.MutationObserver = real; }
+/* ⚠ NOTHING MAY GO BACK TO TOUCHING EVERY FIELD ON EVERY RENDER. Measured on an M3: 88ms per 602
+ * fields of attribute writes, ~12ms per querySelectorAll, and these apps run on Android tablets
+ * several times slower. Three separate regressions came out of live enforcement — an infinite
+ * observer loop (v653), a synchronous sweep inside every insertion (v654), and a rAF queue that
+ * does not run in a hidden tab and burst on tab-switch (v655). */
+test('no live monitoring survives anywhere in the typing path', () => {
+  const src = rd('../docs/js/typing.js').replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+  assert.doesNotMatch(src, /MutationObserver/, 'no observer');
+  assert.doesNotMatch(src, /requestAnimationFrame/, 'no deferred queue — rAF is dead in a hidden tab');
+  assert.doesNotMatch(src, /querySelectorAll/, 'no document sweeps');
+  assert.doesNotMatch(src, /setInterval/, 'and nothing periodic');
+
+  // And no render path calls it per field any more.
+  for (const f of ['../docs/js/app.js', '../docs/js/segment-strips.js']) {
+    const body = rd(f).replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+    assert.doesNotMatch(body, /applyTyping\(/, `${f} must not harden fields at render time`);
+  }
+});
+
+test('a field names its own language through what the DOM already carries', () => {
+  const el = (cls, id) => ({ nodeType: 1, dataset: {}, matches: (sel) =>
+    sel.split(',').map((x) => x.trim()).some((x) => x === '.' + cls || x === '#' + id) });
+  for (const c of ['free-input', 'gloss-input', 'mg-g', 'mg-ft']) {
+    assert.equal(kindOf(el(c)), ANAL, `.${c} is the analysis language`);
+  }
+  for (const c of ['word-txt', 'seg-text', 'mg-w', 'pa-pastebox']) {
+    assert.equal(kindOf(el(c)), VERN, `.${c} is vernacular`);
+  }
+  assert.equal(kindOf(el(null, 'baseline-text')), VERN, 'and so is the baseline box');
+  assert.equal(kindOf(el(null, 'consent-name')), VERN, 'and a personal name');
+  assert.equal(kindOf(el('some-button')), null, 'anything else is left alone entirely');
+
+  // An explicit data-typing still wins, for fields marked in HTML.
+  const marked = { nodeType: 1, dataset: { typing: 'vern' }, matches: () => false };
+  assert.equal(kindOf(marked), VERN);
+});
+
+test('the focused field is hardened on pointerdown AND focusin, delegated once', () => {
+  const src = rd('../docs/js/typing.js');
+  const fn = src.slice(src.indexOf('export function enforceTyping'));
+  /* pointerdown fires BEFORE focus — that is the touch path, which is the Android path. focusin
+   * catches Tab and the gloss "move to next" walk, which focuses programmatically. */
+  assert.match(fn, /addEventListener\('pointerdown', on, true\)/, 'before focus, for touch');
+  assert.match(fn, /addEventListener\('focusin', on, true\)/, 'and for keyboard/programmatic focus');
+  assert.match(fn, /closest\(SEL_ANY\)/, 'a tap inside a field still finds the field');
+  // The stamp is a JS property, never an attribute: no DOM write, no reflow, unobservable.
+  assert.match(fn, /el\.__typing = sig;/);
+  assert.doesNotMatch(fn, /setAttribute\('data-typed/, 'the stamp is not written into the DOM');
+});
+
+/* A settings push must still take effect without any invalidation plumbing. */
+test('the stamp is keyed to the policy, so a changed setting re-applies on the next touch', () => {
+  const src = rd('../docs/js/typing.js');
+  const fn = src.slice(src.indexOf('function policySig'), src.indexOf('export function enforceTyping'));
+  assert.match(fn, /resolveTyping\(kind\)/, 'the signature is derived from the resolved policy');
+  assert.match(fn, /r\.spell/, 'so changing a dial changes the signature');
+  assert.match(fn, /analLangTag\(\)/, 'and so does changing the analysis language');
 });
 
 /* ⚠ THE TEST THAT WOULD HAVE CAUGHT IT. The old fake observer was fed one batch of records by hand

@@ -24,7 +24,6 @@ import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAl
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
          guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
-import { applyTyping, VERN } from './typing.js';
 
 /* ═══ THE PENDING SPLIT — one edit, one position per tier (Seth, 2026-09-06; plans/split-tiers.md)
  * "any cut that's made starts with a cut executed on any of the active tiers and immediately
@@ -874,9 +873,8 @@ export function renderStrips() {
     const input = document.createElement('input');
     input.className = 'seg-text';
     input.value = text;
-    /* ⚠ VERNACULAR. There is no dictionary for the language being typed here, so every suggestion a
-     * keyboard could offer is wrong by construction. Policy and reasoning live in js/typing.js. */
-    applyTyping(input, VERN);
+    /* ⚠ VERNACULAR — protected by inheritance from <body>, not by writes here. There is no
+     * dictionary for the language typed in this box, so every suggestion is wrong. See js/typing.js. */
     input.addEventListener('input', () => commitTexts());
     input.addEventListener('keydown', (e) => onKey(e, i, input));
     // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).

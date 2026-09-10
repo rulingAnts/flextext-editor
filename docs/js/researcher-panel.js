@@ -1340,7 +1340,7 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v656', date: '2026-09-10', items: [
+  { v: 'v657', date: '2026-09-10', items: [
     { k: 'panel.rel.fix.noAutocorrectVernacular' },
     { k: 'panel.rel.new.analysisTypingDials' },
   ] },
@@ -9153,7 +9153,15 @@ function fieldHtml(f) {
     return `<label class="rp-field"><span>${label}${infoDotHtml(f)}</span><select data-f="${f.k}">${opts}</select></label>`
       + `${f.note ? `<p class="note">${t(f.note)}</p>` : ''}${infoNoteHtml(f)}${help}`;
   }
-  if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
+  /* ⚠ PROSE THE RESEARCHER WRITES, NOT LANGUAGE DATA — so it opts back OUT of the blanket policy on
+   * <body>. The consent message is a paragraph read aloud to a speaker, usually in Indonesian, and
+   * before the blanket went in it had the browser's defaults: spellcheck on, sentence capitals.
+   * Taking those away was an accident of making the vernacular safe, not a decision.
+   *
+   * Only the non-destructive pair comes back. autocorrect and writingsuggestions stay off, because a
+   * consent message names people and places no dictionary knows, and a silent rewrite there is the
+   * same bug as everywhere else in this suite. */
+  if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2" spellcheck="true" autocapitalize="sentences"></textarea></label>`;
   // f.note → an explanatory line under the input. Generic on purpose: several fields have
   // meanings that are NOT obvious from a short label (e.g. consent audio is the prompt PLAYED to
   // the speaker, not their recorded answer).

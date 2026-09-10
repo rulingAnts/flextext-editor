@@ -6648,9 +6648,17 @@ function setupFieldHtml(f) {
    * reason line are all rendered up front and toggled by updateSetupConditionals — building them on
    * demand would mean the enabled state has no `.setup-off` for the click handler to find, which is
    * the half of the rule that makes a greyed control answer when someone clicks it. */
+  /* ⚠ PROSE THE RESEARCHER WRITES, NOT LANGUAGE DATA — so it opts back OUT of the blanket policy on
+   * <body>. The consent message is a paragraph read aloud to a speaker, usually in Indonesian, and
+   * before the blanket went in it had the browser's defaults: spellcheck on, sentence capitals.
+   * Taking those away was an accident of making the vernacular safe, not a decision.
+   *
+   * Only the non-destructive pair comes back. autocorrect and writingsuggestions stay off, because a
+   * consent message names people and places no dictionary knows, and a silent rewrite there is the
+   * same bug as everywhere else in this suite. */
   if (f.type === 'textarea') {
     const body = `<label class="rp-field"><span>${label}${f.dynOff ? ` <span class="setup-off-mark" hidden></span>` : ''}</span>`
-               + `<textarea data-sf="${f.k}" rows="2"></textarea></label>`;
+               + `<textarea data-sf="${f.k}" rows="2" spellcheck="true" autocapitalize="sentences"></textarea></label>`;
     if (!f.dynOff) return body + note;
     return `<div class="setup-dyn" data-dynoff="${esc(f.dynOff)}">${body}`
          + `<p class="note setup-off-why" hidden>${esc(t(f.dynOff))}</p></div>${note}`;

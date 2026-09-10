@@ -507,3 +507,40 @@ test('a native shell can declare better capabilities without any caller changing
     else delete globalThis.navigator;
   }
 });
+
+/* ⚠ THE BLANKET ON <body> REACHES FIELDS THAT ARE NOT LANGUAGE DATA, and one of them is prose. The
+ * consent message is a paragraph a researcher writes to be read aloud to a speaker, usually in
+ * Indonesian; before the blanket it had the browser's defaults. Losing spellcheck and sentence
+ * capitals there was an accident of protecting the vernacular, not a decision — this pins the
+ * exemption so a later tidy-up cannot quietly take them away again. */
+test('prose a researcher writes opts back out of the blanket', () => {
+  for (const [f, tag] of [['../docs/js/researcher-panel.js', 'data-f'],
+                          ['../docs/js/app.js', 'data-sf']]) {
+    const src = rd(f);
+    const ta = src.slice(src.indexOf(`<textarea ${tag}=`), src.indexOf(`<textarea ${tag}=`) + 160);
+    assert.match(ta, /spellcheck="true"/, `${f}: the textarea keeps spellcheck`);
+    assert.match(ta, /autocapitalize="sentences"/, `${f}: and sentence capitals`);
+    /* But only the non-destructive pair: a consent message names people and places no dictionary
+     * knows, so a silent rewrite there is the same bug as anywhere else in this suite. */
+    assert.doesNotMatch(ta, /autocorrect="on"/, `${f}: and still never autocorrects`);
+    assert.doesNotMatch(ta, /writingsuggestions="true"/, `${f}: nor invents text`);
+  }
+});
+
+/* The other side of the same coin: the code fields must NOT get prose treatment. A writing-system
+ * code is not a sentence and must never be capitalised or corrected — Seth's own note on those
+ * fields is that they are case-sensitive and must match FLEx exactly. */
+test('and the writing-system code fields do not', () => {
+  /* ⚠ ANCHOR ON THE GENERIC TEXT BRANCH, not the first `<input data-f=` in the file — that one is
+   * consentAudioUrl's HIDDEN value carrier, which needs none of this and made this test fail for a
+   * reason that had nothing to do with what it was checking. */
+  const panel = rd('../docs/js/researcher-panel.js');
+  const generic = panel.slice(panel.indexOf('  const input = `<label class="rp-field"'));
+  assert.match(generic.slice(0, 200), /spellcheck="false"/, 'panel code fields stay unchecked');
+  assert.doesNotMatch(generic.slice(0, 200), /autocapitalize="sentences"/, 'and uncapitalised');
+
+  const app = rd('../docs/js/app.js');
+  const setupText = app.slice(app.indexOf('  return offWrap(`<label class="rp-field"${tip}><span>${label}'));
+  assert.match(setupText.slice(0, 260), /spellcheck="false"/, 'Settings-tab code fields too');
+  assert.doesNotMatch(setupText.slice(0, 260), /autocapitalize="sentences"/, 'and uncapitalised');
+});

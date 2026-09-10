@@ -127,7 +127,7 @@ committed but never served.
 The satellites are **not forks**: each is a thin `index.html` that loads THIS repo's engine
 cross-origin-path (`/flextext-editor/js/app.js` + CSS) and sets `window.__MODE`
 (`record` / `researcher` / `paragraph` / `segmenter` / `consent` / `crowd`). All logic lives in `docs/js/`. Satellite GitHub repos are
-dumb serving mirrors published by `.github/workflows/sync-satellites.yml` — never edit them
+dumb serving mirrors formerly published by `sync-satellites.yml` (deleted 2026-09-11; the mirrors stopped receiving updates in v432) — never edit them
 directly. The **Paragraph Analysis** satellite (`paragraph-analysis/`) is the exception in
 deployment only: it ships as its own git-connected Cloudflare Worker whose `build.sh` copies
 `docs/` into the same deployment (`public/flextext-editor/`), so its shell and engine ship
@@ -297,7 +297,7 @@ This is the part that has caused real outages when done wrong — read
   after the maintainer's hands-on sign-off, ff into `main` → ff into `productionWeb`.
   Production deploys are `deploy-production.yml`, manual-dispatch, **on `productionWeb` only** —
   all seven Cloudflare Workers, no app selection by design.
-  ⚠ `sync-satellites.yml` is **RETIRED** (2026-08-20) and must NOT be part of a release. Its
+  ⚠ `sync-satellites.yml` is **RETIRED** (2026-08-20) and was **deleted** from `.github/workflows/` on 2026-09-11 and must NOT be part of a release. Its
   `push` trigger was removed so the three legacy GitHub Pages mirrors keep serving but stop
   receiving updates; only `workflow_dispatch` remains, for deliberately republishing one mirror.
   This bullet used to say a `productionWeb` push triggered it, which was true before the

@@ -1342,6 +1342,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v664', date: '2026-09-10', items: [
+    { k: 'panel.rel.fix.moveNoGhost' },
+  ] },
   { v: 'v663', date: '2026-09-10', items: [
     { k: 'panel.rel.new.typingOffByDefault' },
     { k: 'panel.rel.new.typingWarnVisuals' },
@@ -2330,13 +2333,39 @@ async function renderDashboard(prefetched) {
    * its strikethrough and its Cancel button until something else forced a refresh. Cheap: the blob
    * is cached by desired_rev, so this is a no-network re-filter unless the server actually moved. */
   await refreshServerPending(allActionableInstances(data));   // own + shared devices (see the helper)
-  // Advance in-flight moves on every poll (a stage transition is visible in exactly one report —
-  // same reasoning as the History observer): destination reports the doc → fire the upload-first
-  // remove at the source (AUTOMATIC, Seth's decision); source no longer reports it → move done.
+  /* Advance in-flight moves on every poll (a stage transition is visible in exactly one report —
+   * same reasoning as the History observer): the source is told to upload-and-remove straight away;
+   * source no longer reports it → move done.
+   *
+   * ⚠ IT NO LONGER WAITS FOR THE DESTINATION TO REPORT THE DOC, and that was the bug. Seth,
+   * 2026-09-10: "It doesn't delete it on the source device until it verifies it's gone to the target
+   * device. That's unnecessary and undesirable behavior. As soon as it verifies the successful upload
+   * from the source device it should move it to the target device as a pending assignment and not
+   * leave a ghost behind on the source device."
+   *
+   * The move is two independent transfers with Drive in the middle, and gating the first on the
+   * second held the source hostage to a device that might be off for a week — on exactly the
+   * low-connectivity devices this suite is built for. The coworker meanwhile sees a text that is no
+   * longer their work and may keep editing it.
+   *
+   * ⚠ THE SAFETY CONDITION IS UNCHANGED, because it never lived here. `uploadDelete` is upload-FIRST
+   * on the device: it backs the text up and deletes only once the upload is CONFIRMED, through
+   * deleteConfirmedDoc's proof-of-backup check, and a failed upload leaves the text exactly where it
+   * is. The intent persists in localStorage so a reload mid-flight cannot orphan it. So "verified
+   * upload" is enforced by the device that owns the only copy — which is the right place for it, and
+   * the reason waiting on a THIRD party added nothing.
+   *
+   * The assignment is already durable server-side from `Researcher.assign` above, so the target
+   * collects it whenever it next comes online. A pre-v138 device cannot be chosen as a destination
+   * at all (see moveTextModal's `_canReceive` gate), so nothing here can strand a text on an engine
+   * too old to receive it.
+   *
+   * ⚠ This reverses an earlier decision of Seth's, recorded in this comment as "(AUTOMATIC, Seth's
+   * decision)" — the automatic part stands; the waiting part is what he withdrew. */
   {
     const transitions = [];                      // applied to the account copy in ONE locked write
     for (const [docId, mv] of pendingMoves) {
-      if (mv.stage === 'assigned' && findInventoryItem(mv.to, docId)) {
+      if (mv.stage === 'assigned') {
         /* ⚠ EVERY panel advances moves now, so check the source is not ALREADY being told to remove
          * this text before telling it again. Two panels polling in the same second would otherwise
          * queue two uploadDelete commands, and uploadDelete uploads a fresh copy before deleting —

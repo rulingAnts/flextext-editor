@@ -223,8 +223,33 @@ export function enforceTyping(root = document) {
   sweep(root.documentElement || root);
   const target = root.body || root.documentElement || root;
   if (!target || typeof MutationObserver !== 'function') return () => {};
+  /* ⚠ THE NET RUNS OFF THE CRITICAL PATH, COALESCED. Sweeping synchronously inside the observer
+   * callback put a querySelectorAll into the middle of every insertion, which delayed paint: a
+   * 40-line gloss render measured ~430ms on v652 and ~690ms with a synchronous sweep, and the
+   * devices this suite actually runs on are far slower than the laptop that was measured on.
+   *
+   * Deferring costs nothing real, because this is only a NET: every field the engine draws is
+   * already hardened by its own call site before it is ever inserted. The net exists for a path
+   * nobody thought of, and catching that one frame later is entirely soon enough — a person cannot
+   * focus a field that has not been painted yet, and the IME reads attributes when it attaches. */
+  let pending = null;
+  const flush = () => {
+    const batch = pending; pending = null;
+    for (const n of batch) sweep(n);
+  };
+  const schedule = () => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else setTimeout(flush, 0);
+  };
   const mo = new MutationObserver((recs) => {
-    for (const r of recs) for (const n of r.addedNodes) sweep(n);
+    for (const r of recs) {
+      for (const n of r.addedNodes) {
+        if (!n || n.nodeType !== 1) continue;
+        if (pending) { pending.push(n); continue; }
+        pending = [n];
+        schedule();
+      }
+    }
   });
   /* ⚠ childList ONLY — NEVER attributes. Watching `data-typing` and `spellcheck` here meant every
    * applyTyping() write woke the observer, which called applyTyping() again: an infinite loop that
@@ -234,5 +259,5 @@ export function enforceTyping(root = document) {
    * never asked for, and is already covered by the test that no module outside this one touches
    * typing attributes. Not worth re-earning at this price. */
   mo.observe(target, { childList: true, subtree: true });
-  return () => mo.disconnect();
+  return () => { mo.disconnect(); pending = null; };
 }

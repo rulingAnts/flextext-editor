@@ -302,6 +302,15 @@ This is the part that has caused real outages when done wrong — read
   receiving updates; only `workflow_dispatch` remains, for deliberately republishing one mirror.
   This bullet used to say a `productionWeb` push triggered it, which was true before the
   retirement and is why it kept getting run by hand afterwards (2026-09-07, -08 and -10).
+- **Typing policy:** `docs/js/typing.js` owns what a keyboard may do to any field, for every app.
+  ⚠ Read its header before touching a text input. Three separate behaviours are kept apart there
+  (silent rewrite / offered choices / squiggles), the vernacular is never a setting, and the platform
+  question is asked in one place so a native shell can answer it better later
+  (`plans/typing-policy.md`).
+- **lameta export:** `docs/js/lameta.js` + `plans/lameta-session-export.md`. Pure, node-testable.
+  ⚠ lameta discovers sessions by folder, drops unrecognised vocabulary values silently, and ignores a
+  session whose folder name does not match its id — all three failures are invisible, so the tests
+  check against a real session file rather than the spec.
 - **Backend first:** when a change touches `worker/` or D1, deploy the worker (manual-dispatch
   `worker-deploy.yml`) before any client that depends on it — including CORS: a new `x-fx-*`
   header must be in the worker's allow-list before any deployed client sends it.

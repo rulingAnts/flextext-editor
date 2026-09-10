@@ -18,6 +18,35 @@ Last updated 2026-09-07 at v602. The production estate is at v602.
 
 ---
 
+## 0. Released 2026-09-10 (v653 to v664)
+
+**Typing safety — the release's reason for existing.** Autocorrect on a minority language is data
+corruption, not an annoyance: the rewrite is silent, in a language the typist may not read, and the
+wrong word is what gets archived. `docs/js/typing.js` is now the one chokepoint for what a keyboard
+may do to a field, engine-wide across all seven apps.
+
+- **Vernacular is silent everywhere** — baseline text, baseline words, segmenter rows, the mini-gloss
+  word, PAT's paste box and consent names. Carried by four inherited attributes on each app's
+  `<body>`, so it is in force from parse time before any script runs.
+- **Three analysis-language dials** (spell-check / word suggestions / autocorrect), each on/off/auto,
+  **all off by default** — Seth: *"it's not so much that we definitely want spell-checking as we don't
+  want it when we don't want it."* Grouped under one sub-heading, each with a tap-reachable ⓘ.
+- **The Android coupling is visible**: switching one dial on shows a glowing ⚠ triangle on the other
+  two, since Android has a single keyboard setting behind all three. Choosing `auto` warns that it
+  depends on the device having the dictionary — which no web page can install or even query.
+- **#66** the device text list no longer traps trackpad scrolling · **#43 (partial)** the Android
+  keyboard guard now runs in all seven apps, having never run in PAT or the crowd recorder ·
+  **#70** a move no longer leaves a ghost on the source device waiting for a target that may be off
+  for a week.
+
+⚠ **Confirmed on real hardware:** Android/Gboard **ignores** the page's request to stop suggesting
+words, while **not** autocorrecting. The destructive half is gone; the suggestion strip is not, and
+no web-level lever remains — see #62, and #72 for the provisioning step that does work.
+
+**lameta session export** (#71) — `docs/js/lameta.js` writes a session folder a researcher drops
+straight into a lameta project. Format read from real files, not inferred; see
+`plans/lameta-session-export.md`. Panel wiring still to do.
+
 ## 1. Recently released (v585 to v602)
 
 All seven sites and the GitHub Pages editor are at v602 in production; staging matches. Human checks are listed per release in

@@ -229,7 +229,7 @@ test('the sweep hardens fields that are already on the page', () => {
   } finally { globalThis.MutationObserver = real; }
 });
 
-test('and it watches for fields that arrive later', () => {
+test('and it watches for fields that arrive later, without delaying the paint', async () => {
   let opts = null, cb = null;
   const real = globalThis.MutationObserver;
   globalThis.MutationObserver = function (fn) {
@@ -253,8 +253,34 @@ test('and it watches for fields that arrive later', () => {
     born.dataset.typing = VERN;
     born.spellcheck = true;
     cb([{ type: 'childList', addedNodes: [born] }]);
-    assert.equal(born.spellcheck, false, 'the late field is swept');
+
+    /* ⚠ DEFERRED ON PURPOSE, and this is the assertion that keeps it that way. Sweeping inside the
+     * observer callback puts a querySelectorAll in the middle of every insertion and delays paint:
+     * measured ~430ms vs ~690ms on a 40-line gloss render, on a fast laptop. The net can catch a
+     * straggler one frame later — every field the engine draws is hardened by its own call site
+     * before insertion, and nobody can focus a field that has not been painted. */
+    assert.equal(born.spellcheck, true, 'not swept synchronously — that would delay the paint');
+
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(born.spellcheck, false, 'but swept on the very next turn');
     assert.equal(born.getAttribute('writingsuggestions'), 'false');
+
+    // Many arrivals in one burst must schedule ONE pass, not one per node.
+    let scheduled = 0;
+    const realRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = (fn) => { scheduled++; return setTimeout(fn, 0); };
+    try {
+      const many = Array.from({ length: 50 }, () => {
+        const e = fakeEl(); e.dataset.typing = VERN; return e;
+      });
+      cb([{ type: 'childList', addedNodes: many }]);
+      assert.equal(scheduled, 1, '50 arrivals coalesce into a single deferred pass');
+      await new Promise((r) => setTimeout(r, 0));
+      assert.ok(many.every((e) => e.spellcheck === false), 'and every one of them is swept');
+    } finally {
+      if (realRaf) globalThis.requestAnimationFrame = realRaf;
+      else delete globalThis.requestAnimationFrame;
+    }
 
     assert.equal(typeof stop, 'function', 'and it can be torn down');
   } finally { globalThis.MutationObserver = real; }

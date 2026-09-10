@@ -399,7 +399,7 @@ test('the ⓘ is a real button, reachable by touch, not a title attribute', () =
     assert.match(sel, /\$\{infoDotHtml\(f\)\}/, `${renderer} renders the ⓘ button`);
     assert.match(sel, /infoNoteHtml\(f\)/, `${renderer} renders the note it opens`);
   }
-  const dot = app.slice(app.indexOf('function infoDotHtml'), app.indexOf('function infoNoteHtml'));
+  const dot = app.slice(app.indexOf('function infoDotHtml'), app.indexOf('function warnDotHtml'));
   assert.match(dot, /<button type="button" class="info-dot"/, 'a button, so a tap works');
   assert.match(dot, /aria-expanded=/, 'and it reports its state');
   assert.match(dot, /aria-controls=/, 'and names what it opens');
@@ -407,10 +407,13 @@ test('the ⓘ is a real button, reachable by touch, not a title attribute', () =
 
   // Toggled at MODULE SCOPE — setup() is dead in five of the seven apps, and the Settings tab is
   // rebuilt every time it opens, so a bound handler would be stale.
-  assert.match(app, /^document\.addEventListener\('click', \(e\) => \{\n  const dot = e\.target\.closest\?\.\('\.info-dot'\);/m,
-    'the toggle is delegated on document at module scope');
+  // Matches the ⚠ triangle as well as the ⓘ — one delegated handler opens both notes.
+  assert.match(app, /^document\.addEventListener\('click', \(e\) => \{\n  const dot = e\.target\.closest\?\.\('\.info-dot, \.warn-dot'\);/m,
+    'the toggle is delegated on document at module scope, for both note kinds');
   // hidden, not style.display — [hidden] is what the CSS keys on.
-  const h = app.slice(app.indexOf("const dot = e.target.closest?.('.info-dot')"), app.indexOf("const dot = e.target.closest?.('.info-dot')") + 700);
+  const at = app.indexOf("const dot = e.target.closest?.('.info-dot, .warn-dot')");
+  assert.ok(at > 0, 'the delegated handler exists');
+  const h = app.slice(at, at + 700);
   assert.match(h, /note\.hidden = !open;/);
   assert.match(h, /e\.stopPropagation\(\);/, 'a label-wrapped dot must not toggle its own control');
 });

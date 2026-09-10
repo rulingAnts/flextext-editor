@@ -337,6 +337,12 @@ export function syncTypingWarnings(box, attr) {
     if (!dot) return;
     const show = anyOn && vals[i] !== ON && vals[i] !== null;
     dot.hidden = !show;
+    /* ⚠ THE FIELD GLOWS TOO, and the same yellow appears on the warning dialog. Seth, 2026-09-10:
+     * "highlight orange or subtle yellow glow to the fields that are affected on Android by choosing
+     * one of them" — and the dialog carries it as well so nobody has to wonder "why are those fields
+     * yellow". Icon, field and dialog share one colour on purpose. */
+    const field = typeof dot.closest === 'function' ? dot.closest('.rp-field') : null;
+    if (field && field.classList) field.classList.toggle('typing-bundled', show);
     if (!show) {
       const note = box.querySelector(`[data-infonote="warn-${k}"]`);
       if (note) note.hidden = true;

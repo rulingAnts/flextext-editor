@@ -66,3 +66,25 @@ test('a pre-v138 device still cannot be chosen as a destination', () => {
   assert.match(modal.slice(0, 1200), /_canReceive = engOf\(x\) >= 138/,
     'the engine gate is at selection, which is what makes the immediate removal safe');
 });
+
+/* ⚠ CANCELLING THE ASSIGNMENT DOES NOT STOP THE SOURCE RELEASING THE TEXT, AND THAT IS DELIBERATE.
+ * Seth, 2026-09-10: "'Cancel assignment' would move it to the Google Drive (Unassigned) folder. In
+ * an ideal world there'd be some kind of 'undo move' option, but we don't need that kind of
+ * complexity/entropy right now. Cancel assignment kicking it to Google Drive Unassigned is
+ * acceptable." — "As a consistent behavior."
+ *
+ * A version that withdrew the source's queued removal was written and removed again: it made the
+ * outcome depend on how fast the researcher clicked — sometimes the text stayed on the source,
+ * sometimes it went to Unassigned. One outcome beats a race. */
+test('cancelling the assignment does not chase the removal — Unassigned is the one outcome', () => {
+  const at = panel.indexOf("} else if (act === 'cancel-cmd') {");
+  const block = panel.slice(at, panel.indexOf("} else if (act === 'move-text')", at));
+  assert.doesNotMatch(block, /cancelCommand\(mvRec\.from/,
+    'no attempt to withdraw the source-side removal');
+  assert.match(block, /if \(pendingMoves\.has\(docId\)\) saveMoves/,
+    'the move record is still released, so nothing wedges at stage assigned');
+  /* And the superseded invariant is marked as such, so it is not "restored" by someone reading the
+   * old reasoning without the decision that replaced it. */
+  assert.match(panel, /⚠ SUPERSEDED BY #70 — READ THIS BEFORE "RESTORING" THE OLD BEHAVIOUR/,
+    'the old comment is explicitly superseded rather than deleted');
+});

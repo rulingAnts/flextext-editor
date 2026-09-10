@@ -4826,12 +4826,30 @@ async function instanceActionInner(el) {
         pendingCmds.delete(docId);
         savePending(Researcher.currentAccountId());
         serverPending.delete(spKey(id, docId));
-        /* ⚠ CANCELLING THE ASSIGNMENT MUST CANCEL THE REMOVAL WITH IT — the one place the move's two
-         * halves are NOT independent, and the direction that would lose data. A removal whose
-         * delivery never happened must never fire: the source would delete a text the destination
-         * never received. (Cancelling the removal alone is fine and stays independent — the text
-         * simply ends up on both devices.) Dropping the record also releases a move that would
-         * otherwise wedge at stage 'assigned' forever, holding the source row struck through. */
+        /* ⚠ SUPERSEDED BY #70 — READ THIS BEFORE "RESTORING" THE OLD BEHAVIOUR. This used to say
+         * cancelling the assignment must cancel the removal with it, because "the source would
+         * delete a text the destination never received". That was right while the removal waited for
+         * the destination to report: dropping this record was enough to stop it ever firing.
+         *
+         * Since #70 the removal fires on the next poll, and cancelling is DELIBERATELY allowed to
+         * let it complete. Seth, 2026-09-10: "if we trigger a move, it uploads it and removes it from
+         * the original device and puts it as pending on the target device. 'Cancel assignment' would
+         * move it to the Google Drive (Unassigned) folder. In an ideal world there'd be some kind of
+         * 'undo move' option, but we don't need that kind of complexity/entropy right now. Cancel
+         * assignment kicking it to Google Drive Unassigned is acceptable." — "As a consistent
+         * behavior."
+         *
+         * Consistency is the point: one outcome, never "it depends how fast you clicked". A version
+         * of this that withdrew the source's removal when it happened to still be queued was written
+         * and removed again for exactly that reason.
+         *
+         * ⚠ SAFE ONLY BECAUSE uploadDelete IS UPLOAD-FIRST. The text is in Drive before the source
+         * releases it, so the worst outcome is a text no device owns — recoverable from Unassigned,
+         * never lost. If uploadDelete ever stops proving backup before deleting, this becomes data
+         * loss; test/move-no-ghost.test.mjs pins that dependency.
+         *
+         * Dropping the record also releases a move that would otherwise wedge at 'assigned' forever,
+         * holding the source row struck through. */
         if (pendingMoves.has(docId)) saveMoves((cur) => { delete cur[docId]; return cur; });
         const hit = blobCache.get(id);
         if (hit) hit.cmds = (hit.cmds || []).filter((c) => c && c.seq !== p.seq);

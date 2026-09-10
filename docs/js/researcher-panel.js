@@ -1355,6 +1355,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v678', date: '2026-09-11', items: [
+    { k: 'panel.rel.new.reportChooseApp', issue: 69 },
+    { k: 'panel.rel.new.gboardSetupStep', issue: 72 },
+  ] },
   { v: 'v677', date: '2026-09-11', items: [
     { k: 'panel.rel.new.reportLinks', issue: 69 },
     { k: 'panel.rel.fix.enterKeyHint' },
@@ -1803,42 +1807,81 @@ function releaseNotesLink() {
   if (!RELEASES.length && !KNOWN_ISSUES.length) return '';
   return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.rel.btn'))}</button>`;
 }
-/* "Report a problem" and "Suggest a feature" (#69) — copied from PAT's renderReportLinks/issueUrl
- * rather than invented (Seth: "just like we have in PAT"). Beside the version, as PAT has them: the
- * release notes are where a researcher already looks to see what is known and what changed, so the
- * route to say "and here is one you don't know about" belongs on that screen.
+/* "Report a problem" and "Suggest a feature" (#69) — copied from PAT's issueUrl rather than invented
+ * (Seth: "just like we have in PAT"), and reached from Release notes, beside the version.
  *
- * ⚠ THE DIAGNOSTICS NAME NOTHING. The issue tracker is PUBLIC, and this panel holds an account,
- * device nicknames, text titles and E2EE keys. A bug report carries only what the app is and where it
- * runs — engine version, build tag, which site, browser — and says so in the body. A feature request
- * carries none (PAT's rule: "feature suggestions don't need diagnostics").
+ * ⚠ THE RESEARCHER CHOOSES WHICH APP FIRST, AND MUST (Seth, 2026-09-11): "paired end-user apps don't
+ * show this link. So we're counting on the researcher to submit problems. They should be able to
+ * specify which app the problem is happening with before the GitHub issue with auto-generated titles,
+ * etc is begun… let's also [make] that choice of apps be unspecified by default and require the
+ * researcher submitting a report to deliberately choose an app so that they think about it rather
+ * than just quickly clicking through". So the select starts on a disabled placeholder, Continue stays
+ * disabled until something is picked, and the choice is NOT remembered between reports — a
+ * remembered answer is exactly the click-through he is guarding against.
  *
- * ⚠ ROUTED LIKE EVERY OTHER OFFSITE LINK: a plain <a target="_blank">, which the module-scope
- * wireExternalLinks in app.js hands to the OS browser (external-link.js), never an in-app view. This
- * is a researcher's own unpaired device, so the link is allowed rather than stripped.
+ * "Not sure / more than one app" is offered deliberately: a researcher who genuinely cannot tell
+ * should not be pushed into naming a wrong app, which is the misattribution this exists to prevent.
  *
- * Only labels that exist are requested: the repo has `bug` and `enhancement`. (PAT also asks for a
- * `paragraph-analysis` label that does not exist; GitHub ignores it.) */
-function panelIssueUrl(kind) {
+ * ⚠ TITLES USE FIXED ENGLISH APP NAMES, whatever the interface language, because the point is being
+ * able to search by app later ("when a lot of users are on, it'll be nice to search by app"). The
+ * Paragraph Analysis Tool's prefix is PAT's own `[Paragraph Analysis]`, so reports filed from the
+ * panel and from PAT itself land in the same search.
+ *
+ * ⚠ NOTHING IS FILLED IN THAT NAMES ANYONE. The tracker is PUBLIC and this panel holds an account,
+ * device nicknames, text titles and E2EE keys. A bug report pre-fills only the app, a template for
+ * the researcher to complete, and the PANEL's own version, site and browser — labelled as the
+ * panel's, since the problem may be on a field phone. A feature suggestion carries no diagnostics
+ * (PAT's rule). It leaves through openExternal, which hands it to the OS browser. */
+const REPORT_APPS = ['editor', 'recorder', 'crowd', 'consent', 'segmenter', 'paragraph', 'panel', 'unsure'];
+const REPORT_APP_TITLE = {
+  editor: 'Editor', recorder: 'Text Recorder', crowd: 'Crowd Recorder', consent: 'Consent Collector',
+  segmenter: 'Audio Segmenter', paragraph: 'Paragraph Analysis', panel: 'Researcher Panel',
+  unsure: 'Not sure which app',
+};
+function panelIssueUrl(kind, app) {
   const bug = kind === 'bug';
+  const name = REPORT_APP_TITLE[app] || REPORT_APP_TITLE.unsure;
   const body = bug ? [
-    '', '', '',
-    '--------- diagnostic info (please keep) ---------',
-    `app: Researcher Panel ${ENGINE_VERSION}${BUILD_TAG ? ' (' + BUILD_TAG + ')' : ''}`,
+    `App: ${name}`,
+    'Device and browser where it happened: ',
+    'Version shown on that device: ',
+    'What happened, and what you expected: ',
+    '', '',
+    '--------- reported from the Researcher Panel ---------',
+    `panel: ${ENGINE_VERSION}${BUILD_TAG ? ' (' + BUILD_TAG + ')' : ''}`,
     `site: ${onStagingEstate() ? 'staging' : 'production'}`,
-    `browser: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'}`,
-    '(no account, device, text or key information is included)',
-  ].join('\n') : '';
+    `panel browser: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'}`,
+    '(nothing about your account, devices, texts or keys was filled in automatically)',
+  ].join('\n') : [`App: ${name}`, '', 'What would you like it to do?', ''].join('\n');
   const q = new URLSearchParams({
     labels: bug ? 'bug' : 'enhancement',
-    title: bug ? '[Researcher Panel] ' : '[Researcher Panel] Feature: ',
+    title: bug ? `[${name}] ` : `[${name}] Feature: `,
     body,
   });
   return `${ISSUES_URL}new?${q}`;
 }
-function reportLinksHtml() {
-  return `<a class="rp-report-link" href="${esc(panelIssueUrl('bug'))}" target="_blank" rel="noopener">${esc(t('panel.reportBug'))}</a>`
-    + ` · <a class="rp-report-link" href="${esc(panelIssueUrl('feature'))}" target="_blank" rel="noopener">${esc(t('panel.reportFeature'))}</a>`;
+function reportModal(kind) {
+  const bug = kind === 'bug';
+  const m = modal(`<h3>${esc(t(bug ? 'panel.reportBug' : 'panel.reportFeature'))}</h3>
+    <label class="rp-field"><span>${esc(t('panel.report.appLabel'))}</span>
+      <select data-report-app>
+        <option value="" selected disabled>${esc(t('panel.report.appPlaceholder'))}</option>
+        ${REPORT_APPS.map((a) => `<option value="${a}">${esc(t('panel.report.app.' + a))}</option>`).join('')}
+      </select></label>
+    <p class="note">${esc(t('panel.report.why'))}</p>
+    <p class="note">${esc(t('panel.report.goNote'))}</p>
+    <div class="modal-actions">
+      <button data-m="cancel">${esc(t('panel.report.cancel'))}</button>
+      <button class="primary-btn" data-m="go" disabled>${esc(t('panel.report.go'))}</button>
+    </div>`);
+  const sel = m.el.querySelector('[data-report-app]');
+  const go = m.el.querySelector('[data-m="go"]');
+  sel.addEventListener('change', () => { go.disabled = !sel.value; });
+  go.addEventListener('click', () => {
+    if (!sel.value) return;                  // the button is disabled, but never trust that alone
+    openExternal(panelIssueUrl(kind, sel.value));
+    m.close();
+  });
 }
 
 function releaseNotesModal() {
@@ -1855,15 +1898,21 @@ function releaseNotesModal() {
       ? ` <span class="rp-badge rp-badge-ok">${esc(t('panel.rel.latest'))}</span>` : ''}
       <span class="note rp-rel-date">${esc(relDate(r.date))}</span></h4>
     <ul class="rp-known-list">${r.items.map(item).join('')}</ul>`;
-  modal(`<h3>${esc(t('panel.rel.title'))}</h3>
+  const m = modal(`<h3>${esc(t('panel.rel.title'))}</h3>
     <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
-    <p class="note rp-report-links">${reportLinksHtml()}</p>
+    <p class="note rp-report-links"><button type="button" class="link-btn" data-report="bug">${esc(t('panel.reportBug'))}</button> · <button type="button" class="link-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button></p>
     ${KNOWN_ISSUES.length ? `<h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
       <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
       <p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}
     ${RELEASES.map(rel).join('')}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
+  /* The report modal REPLACES the notes rather than stacking on them: each modal listens for Escape on
+   * document, so a stacked pair would both close on one press. */
+  m.el.querySelectorAll('[data-report]').forEach((b) => b.addEventListener('click', () => {
+    m.close();
+    reportModal(b.dataset.report);
+  }));
 }
 
 function wire(sel, ev, fn) { const el = root.querySelector(sel); if (el) el.addEventListener(ev, fn); }

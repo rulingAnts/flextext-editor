@@ -80,7 +80,20 @@ DOM, because both earlier failures were logic errors invisible to a suite that r
 
 ## 0c. Released 2026-09-10 (v669 to v673)
 
-## 0c. On staging, awaiting a production push (v677)
+## 0c. On staging, awaiting a production push (v677 to v678)
+
+**v678:**
+
+- **Report a problem / Suggest a feature ask which app first (#69).** Coworkers' devices do not show these
+  links, so the researcher reports for them — and must choose the app deliberately: no default, Continue
+  disabled until one is picked, and the last choice not remembered (Seth: "so that they think about it
+  rather than just quickly clicking through"). Titles use fixed English app names so reports can be
+  searched by app in any language; PAT's option reuses PAT's own `[Paragraph Analysis]` prefix.
+- **Setting up a coworker gains the Gboard step (#72)** — switch off the suggestion strip on the phone
+  itself, because Gboard ignores the page's request and the MDM setting does not take effect on current
+  Gboard.
+
+**v677:**
 
 - **Report a problem / Suggest a feature in the Researcher Panel (#69)** — copied from PAT, beside the
   version in Release notes. ⚠ The bug-report body names nothing but the app version, site and browser:

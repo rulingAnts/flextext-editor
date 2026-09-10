@@ -452,3 +452,95 @@ export function capBlankLines(value, max = 2) {
   if (max < 1) return src;
   return src.replace(new RegExp(`\\n{${max + 1},}`, 'g'), '\n'.repeat(max));
 }
+
+/* ⚠ AND PUNCTUATION SHOULD NOT DOUBLE EITHER (Seth, 2026-09-10): "Periods, commas, etc, should also
+ * not double anywhere if this behavior is enabled." Same accident as a double space and just as
+ * invisible to a typist who cannot read back what they typed — a key pressed twice.
+ *
+ * ⚠⚠ WHICH CHARACTERS, AND WHY NOT THE OTHERS. Only sentence punctuation is collapsed:
+ *
+ *     . , ; : ! ?
+ *
+ * Everything else is deliberately left alone, because in THIS engine it is part of a WORD.
+ * flextext.js: WORD_CHAR = /[\p{L}\p{M}\p{N}'’ʼ‘\-_=ʔ]/u — the apostrophe family and ʔ write a
+ * GLOTTAL STOP, and - _ = mark MORPHEME AND CLITIC BOUNDARIES in interlinear text. A doubled
+ * hyphen or apostrophe may be exactly what an orthography wants, and we do not know every
+ * orthography. Collapsing those would be us silently rewriting vernacular, which is the one thing
+ * this whole area of the app exists to refuse ("we DEFINITELY don't want autocorrect ever").
+ * The characters that ARE collapsed are the ones the tokenizer already treats as punctuation
+ * tokens, never as part of a word — so no orthography can be riding on them.
+ *
+ * ⚠ AN ELLIPSIS IS NOT AN ACCIDENT. Three periods is deliberate and common in transcription and in
+ * a free translation, and the segmenter recognizes it ([.!?…]+). So for a full-line box a run of
+ * periods normalizes to ONE if it was a double and to exactly THREE if it was longer — accidents
+ * die, ellipses survive, and a stray four-dot run is tidied into a real ellipsis.
+ *
+ * A GLOSS gets no ellipsis exemption: there a period is the SEPARATOR between parts of one label
+ * (1SG.SUBJ), so every run collapses to one. That is the case Seth hit — two spaces became
+ * "PST..PERF" through the space-to-period rule. */
+const DOUBLE_SAFE = ',;:!?';                 // never legitimately repeated, never word-internal
+
+/* ⚠⚠ AND THE PERIOD RULE CANNOT RUN ON EVERY KEYSTROKE, or an ellipsis becomes untypeable. Walk it
+ * through: the typist wants "Yes..." — the second period makes a run of two, a 2->1 rule fires and
+ * EATS it, the third makes two again, eaten again, and they can never get past one dot no matter how
+ * many times they press the key. So `periods` is a three-way choice and the callers split it by
+ * moment, not by preference:
+ *     'skip'     while typing in a full-line box — leave periods alone so "..." can be built
+ *     'ellipsis' on the way OUT of a full-line box, where the whole run is finally visible:
+ *                two was a slip -> one, three or more was meant -> exactly three
+ *     'single'   in a gloss, on input AND blur. Seth: "in glosses only one period at a time
+ *                allowed, no doubles, no tripples." A period there separates parts of one label
+ *                (1SG.SUBJ), so there is no ellipsis to protect and nothing to wait for.
+ * The other five collapse on input safely — none of them is ever legitimately repeated. */
+export function collapseRepeatedPunct(value, { periods = 'ellipsis', sep = null } = {}) {
+  let out = value == null ? '' : String(value);
+  for (const ch of DOUBLE_SAFE) out = out.replace(new RegExp(`\\${ch}{2,}`, 'g'), ch);
+  if (periods === 'single') out = out.replace(/\.{2,}/g, '.');
+  else if (periods === 'ellipsis') out = out.replace(/\.{2,}/g, (m) => (m.length === 2 ? '.' : '...'));
+  /* ⚠ THE CHOSEN GLOSS WORD-BREAK CHARACTER, when it is not the period already handled above.
+   * A researcher may set it to _ or - (Seth, 2026-09-10: "give the researcher a setting to decide
+   * WHICH word-break character to use between words in gloss fields… Default to period, but
+   * underscore and hyphen are also options"), and both of those are WORD characters that this
+   * function otherwise refuses to touch on purpose — a doubled hyphen is legitimate in vernacular
+   * and in a morpheme gloss. What makes collapsing safe HERE is that the researcher has declared
+   * this character to be the separator in THIS field, so two of them in a row is an accident by
+   * definition. It is passed in per call and never assumed. */
+  if (sep && sep !== '.') out = out.replace(new RegExp(`\\${sep}{2,}`, 'g'), sep);
+  return out;
+}
+
+/* Shared caret arithmetic: apply the same rule to the text BEFORE the caret, and its new length is
+ * the new caret position. Same trick collapseSpaces uses, and the same reason — rewriting .value
+ * throws the cursor to the end of the field. */
+export function withCaret(fn, value, caret = null) {
+  const src = value == null ? '' : String(value);
+  const out = fn(src);
+  if (out === src) return { value: out, caret, changed: false };
+  if (caret == null) return { value: out, caret, changed: true };
+  return { value: out, caret: fn(src.slice(0, caret)).length, changed: true };
+}
+
+/* THE TWO MOMENTS, so each box makes one call and the rules live in one place.
+ *
+ * A GLOSS is not just "the same rules minus the ellipsis": spaces are never collapsed there,
+ * because a space in a gloss has already become a PERIOD by the time this runs (1SG.SUBJ). Running
+ * a space rule after that would find nothing, and running it before would fight the period rule. */
+export function tidyOnInput(value, caret, { gloss = false, sep = null } = {}) {
+  return withCaret((v) => (gloss
+    ? collapseRepeatedPunct(v, { periods: 'single', sep })
+    : collapseRepeatedPunct(collapseSpaces(v).value, { periods: 'skip' })), value, caret);
+}
+
+export function tidyOnBlur(value, { gloss = false, sep = null } = {}) {
+  return gloss
+    ? collapseRepeatedPunct(value, { periods: 'single', sep })
+    : collapseRepeatedPunct(tidySpaces(value), { periods: 'ellipsis' });
+}
+
+/* ⚠ A SPACE IS NEVER AN OPTION HERE (Seth: "just don't allow space"). A gloss is one label for one
+ * word; a space in it would make the word count disagree with the baseline, which is the whole
+ * reason the space becomes a separator in the first place. */
+export const GLOSS_BREAKS = { period: '.', underscore: '_', hyphen: '-' };
+export function glossBreakChar(pref) {
+  return GLOSS_BREAKS[pref] || GLOSS_BREAKS.period;
+}

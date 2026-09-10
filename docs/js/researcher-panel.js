@@ -14,7 +14,7 @@
 
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
-import { syncTypingWarnings, TYPING_DIALS } from './typing.js';
+import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS } from './typing.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
@@ -800,6 +800,13 @@ const GROUPS = [
      * to a field and are coupled on Android; this one is our own rule about what the field accepts,
      * with no platform caveat. It sits here because a typist meets it as the same kind of thing.
      * DEFAULTS ON for a paired device and OFF for an unpaired one — see singleSpaceEnabled. */
+    /* Which character a space becomes in a gloss box. Seth, 2026-09-10: "give the researcher a
+     * setting to decide WHICH word-break character to use between words in gloss fields (just
+     * don't allow space). Default to period, but underscore and hyphen are also options." A space
+     * is not offered: a gloss is one label for one word, and a space in it would make the word
+     * count disagree with the baseline. Unconditional — this is what a separator IS on this
+     * device, not part of the tidying setting below. */
+    { k: 'glossBreak', type: 'select', opts: ['period', 'underscore', 'hyphen'], optPrefix: 'panel.opt.glossBreak.', note: 'panel.f.glossBreakNote' },
     { k: 'singleSpace', type: 'checkbox', note: 'panel.f.singleSpaceNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
@@ -1348,7 +1355,7 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v669', date: '2026-09-10', items: [
+  { v: 'v671', date: '2026-09-10', items: [
     { k: 'panel.rel.new.singleSpace' },
   ] },
   { v: 'v668', date: '2026-09-10', items: [
@@ -9487,6 +9494,7 @@ function toFormValues(s) {
      * disagreeing about what a device is doing is the specific failure this file's mirror-test
      * exists to prevent; found by opening the real panel and reading the values back. */
     else if (TYPING_DIALS.includes(f.k)) v[f.k] = ['auto', 'on', 'off'].includes(s[f.k]) ? s[f.k] : 'off';
+    else if (f.k === 'glossBreak') v.glossBreak = GLOSS_BREAKS[s.glossBreak] ? s.glossBreak : 'period';
     /* ⚠ THE PANEL CONFIGURES A PAIRED DEVICE, so unset means ON here — the opposite of the same
      * key on the unpaired device's own Settings tab, and matching what singleSpaceEnabled resolves
      * for a paired device at runtime (Seth: "enabled by default on paired devices, but disabled by

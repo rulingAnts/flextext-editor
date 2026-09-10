@@ -33,7 +33,10 @@ const block = (src, from, to) => src.slice(src.indexOf(from), src.indexOf(to, sr
 test('space becomes a period in the word gloss, on the VALUE not the keystroke', () => {
   const g = block(APP, "g.className = 'gloss-input'", 'g.addEventListener(\'keydown\'');
   assert.match(g, /g\.value\.includes\(' '\)/, 'it watches the value');
-  assert.match(g, /g\.value\.replace\(\/ \/g, '\.'\)/, 'and substitutes');
+  /* ⚠ THE CHARACTER IS A SETTING NOW (v671), not a hard-coded period — Seth: "give the researcher a
+   * setting to decide WHICH word-break character to use between words in gloss fields." So assert
+   * that a space is substituted by the CONFIGURED separator, not by a literal '.'. */
+  assert.match(g, /g\.value\.split\(' '\)\.join\(glossBreak\(\)\)/, 'and substitutes the configured separator');
   assert.match(g, /setSelectionRange\(at, at\)/, 'keeping the caret where the typist left it');
   /* ⚠ The keydown branch STAYS: on a physical keyboard it replaces a SELECTION and keeps Shift+Space
    * free for the transport. The value check is the net beneath it, not a replacement. */
@@ -42,9 +45,9 @@ test('space becomes a period in the word gloss, on the VALUE not the keystroke',
 
 test('and NOT in the prose boxes, where spaces are ordinary', () => {
   const free = block(APP, "input.className = 'free-input'", 'registerCaretScissors(input, freeRow');
-  assert.doesNotMatch(free, /replace\(\/ \/g/, 'the free translation keeps its spaces');
+  assert.doesNotMatch(free, /split\(' '\)\.join\(glossBreak/, 'the free translation keeps its spaces');
   const seg = block(STRIPS, "input.className = 'seg-text'", 'input.addEventListener(\'keydown\'');
-  assert.doesNotMatch(seg, /replace\(\/ \/g/, 'and so does a segment row');
+  assert.doesNotMatch(seg, /split\(' '\)\.join\(glossBreak/, 'and so does a segment row');
 });
 
 test('the free translation and the segment rows are textareas that wrap', () => {
@@ -112,9 +115,15 @@ test('the giant baseline textarea keeps its Enter and its newlines', () => {
  * writing. The input-time pass is feedback; this one is correctness. */
 test('the gloss normalises again on blur, after the keyboard has finished with it', () => {
   const b = block(APP, "g.addEventListener('blur'", 'cell.appendChild(g)');
-  assert.match(b, /if \(!g\.value\.includes\(' '\)\) return;/, 'a no-op when there is nothing to fix');
-  assert.match(b, /g\.value\.replace\(\/ \/g, '\.'\)/, 'the same substitution');
-  assert.match(b, /w\.gls = g\.value;/, 'and the doc is updated, not just the box');
+  /* ⚠ The guard moved from "is there a space?" to "did anything change?" when the repeated-period
+   * rule joined this pass (v670). It had to: a gloss holding "PST..PERF" and no space at all still
+   * needs tidying, and that is the likeliest state after Gboard has had its way with the box. The
+   * property under test is unchanged — write nothing when there is nothing to fix. */
+  assert.match(b, /if \(want === g\.value\) return;/, 'a no-op when there is nothing to fix');
+  assert.match(b, /const spaced = g\.value\.split\(' '\)\.join\(glossBreak\(\)\);/, 'the substitution still runs unconditionally, with the configured separator');
+  // the doc gets the SAME value the box got — asserted as that identity rather than as a literal,
+  // since what is assigned is now the tidied string rather than a re-read of g.value
+  assert.match(b, /g\.value = want;\s*\n\s*w\.gls = want;/, 'and the doc is updated, not just the box');
   assert.match(b, /schedulePersist\(\);/, 'and saved');
 });
 

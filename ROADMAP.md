@@ -78,7 +78,7 @@ keyboard while the focused box stayed buried. The arithmetic now lives in two pu
 functions (`visibleBandBottom`, `revealScrollBy`) tested across all three viewport modes with no
 DOM, because both earlier failures were logic errors invisible to a suite that reads source as text.
 
-## 0c. On staging, awaiting a production push (v669 to v672)
+## 0c. On staging, awaiting a production push (v669 to v673)
 
 **One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
 or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
@@ -132,6 +132,29 @@ may be marking a morpheme boundary, and is left alone.
   signature — the previous value ended in a space, the new one is that text with the final space
   replaced by `". "` — and nothing a person can type produces it, so it is safe to undo. A period
   typed by hand is untouched. Needs the field's previous value, kept per element.
+
+**A gloss admits only Leipzig-approved punctuation (v673).** Seth, with a screenshot of a gloss
+reading `mau,.bilang`: *"two different punctuation marks in a row"*, then the general rule — *"in
+glosses, we only want leipzig-approved punctuation allowed in gloss boxes."* Which is the better
+rule: a comma has no job in a gloss, so the question is not what to do when it sits beside a
+separator but what it is doing there. Anything outside the approved set **becomes** the separator —
+not deleted, since `mau,bilang` wanted a break and deleting would fuse it to `maubilang`.
+
+- ⚠ **A pair of two approved marks is never reduced** — `PST-.SUBJ` keeps both, because the hyphen
+  is the morpheme's category (Rule 2) and the period separates gloss parts (Rule 4A): two marks
+  doing two jobs. The approved set is written in the source with the Leipzig rule each character
+  comes from (2, 4A, 4B, 4C, 4D, 9, 10), so nobody widens or narrows it by guess.
+
+**Punctuation pulled tight in the free translation (v673).** *"We also don't want a space between a
+word and a period or comma… In the free translation, I mean."* So `End of the sentence .` closes up,
+while the space *after* the punctuation stays — `End of the sentence. Next sentence` is right as it is.
+
+- ⚠⚠ **The baseline is exempt, and that is why the table now has three rows, not two.** `vern` and
+  `free` are the same kind of box and *not* the same kind of content: the baseline holds vernacular,
+  and vernacular is never typographically corrected — `word .` may be how an orthography sets
+  punctuation and we do not know every orthography. The baseline still gets one space between words
+  and no doubled punctuation, since Seth asked for those "anywhere". An unknown field kind falls back
+  to `vern`, the row that rewrites the least.
 
 **The rules are now one table (v672).** Seth: *"There might be a way to simplify and combine some of
 these rules..."* There are only ever two kinds of field (line, gloss) and two moments (input, blur),

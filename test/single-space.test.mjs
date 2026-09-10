@@ -36,39 +36,42 @@ const TYPING = rd('../docs/js/typing.js');
  * "why not X" satisfies a search for X and the assertion fails on its own documentation. */
 const bare = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-// the two kinds of field, at the two moments
-const line = (v, moment = 'input', prev = null) => tidyField(v, { kind: 'line', moment, prev }).value;
+/* The THREE kinds of field, at the two moments. vern and free are separate rows on purpose: they
+ * are the same kind of box and NOT the same kind of content — the baseline is vernacular, and
+ * vernacular is never corrected. Seth, scoping the tighten rule: "In the free translation, I mean." */
+const vern = (v, moment = 'input', prev = null) => tidyField(v, { kind: 'vern', moment, prev }).value;
+const free = (v, moment = 'input', prev = null) => tidyField(v, { kind: 'free', moment, prev }).value;
 const gloss = (v, moment = 'input', sep = '.') => tidyField(v, { kind: 'gloss', moment, sep }).value;
 
 test('runs of spaces collapse, and the caret does not jump to the end', () => {
-  assert.equal(line('a  b'), 'a b');
-  assert.equal(line('a   b'), 'a b');
-  assert.equal(line('a\t\tb'), 'a b', 'tabs are runs too');
+  assert.equal(free('a  b'), 'a b');
+  assert.equal(free('a   b'), 'a b');
+  assert.equal(free('a\t\tb'), 'a b', 'tabs are runs too');
   // the caret is why tidyField returns an object: rewriting .value throws the cursor to the end,
   // which mid-sentence is worse than the extra space was
-  assert.equal(tidyField('a  b', { kind: 'line', moment: 'input' }, 3).caret, 2);
-  assert.equal(tidyField('a  ', { kind: 'line', moment: 'input' }, 3).caret, 2);
-  const same = tidyField('a b', { kind: 'line', moment: 'input' }, 2);
+  assert.equal(tidyField('a  b', { kind: 'free', moment: 'input' }, 3).caret, 2);
+  assert.equal(tidyField('a  ', { kind: 'free', moment: 'input' }, 3).caret, 2);
+  const same = tidyField('a b', { kind: 'free', moment: 'input' }, 2);
   assert.equal(same.changed, false, 'an unchanged value must not trigger a write');
   assert.equal(same.caret, 2);
-  assert.equal(tidyField(null, { kind: 'line' }, 0).value, '', 'null-safe');
+  assert.equal(tidyField(null, { kind: 'free' }, 0).value, '', 'null-safe');
 });
 
 test('⚠ NEWLINES SURVIVE — the legacy baseline carries paragraphs as newlines', () => {
   // a \s-based regex would merge a transcription's paragraphs into one line
-  assert.equal(line('a  b\n\nc  d'), 'a b\n\nc d');
-  assert.equal(line('a  b\n\nc   d', 'blur'), 'a b\n\nc d');
+  assert.equal(vern('a  b\n\nc  d'), 'a b\n\nc d');
+  assert.equal(vern('a  b\n\nc   d', 'blur'), 'a b\n\nc d');
   // the LINE COUNT is preserved exactly, which an aligned doc depends on
-  assert.equal(line('a\n\n\nb', 'blur').split('\n').length, 4);
-  assert.equal(line('\n\n', 'blur').split('\n').length, 3);
+  assert.equal(vern('a\n\n\nb', 'blur').split('\n').length, 4);
+  assert.equal(vern('\n\n', 'blur').split('\n').length, 3);
 });
 
 test('on the way out the edges are tidied too, per line', () => {
-  assert.equal(line('  a  b  ', 'blur'), 'a b', 'a leading space is not "between words" either');
-  assert.equal(line('  a  \n  b  ', 'blur'), 'a\nb', 'per line, not just the whole value');
+  assert.equal(free('  a  b  ', 'blur'), 'a b', 'a leading space is not "between words" either');
+  assert.equal(vern('  a  \n  b  ', 'blur'), 'a\nb', 'per line, not just the whole value');
   // a whitespace-only line becomes blank — applyBaseline already did that when reconciling, so this
   // only makes what the typist SEES match what was always going to be stored
-  assert.equal(line('a\n   \nb', 'blur'), 'a\n\nb');
+  assert.equal(vern('a\n   \nb', 'blur'), 'a\n\nb');
 });
 
 test('blank runs cap at one blank line between text lines', () => {
@@ -100,31 +103,31 @@ test('the blank-line cap is gated on DOC TRUTH, never on the setting', () => {
 });
 
 test('punctuation: two dashes allowed, three periods OK, two not, two commas never', () => {
-  assert.equal(line('ka--i', 'blur'), 'ka--i', 'two dashes allowed');
-  assert.equal(line('a... b', 'blur'), 'a... b', 'three periods OK');
-  assert.equal(line('a.. b', 'blur'), 'a. b', 'but not two');
-  assert.equal(line('a,, b', 'blur'), 'a, b', 'two commas never');
+  assert.equal(free('ka--i', 'blur'), 'ka--i', 'two dashes allowed');
+  assert.equal(free('a... b', 'blur'), 'a... b', 'three periods OK');
+  assert.equal(free('a.. b', 'blur'), 'a. b', 'but not two');
+  assert.equal(free('a,, b', 'blur'), 'a, b', 'two commas never');
   assert.equal(gloss('PST..PERF', 'blur'), 'PST.PERF');
   assert.equal(gloss('PST...PERF', 'blur'), 'PST.PERF', 'no triples in a gloss either');
   for (const ch of [',', ';', ':', '!', '?'])
-    assert.equal(line(`a${ch}${ch} b`, 'blur'), `a${ch} b`, ch);
+    assert.equal(free(`a${ch}${ch} b`, 'blur'), `a${ch} b`, ch);
 
   /* ⚠⚠ AN ELLIPSIS MUST STAY TYPEABLE. A 2-to-1 rule firing on every keystroke eats the second
    * period, so the third makes two again, eaten again — the typist never gets past one dot. Hence
    * periods are left alone while typing in a full-line box and settled on blur. */
   let v = 'Yes';
-  for (let i = 0; i < 3; i++) v = line(v + '.');
+  for (let i = 0; i < 3; i++) v = free(v + '.');
   assert.equal(v, 'Yes...', 'three keystrokes actually produce three periods');
-  assert.equal(line(v, 'blur'), 'Yes...', 'and blur keeps them');
-  assert.equal(line(line('Yes..'), 'blur'), 'Yes.', 'while a real double is still fixed');
-  assert.equal(line('a,, b'), 'a, b', 'commas need no such wait — they collapse immediately');
+  assert.equal(free(v, 'blur'), 'Yes...', 'and blur keeps them');
+  assert.equal(free(free('Yes..'), 'blur'), 'Yes.', 'while a real double is still fixed');
+  assert.equal(free('a,, b'), 'a, b', 'commas need no such wait — they collapse immediately');
 
   /* ⚠⚠⚠ AND NOT THE CHARACTERS AN ORTHOGRAPHY IS BUILT FROM. flextext.js counts the apostrophe
    * family, ʔ, and - _ = as WORD characters: glottal stops and morpheme/clitic boundaries. A
    * doubled one may be exactly what a language wants, and we do not know every orthography. */
   for (const [v2, why] of [["fa''u", 'apostrophe'], ['faʔʔu', 'glottal stop'], ['ka--i', 'hyphen'],
                            ['be==na', 'equals'], ['a__b', 'underscore']])
-    assert.equal(line(v2, 'blur'), v2, `${why} untouched`);
+    assert.equal(free(v2, 'blur'), v2, `${why} untouched`);
 });
 
 /* "Word gloss fields can't end with punctuation." */
@@ -153,8 +156,8 @@ test('a gloss does not end in punctuation', () => {
   assert.equal(gloss('PST.'), 'PST.', 'input leaves the trailing separator alone');
   assert.equal(gloss('PST.' + 'SUBJ'), 'PST.SUBJ', 'so the second part can be typed');
   // a full-line box of course still ends in a period
-  assert.equal(line('He went down.', 'blur'), 'He went down.');
-  assert.equal(line('Really?', 'blur'), 'Really?');
+  assert.equal(free('He went down.', 'blur'), 'He went down.');
+  assert.equal(free('Really?', 'blur'), 'Really?');
 });
 
 /* ⚠⚠ THE KEYBOARD'S "DOUBLE SPACE MAKES A PERIOD", UNDONE. Seth: "If I type space three times in
@@ -166,28 +169,33 @@ test('a gloss does not end in punctuation', () => {
 test('a period the keyboard inserted for a double space is put back as a space', () => {
   // the exact transition: prev ended in a space, and the new value is that text with the final
   // space replaced by ". "
-  assert.equal(line('the man. ', 'input', 'the man '), 'the man ');
-  assert.equal(line('the man.', 'input', 'the man '), 'the man ', 'some IMEs commit the "." first');
+  assert.equal(free('the man. ', 'input', 'the man '), 'the man ');
+  assert.equal(free('the man.', 'input', 'the man '), 'the man ', 'some IMEs commit the "." first');
 
   // ⚠ A REAL TYPED PERIOD IS KEPT. Typing "." leaves the previous value ending in a letter, not a
   // space, so the signature cannot match — which is what makes the undo safe.
-  assert.equal(line('the man. ', 'input', 'the man.'), 'the man. ');
-  assert.equal(line('the man. went', 'input', 'the man. '), 'the man. went');
+  assert.equal(free('the man. ', 'input', 'the man.'), 'the man. ');
+  assert.equal(free('the man. went', 'input', 'the man. '), 'the man. went');
   // ⚠ and with no previous value it never guesses
-  assert.equal(line('the man. ', 'input', null), 'the man. ');
+  assert.equal(free('the man. ', 'input', null), 'the man. ');
   assert.equal(undoKeyboardPeriod('the man. ', undefined), 'the man. ');
 
   // end to end: three spaces then a word, with a keyboard doing the substitution on the second
-  let v = line('the man ', 'input', 'the man');
-  v = line('the man. ', 'input', v);          // keyboard fires
-  v = line(v + ' ', 'input', v);              // third space
-  v = line(v + 'went', 'input', v);
+  let v = free('the man ', 'input', 'the man');
+  v = free('the man. ', 'input', v);          // keyboard fires
+  v = free(v + ' ', 'input', v);              // third space
+  v = free(v + 'went', 'input', v);
   assert.equal(v, 'the man went', 'no period before the last word');
 
   // ⚠ NEVER IN A GLOSS, where a period may BE the separator — restricted by kind, not left
   // unreachable by accident
-  assert.equal(gloss('PST. ', 'input'), 'PST. ');
-  assert.match(TYPING, /kind === 'line' && moment === 'input' \? undoKeyboardPeriod/);
+  // ⚠ a space in a gloss is itself outside the approved set now, so it becomes the separator and
+  // then dedupes — "PST. " is "PST.". The undo is still what is being tested: it did not fire.
+  assert.equal(gloss('PST. ', 'input'), 'PST.', 'no period was reverted to a space');
+  assert.match(TYPING, /kind !== 'gloss' && moment === 'input' \? undoKeyboardPeriod/,
+    'excluded by kind, so it holds for vern and free and can never reach a gloss');
+  // and it really does fire in the vernacular row as well as the prose one
+  assert.equal(vern('the man. ', 'input', 'the man '), 'the man ');
 
   // the previous value is remembered per field, unconditionally and after the tidy
   for (const [src, name] of [[APP, 'app.js'], [STRIPS, 'segment-strips.js']])
@@ -199,13 +207,15 @@ test('each box gets the rules its own content can take', () => {
   // baseline rows in segmentation mode, through the deps seam the strips already use for policy
   const seg = STRIPS.slice(STRIPS.indexOf("input.addEventListener('input'"), STRIPS.indexOf("input.addEventListener('keydown'"));
   assert.match(seg, /deps\.singleSpace && deps\.singleSpace\(\)/, '.seg-text tidies on input');
-  assert.match(seg, /tidyField\(input\.value, \{ kind: 'line', moment: 'input', prev: input\.__prevVal \}/);
-  assert.match(STRIPS, /tidyField\(input\.value, \{ kind: 'line', moment: 'blur' \}\)\.value/, 'and on blur');
+  assert.match(seg, /tidyField\(input\.value, \{ kind: 'vern', moment: 'input', prev: input\.__prevVal \}/,
+    'a baseline strip is vernacular');
+  assert.match(STRIPS, /tidyField\(input\.value, \{ kind: 'vern', moment: 'blur' \}\)\.value/, 'and on blur');
   assert.match(APP, /singleSpace: \(\) => singleSpaceEnabled\(\),/, 'passed as a predicate, read fresh each time');
 
   // the free translation, both moments; the legacy box, blur only (it has no keystroke handler)
-  assert.match(APP, /tidyField\(input\.value, \{ kind: 'line', moment: 'input', prev: input\.__prevVal \}/);
-  assert.match(APP, /tidyField\(ta\.value, \{ kind: 'line', moment: 'blur' \}\)\.value/);
+  assert.match(APP, /tidyField\(input\.value, \{ kind: 'free', moment: 'input', prev: input\.__prevVal \}/,
+    'the free translation is prose');
+  assert.match(APP, /tidyField\(ta\.value, \{ kind: 'vern', moment: 'blur' \}\)\.value/, 'the legacy box is vernacular');
 
   /* ⚠ A GLOSS TAKES THE PERIOD RULES BUT NEVER THE SPACE RULE. Seth drew the line himself — "One
    * should apply to individual word glosses only and the other should apply to free translation and
@@ -213,7 +223,11 @@ test('each box gets the rules its own content can take', () => {
    * become the separator) and takes no ellipsis exemption. */
   assert.match(APP, /tidyField\(g\.value, \{ kind: 'gloss', moment: 'input', sep: glossBreak\(\) \}, g\.selectionStart\)/);
   assert.match(APP, /tidyField\(spaced, \{ kind: 'gloss', moment: 'blur', sep: glossBreak\(\) \}\)\.value/);
-  assert.equal(gloss('a  b'), 'a  b', 'a gloss never has its spaces collapsed');
+  /* ⚠ A gloss does not run the SPACE COLLAPSE — it does something stronger. app.js turns a space
+   * into the separator before tidyField sees it, and the Leipzig allow-list converts any that get
+   * through (from a paste or dictation) the same way. So "a  b" is "a.b", not "a b": two spaces are
+   * one break, not two, which is the same intent by a different route. */
+  assert.equal(gloss('a  b'), 'a.b', 'spaces become one separator, never a collapsed space');
 
   // ⚠ with the setting OFF a gloss is only space-to-separator — no tidying at all. Getting this
   // wrong meant periods collapsed with the setting disabled, under full-line rules at that.
@@ -263,8 +277,10 @@ test('only the chosen separator collapses; the other word characters are left al
   assert.equal(gloss('PST__PERF', 'blur', '_'), 'PST_PERF');
   assert.equal(gloss('PST--PERF', 'blur', '-'), 'PST-PERF');
   assert.equal(gloss('go--PST', 'blur', '_'), 'go--PST', 'a hyphen that is not the separator survives');
-  assert.equal(gloss('go__PST', 'blur', '.'), 'go__PST', 'and so does an underscore');
-  assert.equal(line('ka--i be__na', 'blur'), 'ka--i be__na', 'a full-line box never collapses either');
+  // ⚠ an underscore is NOT spared: unlike - and =, it marks no Leipzig convention, so a doubled one
+  // is an accident. This assertion used to claim otherwise and was simply over-conservative.
+  assert.equal(gloss('go__PST', 'blur', '.'), 'go_PST', 'a doubled underscore reduces');
+  assert.equal(free('ka--i be__na', 'blur'), 'ka--i be__na', 'a full-line box never collapses either');
   assert.equal(gloss('PST..PERF', 'blur', '_'), 'PST.PERF',
     'periods still collapse in a gloss even when the separator is something else');
 });
@@ -307,7 +323,7 @@ test('the rule fires on the VALUE, never on a key press', () => {
 
 /* Seth: "There might be a way to simplify and combine some of these rules..." */
 test('the rules live in one table, keyed by field kind and moment', () => {
-  assert.match(TYPING, /const TIDY = \{\s*\n\s*line: \{/, 'one table');
+  assert.match(TYPING, /const TIDY = \{[\s\S]{0,900}?vern: \{/, 'one table');
   assert.match(TYPING, /gloss: \{/);
   for (const m of ['input', 'blur']) assert.match(TYPING, new RegExp(`${m}: \\[`), `${m} column`);
   // one entry point, and the callers use only it
@@ -317,6 +333,128 @@ test('the rules live in one table, keyed by field kind and moment', () => {
       `${name} goes through tidyField, not the primitives`);
   }
   // an unknown kind falls back to line rules rather than doing nothing at all
-  assert.equal(tidyField('a  b', { kind: 'nonsense', moment: 'input' }).value, 'a b');
-  assert.equal(tidyField('a  b', { kind: 'line', moment: 'nonsense' }).value, 'a  b', 'an unknown moment is a no-op');
+  assert.equal(tidyField('a  b', { kind: 'nonsense', moment: 'input' }).value, 'a b',
+    'an unknown kind falls back to vern — the row that rewrites the LEAST');
+  assert.equal(tidyField('a  b', { kind: 'free', moment: 'nonsense' }).value, 'a  b', 'an unknown moment is a no-op');
+});
+
+/* ⚠ A GLOSS ADMITS ONLY LEIPZIG-APPROVED PUNCTUATION. Seth, 2026-09-10, with a screenshot of a
+ * gloss reading "mau,.bilang" — "Oops. you didn't prevent this… two different punctuation marks in
+ * a row" — and then the general rule: "when , and . go together . (or word-breaking character the
+ * researcher put) should win. I think in glosses, we only want leipzig-approved punctuation allowed
+ * in gloss boxes."
+ *
+ * Which is a better rule than "no two in a row": a comma has no job in a gloss at all, so the
+ * question is not what to do when it sits beside a separator but what it is doing there. Anything
+ * outside the approved set BECOMES the separator — not deleted, since "mau,bilang" wanted a break
+ * and deleting would fuse it into "maubilang". The reported pair then falls out for free. */
+test('a gloss admits only Leipzig-approved punctuation; anything else becomes the separator', () => {
+  assert.equal(gloss('mau,.bilang', 'blur'), 'mau.bilang', "Seth's screenshot");
+  assert.equal(gloss('mau,.bilang', 'input'), 'mau.bilang', 'and immediately, not only on blur');
+  assert.equal(gloss('mau.,bilang', 'blur'), 'mau.bilang', 'either order — the separator is what survives');
+  // a LONE disallowed mark becomes the separator too: the typist wanted a break
+  for (const ch of [',', ';', '!', '?', '"', '(', '/'])
+    assert.equal(gloss(`mau${ch}bilang`, 'blur'), 'mau.bilang', ch);
+  assert.equal(gloss('mau,bilang', 'blur', '_'), 'mau_bilang', 'whichever separator is configured');
+  assert.equal(gloss('mau,.', 'blur'), 'mau', 'reduced first, then the trailing strip sees it');
+
+  /* ⚠⚠ A PAIR OF TWO APPROVED CHARACTERS IS NEVER REDUCED — two marks doing two jobs, not a slip.
+   * Each of these comes from a numbered Leipzig rule. */
+  assert.equal(gloss('PST-.SUBJ', 'blur'), 'PST-.SUBJ', 'Rule 2 hyphen against a Rule 4A period');
+  assert.equal(gloss('PST-SUBJ', 'blur'), 'PST-SUBJ', 'Rule 2 affix boundary');
+  assert.equal(gloss('CLT=', 'blur'), 'CLT=', 'Rule 2 clitic boundary, trailing');
+  assert.equal(gloss('go:PST', 'blur'), 'go:PST', 'Rule 4B non-segmentable boundary');
+  assert.equal(gloss('PL\\hand', 'blur'), 'PL\\hand', 'Rule 4C morphophonological change');
+  assert.equal(gloss('1>3', 'blur'), '1>3', 'Rule 4D person hierarchy');
+  assert.equal(gloss('go~go', 'blur'), 'go~go', 'Rule 10 reduplication');
+  assert.equal(gloss('[PL]', 'blur'), '[PL]', 'covert category');
+  assert.equal(gloss('N+N', 'blur'), 'N+N', 'compound');
+  // letters, digits, marks, and the glottal-stop family are always fine
+  for (const v of ["ka'i", 'kaʔ', 'mémé', '1SG.SUBJ', '3PL'])
+    assert.equal(gloss(v, 'blur'), v, v);
+
+  // runs of the SAME character still reduce...
+  assert.equal(gloss('PST..PERF', 'blur'), 'PST.PERF');
+  assert.equal(gloss('a::b', 'blur'), 'a:b');
+  assert.equal(gloss('a__b', 'blur'), 'a_b');
+  // ...but not a hyphen, unless the researcher declared it the separator
+  assert.equal(gloss('go--PST', 'blur'), 'go--PST', 'a doubled hyphen may be what a convention wants');
+  assert.equal(gloss('go--PST', 'blur', '-'), 'go-PST', 'once declared, two in a row is an accident');
+
+  /* ⚠⚠⚠ AND NONE OF IT IN A FULL-LINE BOX, where the text is ordinary prose in the analysis
+   * language. "etc.," is a period against a comma and is CORRECT English; "?!" is deliberate.
+   * Commas there are not accidents, and tidying them would be correcting the writer. */
+  assert.equal(free('apples, oranges, etc., and pears', 'blur'), 'apples, oranges, etc., and pears');
+  assert.equal(free('What?!', 'blur'), 'What?!');
+  assert.equal(free('Yes...', 'blur'), 'Yes...', 'and the ellipsis still survives');
+  assert.equal(free('a,, b', 'blur'), 'a, b', 'while a same-character slip is still fixed');
+  // the allow-list is genuinely gloss-only in the source, not just in these cases
+  assert.match(TYPING, /const glossPunct = kind === 'gloss' \? \[glossAllowedOnly\(sep\), glossRuns\(sep\)\] : \[\];/);
+});
+
+test('the approved set is written down with the rule each character comes from', () => {
+  // ⚠ so nobody widens or narrows it by guess — this is Seth's field, and the note names Rules 2,
+  // 4A, 4B, 4C, 4D, 9 and 10 beside the characters they license.
+  const note = TYPING.slice(TYPING.indexOf('A GLOSS ADMITS ONLY LEIPZIG-APPROVED'), TYPING.indexOf('const GLOSS_ALLOWED'));
+  for (const r of ['Rule 2', 'Rule 4A', 'Rule 4B', 'Rule 4C', 'Rule 4D', 'Rule 9', 'Rule 10'])
+    assert.match(note, new RegExp(r), r);
+  assert.match(note, /glottal stop/i, 'and why the apostrophe family is exempt');
+});
+
+/* "We also don't want a space between a word and a period or comma" (Seth, 2026-09-10). */
+test('a full-line box keeps punctuation tight against the word', () => {
+  assert.equal(free('the man .', 'blur'), 'the man.');
+  assert.equal(free('the man ,', 'blur'), 'the man,');
+  for (const ch of ['.', ',', ';', ':', '!', '?'])
+    assert.equal(free(`word ${ch} next`, 'blur'), `word${ch} next`, ch);
+  assert.equal(free('the man  .', 'blur'), 'the man.', 'however many spaces');
+  assert.equal(free('the man\t.', 'blur'), 'the man.', 'tabs too');
+  assert.equal(free('the man .', 'input'), 'the man.', 'while typing, not only on blur');
+  assert.equal(free('Yes ...', 'blur'), 'Yes...', 'and an ellipsis closes up but stays an ellipsis');
+
+  // ⚠ the space AFTER the punctuation is untouched — that one belongs there
+  assert.equal(free('one. two', 'blur'), 'one. two');
+  assert.equal(free('a, b, c', 'blur'), 'a, b, c');
+  // ⚠ and nothing here touches the Leipzig characters, which are not prose punctuation
+  assert.equal(free('ka -i', 'blur'), 'ka -i');
+  assert.equal(free('be =na', 'blur'), 'be =na');
+
+  /* ⚠ FRENCH IS THE KNOWN EXCEPTION, recorded at the rule rather than discovered later: French
+   * sets a thin space before ; : ! ?. Not a concern for English or Indonesian, but the rule names
+   * its characters so it can be made conditional if an analysis language ever needs it. */
+  assert.match(TYPING, /FRENCH IS THE KNOWN EXCEPTION/);
+  assert.match(TYPING, /const tightenPunct = /);
+
+  // ⚠ and the keyboard-period undo still wins, because it runs BEFORE this
+  assert.equal(free('the man. ', 'input', 'the man '), 'the man ');
+});
+
+/* ⚠⚠ THE BASELINE IS VERNACULAR AND IS NOT TYPOGRAPHICALLY CORRECTED. Seth scoped the tighten rule
+ * himself — "In the free translation, I mean." — and it matches the standing rule this whole area
+ * exists for: autocorrect never touches vernacular. "word ." may be how an orthography sets
+ * punctuation, and we do not know every orthography. */
+test('the baseline gets space and doubling rules but never typographic correction', () => {
+  // NOT tightened
+  assert.equal(vern('kaisou fedahu .', 'blur'), 'kaisou fedahu .');
+  assert.equal(vern('kaisou , tudu', 'blur'), 'kaisou , tudu');
+  assert.equal(vern('kaisou fedahu .', 'input'), 'kaisou fedahu .');
+  // but everything Seth asked for "anywhere" still applies there
+  assert.equal(vern('kaisou    fedahu', 'blur'), 'kaisou fedahu', 'one space between words');
+  assert.equal(vern('kaisou,, fedahu', 'blur'), 'kaisou, fedahu', 'no doubled comma');
+  assert.equal(vern('kaisou.. fedahu', 'blur'), 'kaisou. fedahu', 'no doubled period');
+  assert.equal(vern('kaisou... fedahu', 'blur'), 'kaisou... fedahu', 'and the ellipsis survives');
+  assert.equal(vern('the man. ', 'input', 'the man '), 'the man ', "and the keyboard's period is undone");
+
+  // the rows are genuinely distinct in the table, and the reason is recorded there
+  const tbl = TYPING.slice(TYPING.indexOf('const TIDY = {'), TYPING.indexOf('export const GLOSS_BREAKS'));
+  const vernCell = bare(tbl.slice(tbl.indexOf('vern: {'), tbl.indexOf('free: {')));
+  assert.doesNotMatch(vernCell, /tightenPunct/, 'the vernacular row has no tighten step');
+  assert.match(bare(tbl.slice(tbl.indexOf('free: {'), tbl.indexOf('gloss: {'))), /tightenPunct/, 'the free row does');
+  assert.match(TYPING, /THE BASELINE IS VERNACULAR, AND VERNACULAR IS NOT CORRECTED/);
+
+  // and the callers are wired to the right rows
+  assert.match(STRIPS, /kind: 'vern'/, 'the baseline strips are vernacular');
+  assert.match(APP, /tidyField\(ta\.value, \{ kind: 'vern', moment: 'blur' \}\)/, 'and so is the legacy box');
+  assert.match(APP, /kind: 'free'/, 'the free translation is prose');
+  assert.doesNotMatch(bare(STRIPS), /kind: 'free'/, 'no baseline box is treated as prose');
 });

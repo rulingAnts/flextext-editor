@@ -126,6 +126,25 @@ let caretMirror = null;
  * the guarantee that a focused box is never behind the keyboard, and that guarantee is what this
  * function now provides instead. Reverting the meta without removing this would give you both
  * problems at once. */
+/* ⚠ GROW, DO NOT SCROLL INSIDE. A box that scrolls within itself is the wrong shape on a touch
+ * screen: the typist cannot see the line they are writing, and a nested scroller fights the page
+ * scroll — the same nested-scrolling problem #66 and #43 are about. So a prose box grows to fit its
+ * content and the PAGE scrolls; one scroller, always the outer one.
+ *
+ * Seth, 2026-09-10, about segmentation mode specifically: "for single line audio segments, THAT's
+ * what I'm talking about with word-wrap, auto-vertical-expand, and block new lines and carriage
+ * returns in those boxes."
+ *
+ * `height = 'auto'` first is load-bearing: scrollHeight reports the content height only once the
+ * element is not already held taller than its text, or the box never shrinks again after a deletion.
+ *
+ * Exported because app.js's free-translation box wants the same behaviour for the same reason. */
+export function growArea(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
 export function installKeyboardOverlayGuard() {
   if (typeof window === 'undefined' || window.__fxKbGuard) return;
   const vv = window.visualViewport || null;
@@ -870,12 +889,35 @@ export function renderStrips() {
     wave.height = 44;
     wireWaveSeek(wave, seg, deps.getPlayer, (s) => deps.onPlayTarget?.(s));
 
-    const input = document.createElement('input');
+    /* ⚠ A TEXTAREA, NOT AN INPUT — an <input> cannot wrap, so a segment of any length scrolled
+     * sideways and the transcriber could not read the line they were typing. Worst on the phones and
+     * tablets this is used on, which is exactly where it matters. rows=1 plus growArea() means it
+     * starts one line tall and grows only as far as the text needs. */
+    const input = document.createElement('textarea');
     input.className = 'seg-text';
+    input.rows = 1;
     input.value = text;
+    growArea(input);
     /* ⚠ VERNACULAR — protected by inheritance from <body>, not by writes here. There is no
      * dictionary for the language typed in this box, so every suggestion is wrong. See js/typing.js. */
-    input.addEventListener('input', () => commitTexts());
+    /* ⚠ WRAPPING YES, LINE BREAKS NO. Seth: "block new lines and carriage returns in those boxes."
+     * One row IS one segment, so a newline inside one would be a line break inside a line — and it
+     * would travel into the .flextext and the EAF as part of the text.
+     *
+     * ⚠ STRIPPED FROM THE VALUE, not just blocked on the Enter key. Enter is one of several ways a
+     * newline arrives — paste, dictation, an IME commit — and on Android the key event is the one
+     * route that cannot be relied on (the same reason the gloss space-to-period fix had to move to
+     * the value). The caret is restored because rewriting .value throws it to the end otherwise. */
+    input.addEventListener('input', () => {
+      if (/[\r\n]/.test(input.value)) {
+        const at = input.selectionStart;
+        const before = input.value.slice(0, at).replace(/[\r\n]+/g, ' ').length;
+        input.value = input.value.replace(/[\r\n]+/g, ' ');
+        try { input.setSelectionRange(before, before); } catch { /* detached */ }
+      }
+      growArea(input);
+      commitTexts();
+    });
     input.addEventListener('keydown', (e) => onKey(e, i, input));
     // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).
     registerCaretScissors(input, row, () => stripsCaretWant(input, i), (at) => stripsPlace(i, 'text', at), deps.t('split.here'));

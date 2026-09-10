@@ -80,7 +80,35 @@ DOM, because both earlier failures were logic errors invisible to a suite that r
 
 ## 0c. Released 2026-09-10 (v669 to v673)
 
-## 0d. On staging, awaiting a production push (v675)
+## 0d. On staging, awaiting a production push (v676)
+
+**#73 — the ✂ appears at every gap a line can be split at (v676).** Seth: *"when there's punctuation,
+split scissors do not show up between word/gloss pairs where the punctuation sits."*
+
+- ⚠ **One gate was answering two questions.** The ✂ was hung off each chain-link, so `canMerge`
+  decided where a line could be *split* as well as where two words could be *chained*. That gate is
+  right for chaining — you cannot merge a word with a comma into one lexical item — and wrong for
+  splitting, because a gap beside punctuation is often exactly where a line wants to break. The ✂ is
+  now placed per word gap and asks `canSplitBefore`.
+- ⚠⚠ **Which side a mark belongs to is not decided twice.** `baselineFromWords` already put a space
+  before an opening mark and none after it — i.e. it already knew that `(` leads the following word
+  while `,` trails the preceding one. Seth's *"I think spaces…"* pointed straight at it. The
+  classifier is now shared (`punctLeadsWord`), so a split and the line-rebuild can never disagree.
+- The rule: a trailing mark may not start the new line; a leading mark may not end the old one;
+  neither side may be left without a real word. `Kaisou fedahu, tudu bisa.` offers gaps 1, 3 and 4 —
+  including 3, just after the comma. `foo (bar) baz` offers before `(` and after `)`, never between
+  `(` and its word.
+- ⚠⚠⚠ **A straight quote gets no ✂ on either side.** `"` and `'` open and close with the same
+  character, and nothing in a token says which this is. `baselineFromWords` must emit something and
+  picks leading; a split has a third option — decline. Refusing both gaps can never strand a mark,
+  where guessing by parity is wrong on any line with an odd number of them. The typographic quotes
+  are unambiguous and handled exactly, which is a reason to prefer them.
+- ⚠ **Verified by unit test, not in a rendered row.** A gloss-tab ✂ needs a doc with `doc.segments`,
+  which only exists once a text has audio, and the preview pane cannot drive a file picker to attach
+  one. The predicate is exercised across ten punctuation shapes; the placement mirrors the existing
+  working edge-✂ code and is pinned by source assertions. The rendered row is Seth's check.
+
+## 0e. Released 2026-09-10 (v675)
 
 **The lameta session download never worked from the panel (v675).** Seth, testing staging: it *"just
 says failed"* — `TypeError: entry.data.arrayBuffer is not a function` in `makeZip`.

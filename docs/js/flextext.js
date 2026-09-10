@@ -416,11 +416,44 @@ function parseWord(wEl, doc, prefs = {}) {
   return w;
 }
 
+/* ⚠ WHICH WORD A PUNCTUATION TOKEN BELONGS TO — ONE DEFINITION, used by baselineFromWords when it
+ * rebuilds a line and by canSplitBefore when it decides where a line may break. These two must never
+ * disagree: one puts the mark on a side, the other decides whether a break may pass between them.
+ *
+ * An OPENING mark leads the word that FOLLOWS it — "(bar", "«bar", "“bar" — so it takes a space
+ * before and none after. Everything else TRAILS the word before it — "foo,", "foo.", "foo)".
+ * tokenize() groups a run of punctuation into a single token, so the group is classified by its
+ * FIRST character, which is what decides where the whitespace goes.
+ *
+ * ⚠ THE STRAIGHT QUOTES ' AND " ARE GENUINELY AMBIGUOUS — the same character opens and closes, and
+ * nothing in the token tells you which. They are counted as opening here because that is what
+ * baselineFromWords has always done, and one shared answer beats two that drift. The cost is a ✂
+ * offered before a CLOSING straight quote, which a researcher can simply not use; the alternative —
+ * guessing by parity — is wrong on any line with an odd number of them. (The typographic quotes " "
+ * ' ' are unambiguous and handled exactly.) NOTE: ' is a WORD character in this engine (it writes a
+ * glottal stop), so a bare apostrophe never reaches here as punctuation at all. */
+export const PUNCT_LEADS = /^[([{«“‘'"¿¡]/;
+export function punctLeadsWord(txt) { return PUNCT_LEADS.test(String(txt || '')); }
+
+/* ⚠ AND THE ONES THAT COULD BE EITHER. The straight quotes open and close with the SAME character,
+ * so no rule reading a single token can say which this one is. baselineFromWords has to pick a side
+ * regardless — it has to emit something — and picks leading, which is right half the time. A SPLIT
+ * has a third option: don't offer one. So canSplitBefore treats an ambiguous group as belonging to
+ * neither neighbour and refuses a break on both sides of it, which can never strand a mark. The cost
+ * is a couple of gaps unoffered on a quoted line, and the keyboard route (Enter at a box boundary)
+ * still splits there; the alternative — guessing by parity — is wrong on any line with an odd number
+ * of them, which is exactly the line someone is mid-way through typing.
+ *
+ * The typographic quotes “ ” ‘ ’ « » are unambiguous and are classified exactly, which is a decent
+ * reason to prefer them. */
+export const PUNCT_AMBIGUOUS = /^['"]/;
+export function punctSideUnknown(txt) { return PUNCT_AMBIGUOUS.test(String(txt || '')); }
+
 export function baselineFromWords(words) {
   let out = '';
   for (const w of words) {
     if (w.punct) {
-      if (/^[([{«“‘'"¿¡]/.test(w.txt)) out += (out && !/\s$/.test(out) ? ' ' : '') + w.txt;
+      if (punctLeadsWord(w.txt)) out += (out && !/\s$/.test(out) ? ' ' : '') + w.txt;
       else out += w.txt;
     } else {
       out += (out && !/[([{«“‘¿¡\s]$/.test(out) ? ' ' : '') + w.txt;
@@ -905,6 +938,58 @@ function lcsPairs(a, b) {
 export function canMerge(seg, i) {
   const w = seg.words[i], next = seg.words[i + 1];
   return !!(w && next && !w.punct && !next.punct);
+}
+
+/* ⚠ WHERE THE LINE MAY BE SPLIT, which is NOT simply "wherever it may be chained" (issue #73;
+ * Seth, 2026-09-10: "when there's punctuation, split scissors do not show up between word/gloss
+ * pairs where the punctuation sits").
+ *
+ * The ✂ used to be hung off each chain-link, so canMerge decided both. That gate is right for
+ * CHAINING — you cannot merge a word with a comma into one lexical item — and wrong for SPLITTING,
+ * where a gap beside punctuation is often the very place a line wants to break. Two different
+ * questions had one answer.
+ *
+ * The split rule is its own, and it is a typographic one:
+ *
+ *   1. A TRAILING MARK MAY NOT START THE NEW LINE. A comma or full stop belongs to the word in
+ *      front of it, so a split before one would strand "," at the head of the next line. Splitting
+ *      AFTER it is exactly right, and is the gap Seth found missing.
+ *   2. A LEADING MARK MAY NOT END THE OLD ONE (Seth, 2026-09-10: "What about single and double
+ *      quotes and parentheses…? Keep opening/first punctuation marks in mind too."). An opening
+ *      bracket or quote belongs to the word AFTER it, so the mirror of rule 1 applies: a split
+ *      between "(" and its word would leave the bracket dangling at the end of the previous line.
+ *      Splitting BEFORE the "(" is fine — the whole "(bar)" travels together.
+ *   3. NEITHER SIDE MAY BE LEFT WITHOUT A REAL WORD, so a line of nothing but punctuation cannot be
+ *      created.
+ *   0. AND A MARK WHOSE SIDE CANNOT BE KNOWN GETS NO BREAK EITHER SIDE. The straight quotes open and
+ *      close with the same character; refusing both gaps can never strand one, where guessing can.
+ *      See punctSideUnknown.
+ *
+ * ⚠ WHICH SIDE A MARK BELONGS TO IS NOT DECIDED HERE. punctLeadsWord is shared with
+ * baselineFromWords, which puts the whitespace on that same side when it rebuilds the line. Two
+ * separate notions of "this comma is trailing" would eventually disagree, and the visible result
+ * would be a split whose two halves re-join wrongly.
+ *
+ * For "Kaisou fedahu, tudu bisa." that offers gaps 1, 3 and 4 — including 3, immediately after the
+ * comma, the natural clause break — and withholds 2 and 5. For "foo (bar) baz" it offers the gap
+ * BEFORE "(" and after ")", and withholds the one between "(" and "bar". Interior gaps only: the
+ * edges have their own trim ✂. */
+export function canSplitBefore(seg, k) {
+  const words = (seg && seg.words) || [];
+  if (!(k > 0 && k < words.length)) return false;
+  const at = words[k], prev = words[k - 1];
+  if (!at || !prev) return false;
+  // 0. a mark whose side cannot be known belongs to neither: no break on either side of it
+  if ((at.punct && punctSideUnknown(at.txt)) || (prev.punct && punctSideUnknown(prev.txt))) return false;
+  // 1. a TRAILING mark may not start the new line — it belongs to the word behind it
+  if (at.punct && !punctLeadsWord(at.txt)) return false;
+  // 2. a LEADING mark may not end the old one — it belongs to the word ahead of it
+  if (prev.punct && punctLeadsWord(prev.txt)) return false;
+  // 3. neither side may be left without a real word
+  let head = false, tail = false;
+  for (let j = 0; j < k; j++) if (words[j] && !words[j].punct) { head = true; break; }
+  for (let j = k; j < words.length; j++) if (words[j] && !words[j].punct) { tail = true; break; }
+  return head && tail;
 }
 
 export function mergeWords(seg, i) {

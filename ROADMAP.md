@@ -80,7 +80,26 @@ DOM, because both earlier failures were logic errors invisible to a suite that r
 
 ## 0c. Released 2026-09-10 (v669 to v673)
 
-## 0d. On staging, awaiting a production push (v674)
+## 0d. On staging, awaiting a production push (v675)
+
+**The lameta session download never worked from the panel (v675).** Seth, testing staging: it *"just
+says failed"* — `TypeError: entry.data.arrayBuffer is not a function` in `makeZip`.
+
+- ⚠ `lametaSessionEntries` writes the `.session` file and every `.meta` sidecar as XML **strings** —
+  deliberately, since `lameta.js` is a pure format module and text is what keeps it node-testable —
+  and `makeZip` accepted only a `Uint8Array` or a Blob. **Four of the five entries** in a typical
+  session are strings, the `.session` file among them, so it threw on the FIRST one: the button never
+  worked from the day it shipped in v665.
+- ⚠⚠ **And every existing test passed.** The 19 lameta tests exercise the format module alone; the
+  panel tests read `researcher-panel.js` as source text. Both halves were correct and did not fit
+  together, which no test that fails to RUN one into the other can see. Seth's format verification
+  was real but came from a different producer — the coworker session's bulk output — so the panel path
+  was confirmed by nothing.
+- Fixed at the **sink**: `makeZip` now encodes a string as UTF-8. Every other caller wraps its own
+  text, so the convention was five-to-one — exactly the shape where the next author repeats the
+  mistake. The new test builds a real session, zips it, and reads the archive back.
+
+## 0e. Released 2026-09-10 (v674)
 
 **One space between words (v669).** Seth: *"prevent them from typing multiple spaces in the baseline
 or free translation… to help less tech-savvy/illiterate users."* Extra spaces go as they are typed
@@ -153,7 +172,7 @@ on or touching them."*
 - Verified in a browser: the gloss tab's native order now contains only `gloss-input` and
   `free-input`, and the word still takes focus and typing from a tap.
 
-## 0e. Released earlier on 2026-09-10 (v669 to v673)
+## 0f. Released earlier on 2026-09-10 (v669 to v673)
 
 **A gloss admits only Leipzig-approved punctuation (v673).** Seth, with a screenshot of a gloss
 reading `mau,.bilang`: *"two different punctuation marks in a row"*, then the general rule — *"in

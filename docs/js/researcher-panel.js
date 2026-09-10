@@ -788,8 +788,9 @@ const GROUPS = [
      * want autocorrect ever"); js/typing.js answers all-off for it before reading a preference.
      * Ordered by how much damage each can do: marking rewrites nothing, completion offers, and
      * correction takes. Every one defaults to `auto`, which never enables correction anywhere. */
+    { k: 'analTyping', type: 'subhead', note: 'panel.f.analTypingNote' },
     { k: 'analSpellcheck', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' , bundled: true },
+      info: 'panel.f.analSpellcheckInfo', bundled: true },
     { k: 'analAutocomplete', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
       info: 'panel.f.analAutocompleteInfo' , bundled: true },
     { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
@@ -949,7 +950,7 @@ export function initResearcherPanel(d) {
       const expected = (() => {
         const ks = new Set();
         for (const g of GROUPS) for (const f of groupFields(g)) {
-          if (f.type === 'action' || f.k === 'appLang') continue;
+          if (f.type === 'action' || f.type === 'subhead' || f.k === 'appLang') continue;
           ks.add(f.k === 'autoDel' ? 'autoDelUploaded' : f.k === 'buttons' ? 'toolbarButtons' : f.k);
         }
         ks.add('consentAudio');
@@ -1341,6 +1342,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v660', date: '2026-09-10', items: [
+    { k: 'panel.rel.new.typingWarnVisuals' },
+    { k: 'panel.rel.fix.panelScrollChaining' },
+    { k: 'panel.rel.fix.keyboardGuardEveryApp' },
+  ] },
   { v: 'v659', date: '2026-09-10', items: [
     { k: 'panel.rel.fix.spellcheckLanguage' },
     { k: 'panel.rel.new.typingBundleWarning' },
@@ -9116,9 +9122,13 @@ function infoDotHtml(f) {
 }
 function warnDotHtml(f) {
   if (!f.bundled) return '';
-  return ` <button type="button" class="info-dot warn-dot" data-infofor="warn-${f.k}" hidden`
+  /* ⚠ A TRIANGLE, NOT A DOT. Seth, 2026-09-10: "the exclamation point icon (triangle shaped
+   * please) should also have that yellow glow. So those warning styling features all
+   * iconically/symbolically match." The glyph IS the triangle — no clip-path, no border, so it
+   * scales with the type and reads the same at any size. */
+  return ` <button type="button" class="warn-dot" data-infofor="warn-${f.k}" hidden`
     + ` aria-expanded="false" aria-controls="info-warn-${f.k}"`
-    + ` aria-label="${esc(t('setup.whyNotOff'))}">!</button>`;
+    + ` aria-label="${esc(t('setup.whyNotOff'))}">\u26a0</button>`;
 }
 function warnNoteHtml(f) {
   if (!f.bundled) return '';
@@ -9146,6 +9156,16 @@ function fieldHtml(f) {
   if (f.type === 'multicheck') {
     const boxes = f.opts.map((o) => `<label class="check-label rp-inline"><input type="checkbox" data-f="${f.k}" data-v="${o}"> ${esc(t((f.optPrefix || '') + o))}</label>`).join('');
     return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div></div>`;
+  }
+  /* A sub-heading INSIDE a section, with its note attached to the heading rather than to whichever
+   * field happens to come first. Seth, 2026-09-10: group the three typing dials "under one
+   * sub-heading with the ... text underneath that heading rather than underneath the first field of
+   * the three" — a note hanging off field one reads as being about field one, not about all three.
+   * ⚠ A PSEUDO-FIELD: it carries no value, so every loop that reads or writes settings must skip it,
+   * exactly as they already skip type 'action'. */
+  if (f.type === 'subhead') {
+    return `<h4 class="rp-subhead">${esc(t('panel.sub.' + f.k))}</h4>`
+      + (f.note ? `<p class="note rp-subnote">${esc(t(f.note))}</p>` : '');
   }
   if (f.type === 'action') {
     const note = f.k === 'archivalDefaults' ? `<p class="note">${esc(t('panel.f.archivalNote'))}</p>` : '';
@@ -9302,7 +9322,7 @@ function toFormValues(s) {
   s = s || {};
   const v = {};
   for (const g of GROUPS) for (const f of groupFields(g)) {
-    if (f.type === 'action') continue;
+    if (f.type === 'action' || f.type === 'subhead') continue;
     if (f.k === 'sendOptions') v.sendOptions = s.sendOptions || [];
     else if (f.k === 'buttons') v.buttons = s.toolbarButtons || [];
     /* Consent multi-select: prefer the new arrays; else migrate the old single consentMode/consentResp.
@@ -9406,7 +9426,7 @@ function readForm(box) {
   const patch = {};
   const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins', 'maxRecordSeconds'];
   for (const g of GROUPS) for (const f of groupFields(g)) {
-    if (SPECIAL.includes(f.k) || f.type === 'action') continue;
+    if (SPECIAL.includes(f.k) || f.type === 'action' || f.type === 'subhead') continue;
     patch[f.k] = raw[f.k];
   }
   // appLang 'follow' (or unset) = "don't change this device's language" → never push it (it would
@@ -9883,7 +9903,7 @@ function templateChangedKeys(prevTpl, patch) {
 const APPLY_DISPLAY_KEY = { autoDelUploaded: 'autoDel', toolbarButtons: 'buttons', consentAudio: 'consentAudioUrl' };
 function changedFieldLabels(rawKeys) {
   const known = new Set();
-  for (const g of GROUPS) for (const f of groupFields(g)) if (f.type !== 'action') known.add(f.k);
+  for (const g of GROUPS) for (const f of groupFields(g)) if (f.type !== 'action' && f.type !== 'subhead') known.add(f.k);
   const ks = [];
   for (const k of rawKeys) {
     const d = APPLY_DISPLAY_KEY[k] || k;

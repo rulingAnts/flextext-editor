@@ -188,10 +188,32 @@ ok(/\.setup-off input, \.setup-off select, \.setup-off textarea \{ pointer-event
    'and pointer-events:none lets the click reach that container (a disabled input fires nothing)');
 
 console.log('\nan inert control DISPLAYS the stored value but never WRITES it');
-ok(/if \(f\.type === 'action' \|\| f\.type === 'file'\) continue;/.test(app),
-   'deviceSetupValues fills inert fields too — greyed must not mean blank');
-ok(/if \(f\.type === 'action' \|\| f\.type === 'file' \|\| f\.off \|\| SPECIAL\.includes\(f\.k\) \|\| !has\(f\.k\)\) continue;/.test(app),
-   'readDeviceSetup skips every `off` field, so this surface cannot re-assert what it says it does not control');
+/* ⚠ ASSERT WHAT MATTERS, NOT THE LITERAL SKIP LIST. These two pinned the exact source of their
+   conditions and broke when a pseudo-field type was added — a change that cannot affect either
+   property being tested. Anchored on the function bodies instead, asserting the actual rules:
+   deviceSetupValues must NOT skip `off` fields (an inert control still shows its stored value),
+   and readDeviceSetup MUST skip them (this surface cannot write what it says it does not control). */
+{
+  const body = (name) => {
+    const i = app.indexOf(`function ${name}(`);
+    const j = app.indexOf('\nfunction ', i + 1);
+    return app.slice(i, j > 0 ? j : undefined);
+  };
+  const values = body('deviceSetupValues');
+  const cond = (src) => (src.match(/if \(([^\n]*?)\) continue;/) || [])[1] || '';
+
+  const vSkip = cond(values);
+  ok(/f\.type === 'action'/.test(vSkip) && /f\.type === 'file'/.test(vSkip),
+     'deviceSetupValues skips the pseudo-fields that carry no value');
+  ok(!/f\.off/.test(vSkip),
+     'deviceSetupValues fills inert fields too — greyed must not mean blank');
+
+  const rSkip = cond(body('readDeviceSetup'));
+  ok(/f\.off/.test(rSkip),
+     'readDeviceSetup skips every `off` field, so this surface cannot re-assert what it says it does not control');
+  ok(/SPECIAL\.includes\(f\.k\)/.test(rSkip) && /!has\(f\.k\)/.test(rSkip),
+     'and skips keys written explicitly, and any control the form does not render');
+}
 
 console.log('\nUPLOAD is gated, and so is SHARE where the BROWSER cannot do it');
 /* Two sources of gating, deliberately. `offOpts` on the field is a rule of the surface (upload needs
@@ -481,8 +503,16 @@ for (const key of KEYS) {
   const n = inBoth(key);
   ok(n === 2, `${key} is defined in BOTH en and id (found ${n})`);
 }
-// Every field label the form prints must exist too, or a row renders as its raw key.
-for (const k of setupKeys) {
+/* Every field label the form prints must exist too, or a row renders as its raw key.
+   ⚠ `subhead` pseudo-fields are labelled from panel.sub.*, not panel.f.* — they carry no value and
+   are a heading over the fields that follow, so they are checked separately below. */
+const subheadKeys = [];
+for (const g of SETUP_GROUPS) for (const f of g.fields) if (f.type === 'subhead') subheadKeys.push(f.k);
+for (const k of subheadKeys) {
+  const n = inBoth('panel.sub.' + k);
+  ok(n === 2, `panel.sub.${k} (the sub-heading) is defined in BOTH en and id (found ${n})`);
+}
+for (const k of setupKeys.filter((k) => !subheadKeys.includes(k))) {
   const n = inBoth('panel.f.' + k);
   ok(n === 2, `panel.f.${k} (the label) is defined in BOTH en and id (found ${n})`);
 }

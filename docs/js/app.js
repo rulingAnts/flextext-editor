@@ -6438,8 +6438,9 @@ const SETUP_GROUPS = [
      * want autocorrect ever"); js/typing.js answers all-off for it before reading a preference.
      * Ordered by how much damage each can do: marking rewrites nothing, completion offers, and
      * correction takes. Every one defaults to `auto`, which never enables correction anywhere. */
+    { k: 'analTyping', type: 'subhead', note: 'panel.f.analTypingNote' },
     { k: 'analSpellcheck', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
-      note: 'panel.f.analTypingNote', info: 'panel.f.analSpellcheckInfo' , bundled: true },
+      info: 'panel.f.analSpellcheckInfo', bundled: true },
     { k: 'analAutocomplete', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
       info: 'panel.f.analAutocompleteInfo' , bundled: true },
     { k: 'analAutocorrect', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.typing.',
@@ -6593,9 +6594,13 @@ function infoDotHtml(f) {
 }
 function warnDotHtml(f) {
   if (!f.bundled) return '';
-  return ` <button type="button" class="info-dot warn-dot" data-infofor="warn-${f.k}" hidden`
+  /* ⚠ A TRIANGLE, NOT A DOT. Seth, 2026-09-10: "the exclamation point icon (triangle shaped
+   * please) should also have that yellow glow. So those warning styling features all
+   * iconically/symbolically match." The glyph IS the triangle — no clip-path, no border, so it
+   * scales with the type and reads the same at any size. */
+  return ` <button type="button" class="warn-dot" data-infofor="warn-${f.k}" hidden`
     + ` aria-expanded="false" aria-controls="info-warn-${f.k}"`
-    + ` aria-label="${esc(t('setup.whyNotOff'))}">!</button>`;
+    + ` aria-label="${esc(t('setup.whyNotOff'))}">\u26a0</button>`;
 }
 function warnNoteHtml(f) {
   if (!f.bundled) return '';
@@ -6633,6 +6638,16 @@ function setupFieldHtml(f) {
     // One reason line per DISTINCT reason — two gated options for the same cause say it once.
     const whys = [...new Set(Object.values(offOpts))].map(setupOffHtml).join('');
     return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div>${whys}</div>${note}`;
+  }
+  /* A sub-heading INSIDE a section, with its note attached to the heading rather than to whichever
+   * field happens to come first. Seth, 2026-09-10: group the three typing dials "under one
+   * sub-heading with the ... text underneath that heading rather than underneath the first field of
+   * the three" — a note hanging off field one reads as being about field one, not about all three.
+   * ⚠ A PSEUDO-FIELD: it carries no value, so every loop that reads or writes settings must skip it,
+   * exactly as they already skip type 'action'. */
+  if (f.type === 'subhead') {
+    return `<h4 class="rp-subhead">${esc(t('panel.sub.' + f.k))}</h4>`
+      + (f.note ? `<p class="note rp-subnote">${esc(t(f.note))}</p>` : '');
   }
   if (f.type === 'action') {
     return `<div class="rp-field"><button type="button" class="secondary-btn" data-sact="${f.k}">${label}</button></div>`
@@ -6763,7 +6778,7 @@ function deviceSetupValues() {
     // ⚠ An `off:` field is still filled from the stored value. Disabled means "you cannot change
     // this here", never "this shows nothing" — a greyed box displaying a blank where a real setting
     // lives would misreport the device.
-    if (f.type === 'action' || f.type === 'file') continue;
+    if (f.type === 'action' || f.type === 'file' || f.type === 'subhead') continue;
     // sendOptions / toolbarButtons: absent or empty means "all of them" to allowedSend() and
     // allowedButtons(), so show all of them ticked rather than an empty row that reads as "none".
     if (f.k === 'sendOptions') v.sendOptions = s.sendOptions?.length ? s.sendOptions : SETUP_SEND_OPTS.slice();
@@ -6854,7 +6869,7 @@ function readDeviceSetup(box) {
     /* ⚠ `f.off` fields are DISPLAYED but never WRITTEN. They show the stored value greyed; writing
      * it back would let this surface silently re-assert a setting the user was told it does not
      * control — and would clobber whatever a researcher pushes the moment the device is paired. */
-    if (f.type === 'action' || f.type === 'file' || f.off || SPECIAL.includes(f.k) || !has(f.k)) continue;
+    if (f.type === 'action' || f.type === 'file' || f.type === 'subhead' || f.off || SPECIAL.includes(f.k) || !has(f.k)) continue;
     patch[f.k] = raw[f.k];
   }
   /* ⚠ Exports: store an override ONLY when it DIFFERS from what Audio Segmentation Mode implies,
@@ -11172,7 +11187,19 @@ document.addEventListener('change', (e) => {
   const k = t.dataset.sf || t.dataset.f;
   if (k !== 'analSpellcheck' && k !== 'analAutocomplete' && k !== 'analAutocorrect') return;
   const attr = t.dataset.sf ? 'data-sf' : 'data-f';
-  syncTypingWarnings(t.closest('form, #device-setup, .rp-form') || document, attr);
+  const box = t.closest('form, #device-setup, .rp-form') || document;
+
+  /* ⚠ WARN WHEN THE COUPLING STARTS TO APPLY, NOT ON EVERY CHANGE. Switching a second dial on, or
+   * back off again, tells the researcher nothing new — and a dialog on every touch of a select is
+   * the kind of thing people learn to dismiss without reading. So: only on the transition from
+   * "none of the three is on" to "one is". */
+  const others = ['analSpellcheck', 'analAutocomplete', 'analAutocorrect']
+    .filter((x) => x !== k)
+    .map((x) => { const el = box.querySelector(`[${attr}="${x}"]`); return el ? el.value : null; });
+  const firstOne = t.value === 'on' && !others.includes('on');
+
+  syncTypingWarnings(box, attr);
+  if (firstOne) noticeDialog(t('panel.f.typingBundledWarn')).catch(() => {});
 });
 
 /* ⓘ next to a setting, toggled by click or tap. Delegated at module scope for the same reason
@@ -11180,7 +11207,7 @@ document.addEventListener('change', (e) => {
  * stale, and setup() never runs in five of the seven apps. Hover is a CSS enhancement on top —
  * this is the path that works on a touch screen, which is where these devices live. */
 document.addEventListener('click', (e) => {
-  const dot = e.target.closest?.('.info-dot');
+  const dot = e.target.closest?.('.info-dot, .warn-dot');
   if (!dot) return;
   e.preventDefault();
   e.stopPropagation();                       // a label-wrapped dot must not toggle its own control

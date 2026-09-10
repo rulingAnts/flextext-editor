@@ -709,9 +709,46 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 
 /* The ⚠ variant: same control, different weight. Hidden until the Android coupling actually bites,
  * so it is not decoration — its presence means something. */
-.warn-dot { border-color: var(--warn, #b45309); color: var(--warn, #b45309); font-weight: 700; }
-.warn-dot:hover, .warn-dot:focus-visible { border-color: var(--warn, #b45309); color: var(--warn, #b45309); }
-.warn-note { border-inline-start-color: var(--warn, #b45309); }
+/* ── THE ANDROID-COUPLING WARNING: ONE COLOUR, THREE PLACES ──────────────────────────
+   Seth, 2026-09-10, across several messages: the icon should be triangle-shaped and glow, the
+   affected fields should carry "orange or subtle yellow glow", and the dialog should glow too —
+   "that way the user doesn't go 'why are those fields yellow'" — so "those warning styling features
+   all iconically/symbolically match."
+   Sharing one token is what makes the field highlight self-explanatory rather than mysterious:
+   whatever explains the colour appears in the same colour. */
+:root { --warn: #b45309; --warn-glow: rgba(245, 158, 11, .45); }
+@media (prefers-color-scheme: dark) {
+  :root { --warn: #f0b429; --warn-glow: rgba(240, 180, 41, .38); }
+}
+
+/* ⚠ THE GLYPH IS THE TRIANGLE — no clip-path, no border — so it scales with the type and reads the
+   same at any size. It is a button because it opens its note on click or tap (never on hover). */
+.warn-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-inline-start: .4em; padding: 0; border: 0; background: transparent;
+  color: var(--warn); font-size: 1em; line-height: 1; cursor: help;
+  vertical-align: middle; flex: none;
+  filter: drop-shadow(0 0 3px var(--warn-glow));
+}
+.warn-dot:hover, .warn-dot:focus-visible { filter: drop-shadow(0 0 7px var(--warn-glow)); }
+.warn-note { border-inline-start-color: var(--warn); }
+
+/* The affected field. Deliberately a glow and a warm edge rather than a fill: these are still
+   perfectly usable controls, not errors, and nothing here is invalid. */
+.rp-field.typing-bundled {
+  border-radius: 8px; padding: 4px 6px; margin-inline: -6px;
+  box-shadow: 0 0 0 1px var(--warn), 0 0 8px var(--warn-glow);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+}
+
+/* The dialog wears the same glow, so by the time the reader looks back at the fields the colour has
+   already been explained. */
+.modal-card.modal-warn { box-shadow: 0 0 0 2px var(--warn), 0 0 26px var(--warn-glow); }
+.modal-warn-head { margin: 0 0 6px; text-align: center; }
+.modal-warn .warn-glyph {
+  font-size: 30px; line-height: 1; color: var(--warn);
+  filter: drop-shadow(0 0 8px var(--warn-glow));
+}
 
 .ws-form fieldset {
   border: 1px solid var(--border);

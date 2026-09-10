@@ -331,7 +331,9 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
    and a drag handle is useless on a touch screen. Line breaks are stripped in JS; wrapping only. */
 .seg-text { grid-column: 2; border: none; border-top: 1px solid var(--border); padding: 6px 2px;
             font-size: 18px; line-height: 1.5; color: var(--vern); min-width: 0; width: 100%;
-            font-family: inherit; resize: none; overflow: hidden; min-height: 0;
+            font-family: inherit; resize: none; overflow: hidden;
+            field-sizing: content;                    /* the browser sizes it where it can */
+            min-height: calc(1.5em + 12px);           /* ⚠ one line always visible, measured or not */
             background: transparent; }
 /* An EMPTY strip is a real segment whose text just happens to be empty — how silence is marked
    (Enter, let it play through the pause, Enter again). Visually quieter, never hidden. */
@@ -686,7 +688,11 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
   line-height: 1.45;
   resize: none;
   overflow: hidden;
-  min-height: 0;                 /* rows=1 plus growArea decides the height, not a UA minimum */
+  /* ⚠ THE BROWSER SIZES IT WHERE IT CAN — no script, nothing to measure, nothing to go stale. */
+  field-sizing: content;
+  /* ⚠ AND A ONE-LINE FLOOR REGARDLESS. A detached or hidden element reports scrollHeight 0, and a
+     box showing none of its text is a far worse failure than one briefly too short. */
+  min-height: calc(1.45em + 6px);
 }
 .free-input:hover { border-color: var(--border); }
 .free-input:focus { outline: none; border: 1px solid var(--blue); background: #fff; }

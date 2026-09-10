@@ -126,23 +126,46 @@ let caretMirror = null;
  * the guarantee that a focused box is never behind the keyboard, and that guarantee is what this
  * function now provides instead. Reverting the meta without removing this would give you both
  * problems at once. */
-/* ⚠ GROW, DO NOT SCROLL INSIDE. A box that scrolls within itself is the wrong shape on a touch
- * screen: the typist cannot see the line they are writing, and a nested scroller fights the page
- * scroll — the same nested-scrolling problem #66 and #43 are about. So a prose box grows to fit its
- * content and the PAGE scrolls; one scroller, always the outer one.
+/* ⚠ PREFER THE BROWSER'S OWN AUTO-SIZING. `field-sizing: content` makes a form control size to its
+ * content with no script at all, so where it exists there is nothing to measure, nothing to get
+ * wrong, and nothing that can be out of date. The CSS declares it for both prose boxes; this helper
+ * stands down when it is supported, because an explicit inline height would OVERRIDE it and put us
+ * back to measuring.
  *
- * Seth, 2026-09-10, about segmentation mode specifically: "for single line audio segments, THAT's
- * what I'm talking about with word-wrap, auto-vertical-expand, and block new lines and carriage
- * returns in those boxes."
+ * The fallback matters for browsers without it (Firefox at time of writing), so both paths exist.
  *
- * `height = 'auto'` first is load-bearing: scrollHeight reports the content height only once the
- * element is not already held taller than its text, or the box never shrinks again after a deletion.
+ * ⚠ AND IT CANNOT MEASURE A DETACHED ELEMENT. scrollHeight is 0 until the node is in the document,
+ * so calling this while the row is still being built set height to 0px and the box rendered as a
+ * sliver showing nothing — Seth, 2026-09-10: "rows=1 is so thin it's not showing any text, even text
+ * that was already there. It doesn't grow to fit until the field is focused and edited." Exactly
+ * that: the first edit happened after insertion, so the first edit appeared to fix it.
  *
- * Exported because app.js's free-translation box wants the same behaviour for the same reason. */
+ * Callers therefore defer the first call by a microtask, the same way registerCaretScissors already
+ * does for the same reason ("a box registers while its row is still being built, before it is in the
+ * document"), and this guard refuses outright rather than writing a bogus height.
+ *
+ * A CSS min-height keeps one line visible even if a measurement is impossible — a hidden tab reports
+ * 0 too, and a box that shows nothing is a worse failure than one that is briefly too short.
+ *
+ * Seth, about segmentation mode: "for single line audio segments, THAT's what I'm talking about with
+ * word-wrap, auto-vertical-expand, and block new lines and carriage returns in those boxes." */
+const NATIVE_FIELD_SIZING = typeof CSS !== 'undefined' && CSS.supports
+  && CSS.supports('field-sizing', 'content');
+
 export function growArea(el) {
   if (!el || el.tagName !== 'TEXTAREA') return;
+  if (NATIVE_FIELD_SIZING) return;             // the browser is already doing it; do not fight it
+  if (!el.isConnected) return;                 // ⚠ scrollHeight is 0 off-document — never write 0px
+  const prev = el.style.height;
   el.style.height = 'auto';
-  el.style.height = el.scrollHeight + 'px';
+  const h = el.scrollHeight;
+  /* ⚠ A ZERO MEASUREMENT IS NEVER WRITTEN. Off-document is not the only way to get 0 — a hidden
+   * ancestor does it too, and a tab rendered before it is shown is an ordinary case here. Writing
+   * 0px then is what produced a sliver with the text invisible. Restoring the previous height means
+   * a bad measurement leaves the box exactly as it was, and the CSS min-height still guarantees one
+   * readable line, so the worst case is "briefly too short" instead of "shows nothing". */
+  if (!h) { el.style.height = prev; return; }
+  el.style.height = h + 'px';
 }
 
 export function installKeyboardOverlayGuard() {
@@ -897,7 +920,8 @@ export function renderStrips() {
     input.className = 'seg-text';
     input.rows = 1;
     input.value = text;
-    growArea(input);
+    // ⚠ Deferred: the row is not in the document yet, and growArea cannot measure a detached node.
+    queueMicrotask(() => growArea(input));
     /* ⚠ VERNACULAR — protected by inheritance from <body>, not by writes here. There is no
      * dictionary for the language typed in this box, so every suggestion is wrong. See js/typing.js. */
     /* ⚠ WRAPPING YES, LINE BREAKS NO. Seth: "block new lines and carriage returns in those boxes."
@@ -919,6 +943,8 @@ export function renderStrips() {
       commitTexts();
     });
     input.addEventListener('keydown', (e) => onKey(e, i, input));
+    // Backstop for a row rendered while the tab was hidden; the CSS floor covers the empty case.
+    input.addEventListener('focus', () => growArea(input));
     // The ✂ under the caret, whenever Enter here would split (plans/split-tiers.md).
     registerCaretScissors(input, row, () => stripsCaretWant(input, i), (at) => stripsPlace(i, 'text', at), deps.t('split.here'));
 

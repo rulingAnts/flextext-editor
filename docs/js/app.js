@@ -4088,7 +4088,8 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   input.rows = 1;
   input.placeholder = t('gloss.freePlaceholder');
   input.value = seg.free || '';
-  growArea(input);
+  // ⚠ Deferred: freeRow is still being built, and growArea cannot measure a detached node.
+  queueMicrotask(() => growArea(input));
   if (analFont) input.style.fontFamily = analFont;
   /* ⚠ WRAPPING YES, LINE BREAKS NO. Seth, 2026-09-10: "Do not allow users to enter linefeeds or
    * carriage returns or manual line breaks though in those boxes, just word wrapping." A free
@@ -4114,6 +4115,12 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * handler above then removes. preventDefault only — never stopPropagation — so anything else that
    * acts on Enter still sees it. */
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+  /* ⚠ A BACKSTOP, NOT THE MECHANISM. A box rendered while its tab was still hidden measured 0 and
+   * kept the CSS one-line floor; arriving in it is the first certain moment it is visible. Seth was
+   * explicit that focus must not be REQUIRED — "we also want empty text fields to be one text line
+   * tall, not zero pixels tall until the user starts typing. Or focuses the field" — which the
+   * min-height floor guarantees. This only fixes a PRE-FILLED box that needed more than one line. */
+  input.addEventListener('focus', () => growArea(input));
   // The ✂ under the caret, whenever Enter here would place a split (plans/split-tiers.md).
   registerCaretScissors(input, freeRow, () => glossCaretWant(input, seg), (at) => {
     const i = current ? current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg) : -1;

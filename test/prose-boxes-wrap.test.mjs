@@ -60,8 +60,12 @@ test('the free translation and the segment rows are textareas that wrap', () => 
 
 test('they grow to fit instead of scrolling inside themselves', () => {
   assert.match(STRIPS, /export function growArea\(el\)/, 'one shared helper');
-  assert.match(STRIPS, /el\.style\.height = 'auto';\n\s*el\.style\.height = el\.scrollHeight \+ 'px';/,
-    "height:auto first, or the box never shrinks after a deletion");
+  /* height:auto BEFORE reading scrollHeight, or the box never shrinks again after a deletion —
+   * scrollHeight reports the content height only when the element is not already held taller. */
+  const g = STRIPS.slice(STRIPS.indexOf('export function growArea(el)'),
+                         STRIPS.indexOf('export function installKeyboardOverlayGuard'));
+  assert.ok(g.indexOf("el.style.height = 'auto';") < g.indexOf('el.scrollHeight'),
+    'height:auto first, or the box never shrinks after a deletion');
   assert.match(APP, /growArea, initCut/, 'app.js imports it rather than keeping a second copy');
   // Grown on first paint AND on every edit, or the box jumps on the first keystroke.
   for (const [src, what] of [[APP, 'free-input'], [STRIPS, 'seg-text']]) {
@@ -112,4 +116,49 @@ test('the gloss normalises again on blur, after the keyboard has finished with i
   assert.match(b, /g\.value\.replace\(\/ \/g, '\.'\)/, 'the same substitution');
   assert.match(b, /w\.gls = g\.value;/, 'and the doc is updated, not just the box');
   assert.match(b, /schedulePersist\(\);/, 'and saved');
+});
+
+/* ⚠ THE SLIVER BUG, PINNED. Seth, 2026-09-10: "rows=1 is so thin it's not showing any text, even
+ * text that was already there. It doesn't grow to fit until the field is focused and edited." Cause:
+ * growArea ran while the element was still detached, scrollHeight was 0, and 0px was written as the
+ * height. The first edit happened after insertion, which is why editing appeared to fix it.
+ *
+ * Three independent defences, because this must not be able to recur:
+ *   1. never measure a detached node, and never write a zero measurement
+ *   2. defer the first call by a microtask, so the row is in the document
+ *   3. a CSS min-height floor, so one line is visible even when no measurement is possible */
+test('a zero or impossible measurement can never collapse the box', () => {
+  const fn = STRIPS.slice(STRIPS.indexOf('export function growArea(el)'),
+                          STRIPS.indexOf('export function installKeyboardOverlayGuard'));
+  assert.match(fn, /if \(!el\.isConnected\) return;/, 'a detached node is refused outright');
+  assert.match(fn, /const prev = el\.style\.height;/, 'the previous height is kept');
+  assert.match(fn, /if \(!h\) \{ el\.style\.height = prev; return; \}/,
+    'a zero measurement restores rather than collapses — a hidden tab reports 0 too');
+  assert.ok(fn.indexOf('const h = el.scrollHeight') < fn.indexOf('if (!h)'),
+    'measured once, then judged — not written and then corrected');
+  // And it stands down where the browser sizes natively, or an inline height would override it.
+  assert.match(fn, /if \(NATIVE_FIELD_SIZING\) return;/);
+  assert.match(STRIPS, /CSS\.supports\('field-sizing', 'content'\)/);
+});
+
+test('the first sizing is deferred until the row is in the document', () => {
+  assert.match(APP, /queueMicrotask\(\(\) => growArea\(input\)\);/, 'the free translation defers');
+  assert.match(STRIPS, /queueMicrotask\(\(\) => growArea\(input\)\);/, 'and so does a segment row');
+});
+
+/* ⚠ AN EMPTY BOX IS ONE LINE TALL WITHOUT ANY SCRIPT RUNNING. Seth: "we also want empty text fields
+ * to be one text line tall, not zero pixels tall until the user starts typing. Or focuses the
+ * field." So the floor is CSS, not JS — it cannot depend on a measurement that might not happen. */
+test('an empty box is one line tall by CSS alone', () => {
+  for (const sel of ['.free-input', '.seg-text']) {
+    const rule = CSS.slice(CSS.indexOf(sel + ' {'), CSS.indexOf('}', CSS.indexOf(sel + ' {')));
+    assert.match(rule, /min-height: calc\(1\.[45]\d*em \+ \d+px\)/,
+      `${sel} floors at one line in CSS, independent of any measurement`);
+    assert.doesNotMatch(rule, /min-height: 0/, `${sel} must not floor at zero`);
+  }
+});
+
+test('focus re-measures as a backstop, but is never required', () => {
+  assert.match(APP, /input\.addEventListener\('focus', \(\) => growArea\(input\)\);/);
+  assert.match(STRIPS, /input\.addEventListener\('focus', \(\) => growArea\(input\)\);/);
 });

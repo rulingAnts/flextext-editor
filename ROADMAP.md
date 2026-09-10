@@ -45,7 +45,33 @@ no web-level lever remains — see #62, and #72 for the provisioning step that d
 
 **lameta session export** (#71) — `docs/js/lameta.js` writes a session folder a researcher drops
 straight into a lameta project. Format read from real files, not inferred; see
-`plans/lameta-session-export.md`. Panel wiring still to do.
+`plans/lameta-session-export.md`.
+
+## 0b. On staging, awaiting a production push (v665 to v667)
+
+- **lameta session export, wired (v665).** The Researcher panel's export menu now offers it
+  alongside SayMore and ELAN. The package carries the original recording, a converted
+  `.annotations.wav` when the original is not WAV, complete ELAN `.eaf` + `.pfsx` (lameta has no
+  built-in annotation editor — it opens ELAN), a `.flextext` serialized at export time from the same
+  state the EAF comes from, the suite's history JSON, and a `.meta` sidecar per file. Verified by
+  opening a produced folder in lameta 3.0.21-beta: the `.flextext` types as "FLEx", `fau` resolves
+  to Fayu and `id` to Indonesian, and the sidecars are absorbed.
+- **Full-line boxes wrap and grow (v666, fixed v667).** The baseline box in audio-segmentation mode
+  and the free translation on the Gloss tab wrap onto as many lines as they need instead of scrolling
+  sideways — on a phone the typist could not see the sentence being written. Line breaks are blocked
+  inside them (one box is one line, from typing or from a paste); the plain box used when audio
+  segmentation is *off* is untouched, where Enter still starts a paragraph. ⚠ The one-line floor is
+  **CSS `min-height`, not script**, because the requirement is that an empty box is one line tall
+  before anything has run; `field-sizing: content` does the growing natively where it exists (Chrome)
+  and the JS path carries Firefox, which has no `field-sizing` yet.
+- **Space becomes a period in glosses on Android (v667).** The fix now watches the field's value
+  rather than the key, since an on-screen keyboard commits through the IME and never reports the
+  space — so it also covers the suggestion strip, dictation and pasting. It tidies once more on blur,
+  where the keyboard's own autocorrect cannot fight it.
+
+**Known, deferred:** **#73** — no split ✂ appears at a word gap containing punctuation, because the
+scissors are hung off the chain-link button and `canMerge` (rightly) refuses to chain a word to a
+comma. The keyboard route still splits there; only the click target is missing.
 
 ## 1. Recently released (v585 to v602)
 

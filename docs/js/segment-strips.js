@@ -168,6 +168,38 @@ export function growArea(el) {
   el.style.height = h + 'px';
 }
 
+/* ⚠ THE ARITHMETIC OF #43 LIVES HERE, PURE AND EXPORTED, BECAUSE IT HAS SHIPPED WRONG TWICE.
+ * v609 measured a viewport that `overlays-content` does not shrink; v615 fixed that in one place and
+ * left the other holding the same false assumption. Both were logic errors inside a DOM-bound
+ * closure, so the tests — which read source as text — passed both times. Pulling the two decisions
+ * out means they can be exercised across all three viewport modes with no DOM at all, which is the
+ * only kind of test that would have caught either regression.
+ *
+ * THE VISIBLE BAND'S BOTTOM EDGE, in client coordinates: where the visual viewport ends, less the
+ * part of the keyboard the viewport has NOT already given up.
+ *   overlays-content (what all seven shells declare): resizes NEITHER viewport, so shrunk is 0 and
+ *     the whole keyboard height comes off. This is the case that was broken.
+ *   resizes-visual (the browser default) / resizes-content: the viewport already shrank by the
+ *     keyboard, so shrunk == kb, nothing further comes off, and vvHeight carries it.
+ *   no keyboard API (Firefox Android): kb is 0 and the shrinking viewport carries it. */
+export function visibleBandBottom({ innerHeight, vvHeight, vvOffsetTop, kbHeight }) {
+  const hasVv = typeof vvHeight === 'number';
+  const bottom = hasVv ? vvOffsetTop + vvHeight : innerHeight;
+  const shrunk = hasVv ? Math.max(0, Math.round(innerHeight - (vvHeight + vvOffsetTop))) : 0;
+  return bottom - Math.max(0, Math.round(kbHeight || 0) - shrunk);
+}
+
+/* HOW FAR TO SCROLL THE BOX'S OWN SCROLLPORT — the minimum that clears the keyboard, and never so
+ * far that the box's top goes under a sticky header parked at the top of that scrollport (which
+ * would hide it behind the player instead of behind the keyboard). A partial reveal beats both
+ * "buried" and "scrolled past the top", so the cap wins over the need. */
+export function revealScrollBy({ elTop, elBottom, bandBottom, stickyBottom, gap = 8 }) {
+  const need = Math.ceil(elBottom - (bandBottom - gap));
+  if (need <= 0) return 0;                       // already clear: never scroll for nothing
+  const headroom = Math.max(0, elTop - stickyBottom - gap);
+  return Math.min(need, headroom);
+}
+
 export function installKeyboardOverlayGuard() {
   if (typeof window === 'undefined' || window.__fxKbGuard) return;
   const vv = window.visualViewport || null;
@@ -177,14 +209,21 @@ export function installKeyboardOverlayGuard() {
   /* Opting in is what makes the keyboard report its geometry at all — and it is also what
    * populates the env(keyboard-inset-*) CSS variables the stylesheet falls back on. */
   if (vk) { try { vk.overlaysContent = true; } catch { /* not settable here: the fallback covers us */ } }
-  /* How much of the page the keyboard hides, from whichever API can see it. */
-  const coveredPx = () => {
-    let c = 0;
+  /* How much of the page the keyboard hides, from whichever API can see it.
+   *
+   * Split into its two sources because REVEAL NEEDS THEM APART (see visibleBottom below), even
+   * though the inset only ever wants the larger:
+   *   shrunkPx — how much the visual viewport has ALREADY given up for the keyboard. Zero under
+   *              `overlays-content`, which is what every shell declares; non-zero on a browser
+   *              that shrinks instead (iOS Safari, and the `resizes-visual` default).
+   *   kbPx     — what the keyboard itself says it occupies. The only signal under overlays-content,
+   *              and Chromium-only. */
+  const shrunkPx = () => (vv ? Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop))) : 0);
+  const kbPx = () => {
     const r = vk && vk.boundingRect;
-    if (r && r.height) c = Math.max(c, Math.round(r.height));
-    if (vv) c = Math.max(c, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
-    return Math.max(0, c);
+    return r && r.height ? Math.round(r.height) : 0;
   };
+  const coveredPx = () => Math.max(0, shrunkPx(), kbPx());
   const typing = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   /* ⚠ AND THE BOTTOM-FIXED FURNITURE RIDES ABOVE THE KEYBOARD. This is the OTHER thing
    * `resizes-content` was quietly buying: when the layout shrank, the toast, the upload tray, the
@@ -195,17 +234,95 @@ export function installKeyboardOverlayGuard() {
   const setInset = () => {
     document.documentElement.style.setProperty('--kb-inset', coveredPx() + 'px');
   };
+  const GAP = 8;   // breathing room between the box and the top of the keyboard
+
+  /* THE BOTTOM OF WHAT THE READER CAN STILL SEE, in client coordinates.
+   *
+   * ⚠ THIS LINE IS ISSUE #43, AND IT HAS BEEN WRONG TWICE. The visible band ends where the visual
+   * viewport ends, LESS the part of the keyboard the viewport has not already accounted for. That
+   * last clause is the whole bug: the old code subtracted the keyboard only when there was no
+   * visualViewport at all (`- (vv ? 0 : covered)`), on the assumption that a viewport which exists
+   * has already shrunk by the keyboard's height. Under `interactive-widget=overlays-content` —
+   * which all seven shells declare — it has NOT: overlays-content is defined as resizing neither
+   * viewport. So vv existed, nothing was subtracted, visibleBottom was the full window height,
+   * every focused box tested as "already visible", and the function returned without ever
+   * scrolling. Seth, on v664 hardware: "Keyboard still buries what I click on to type."
+   *
+   * v615 fixed exactly this mistake one line earlier, in coveredPx, and left this line holding the
+   * same false assumption — which is why the FURNITURE rode above the keyboard correctly while the
+   * focused box did not move. Hence shrunkPx and kbPx being separate: `kbPx() - shrunkPx()` is the
+   * part still to subtract, and it is right in all three modes —
+   *   overlays-content: shrunk 0, so the whole keyboard comes off.
+   *   resizes-visual / resizes-content: shrunk == keyboard, so nothing further comes off and the
+   *     already-shrunk vv.height carries it.
+   *   no keyboard API (Firefox Android): kbPx 0, and the shrinking viewport carries it. */
+  const visibleBottom = () => visibleBandBottom({
+    innerHeight: window.innerHeight,
+    vvHeight: vv ? vv.height : undefined,
+    vvOffsetTop: vv ? vv.offsetTop : 0,
+    kbHeight: kbPx(),
+  });
+
+  /* The nearest ancestor that actually scrolls — and NEVER the document.
+   *
+   * ⚠ WHY NOT scrollIntoView: it scrolls EVERY scrollable ancestor, the document included, and it
+   * takes an alignment rather than an amount. Both are how the previous attempt earned Seth's
+   * constraint — "we just have to make sure that scrolling to the focused field doesn't push our
+   * preview/big player and top UI elements off the page. It had been doing that before."
+   *
+   * In this layout <main> is the scrollport (flex:1; overflow-y:auto) and the overview player is
+   * position:sticky inside it, so scrolling main keeps the player pinned by construction. Scrolling
+   * the DOCUMENT is what moves it, so the walk stops before documentElement and body: a field with
+   * no scrollable ancestor below the document is left alone rather than revealed by moving the
+   * whole page. */
+  const scrollParents = (el) => {
+    const out = [];
+    for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && p.scrollHeight > p.clientHeight + 1) out.push(p);
+    }
+    return out;
+  };
+
+  /* How far down the visible band starts: below any sticky header currently parked at the top of
+   * this scrollport. Scrolling the box up past that would hide it behind the player instead of
+   * behind the keyboard, which is not an improvement — so it caps the scroll. */
+  const stickyBottom = (sc) => {
+    const top = sc.getBoundingClientRect().top;
+    let b = top;
+    for (const k of sc.children) {
+      if (getComputedStyle(k).position !== 'sticky') continue;
+      const kr = k.getBoundingClientRect();
+      /* ⚠ A HIDDEN STICKY CHILD MUST NOT COUNT. #audio-player is sticky and a direct child of main
+       * (verified in the browser), but it is display:none for a text with no recording — and a
+       * display:none element reports an ALL-ZERO rect, whose top of 0 would read as "parked at the
+       * top". Requiring a real box keeps a player that is not on screen from capping the scroll. */
+      if (!kr.height) continue;
+      if (kr.top <= top + 2 && kr.bottom > b) b = kr.bottom;   // parked at the top right now
+    }
+    return b;
+  };
+
   const reveal = () => {
     const el = document.activeElement;
     if (!typing(el)) return;
-    const covered = coveredPx();
-    if (!covered) return;                           // no keyboard in the way: nothing to reveal
-    // The bottom of what the reader can still see: the visual viewport where it moves, the window
-    // otherwise, less whatever the keyboard covers.
-    const visibleBottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - (vv ? 0 : covered);
-    const r = el.getBoundingClientRect();
-    if (r.bottom <= visibleBottom - 8) return;      // already visible: never scroll for nothing
-    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { el.scrollIntoView(); }
+    /* ⚠ NO GUESSING WHEN THE KEYBOARD IS INVISIBLE TO US. If neither API reports coverage there is
+     * either no keyboard or no way to size it, and scrolling the page on a hypothesis is precisely
+     * the behaviour Seth objected to. Doing nothing is the conservative answer. */
+    if (!coveredPx()) return;
+    const bottom = visibleBottom();
+    /* BY THE MINIMUM, and no further — revealScrollBy holds that arithmetic. Re-measured per
+     * scrollport because each scroll moves the box, and whatever one scrollport could not give is
+     * asked of the next; the walk already stops before the document. */
+    for (const sc of scrollParents(el)) {
+      const r = el.getBoundingClientRect();
+      const by = revealScrollBy({ elTop: r.top, elBottom: r.bottom, bandBottom: bottom, stickyBottom: stickyBottom(sc), gap: GAP });
+      if (by <= 0) continue;
+      const before = sc.scrollTop;
+      sc.scrollTop = before + by;                   // assignment clamps at the scrollport's end
+      if (sc.scrollTop === before) continue;        // nothing left to give: try the next one out
+      if (el.getBoundingClientRect().bottom <= bottom - GAP) return;   // clear now: stop
+    }
   };
   const onChange = () => { setInset(); reveal(); };
   // The keyboard's own geometry — the only signal that moves under `overlays-content`.

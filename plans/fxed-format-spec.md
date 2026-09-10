@@ -208,6 +208,8 @@ step 3.
 
 ## 9b. ⚠ A per-text history file goes in EVERY export target, not just one
 
+**Tracked in [#75](https://github.com/rulingAnts/flextext-editor/issues/75)**, which carries the export-zip checklist.
+
 Seth, 2026-09-10, while specifying the lameta session export (#71):
 
 > "If and when we build that, we'll include it in our lameta and SayMore and 'All' export."

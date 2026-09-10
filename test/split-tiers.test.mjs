@@ -76,7 +76,15 @@ test('Baseline tab: the box places the text tier, the playhead the audio tier; r
 });
 
 test('Gloss tab: the ✂ between words, the translation\'s caret and the playhead each place a tier; words editable in place', () => {
-  assert.match(APP, /sc\.addEventListener\('click', \(\) => glossPlace\(i, 'words', before\)\);/);
+  /* ⚠ THE GAP INDEX IS NOW THE MODEL INDEX DIRECTLY (issue #73). The ✂ used to be hung off each
+   * chain-link and counted preceding .word-cell elements to recover the same number; it is now
+   * placed per gap, where `k` IS that index because renderSegment appends one .word-cell per
+   * seg.words entry, punctuation included. */
+  assert.match(APP, /sc\.addEventListener\('click', \(\) => glossPlace\(i, 'words', k\)\);/);
+  assert.match(APP, /if \(!canSplitBefore\(gapSeg, k\)\) continue;/,
+    'and WHICH gaps get one is canSplitBefore, not canMerge');
+  assert.doesNotMatch(APP.replace(/\/\*[\s\S]*?\*\//g, ''), /querySelectorAll\('\.chain-btn'\)\.forEach/,
+    'the ✂ no longer rides on the chain-links, which is what made canMerge decide both questions');
   assert.match(APP, /glossPlace\(i, 'words', atStart \? w : w \+ 1\);/);
   assert.match(APP, /if \(fi\.value\.trim\(\) && joinSplitAllowed\('gloss'\)\) \{ glossPlace\(i, 'free', fi\.selectionStart \?\? fi\.value\.length\); return; \}/, 'mid-text Enter in the translation places its tier');
   assert.match(APP, /glossPlaceEdge\(i, 0\);/, 'Enter at the start: an empty line before, audio still to place (through the edge helper, v598)');

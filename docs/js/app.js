@@ -3,7 +3,7 @@
 import {
   parseFlextext, serializeFlextext, makeDoc, makeWord, makeSegment,
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
-  canMerge, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
+  canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
   mergePhrases, baselineFromWords,
 } from './flextext.js';
@@ -1341,29 +1341,54 @@ function decorateGlossSegments() {
       joinRow.appendChild(join);
       g.insertAdjacentElement('afterend', joinRow);
     }
-    /* SCISSORS under each chain-link (Seth, v326): the chain joins two words into one lexical item
-     * (FLEx-style); the scissors directly below it SPLITS THE LINE at that same word gap -- the
-     * one-click version of Enter at that gloss boundary. Wrapped in a column so the pair reads as
-     * "this gap: join words / split line". Word-gap index = word cells before the link. */
-    g.querySelectorAll('.chain-btn').forEach((link) => {
-      if (link.parentElement && link.parentElement.classList.contains('gap-ctl')) return;
-      const rowEl = link.parentElement;
-      const kids = [...rowEl.children];
-      const before = kids.slice(0, kids.indexOf(link)).filter((el) => el.classList.contains('word-cell')).length;
-      const wrapEl = document.createElement('span');
-      wrapEl.className = 'gap-ctl';
-      link.replaceWith(wrapEl);
-      wrapEl.appendChild(link);
-      const sc = document.createElement('button');
-      sc.className = 'scissor-btn';
-      sc.tabIndex = -1;
-      sc.textContent = '\u2702';
-      sc.setAttribute('aria-label', t('gloss.splitTip'));
-      sc.title = t('gloss.splitTip');
-      sc.dataset.gap = String(before);
-      sc.addEventListener('click', () => glossPlace(i, 'words', before));   // the WORDS tier of the pending split
-      wrapEl.appendChild(sc);
-    });
+    /* SCISSORS AT EVERY GAP THE LINE MAY BE SPLIT AT (Seth, v326 for the pair; issue #73 for which
+     * gaps). The chain joins two words into one lexical item (FLEx-style); the ✂ beneath it splits
+     * the LINE at that gap — the one-click version of Enter at that gloss boundary. Where both
+     * exist they share a .gap-ctl column, so the pair reads as "this gap: join words / split line".
+     *
+     * ⚠ THIS USED TO WALK THE CHAIN-LINKS, WHICH MADE canMerge DECIDE BOTH QUESTIONS. A chain-link
+     * exists only where two WORDS meet, so no ✂ was ever offered beside punctuation — and a gap
+     * beside punctuation is often exactly where a line wants to break. Seth: "when there's
+     * punctuation, split scissors do not show up between word/gloss pairs where the punctuation
+     * sits." The two questions now have two answers: canMerge still governs the 🔗, and
+     * canSplitBefore governs the ✂ (it withholds a split that would strand punctuation at the head
+     * of the new line, or leave either side with no real word — see flextext.js).
+     *
+     * ⚠ THE GAP INDEX IS THE MODEL INDEX, and that needs no counting: renderSegment appends one
+     * .word-cell per seg.words entry, punctuation included, so the gap before cells[k] IS k. The
+     * old code counted preceding .word-cell elements to reach the same number the long way. */
+    const gapRow = g.querySelector('.word-row');
+    const gapSeg = docSegments(current.doc)[i];
+    if (gapRow && gapSeg) {
+      const cells = [...gapRow.querySelectorAll('.word-cell')];
+      for (let k = 1; k < cells.length; k++) {
+        if (!canSplitBefore(gapSeg, k)) continue;
+        /* Find the column at this gap, or make one. A bare .chain-btn already sitting there is
+         * ADOPTED rather than replaced, so its click handler and its own merge survive. */
+        let wrapEl = cells[k].previousElementSibling;
+        if (wrapEl && wrapEl.classList.contains('chain-btn')) {
+          const link = wrapEl;
+          wrapEl = document.createElement('span');
+          wrapEl.className = 'gap-ctl';
+          link.replaceWith(wrapEl);
+          wrapEl.appendChild(link);
+        } else if (!(wrapEl && wrapEl.classList.contains('gap-ctl'))) {
+          wrapEl = document.createElement('span');
+          wrapEl.className = 'gap-ctl';
+          cells[k].insertAdjacentElement('beforebegin', wrapEl);
+        }
+        if (wrapEl.querySelector('.scissor-btn')) continue;   // idempotent: this pass can run again
+        const sc = document.createElement('button');
+        sc.className = 'scissor-btn';
+        sc.tabIndex = -1;
+        sc.textContent = '\u2702';
+        sc.setAttribute('aria-label', t('gloss.splitTip'));
+        sc.title = t('gloss.splitTip');
+        sc.dataset.gap = String(k);
+        sc.addEventListener('click', () => glossPlace(i, 'words', k));   // the WORDS tier of the pending split
+        wrapEl.appendChild(sc);
+      }
+    }
     /* EDGE ✂ (Seth, 2026-09-07: "scissors before the first word/gloss pair and after the last one,
      * so that we can split/trim empty audio off the edge if we want to"): a timed line can give up
      * the silence at either end as an empty line of its own. The words tier lands at 0 or at the

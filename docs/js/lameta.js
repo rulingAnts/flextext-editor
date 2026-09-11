@@ -62,6 +62,36 @@ export function lametaSessionId(base) {
   return cleaned || 'session';
 }
 
+/* ⚠ lameta'S FILE NAMING RULE, NOT ONLY ITS ID RULE. Seth, 2026-09-11, from lameta 3.0.21-beta: every
+ * file of an imported session showed a red ! and "This file does not comply with the file naming rules
+ * of the current archive" ("Tautua Do.eaf", "Tautua Do.wav" and the rest) while the id and the folder
+ * were already "Tautua_Do". His projects use the REAP archive configuration, whose fileNameRules is
+ * "ASCII". Read from lameta's own bundle, that rule folds accents, turns whitespace into "_", turns
+ * anything outside 0-9 a-z A-Z _ . - into "_", and trims "_" from both ends; a name complies when the
+ * rule leaves it unchanged. This returns names the rule leaves unchanged, and returns a name that
+ * already complies exactly as it was. */
+export function lametaFileName(name) {
+  const s = String(name == null ? '' : name).trim();
+  const dot = s.lastIndexOf('.');
+  const hasExt = dot > 0 && dot < s.length - 1;
+  const clean = (part) => part.replace(/\s+/g, '_').replace(/[^0-9a-zA-Z_.\-]/g, '_')
+    .replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
+  const stem = clean(hasExt ? s.slice(0, dot) : s) || 'file';
+  const ext = hasExt ? clean(s.slice(dot + 1)) : '';
+  return ext ? `${stem}.${ext}` : stem;
+}
+
+/* A .flextext names its recording in <media-files><media location="…"/>. The package renames the
+ * recording, so that one attribute has to follow it or FLEx looks for a file that is not there (Seth:
+ * "Also, update the flextext file's media reference"). ONLY that attribute changes: the rest of the
+ * fetched XML ships byte for byte, which is why the package carries it rather than a re-serialization.
+ * A bare file name, because the recording travels in the same folder as the .flextext. */
+export function lametaFlextextMedia(xml, mediaName) {
+  if (!xml || !mediaName) return xml;
+  return String(xml).replace(/<media(?=[\s/>])[^>]*>/g,
+    (tag) => tag.replace(/(\slocation=)(["'])[^"']*\2/, (m, attr, q) => `${attr}${q}${esc(mediaName)}${q}`));
+}
+
 /** `Finished` once the coworker has marked the text done; otherwise it is still being worked on. */
 export function lametaStatus(done) { return done ? 'Finished' : 'In_Progress'; }
 
@@ -126,21 +156,31 @@ export function lametaFileMetaXml() {
  * tell whether a file it is about to add will be understood or merely carried. */
 export const LAMETA_ANNOTATION_EXT = ['.eaf', '.pfsx', '.flextext', '.fxpa'];
 
+/* The instructions sit at the TOP of the zip, not in the session folder. Seth, 2026-09-11: "put the
+ * How-To-OPEN instructions in the zip root. Rather than in the actual lameta session folder." Inside it,
+ * lameta would list them as one of the session's files. */
+export const LAMETA_ROOT_FILES = ['HOW-TO-OPEN.txt'];
+
 /**
  * The complete folder for one text, as `{ name, data }` entries with paths relative to the lameta
  * PROJECT root — so a caller can zip them and the researcher unzips over their project.
  *
  * `files` is whatever the caller has already assembled for this text ({ name, data }), typically the
- * ELAN EAF, its .pfsx, the .flextext, the recording, and the derived WAV.
+ * ELAN EAF, its .pfsx, the .flextext, the recording, and the derived WAV. ⚠ NAME THEM FROM
+ * lametaSessionId(base) BEFORE BUILDING THEM: the EAF and the .flextext refer to the recording by name,
+ * and a rename made here could not follow them inside. lametaFileName is applied again only as a net.
  */
 export function lametaSessionEntries(session = {}, files = []) {
   const id = lametaSessionId(session.id || session.title);
   const dir = `Sessions/${id}/`;
+  const root = [];
   const out = [{ name: `${dir}${id}.session`, data: lametaSessionXml({ ...session, id }) }];
   for (const f of files) {
     if (!f || !f.name) continue;
-    out.push({ name: dir + f.name, data: f.data });
-    out.push({ name: `${dir}${f.name}.meta`, data: lametaFileMetaXml() });
+    if (LAMETA_ROOT_FILES.includes(f.name)) { root.push({ name: f.name, data: f.data }); continue; }
+    const name = lametaFileName(f.name);
+    out.push({ name: dir + name, data: f.data });
+    out.push({ name: `${dir}${name}.meta`, data: lametaFileMetaXml() });
   }
-  return out;
+  return [...root, ...out];
 }

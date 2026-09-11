@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import {
   applyTyping, enforceTyping, setAnalysisLang, setTypingPrefs, resolveTyping,
   canMarkWithoutReplacing, canSuggestWithoutReplacing, setTypingPlatform, kindOf, VERN, ANAL,
+  spellcheckTagFor,
 } from '../docs/js/typing.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -182,16 +183,17 @@ test('applying twice is the same as applying once — it runs on every render', 
   assert.deepEqual([...el.attrs], [...first]);
 });
 
-/* ⚠ A FLEx WRITING-SYSTEM CODE IS NOT A BCP-47 TAG. `fau-x-iyarike` is a valid writing system and
- * means nothing to a spellchecker; aiming a dictionary at the wrong language is worse than aiming it
- * at none. */
+/* `fau-x-iyarike` is a valid writing system AND a valid BCP-47 tag (FLEx codes are BCP-47, #68), but
+ * its private-use subtag means something only the project knows, and aiming a dictionary at the
+ * wrong language is worse than aiming it at none. v679 moved the screen from a regex in app.js to
+ * spellcheckTagFor in typing.js, the same parse that names the language under the code box. */
 test('a writing-system code with a private-use subtag never becomes a spellcheck language', () => {
   const app = rd('../docs/js/app.js');
-  const re = app.match(/if \(\/\^\[a-z\]\{2,3\}\(-\[A-Za-z\]\{2,4\}\)\?\$\/\.test\(raw\)\) return raw;/);
-  assert.ok(re, 'app.js screens the analysis code before passing it to a dictionary');
-  const ok = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
-  assert.equal(ok.test('fau-x-iyarike'), false, 'the private-use tag is rejected');
-  assert.equal(ok.test('id'), true, 'a real one is not');
+  assert.match(app, /setAnalysisLang\(\(\) => spellcheckTagFor\(settings\.analLang\)\);/,
+    'app.js screens the analysis code through spellcheckTagFor before passing it to a dictionary');
+  assert.equal(spellcheckTagFor('fau-x-iyarike'), '', 'the private-use tag is rejected');
+  assert.equal(spellcheckTagFor('id-fonipa'), '', 'and so is a phonetic variant of a real language');
+  assert.equal(spellcheckTagFor('id'), 'id', 'a real one is not');
 });
 
 /* ⚠ MODULE SCOPE, NOT setup(). setup() returns early for CROWD, PARAGRAPH, RESEARCHER, RECORD and
@@ -657,13 +659,21 @@ test('auto marks when the browser lists the analysis language, and not otherwise
 
 /* The removed fallback, pinned: app.js used to hand navigator.language to the spellchecker when the
  * analysis code was not a usable tag, which checked Indonesian glosses against the researcher's
- * laptop language. */
+ * laptop language. Since v679 the tag comes from spellcheckTagFor alone, so pin the call AND the
+ * function, with the browser set to languages a fallback could have picked. */
 test('no analysis code means no language, not the browser language', () => {
-  const fn = rd('../docs/js/app.js');
-  const block = fn.slice(fn.indexOf('setAnalysisLang(() => {'), fn.indexOf('setAnalysisLang(() => {') + 900);
-  assert.doesNotMatch(block.replace(/\/\*[\s\S]*?\*\//g, ''), /navigator\.language/,
-    'the browser-language fallback must stay gone');
-  assert.match(block, /return '';/, 'an unusable code yields no tag at all');
+  const app = rd('../docs/js/app.js');
+  const at = app.indexOf('setAnalysisLang(');
+  assert.ok(at > 0, 'app.js sets the analysis language');
+  assert.doesNotMatch(app.slice(at, at + 200), /navigator\.language/, 'the browser-language fallback must stay gone');
+  const typing = rd('../docs/js/typing.js');
+  const fnSrc = typing.slice(typing.indexOf('export function spellcheckTagFor'), typing.indexOf('let namesLoad'));
+  assert.doesNotMatch(fnSrc, /navigator/, 'and spellcheckTagFor never consults the browser');
+  withBrowserLanguages('en-US', ['en-US', 'id'], () => {
+    for (const code of ['', 'iau_tmu', 'fau-x-iyarike', 'qaa']) {
+      assert.equal(spellcheckTagFor(code), '', `an unusable code (${JSON.stringify(code)}) yields no tag at all`);
+    }
+  });
 });
 
 /* ─── OFF BY DEFAULT, AND BOTH WARNINGS ──────────────────────────────────────

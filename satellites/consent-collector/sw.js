@@ -17,8 +17,8 @@
  * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
  * browser fetch and install this worker at all. */
 
-const VERSION = 'v678';
-const ENGINE = 'v678';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v679';
+const ENGINE = 'v679';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 /* ⚠ The cache prefix must NOT begin with 'flextext-'. The editor's service worker
  * deletes every 'flextext-*' cache on activate, sparing only names it lists
  * explicitly — a sibling app that adopts that prefix is silently emptied and goes
@@ -58,6 +58,12 @@ const SHELL = [
   '/flextext-editor/js/paragraph-model.js',
   '/flextext-editor/js/paragraph-ui.js',
   '/flextext-editor/js/history.js',
+  // STATIC imports of app.js that were missing here until v679: typing.js and external-link.js (v653),
+  // lameta.js (v665). An app that updated online and next opened offline got a 504 for them and never
+  // started. test/shells-precache-startup-modules.test.mjs walks the real import graph so it cannot recur.
+  '/flextext-editor/js/typing.js',
+  '/flextext-editor/js/external-link.js',
+  '/flextext-editor/js/lameta.js',
   '/flextext-editor/js/artifacts.js',
   '/flextext-editor/js/audio-capture-worklet.js',
   '/flextext-editor/js/flac.js',

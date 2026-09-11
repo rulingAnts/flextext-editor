@@ -14,7 +14,7 @@
 
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
-import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS } from './typing.js';
+import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS } from './typing.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
@@ -715,7 +715,8 @@ const GROUPS = [
     { k: 'appLang', type: 'select', opts: ['follow', ...LANGS], optPrefix: 'panel.opt.appLang.', outside: true },   // sits ABOVE the codes fieldset
     // Codes ONLY (2026-07-13): the name/font fields are gone — names were display
     // sugar, fonts device cosmetics; neither belongs in the FLEx export. tip =
-    // hover tooltip (fieldHtml) warning that FLEx codes are case-sensitive.
+    // hover tooltip (fieldHtml) warning that FLEx codes are case-sensitive. Both carry the language
+    // their code names under the box (WS_CODE_FIELDS in typing.js; a check, never a fill, #68).
     { k: 'vernLang', type: 'text', tip: 'research.wsCase' },
     { k: 'analLang', type: 'text', tip: 'research.wsCase' },
   ] },
@@ -1355,6 +1356,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v679', date: '2026-09-11', items: [
+    { k: 'panel.rel.new.wsLanguageName', issue: 68 },
+    { k: 'panel.rel.fix.offlineStartFiles' },
+    { k: 'panel.rel.fix.spellcheckTagFromCode', issue: 68 },
+  ] },
   { v: 'v678', date: '2026-09-11', items: [
     { k: 'panel.rel.new.reportChooseApp', issue: 69 },
     { k: 'panel.rel.new.gboardSetupStep', issue: 72 },
@@ -9362,6 +9368,17 @@ function infoNoteHtml(f) {
   return `<p class="note info-note" id="info-${f.k}" data-infonote="${f.k}" hidden>${esc(t(f.info))}</p>`;
 }
 
+/* The language a writing-system code names (#68), painted by syncLanguageNames in typing.js. A line
+ * under the box rather than anything inside it, and not a control: it reports what was typed and
+ * changes nothing. Seth, 2026-09-11: "We don't want to make it easy for the user to skip noticing and
+ * checking their writing system code. By offering something that looks automatic but actually
+ * isn't." */
+function langNameLine(f, prefix) {
+  if (!WS_CODE_FIELDS.includes(f.k)) return '';
+  return `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
+}
+const wsLangLabel = (name) => t('panel.f.wsLangName', { name });
+
 function fieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
   // f.tip → hover tooltip on the label + input (e.g. the WS-code case warning).
@@ -9437,7 +9454,8 @@ function fieldHtml(f) {
       <button type="button" class="secondary-btn" data-gact="consentUpload">${esc(t('panel.f.consentUpload'))}</button>
       <input type="file" id="rp-consent-file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.opus,.webm,.flac" hidden></div>${note}`;
   }
-  const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>${note}`;
+  const described = WS_CODE_FIELDS.includes(f.k) ? ` aria-describedby="rp-langname-${f.k}"` : '';
+  const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}${described}></label>${langNameLine(f, 'rp')}${note}`;
   return input;
 }
 
@@ -9629,6 +9647,7 @@ function fillForm(box, v) {
   /* A device that already has one of these dials on must show the ⚠ before anyone touches the form,
    * not only after a change event. See typing.js for what the warning is about. */
   syncTypingWarnings(box, 'data-f');
+  syncLanguageNames(box, 'data-f', wsLangLabel);
 }
 
 /* The consent prompt's status line — the visible half of a hidden value carrier. A stored value is
@@ -9832,6 +9851,7 @@ async function openSettingsModal(target, opts = {}) {
 
   const box = m.el;
   wireSettingsTabs(box);
+  wireLanguageNames(box, 'data-f', wsLangLabel);   // the name under each code box follows the typing
   /* showGroup takes a SECTION id, not a tab id — every caller (the validation banner and its jump
    * buttons, the first-open below) knows which setting it wants, not which of four tabs happens to
    * hold it today. It selects the owning macro-tab and expands that one section. */

@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v678';
+const VERSION = 'v679';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -39,6 +39,12 @@ const SHELL = [
   'js/paragraph-model.js',
   'js/paragraph-ui.js',
   'js/history.js',
+  // STATIC imports of app.js that were missing here until v679: typing.js and external-link.js (v653),
+  // lameta.js (v665). An app that updated online and next opened offline got a 504 for them and never
+  // started. test/shells-precache-startup-modules.test.mjs walks the real import graph so it cannot recur.
+  'js/typing.js',
+  'js/external-link.js',
+  'js/lameta.js',
   'js/artifacts.js',
   'js/audio-capture-worklet.js',
   'js/flac.js',

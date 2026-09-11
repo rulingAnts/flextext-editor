@@ -11,8 +11,8 @@
  * list IDENTICAL to the editor's sw.js (app.js resolves its whole static import graph at load,
  * even though paragraph mode uses only part of it). */
 
-const VERSION = 'v678';
-const ENGINE = 'v678';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v679';
+const ENGINE = 'v679';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-paragraph-' + VERSION;
 
 /* ⚠ THE GHOST (2026-08-04). This site's first deployment served the EDITOR at the origin root, so
@@ -58,6 +58,12 @@ const SHELL = [
   '/flextext-editor/js/paragraph-model.js',
   '/flextext-editor/js/paragraph-ui.js',
   '/flextext-editor/js/history.js',
+  // STATIC imports of app.js that were missing here until v679: typing.js and external-link.js (v653),
+  // lameta.js (v665). An app that updated online and next opened offline got a 504 for them and never
+  // started. test/shells-precache-startup-modules.test.mjs walks the real import graph so it cannot recur.
+  '/flextext-editor/js/typing.js',
+  '/flextext-editor/js/external-link.js',
+  '/flextext-editor/js/lameta.js',
   '/flextext-editor/js/artifacts.js',
   '/flextext-editor/js/audio-capture-worklet.js',
   '/flextext-editor/js/flac.js',

@@ -91,17 +91,20 @@ test('the name is painted under the box, and the box itself is never written', a
     set: () => { throw new Error('the name must never write into the code box'); },
   });
   const line = { textContent: '', hidden: true };
+  const warning = { hidden: true };
   const root = {   // querySelector only: a sweep with querySelectorAll is banned in typing.js
-    querySelector: (sel) => ({ '[data-langname="vernLang"]': line, '[data-sf="vernLang"]': input }[sel] || null),
+    querySelector: (sel) => ({ '[data-langname="vernLang"]': line, '[data-sf="vernLang"]': input, '[data-langwarn]': warning }[sel] || null),
   };
   const label = (n) => `Language: ${n}`;
   await syncLanguageNames(root, 'data-sf', label);   // also proves typing.js finds the table on disk
   assert.equal(line.textContent, 'Language: Fayu');
   assert.equal(line.hidden, false);
+  assert.equal(warning.hidden, false, 'a name never shows without the guess warning');
   value = 'FAU';
   await syncLanguageNames(root, 'data-sf', label);
   assert.equal(line.textContent, '');
   assert.equal(line.hidden, true);
+  assert.equal(warning.hidden, true, 'and the warning goes when no name is showing');
 });
 
 test('both settings forms show the name under both code boxes, painted on fill and while typing', () => {
@@ -120,4 +123,21 @@ test('both settings forms show the name under both code boxes, painted on fill a
     assert.match(src, new RegExp(`syncLanguageNames\\(box, '${attr}', wsLangLabel\\)`), `${name}: painted when the form is filled`);
     assert.match(src, new RegExp(`wireLanguageNames\\(${root}, '${attr}', wsLangLabel\\)`), `${name}: and kept live while typing`);
   }
+});
+
+test('a name never appears without the guess warning and its more-info link, on both forms', () => {
+  // Seth, 2026-09-11: "if people see something come up, they'll assume it matches and is good to go."
+  const panel = bare(rd('../docs/js/researcher-panel.js')), app = bare(rd('../docs/js/app.js'));
+  const i18n = rd('../docs/js/i18n.js');
+  assert.ok(i18n.includes("'panel.f.wsLangGuessWarn': 'Language names are a guess. You must check and manually match writing system codes in your FieldWorks database or things will break!'"),
+    "the warning says it in Seth's words");
+  assert.match(panel, /export function langGuessWarningHtml\(prefix, helpAttr\)/, 'one builder, shared by both forms');
+  assert.match(panel, /data-langwarn hidden>/, 'hidden until a name shows');
+  assert.match(panel, /⚠<\/span> \$\{esc\(t\('panel\.f\.wsLangGuessWarn'\)\)\} /, 'the triangle, then the warning');
+  assert.match(panel, /\$\{esc\(t\('panel\.grp\.moreInfo'\)\)\}<\/button><\/p>/, 'then the more info link');
+  for (const [name, src, help] of [['researcher-panel.js', panel, 'data-ghelp="wscodes"'], ['app.js', app, 'data-sact="wscodesHelp"']]) {
+    assert.ok(src.includes(`? line + langGuessWarningHtml(prefix, '${help}') : line`), `${name}: the warning follows the last code box`);
+  }
+  assert.match(panel, /if \(b\.dataset\.ghelp === 'wscodes'\) wsCodesHelpModal\(\);/, 'panel: more info opens the writing-system codes help');
+  assert.match(app, /if \(which === 'wscodesHelp'\) \{ wsCodesHelpModal\(\); return; \}/, 'Settings tab: so does its own');
 });

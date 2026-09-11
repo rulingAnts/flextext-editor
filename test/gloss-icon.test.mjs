@@ -41,7 +41,12 @@ test('the tab picture follows the setting at boot and on a live push; shells wit
   assert.match(fn, /svg\.innerHTML = GLOSS_ICONS\[want\];/, 'only the children change; the wrapper the CSS sizes stays');
   assert.match(APP, /applyHeaderLabels\(\);\n  applyI18n\(\);\n  applyGlossIcon\(\);/, 'boot');
   assert.match(APP, /applyHeaderLabels\(\);\n  applyGlossIcon\(\);\n  if \(RECORD_MODE\)/, 'live push');
-  assert.match(APP, /import \{ initResearcherPanel, companionApps, GLOSS_ICONS, GLOSS_ICON_DEFAULT, iconTilesHtml, syncIconPicks, wireIconPicks \} from '\.\/researcher-panel\.js';/, 'one home for the pictures; no new precache entry');
+  // The pictures come from researcher-panel.js, a module app.js already imports. Checks the NAMES, not
+  // the whole import list, which grows whenever the two forms share something else (v680 did).
+  const panelImport = ((APP.match(/import \{([^}]*)\} from '\.\/researcher-panel\.js';/) || [])[1] || '').split(',').map((s) => s.trim());
+  for (const name of ['GLOSS_ICONS', 'GLOSS_ICON_DEFAULT', 'iconTilesHtml', 'syncIconPicks', 'wireIconPicks']) {
+    assert.ok(panelImport.includes(name), `one home for the pictures; no new precache entry (${name})`);
+  }
 });
 
 test('both forms carry the field as a picture picker, with the same default line', () => {

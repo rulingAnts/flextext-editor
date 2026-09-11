@@ -290,6 +290,9 @@ This is the part that has caused real outages when done wrong — read
 - Each satellite SW **precaches the editor's engine files by path** — a new top-level import in
   `app.js` must be added to the editor SHELL *and every satellite SHELL* (`satellites/*/sw.js`
   **and** `paragraph-analysis/sw.js`) in the same commit, or updated satellites go dead offline.
+  Enforced since v679 by `test/shells-precache-startup-modules.test.mjs`, which walks app.js's real
+  static import graph: typing.js, external-link.js and lameta.js had gone unlisted for weeks.
+  A module loaded only through `import()` (flac.js, `vendor/langtags-names.js`) is not required.
 - The staging dev site serves its service-worker files with `no-store` via `staging-shell.js`
   (root `wrangler.toml`, `run_worker_first`) so deploys turn over instantly; production keeps
   normal SW-update semantics.

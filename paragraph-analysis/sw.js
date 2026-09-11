@@ -58,6 +58,12 @@ const SHELL = [
   '/flextext-editor/js/paragraph-model.js',
   '/flextext-editor/js/paragraph-ui.js',
   '/flextext-editor/js/history.js',
+  // STATIC imports of app.js that were missing here until v679: typing.js and external-link.js (v653),
+  // lameta.js (v665). An app that updated online and next opened offline got a 504 for them and never
+  // started. test/shells-precache-startup-modules.test.mjs walks the real import graph so it cannot recur.
+  '/flextext-editor/js/typing.js',
+  '/flextext-editor/js/external-link.js',
+  '/flextext-editor/js/lameta.js',
   '/flextext-editor/js/artifacts.js',
   '/flextext-editor/js/audio-capture-worklet.js',
   '/flextext-editor/js/flac.js',

@@ -39,6 +39,12 @@ const SHELL = [
   'js/paragraph-model.js',
   'js/paragraph-ui.js',
   'js/history.js',
+  // STATIC imports of app.js that were missing here until v679: typing.js and external-link.js (v653),
+  // lameta.js (v665). An app that updated online and next opened offline got a 504 for them and never
+  // started. test/shells-precache-startup-modules.test.mjs walks the real import graph so it cannot recur.
+  'js/typing.js',
+  'js/external-link.js',
+  'js/lameta.js',
   'js/artifacts.js',
   'js/audio-capture-worklet.js',
   'js/flac.js',

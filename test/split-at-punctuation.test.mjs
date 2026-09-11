@@ -78,7 +78,12 @@ test('consecutive punctuation is one token, so a quote after a stop needs no spe
 test('the decoration walks word gaps and asks canSplitBefore', () => {
   const blk = APP.slice(APP.indexOf('const gapRow = g.querySelector'), APP.indexOf('/* EDGE ✂'));
   assert.match(blk, /for \(let k = 1; k < cells\.length; k\+\+\)/, 'every interior gap, by model index');
-  assert.match(blk, /if \(!canSplitBefore\(gapSeg, k\)\) continue;/, 'and the split rule decides');
+  assert.match(blk, /if \(!canSplitBefore\(gapPhrase, k\)\) continue;/, 'and the split rule decides');
+  // ⚠⚠ about the PHRASE of line i. v676 asked about docSegments(doc)[i], line i's audio span, which has
+  // no words, so every gap was refused and no ✂ appeared between any word/gloss pair (v676–v684).
+  assert.match(blk, /const gapPhrase = current\.doc\.paragraphs\[i\] && current\.doc\.paragraphs\[i\]\.segments\[0\];/,
+    'the phrase, which carries the words');
+  assert.doesNotMatch(bare(blk), /docSegments\(/, 'never the time span');
   assert.match(blk, /sc\.dataset\.gap = String\(k\);/, 'k is the model index — no counting');
   assert.match(blk, /glossPlace\(i, 'words', k\)/);
   // a chain-link already at that gap is ADOPTED, so its own merge handler survives
@@ -150,4 +155,25 @@ test('a straight quote blocks a break on both sides rather than guessing', () =>
   const ap = { words: tokenize("foo's bar") };
   assert.deepEqual(ap.words.map((w) => w.txt), ["foo's", 'bar']);
   assert.deepEqual(gaps(ap), [1]);
+});
+
+/* ⚠⚠ THE SAME LINES, AS A TIMED TEXT ACTUALLY HOLDS THEM. Every test above hands canSplitBefore a
+ * hand-built { words }, and all of them passed through v676–v684 while the Gloss tab showed no ✂
+ * between any word/gloss pair (Seth: "Now scissors don't appear between interlinear word/gloss pairs
+ * at all!"), because the decoration was asking about line i's AUDIO SPAN. A timed text keeps two
+ * parallel lists, the phrases (which carry the words) and doc.segments (which carry only the time),
+ * and only one of them can answer this question. */
+test('in a timed text the words are on the phrase, and the time span has none to split between', async () => {
+  const { makeDoc, reconcileBaseline } = await import('../docs/js/flextext.js');
+  const doc = makeDoc({ vernLang: 'fau', analLang: 'id' });
+  reconcileBaseline(doc, ['Kaisou fedahu, tudu bisa.', 'foo (bar) baz'], { flatSegments: true });
+  doc.segments = [{ start: 0, end: 3000 }, { start: 3000, end: 6000 }];
+  const phraseOf = (i) => doc.paragraphs[i] && doc.paragraphs[i].segments[0];
+  assert.deepEqual(gaps(phraseOf(0)), [1, 3, 4], 'line 1, asked about its phrase');
+  assert.deepEqual(gaps(phraseOf(1)), [1, 4], 'line 2, likewise');
+  for (const [i, span] of doc.segments.entries()) {
+    const n = phraseOf(i).words.length;
+    assert.deepEqual([...Array(n).keys()].filter((k) => canSplitBefore(span, k)), [],
+      `line ${i + 1}'s time span refuses every gap, which is why asking it hid every ✂`);
+  }
 });

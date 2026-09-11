@@ -1292,6 +1292,10 @@ body.rp-standalone main { padding-top: 0; }
 .rp-known { color: #fff; text-decoration: underline; font-size: 13px; white-space: nowrap; }
 .rp-known-list { margin: 10px 0 0; padding-left: 20px; }
 .rp-known-list li { margin: 8px 0; line-height: 1.45; }
+/* The Feedback window's ways on (#69): one full-width button each, so none reads as the "main" one. */
+.rp-feedback { display: grid; gap: 8px; margin: 12px 0 4px; }
+.rp-feedback .secondary-btn { text-align: left; }
+.rp-help-notes { margin: 0 0 10px; }
 /* Numbered how-to inside a modal — tighter than a bare <ol>, which inherits list spacing meant for prose. */
 .rp-steps { margin: 8px 0 10px; padding-left: 20px; }
 .rp-steps li { margin: 6px 0; line-height: 1.45; }

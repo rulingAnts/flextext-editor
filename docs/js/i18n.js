@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v682';
+export const ENGINE_VERSION = 'v683';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1482,6 +1482,7 @@ internet after the first time.</p>
     ,'panel.rel.fix.spellcheckTagFromCode': 'Spell-checking for the analysis language now reads the language straight from the writing-system code, and also recognizes codes with both a script and a region, such as id-Latn-ID. Codes for phonetic or project-only writing (id-fonipa, fau-x-etic) are still never checked against a dictionary. It stays off unless you turn it on.'
     ,'panel.rel.new.wsLanguageGuessWarning': 'The writing-system codes box in Settings now opens with a ⚠ warning, above both code boxes: even if the language name under a code looks right, the code may not match your FieldWorks database, so every code must still be checked in FieldWorks by hand, or imports will break. A name that comes up is easy to read as “this code matches FLEx”, and it does not mean that. The warning’s more info link opens the writing-system codes help, which the Settings tab now reaches too.'
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
+    ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.new.reportLinks': 'The Researcher Panel now has Report a problem and Suggest a feature links, the same as the Paragraph Analysis Tool has. They are in Release notes, beside the version. A problem report fills in the app version, which site you are on and your browser \u2014 and nothing else: no account, device, text or key information, because the issue tracker is public.'
     ,'panel.rel.fix.enterKeyHint': 'On a phone keyboard, the Enter key in the baseline and free-translation boxes now says what it will do. Since those boxes began wrapping long lines, Android\u2019s keyboard had been showing its new-line key there \u2014 a key promising a line break in a box that does not allow one. It now shows Next where Enter moves on to the next line, which is the usual setting, and the ordinary Enter key where it splits the line instead. The plain baseline box used when audio segmentation is off keeps its new-line key, because there Enter really does start a new paragraph.'
     ,'panel.rel.fix.splitAtPunctuation': 'On the Gloss tab, the \u2702 now appears at every gap a line can actually be split at, including the ones next to punctuation. It used to sit under the chain link that joins two words, so it only appeared where two words met \u2014 and a comma or a full stop between them meant no \u2702 at all, even though just after a comma is often exactly where a sentence wants to break. Joining and splitting are now asked separately. \u26a0 Punctuation still travels with the word it belongs to: a comma or full stop never starts the new line, and an opening bracket or quote never ends the old one \u2014 so \u201c(bar)\u201d moves as one piece. A straight quote gets no \u2702 on either side, because the same character opens and closes and nothing in the text says which this one is; the typographic quotes do not have that problem. Pressing Enter at the edge of a box splits as it always did.'
@@ -1827,8 +1828,8 @@ internet after the first time.</p>
   'panel.apply.partial': 'Pushed to {n}; not applied to: {names}. Those devices are unchanged — open a device’s Settings to fix and retry.',
   'panel.apply.stopped': 'Stopped. Pushed to {n} device(s) before you closed it; the rest are unchanged.',
   'panel.set.projSave': 'Save template',
-  'panel.rel.btn': 'Release notes',
-  'panel.rel.title': 'Release notes',
+  'panel.rel.btn': 'About this version…',
+  'panel.rel.title': 'About this version',
   'panel.rel.version': 'You are running {v}.',
   'panel.rel.isTestBuild': 'This is a test site, not production.',
   'panel.rel.newTitle': 'What’s new',
@@ -1840,6 +1841,11 @@ internet after the first time.</p>
   'panel.rel.prioritise': 'Which of these gets in your way most? That is what decides the order they are fixed in — say so, and it moves up.',
   'panel.reportBug': 'Report a problem',
   'panel.reportFeature': 'Suggest a feature',
+  'panel.feedback.btn': 'Feedback',
+  'panel.feedback.title': 'Feedback',
+  'panel.feedback.intro': 'Something not working, an idea for something better, or wondering whether a problem is already known? Start here.',
+  'panel.feedback.known': 'Known issues and planned fixes',
+  'panel.feedback.knownTip': 'Opens the list of open issues on GitHub, where known problems and planned fixes are tracked.',
   'panel.report.appLabel': 'Which app is this about?',
   'panel.report.appPlaceholder': 'Choose an app…',
   'panel.report.why': 'Field devices do not show this link, so problems and ideas from them come through you. The app you choose goes into the title, which is how reports are found later — so choose the app it actually happened in, even if you noticed it here.',
@@ -3943,6 +3949,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.spellcheckTagFromCode': 'Pemeriksaan ejaan untuk bahasa analisis kini membaca bahasanya langsung dari kode sistem penulisan, dan juga mengenali kode dengan aksara dan wilayah sekaligus, seperti id-Latn-ID. Kode untuk tulisan fonetis atau khusus proyek (id-fonipa, fau-x-etic) tetap tidak pernah diperiksa terhadap kamus. Pemeriksaan ini tetap mati kecuali Anda menyalakannya.'
     ,'panel.rel.new.wsLanguageGuessWarning': 'Kotak kode sistem penulisan di Pengaturan kini dibuka dengan peringatan ⚠, di atas kedua kotak kode: meskipun nama bahasa di bawah sebuah kode tampak benar, kodenya belum tentu cocok dengan basis data FieldWorks Anda, jadi setiap kode tetap harus diperiksa sendiri di FieldWorks, atau impor akan bermasalah. Nama yang muncul mudah dibaca sebagai “kode ini sudah cocok dengan FLEx”, padahal bukan itu artinya. Tautan info selengkapnya pada peringatan membuka bantuan kode sistem penulisan, yang kini juga bisa dibuka dari tab Pengaturan.'
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
+    ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.new.reportLinks': 'Panel Peneliti sekarang memiliki tautan Laporkan masalah dan Usulkan fitur, sama seperti Alat Analisis Paragraf. Tautannya ada di Catatan rilis, di samping versi. Laporan masalah mengisi versi aplikasi, situs yang Anda pakai, dan peramban Anda \u2014 tidak ada yang lain: tidak ada informasi akun, perangkat, teks, atau kunci, karena pelacak masalah bersifat publik.'
     ,'panel.rel.fix.enterKeyHint': 'Di papan ketik ponsel, tombol Enter di kotak teks dasar dan terjemahan bebas sekarang menunjukkan apa yang akan dilakukannya. Sejak kotak-kotak itu membungkus baris panjang, papan ketik Android menampilkan tombol baris baru di sana \u2014 tombol yang menjanjikan pemutus baris di kotak yang tidak mengizinkannya. Sekarang tombol itu menampilkan Berikutnya ketika Enter berpindah ke baris berikutnya, yaitu setelan yang biasa, dan tombol Enter biasa ketika Enter memisah baris. Kotak teks dasar biasa yang dipakai saat segmentasi audio dimatikan tetap memakai tombol baris baru, karena di sana Enter memang memulai paragraf baru.'
     ,'panel.rel.fix.splitAtPunctuation': 'Di tab Gloss, \u2702 sekarang muncul di setiap celah tempat sebuah baris benar-benar dapat dipisah, termasuk celah di sebelah tanda baca. Sebelumnya \u2702 berada di bawah tautan rantai yang menggabungkan dua kata, jadi hanya muncul di tempat dua kata bertemu \u2014 dan koma atau titik di antaranya berarti tidak ada \u2702 sama sekali, padahal tepat setelah koma justru sering menjadi tempat kalimat ingin dipisah. Menggabungkan dan memisah sekarang ditanyakan secara terpisah. \u26a0 Tanda baca tetap menyertai kata pemiliknya: koma atau titik tidak pernah mengawali baris baru, dan tanda kurung atau kutip pembuka tidak pernah mengakhiri baris lama \u2014 sehingga \u201c(bar)\u201d berpindah sebagai satu kesatuan. Tanda kutip lurus tidak mendapat \u2702 di kedua sisinya, karena karakter yang sama dipakai untuk membuka dan menutup dan tidak ada dalam teks yang menunjukkan yang mana; tanda kutip tipografis tidak punya masalah itu. Menekan Enter di tepi kotak tetap memisah seperti biasa.'
@@ -4248,8 +4255,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.apply.partial': 'Terkirim ke {n}; tidak diterapkan ke: {names}. Perangkat itu tidak berubah — buka Pengaturan perangkat untuk memperbaiki lalu coba lagi.',
   'panel.apply.stopped': 'Dihentikan. Terkirim ke {n} perangkat sebelum Anda menutupnya; sisanya tidak berubah.',
   'panel.set.projSave': 'Simpan templat',
-  'panel.rel.btn': 'Catatan rilis',
-  'panel.rel.title': 'Catatan rilis',
+  'panel.rel.btn': 'Tentang versi ini…',
+  'panel.rel.title': 'Tentang versi ini',
   'panel.rel.version': 'Anda menjalankan {v}.',
   'panel.rel.isTestBuild': 'Ini situs uji, bukan produksi.',
   'panel.rel.newTitle': 'Yang baru',
@@ -4257,6 +4264,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.prioritise': 'Mana di antara ini yang paling menghambat pekerjaan Anda? Itulah yang menentukan urutan perbaikannya — sampaikan saja, dan prioritasnya naik.',
   'panel.reportBug': 'Laporkan masalah',
   'panel.reportFeature': 'Usulkan fitur',
+  'panel.feedback.btn': 'Masukan',
+  'panel.feedback.title': 'Masukan',
+  'panel.feedback.intro': 'Ada yang tidak berfungsi, punya ide untuk sesuatu yang lebih baik, atau ingin tahu apakah suatu masalah sudah diketahui? Mulai dari sini.',
+  'panel.feedback.known': 'Masalah yang diketahui dan perbaikan yang direncanakan',
+  'panel.feedback.knownTip': 'Membuka daftar isu terbuka di GitHub, tempat masalah yang diketahui dan perbaikan yang direncanakan dicatat.',
   'panel.report.appLabel': 'Aplikasi mana yang dimaksud?',
   'panel.report.appPlaceholder': 'Pilih aplikasi…',
   'panel.report.why': 'Perangkat lapangan tidak menampilkan tautan ini, jadi masalah dan usulan dari sana disampaikan melalui Anda. Aplikasi yang Anda pilih dimasukkan ke judul, dan dari situlah laporan dicari kemudian — jadi pilih aplikasi tempat hal itu benar-benar terjadi, meskipun Anda melihatnya di sini.',

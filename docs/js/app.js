@@ -37,7 +37,7 @@ import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFro
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
-import { initResearcherPanel, companionApps, GLOSS_ICONS, GLOSS_ICON_DEFAULT, iconTilesHtml, syncIconPicks, wireIconPicks } from './researcher-panel.js';
+import { initResearcherPanel, companionApps, GLOSS_ICONS, GLOSS_ICON_DEFAULT, iconTilesHtml, syncIconPicks, wireIconPicks, langGuessWarningHtml, wsCodesHelpModal } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -6839,7 +6839,9 @@ function infoNoteHtml(f) {
  * isn't." */
 function langNameLine(f, prefix) {
   if (!WS_CODE_FIELDS.includes(f.k)) return '';
-  return `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
+  const line = `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
+  // The guess warning after the last code box (built in researcher-panel.js); "more info…" is a data-sact action here.
+  return f.k === WS_CODE_FIELDS[WS_CODE_FIELDS.length - 1] ? line + langGuessWarningHtml(prefix, 'data-sact="wscodesHelp"') : line;
 }
 const wsLangLabel = (name) => t('panel.f.wsLangName', { name });
 
@@ -7473,6 +7475,7 @@ function renderDeviceSetup() {
     // explanation of what is missing rather than from somewhere the reader has to go and find.
     if (which === 'pair') { showInvitePasteModal(); return; }
     if (which === 'recfmtHelp') { const m = $('#recformat-help-modal'); if (m) m.hidden = false; return; }
+    if (which === 'wscodesHelp') { wsCodesHelpModal(); return; }   // the code-box guess warning's "more info…" (#68)
     if (which === 'archivalDefaults') {
       const set = (k, v) => { const el = form.querySelector(`[data-sf="${k}"]`); if (el) el.value = v; };
       set('recordFormat', 'wav24');

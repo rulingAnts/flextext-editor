@@ -1356,6 +1356,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v680', date: '2026-09-11', items: [
+    { k: 'panel.rel.new.wsLanguageGuessWarning', issue: 68 },
+  ] },
   { v: 'v679', date: '2026-09-11', items: [
     { k: 'panel.rel.new.wsLanguageName', issue: 68 },
     { k: 'panel.rel.fix.offlineStartFiles' },
@@ -8616,8 +8619,15 @@ function audioConverterModal() {
 
 // FLEx writing-system-codes help — adapted from Seth's writing-system-codes doc (trusted i18n HTML) + the
 // vern_writ_sys.png screenshot precached in the SW shell so it works offline.
-function wsCodesHelpModal() {
-  const m = modal(`<div class="rp-help wsc-help">${t('panel.wscodes.html')}</div>
+/* Exported for the app's own Settings tab, whose code-box guess warning links here too (#68).
+ * ⚠ The screenshot's path is written for the panel's origin, where the engine lives under
+ * /flextext-editor/. The editor serves the same engine from its root, where that path is a 404
+ * (checked on staging, 2026-09-11), so resolve it against this module's own URL instead: right on
+ * every origin that loads this file. */
+export function wsCodesHelpModal() {
+  const helpDir = new URL('../help/', import.meta.url).pathname;
+  const html = t('panel.wscodes.html').split('/flextext-editor/help/').join(helpDir);
+  const m = modal(`<div class="rp-help wsc-help">${html}</div>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
 }
@@ -9372,12 +9382,25 @@ function infoNoteHtml(f) {
  * under the box rather than anything inside it, and not a control: it reports what was typed and
  * changes nothing. Seth, 2026-09-11: "We don't want to make it easy for the user to skip noticing and
  * checking their writing system code. By offering something that looks automatic but actually
- * isn't." */
+ * isn't." After the last code box comes the guess warning, shown whenever any name is. */
 function langNameLine(f, prefix) {
   if (!WS_CODE_FIELDS.includes(f.k)) return '';
-  return `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
+  const line = `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
+  return f.k === WS_CODE_FIELDS[WS_CODE_FIELDS.length - 1] ? line + langGuessWarningHtml(prefix, 'data-ghelp="wscodes"') : line;
 }
 const wsLangLabel = (name) => t('panel.f.wsLangName', { name });
+
+/* ⚠ A LANGUAGE NAME NEVER APPEARS WITHOUT THIS. Seth, 2026-09-11, on seeing the names: "if people
+ * see something come up, they'll assume it matches and is good to go." One warning for both code
+ * boxes, under the last of them: syncLanguageNames shows it whenever any name is showing and hides it
+ * with the last name. Its "more info…" opens the writing-system codes help; `helpAttr` is how each
+ * form reaches that help (data-ghelp here in the panel, data-sact in the app's own Settings tab).
+ * Exported so the two forms cannot word or build the warning differently. */
+export function langGuessWarningHtml(prefix, helpAttr) {
+  return `<p class="note info-note warn-note ws-lang-warn" id="${prefix}-langwarn" data-langwarn hidden>`
+    + `<span class="ws-lang-warn-icon" aria-hidden="true">⚠</span> ${esc(t('panel.f.wsLangGuessWarn'))} `
+    + `<button type="button" class="link-btn" ${helpAttr}>${esc(t('panel.grp.moreInfo'))}</button></p>`;
+}
 
 function fieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));

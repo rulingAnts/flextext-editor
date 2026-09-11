@@ -1349,6 +1349,10 @@ body.rp-standalone main { padding-top: 0; }
 /* The language a writing-system code names (#68): tucked under its box in the note color. A report
  * on what was typed, deliberately not styled as a confirmed or validated value. */
 .ws-lang-name { margin: -6px 0 0; }
+/* The guess warning that always comes with a name (#68): the typing-dial warning's triangle, color
+ * and glow, so it reads as a warning rather than one more note. */
+.ws-lang-warn { margin: 0; color: var(--text); }
+.ws-lang-warn-icon { color: var(--warn); filter: drop-shadow(0 0 3px var(--warn-glow)); }
 
 /* Required-settings validation: red-ring an offending field + show its inline message. */
 .rp-field.rp-invalid input, .rp-field.rp-invalid select, .rp-field.rp-invalid textarea { border-color: #d92d20; outline: 1px solid #d92d20; }

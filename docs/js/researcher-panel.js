@@ -27,7 +27,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
 import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, driveFolderLink, recordingSince, HISTORY_KINDS } from './history.js';
 import { makeZip } from './zip.js';
-import { lametaSessionEntries } from './lameta.js';
+import { lametaSessionEntries, lametaSessionId, lametaFlextextMedia } from './lameta.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
@@ -1358,6 +1358,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v684', date: '2026-09-11', items: [
+    { k: 'panel.rel.fix.lametaFileNames', issue: 71 },
+  ] },
   { v: 'v683', date: '2026-09-11', items: [
     { k: 'panel.rel.new.feedbackLink', issue: 69 },
   ] },
@@ -3977,6 +3980,12 @@ async function runMenuConversion(wrap, kind, itemEl) {
   try {
     const title = wrap.dataset.title || 'text';
     const base = (wrap._menuSrc && wrap._menuSrc.base) || sanitizeBase(title) || 'text';
+    /* ⚠ THE lameta PACKAGE IS BUILT FROM A lameta-SAFE NAME FROM THE START. Seth, 2026-09-11: lameta
+     * flagged "Tautua Do.eaf" and every other file for breaking its archive's file naming rules. Naming
+     * the recording, the EAF, its .pfsx and the .flextext from this ONE string is what keeps the EAF's
+     * and the .flextext's references to the audio pointing at a file that exists; renaming afterwards
+     * could not reach inside them. Every other kind keeps the title-derived base it always had. */
+    const pkgBase = kind === 'lameta' ? lametaSessionId(base) : base;
     paint(t('panel.dl.working'));
     // The recording package is a straight repackage of the folder — no flextext parse, no decode.
     if (kind === 'package') { await buildRecordingPackage(wrap, base); return; }
@@ -3986,7 +3995,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
       saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext');
       return;
     }
-    const src = await prepareConversionSources(wrap, base, paint, { kind });
+    const src = await prepareConversionSources(wrap, pkgBase, paint, { kind });
     if (src.error) { deps.toast(src.error, 6000); return; }
     if (!src.aligned && kind !== 'fxpa') { deps.toast(t('panel.dl.noAlign'), 7000); return; }
     /* THE ONLY SIZE REFUSAL (Seth): a listening page whose audio is not in it has no reason to
@@ -4013,7 +4022,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
     const useSrc = dropAudio ? { ...src, media: null, segMedia: null } : src;
     // full: preview + fxpa are the embedded-audio outputs (the same full-bundle-only rule the
     // device applies); the ELAN/SayMore zips match what an upload bundle carries.
-    const entries = await buildSegEntriesFor(useSrc, { title, base, wants, full: kind === 'preview' || kind === 'fxpa' });
+    const entries = await buildSegEntriesFor(useSrc, { title, base: pkgBase, wants, full: kind === 'preview' || kind === 'fxpa' });
     if (kind === 'lameta') {
       /* The original recording rides along for the same reason it does in the ELAN zip (Seth,
        * 2026-09-04: "even if it's not the recording used by ELAN/SayMore, the original does need to
@@ -4027,13 +4036,15 @@ async function runMenuConversion(wrap, kind, itemEl) {
        * was built from parseFlextext(src.xml) in this same operation, so shipping src.xml is both
        * consistent AND free of round-trip loss through our own parser. lameta counts .flextext among
        * its annotation extensions, so it is a first-class file there rather than a passenger. */
-      if (src.xml) entries.push({ name: base + '.flextext', data: new Blob([src.xml], { type: 'application/xml' }) });
+      /* …with its one reference to the recording pointed at the file this package actually ships
+       * (lametaFlextextMedia changes that attribute and nothing else). */
+      if (src.xml) entries.push({ name: pkgBase + '.flextext', data: new Blob([lametaFlextextMedia(src.xml, src.segMedia ? src.segMedia.name : '')], { type: 'application/xml' }) });
       /* Only what we actually know. Everything else — Genre, Date, Location, Access — is left out
        * for the researcher to complete in lameta, which is what lameta is for; an empty element
        * would read as answered. ⚠ And a value outside lameta's vocabulary is DROPPED silently, so
        * nothing is approximated. */
       const sessionEntries = lametaSessionEntries({
-        id: base,
+        id: pkgBase,
         title,
         done: wrap.dataset.done === '1' || wrap.dataset.done === 'true',
         vernLang: src.vern || '',

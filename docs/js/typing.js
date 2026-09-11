@@ -333,19 +333,13 @@ export function syncLanguageNames(root, attr, label) {
     .filter(([line]) => line);
   if (!pairs.length) return Promise.resolve();
   return loadLanguageNames().then((names) => {
-    let showing = 0;
     for (const [line, input] of pairs) {
       const name = input ? languageNameIn(names, input.value) : '';
       const text = name ? (typeof label === 'function' ? label(name) : name) : '';
       if (line.textContent !== text) line.textContent = text;
       line.hidden = !text;
-      if (text) showing++;
     }
-    /* ⚠ A NAME NEVER STANDS ALONE. Seth, 2026-09-11: "if people see something come up, they'll
-     * assume it matches and is good to go." So the guess warning under the code boxes shows the
-     * moment any name does, and goes with the last one. */
-    const warning = root.querySelector('[data-langwarn]');
-    if (warning) warning.hidden = !showing;
+    // The warning that goes with the names is static at the top of the codes box (researcher-panel.js).
   });
 }
 

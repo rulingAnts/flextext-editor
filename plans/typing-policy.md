@@ -109,11 +109,13 @@ actually isn't."*
   name. A name shows only for a code FLEx could have written exactly as typed: well-formed, in
   canonical case (`FAU` shows nothing), no extended-language form, and a subtag BCP-47 actually uses
   (`ind` shows nothing, because FLEx writes `id`).
-- **A name never appears alone** (v680). Seth, 2026-09-11: *"if people see something come up,
-  they'll assume it matches and is good to go."* Whenever any name shows, a ⚠ warning under the last
-  code box says *"Language names are a guess. You must check and manually match writing system codes
-  in your FieldWorks database or things will break!"*, followed by "more info…" to the
-  writing-system codes help, now reachable from the unpaired Settings tab as well as the panel.
+- **The names come with a warning** (v681). Seth, 2026-09-11: *"if people see something come up,
+  they'll assume it matches and is good to go."* The codes box opens, above both code boxes, with an
+  always-shown ⚠ *"Even if the language name looks right, the code may not match your FieldWorks
+  database. You MUST check each code in FieldWorks yourself, or imports will break!"* (Seth set the
+  message and asked for sharper wording), followed by "more info…" to the
+  writing-system codes help, reachable from the unpaired Settings tab as well as the panel. (v680
+  showed a shorter warning under the boxes, only while a name was visible; Seth moved it to the top.)
 - **The spellcheck tag** comes from the same parse (`spellcheckTagFor`): language, script and region
   only; nothing for a variant (`id-fonipa`), private use (`fau-x-etic`), `qaa`–`qtz`, or a wrong case.
 

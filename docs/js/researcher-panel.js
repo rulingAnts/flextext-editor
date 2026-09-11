@@ -1356,7 +1356,7 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v680', date: '2026-09-11', items: [
+  { v: 'v681', date: '2026-09-11', items: [
     { k: 'panel.rel.new.wsLanguageGuessWarning', issue: 68 },
   ] },
   { v: 'v679', date: '2026-09-11', items: [
@@ -9382,22 +9382,23 @@ function infoNoteHtml(f) {
  * under the box rather than anything inside it, and not a control: it reports what was typed and
  * changes nothing. Seth, 2026-09-11: "We don't want to make it easy for the user to skip noticing and
  * checking their writing system code. By offering something that looks automatic but actually
- * isn't." After the last code box comes the guess warning, shown whenever any name is. */
+ * isn't." The warning that goes with the names opens the codes box: see langGuessWarningHtml. */
 function langNameLine(f, prefix) {
   if (!WS_CODE_FIELDS.includes(f.k)) return '';
-  const line = `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
-  return f.k === WS_CODE_FIELDS[WS_CODE_FIELDS.length - 1] ? line + langGuessWarningHtml(prefix, 'data-ghelp="wscodes"') : line;
+  return `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
 }
 const wsLangLabel = (name) => t('panel.f.wsLangName', { name });
 
-/* ⚠ A LANGUAGE NAME NEVER APPEARS WITHOUT THIS. Seth, 2026-09-11, on seeing the names: "if people
- * see something come up, they'll assume it matches and is good to go." One warning for both code
- * boxes, under the last of them: syncLanguageNames shows it whenever any name is showing and hides it
- * with the last name. Its "more info…" opens the writing-system codes help; `helpAttr` is how each
- * form reaches that help (data-ghelp here in the panel, data-sact in the app's own Settings tab).
- * Exported so the two forms cannot word or build the warning differently. */
+/* ⚠ THE WARNING THAT GOES WITH THE LANGUAGE NAMES. Seth, 2026-09-11, on seeing the names: "if
+ * people see something come up, they'll assume it matches and is good to go." Then: "Put the
+ * exclamation warning about language names up above both fields, right within the top of that
+ * box/section." So it opens the codes box, above both code boxes, and is ALWAYS shown: one that
+ * appeared with the first name would shove the box being typed in down under the caret. Its
+ * "more info…" opens the writing-system codes help; `helpAttr` is how each form reaches that help
+ * (data-ghelp here in the panel, data-sact in the app's own Settings tab). Exported so the two forms
+ * cannot word or build the warning differently. */
 export function langGuessWarningHtml(prefix, helpAttr) {
-  return `<p class="note info-note warn-note ws-lang-warn" id="${prefix}-langwarn" data-langwarn hidden>`
+  return `<p class="note info-note warn-note ws-lang-warn" id="${prefix}-langwarn" data-langwarn>`
     + `<span class="ws-lang-warn-icon" aria-hidden="true">⚠</span> ${esc(t('panel.f.wsLangGuessWarn'))} `
     + `<button type="button" class="link-btn" ${helpAttr}>${esc(t('panel.grp.moreInfo'))}</button></p>`;
 }
@@ -9528,10 +9529,12 @@ function groupHtml(g, open) {
    * link at the top of the section instead of floating over the first field. */
   const legend = g.legend ? `<legend>${esc(t(g.legend))}</legend>` : "";
   const labelled = g.legend ? "" : ` aria-labelledby="rp-sum-${g.id}"`;
+  // The codes box opens with the language-name warning (#68), above both code boxes.
+  const wsWarn = fields.some((f) => !f.outside && WS_CODE_FIELDS.includes(f.k)) ? langGuessWarningHtml('rp', 'data-ghelp="wscodes"') : "";
   return `<details class="rp-sec" id="rp-grp-${g.id}" data-group="${g.id}"${open ? " open" : ""}>`
     + `<summary id="rp-sum-${g.id}"><span class="rp-sec-name">${esc(t("panel.grp." + g.id))}</span>`
     + `<span class="rp-sec-note">${esc(t("panel.grpNote." + g.id))}</span></summary>`
-    + `<div class="rp-group rp-secbody">${notice}${outside}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${help}${inside}</fieldset></div></details>`;
+    + `<div class="rp-group rp-secbody">${notice}${outside}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${help}${wsWarn}${inside}</fieldset></div></details>`;
 }
 
 /* THE ACCORDION, AND THE TAB STRIP ABOVE IT. Both surfaces wire this identically (app.js has the

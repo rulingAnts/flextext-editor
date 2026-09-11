@@ -91,7 +91,7 @@ test('the name is painted under the box, and the box itself is never written', a
     set: () => { throw new Error('the name must never write into the code box'); },
   });
   const line = { textContent: '', hidden: true };
-  const warning = { hidden: true };
+  const warning = { hidden: false };
   const root = {   // querySelector only: a sweep with querySelectorAll is banned in typing.js
     querySelector: (sel) => ({ '[data-langname="vernLang"]': line, '[data-sf="vernLang"]': input, '[data-langwarn]': warning }[sel] || null),
   };
@@ -99,12 +99,11 @@ test('the name is painted under the box, and the box itself is never written', a
   await syncLanguageNames(root, 'data-sf', label);   // also proves typing.js finds the table on disk
   assert.equal(line.textContent, 'Language: Fayu');
   assert.equal(line.hidden, false);
-  assert.equal(warning.hidden, false, 'a name never shows without the guess warning');
   value = 'FAU';
   await syncLanguageNames(root, 'data-sf', label);
   assert.equal(line.textContent, '');
   assert.equal(line.hidden, true);
-  assert.equal(warning.hidden, true, 'and the warning goes when no name is showing');
+  assert.equal(warning.hidden, false, 'the warning at the top of the box is never hidden along with the names');
 });
 
 test('both settings forms show the name under both code boxes, painted on fill and while typing', () => {
@@ -125,19 +124,25 @@ test('both settings forms show the name under both code boxes, painted on fill a
   }
 });
 
-test('a name never appears without the guess warning and its more-info link, on both forms', () => {
+test('the warning opens the codes box on both forms, always shown, with its more-info link', () => {
   // Seth, 2026-09-11: "if people see something come up, they'll assume it matches and is good to go."
+  // Then: "Put the exclamation warning about language names up above both fields, right within the top of that box/section."
+  // And the message: a matching name does not mean a matching code "in your fieldworks database", so check by hand.
   const panel = bare(rd('../docs/js/researcher-panel.js')), app = bare(rd('../docs/js/app.js'));
   const i18n = rd('../docs/js/i18n.js');
-  assert.ok(i18n.includes("'panel.f.wsLangGuessWarn': 'Language names are a guess. You must check and manually match writing system codes in your FieldWorks database or things will break!'"),
-    "the warning says it in Seth's words");
+  assert.ok(i18n.includes("'panel.f.wsLangGuessWarn': 'Even if the language name looks right, the code may not match your FieldWorks database. You MUST check each code in FieldWorks yourself, or imports will break!'"),
+    'the warning: a right-looking name proves nothing; check each code in FieldWorks by hand');
   assert.match(panel, /export function langGuessWarningHtml\(prefix, helpAttr\)/, 'one builder, shared by both forms');
-  assert.match(panel, /data-langwarn hidden>/, 'hidden until a name shows');
+  assert.match(panel, /ws-lang-warn" id="\$\{prefix\}-langwarn" data-langwarn>/, 'never hidden');
   assert.match(panel, /⚠<\/span> \$\{esc\(t\('panel\.f\.wsLangGuessWarn'\)\)\} /, 'the triangle, then the warning');
   assert.match(panel, /\$\{esc\(t\('panel\.grp\.moreInfo'\)\)\}<\/button><\/p>/, 'then the more info link');
-  for (const [name, src, help] of [['researcher-panel.js', panel, 'data-ghelp="wscodes"'], ['app.js', app, 'data-sact="wscodesHelp"']]) {
-    assert.ok(src.includes(`? line + langGuessWarningHtml(prefix, '${help}') : line`), `${name}: the warning follows the last code box`);
-  }
+  assert.ok(panel.includes("const wsWarn = fields.some((f) => !f.outside && WS_CODE_FIELDS.includes(f.k)) ? langGuessWarningHtml('rp', 'data-ghelp=\"wscodes\"') : \"\";"),
+    'panel: built for the box that holds the code fields');
+  assert.ok(panel.includes('${legend}${help}${wsWarn}${inside}'), 'panel: at the top of the box, above both code boxes');
+  assert.ok(app.includes("const wsWarn = g.fields.some((f) => WS_CODE_FIELDS.includes(f.k)) ? langGuessWarningHtml('ds', 'data-sact=\"wscodesHelp\"') : \"\";"),
+    'Settings tab: built the same way');
+  assert.ok(app.includes('${legend}${wsWarn}${fields}${details}'), 'Settings tab: at the top of the box, above both code boxes');
+  assert.doesNotMatch(bare(rd('../docs/js/typing.js')), /data-langwarn/, 'nothing shows or hides it as names come and go');
   assert.match(panel, /if \(b\.dataset\.ghelp === 'wscodes'\) wsCodesHelpModal\(\);/, 'panel: more info opens the writing-system codes help');
   assert.match(app, /if \(which === 'wscodesHelp'\) \{ wsCodesHelpModal\(\); return; \}/, 'Settings tab: so does its own');
 });

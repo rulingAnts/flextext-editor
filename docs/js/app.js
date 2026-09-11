@@ -6839,9 +6839,7 @@ function infoNoteHtml(f) {
  * isn't." */
 function langNameLine(f, prefix) {
   if (!WS_CODE_FIELDS.includes(f.k)) return '';
-  const line = `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
-  // The guess warning after the last code box (built in researcher-panel.js); "more info…" is a data-sact action here.
-  return f.k === WS_CODE_FIELDS[WS_CODE_FIELDS.length - 1] ? line + langGuessWarningHtml(prefix, 'data-sact="wscodesHelp"') : line;
+  return `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
 }
 const wsLangLabel = (name) => t('panel.f.wsLangName', { name });
 
@@ -6969,10 +6967,12 @@ function setupGroupHtml(g, open) {
    * link at the top of the section instead of floating over the first field. */
   const legend = g.legend ? `<legend>${esc(t(g.legend))}</legend>` : "";
   const labelled = g.legend ? "" : ` aria-labelledby="ds-sum-${g.id}"`;
+  // The codes box opens with the language-name warning (#68, built in researcher-panel.js); "more info…" is a data-sact action here.
+  const wsWarn = g.fields.some((f) => WS_CODE_FIELDS.includes(f.k)) ? langGuessWarningHtml('ds', 'data-sact="wscodesHelp"') : "";
   return `<details class="rp-sec" id="ds-grp-${g.id}" data-group="${g.id}"${open ? " open" : ""}>`
     + `<summary id="ds-sum-${g.id}"><span class="rp-sec-name">${esc(t("panel.grp." + g.id))}</span>`
     + `<span class="rp-sec-note">${esc(t("panel.grpNote." + g.id))}</span></summary>`
-    + `<div class="rp-group rp-secbody">${notice}${note}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${fields}${details}</fieldset></div></details>`;
+    + `<div class="rp-group rp-secbody">${notice}${note}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${wsWarn}${fields}${details}</fieldset></div></details>`;
 }
 
 // One macro-tab and its surviving sections; `secs` is already filtered by setupTabsFor().

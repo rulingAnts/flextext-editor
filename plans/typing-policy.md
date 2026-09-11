@@ -1,7 +1,8 @@
 # Typing policy — what a keyboard may do to a field
 
-**Status:** the engine-wide half shipped 2026-09-10 (`docs/js/typing.js`). The researcher-facing
-language picker is still to be built — see *Still to build* at the end.
+**Status:** the engine-wide half shipped 2026-09-10 (`docs/js/typing.js`). The picker was dropped:
+v679 (#68) reads the language from the FLEx writing-system code itself and shows its name under the
+code box. See *Built in v679* near the end.
 
 ## Why this exists
 
@@ -90,7 +91,37 @@ and a policy applied only at call sites is one new `createElement` away from a h
 winning. Marked-up fields also carry the attributes in the HTML: the IME reads them when it attaches,
 so a field hardened after first focus has already offered a round of suggestions.
 
+## Built in v679 (#68): no picker; the code names the language
+
+Seth, 2026-09-11: *"What we want is the user to manually enter the writing system code, and then if
+it matches a language that langtags.json recognizes, then display that language name after the ws
+code box."* And the rule that shapes it: *"We don't want to make it easy for the user to skip
+noticing and checking their writing system code. By offering something that looks automatic but
+actually isn't."*
+
+- **FLEx writing-system codes ARE BCP-47** (#68, correcting the "not a BCP-47 language tag" claim in
+  the history below). `parseWsCode` in `typing.js` splits one; the language is its first subtag.
+- **The name** comes from SIL's langtags.json, trimmed by `tools/build-langtags-names.mjs` to one name
+  per language subtag: `docs/js/vendor/langtags-names.js`, 8,105 subtags, about 62 KB gzipped, MIT.
+  It loads only when a settings form shows a code box and is in no service worker's precache.
+  `ldml.api.sil.org` sends no CORS header, so a page could not fetch the live file anyway.
+- **A check, never a fill.** The code stays typed by hand; nothing is suggested or filled from the
+  name. A name shows only for a code FLEx could have written exactly as typed: well-formed, in
+  canonical case (`FAU` shows nothing), no extended-language form, and a subtag BCP-47 actually uses
+  (`ind` shows nothing, because FLEx writes `id`).
+- **The spellcheck tag** comes from the same parse (`spellcheckTagFor`): language, script and region
+  only; nothing for a variant (`id-fonipa`), private use (`fau-x-etic`), `qaa`–`qtz`, or a wrong case.
+
 ## Still to build
+
+**Spelling dials go inert when the analysis language cannot be identified** (Seth, 2026-09-10, in
+#68): push all three dials off, keep the researcher's stored choice, and say so beside the dials.
+⚠ Re-decide what "identified" means first. The 2026-09-10 plan used `Intl.DisplayNames`, where "no
+name" roughly meant "no dictionary exists" because CLDR only names widely written languages. The
+langtags table names almost every language, Fayu included, so "has a name" no longer implies a
+dictionary could exist, and it must not become the test for the dials.
+
+### History: the picker design v679 replaced
 
 **The researcher-facing analysis-language picker.** Seth, 2026-09-10:
 

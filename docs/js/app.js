@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -6421,25 +6421,17 @@ setTypingPrefs(() => ({
  * policy to the ONE field being touched. See its header for the three mechanisms this replaced and
  * what each of them cost. */
 
-/* The tag a desktop spellchecker judges the analysis language by.
+/* The tag a desktop spellchecker judges the analysis language by, derived from the FLEx
+ * writing-system code itself, which IS a BCP-47 tag (#68). spellcheckTagFor keeps the language with
+ * its script and region, and gives NO tag for anything that is not the standard spelling of a real
+ * language: a variant (`id-fonipa` is Indonesian written in IPA), a private-use subtag
+ * (`fau-x-etic`), the `qaa`–`qtz` range, or a code in a case FLEx would not write.
  *
- * ⚠ A FLEx WRITING-SYSTEM CODE IS NOT A BCP-47 LANGUAGE TAG, and the two must never be conflated:
- * `fau-x-iyarike` is a perfectly good writing system and is meaningless to a spellchecker, and
- * aiming a dictionary at the wrong language is worse than aiming it at none. So only a plain 2–3
- * letter code (with an optional region) is passed through; anything carrying a private-use or
- * custom subtag falls back to the device's own language, which is what its keyboard is most likely
- * set to anyway. The researcher-facing picker that turns a writing system into a real language
- * name is still to be built — see plans/typing-policy.md. */
-setAnalysisLang(() => {
-  const raw = String(settings.analLang || '').trim();
-  if (/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(raw)) return raw;
-  /* ⚠ NO FALLBACK TO THE BROWSER'S LANGUAGE. It used to return navigator.language here, which meant
-   * a project whose analysis code is not a usable tag had its glosses checked against whatever the
-   * researcher's laptop happened to be set to — the exact silent wrong-language bug this is meant to
-   * avoid. No usable tag now means no tag, and `auto` therefore does not mark at all. #68 replaces
-   * this guesswork with a real ISO language picker, separate from the FLEx writing-system code. */
-  return '';
-});
+ * ⚠ NO FALLBACK TO THE BROWSER'S LANGUAGE. It used to return navigator.language here, which meant a
+ * project whose analysis code is not a usable tag had its glosses checked against whatever the
+ * researcher's laptop happened to be set to — the exact silent wrong-language bug this is meant to
+ * avoid. No usable tag means no tag, and `auto` therefore does not mark at all (v659). */
+setAnalysisLang(() => spellcheckTagFor(settings.analLang));
 
 function uploadContentSig(rec) {
   try { return cheapHash(JSON.stringify(rec.doc) + '|' + (rec.audioId || rec.audioSource || '') + '|' + (rec.title || '')); }
@@ -6594,7 +6586,8 @@ const SETUP_GROUPS = [
     // a language to a device that cannot render it.
     { k: 'appLang', type: 'select', opts: ['follow', ...LANGS], optPrefix: 'panel.opt.appLang.', off: 'setup.off.appLang' },
     // Codes ONLY — the name/font fields went in 2026-07-13 (names were display sugar, fonts device
-    // cosmetics; neither belongs in the FLEx export). tip = the case-sensitivity warning.
+    // cosmetics; neither belongs in the FLEx export). tip = the case-sensitivity warning. Both carry
+    // the language their code names under the box (WS_CODE_FIELDS in typing.js; a check, never a fill, #68).
     { k: 'vernLang', type: 'text', ph: 'fau', tip: 'research.wsCase', note: 'research.wsCase' },
     { k: 'analLang', type: 'text', ph: 'en', tip: 'research.wsCase' },
   ] },
@@ -6839,6 +6832,17 @@ function infoNoteHtml(f) {
   return `<p class="note info-note" id="info-${f.k}" data-infonote="${f.k}" hidden>${esc(t(f.info))}</p>`;
 }
 
+/* The language a writing-system code names (#68), painted by syncLanguageNames in typing.js. A line
+ * under the box rather than anything inside it, and not a control: it reports what was typed and
+ * changes nothing. Seth, 2026-09-11: "We don't want to make it easy for the user to skip noticing and
+ * checking their writing system code. By offering something that looks automatic but actually
+ * isn't." */
+function langNameLine(f, prefix) {
+  if (!WS_CODE_FIELDS.includes(f.k)) return '';
+  return `<p class="note ws-lang-name" id="${prefix}-langname-${f.k}" data-langname="${f.k}" title="${esc(t('panel.f.wsLangNameTip'))}" hidden></p>`;
+}
+const wsLangLabel = (name) => t('panel.f.wsLangName', { name });
+
 function setupFieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
   const tip = f.tip ? ` title="${esc(t(f.tip))}"` : '';
@@ -6922,7 +6926,9 @@ function setupFieldHtml(f) {
          + `<p class="note setup-off-why" hidden>${esc(t(f.dynOff))}</p></div>${note}`;
   }
   const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : '';
-  return offWrap(`<label class="rp-field"${tip}><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><input data-sf="${f.k}" spellcheck="false"${ph}${tip}${off}></label>`) + note;
+  const described = WS_CODE_FIELDS.includes(f.k) ? ` aria-describedby="ds-langname-${f.k}"` : '';
+  return offWrap(`<label class="rp-field"${tip}><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><input data-sf="${f.k}" spellcheck="false"${ph}${tip}${described}${off}></label>`)
+    + langNameLine(f, 'ds') + note;
 }
 
 // The archive-quality warning heading the Recording group. A website-installed (PWA) device cannot
@@ -7073,6 +7079,7 @@ function fillDeviceSetup() {
   });
   syncIconPicks(box);
   updateSetupConditionals(box);
+  syncLanguageNames(box, 'data-sf', wsLangLabel);
 }
 
 // Collect the form keyed by field id. Shared by the save and the validation gate.
@@ -7449,6 +7456,7 @@ function renderDeviceSetup() {
     if (e.target.type === 'file') return;         // handled by `change`, with the blob
     saveDeviceSetupLive(form, showGroup);
   });
+  wireLanguageNames(form, 'data-sf', wsLangLabel);   // the name under each code box follows the typing
   /* ⚠ THE HALF THAT MAKES DISABLING HONEST. A disabled control is what someone clicks when it
    * refuses them, so the click has to answer. Capture phase and a listener on the CONTAINER,
    * because a disabled <input> dispatches no events of its own — the click lands on the wrapping

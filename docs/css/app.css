@@ -1346,6 +1346,9 @@ body.rp-standalone main { padding-top: 0; }
   width: 100%; box-sizing: border-box;
 }
 .rp-field input:focus, .rp-field select:focus, .rp-field textarea:focus { outline: 2px solid var(--blue); border-color: var(--blue); }
+/* The language a writing-system code names (#68): tucked under its box in the note color. A report
+ * on what was typed, deliberately not styled as a confirmed or validated value. */
+.ws-lang-name { margin: -6px 0 0; }
 
 /* Required-settings validation: red-ring an offending field + show its inline message. */
 .rp-field.rp-invalid input, .rp-field.rp-invalid select, .rp-field.rp-invalid textarea { border-color: #d92d20; outline: 1px solid #d92d20; }

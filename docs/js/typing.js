@@ -235,6 +235,122 @@ let analLangTag = () => '';
 /** The researcher's analysis-language choice, as a BCP-47 tag. Set once by the host app. */
 export function setAnalysisLang(fn) { analLangTag = typeof fn === 'function' ? fn : () => ''; }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * WHAT A WRITING-SYSTEM CODE SAYS ABOUT ITS LANGUAGE (issue #68)
+ *
+ * A FLEx writing-system code IS a BCP-47 tag: language[-extlang][-script][-region][-variant…]
+ * [-extension…][-x-private…]. Seth's own exported texts carry `fau`, `id`, `en` and
+ * `fau-fonipa-x-etic` (read 2026-09-11). So the language is always recoverable from the code, and
+ * one parse serves both things that need it: the name shown under a code box, and the tag a
+ * spellchecker is given.
+ *
+ * ⚠ THE NAME IS A CHECK, NEVER A FILL. Seth, 2026-09-11: "We don't want to make it easy for the user
+ * to skip noticing and checking their writing system code. By offering something that looks
+ * automatic but actually isn't." So the code stays typed by hand, nothing is suggested or filled in
+ * from the name, and a name appears only for a code FLEx could have written exactly as typed:
+ *   - well-formed BCP-47                         `iau_tmu` is not, so it gets no name
+ *   - in the case FLEx writes: language, variants and extensions lower, script Title, region UPPER.
+ *     `FAU` gets no name, because FLEx matches codes case-sensitively and `fau` is a different code.
+ *   - no extended-language form                  `zh-yue`: FLEx writes `yue`
+ * Private-use subtags keep whatever case they have: real FLEx data carries `ert-x-MTT`.
+ * ───────────────────────────────────────────────────────────────────────────── */
+const WS_TAG = /^([a-z]{2,3})((?:-[a-z]{3}){0,3})(-[a-z]{4})?(-(?:[a-z]{2}|\d{3}))?((?:-(?:[a-z\d]{5,8}|\d[a-z\d]{3}))*)((?:-[a-wyz\d](?:-[a-z\d]{2,8})+)*)(-x(?:-[a-z\d]{1,8})+)?$/i;
+const isLower = (s) => s === s.toLowerCase();
+const subtagsOf = (group) => (group ? group.slice(1).split('-') : []);
+
+/** A writing-system code split into its BCP-47 subtags, or null when it is not a well-formed tag. */
+export function parseWsCode(code) {
+  const m = WS_TAG.exec(String(code == null ? '' : code).trim());
+  if (!m) return null;
+  const script = m[3] ? m[3].slice(1) : '';
+  const region = m[4] ? m[4].slice(1) : '';
+  const tag = {
+    language: m[1], extlang: subtagsOf(m[2]), script, region,
+    variants: subtagsOf(m[5]), extensions: subtagsOf(m[6]),
+    privateUse: m[7] ? m[7].slice(3).split('-') : [],
+  };
+  tag.canonicalCase = isLower(tag.language) && tag.extlang.every(isLower)
+    && (!script || script === script[0].toUpperCase() + script.slice(1).toLowerCase())
+    && region === region.toUpperCase()
+    && tag.variants.every(isLower) && tag.extensions.every(isLower);
+  return tag;
+}
+
+/** The language a writing-system code names, or '' (see the rules above). `names` is the table
+ *  loadLanguageNames() resolves to. */
+export function languageNameIn(names, code) {
+  const tag = parseWsCode(code);
+  if (!tag || !tag.canonicalCase || tag.extlang.length || !names || typeof names !== 'object') return '';
+  return Object.prototype.hasOwnProperty.call(names, tag.language) ? String(names[tag.language]) : '';
+}
+
+/* The tag a spellchecker is given for the analysis writing system, or '' for none.
+ *
+ * ⚠ ONLY THE STANDARD SPELLING OF A REAL LANGUAGE. A variant subtag says the text is written some
+ * other way (`id-fonipa` is Indonesian in IPA, and an Indonesian dictionary would flag every word),
+ * a private-use subtag means something only the project knows (`fau-x-etic`), and `qaa`–`qtz` is the
+ * range for languages with no code at all. Each of those gets no tag, which leaves `auto` declining
+ * to mark (v659) rather than marking against the wrong dictionary. Script and region are kept:
+ * `sr-Latn` and `en-GB` really are different dictionaries. The same parse and case rule as the name,
+ * so a code that shows no name is never quietly spell-checked either. */
+export function spellcheckTagFor(code) {
+  const tag = parseWsCode(code);
+  if (!tag || !tag.canonicalCase || tag.extlang.length || tag.variants.length
+    || tag.extensions.length || tag.privateUse.length || /^q[a-t][a-z]$/.test(tag.language)) return '';
+  const plain = [tag.language, tag.script, tag.region].filter(Boolean).join('-');
+  try { return Intl.getCanonicalLocales(plain)[0] || plain; } catch { return plain; }
+}
+
+/* The name table (~177 KB, ~62 KB gzipped; built from SIL's langtags.json by
+ * tools/build-langtags-names.mjs) is fetched only when a settings form shows a code box: never at
+ * startup, and deliberately in NO service worker's precache. It is a check beside a field, not
+ * something any app needs in order to work, so field devices do not download it on every update.
+ * Each worker caches it the first time it is fetched; a form opened offline before then simply
+ * shows no name, which sends the reader to FLEx — the right place to look anyway. */
+let namesLoad = null;
+export function loadLanguageNames() {
+  if (!namesLoad) {
+    namesLoad = import('./vendor/langtags-names.js')
+      .then((m) => (m && m.default && typeof m.default === 'object' ? m.default : null))
+      .catch(() => { namesLoad = null; return null; });   // offline and never cached: try again next time
+  }
+  return namesLoad;
+}
+
+/** The settings fields that hold a writing-system code, and so get a language name under their box.
+ *  Both settings renderers draw the line from this list, and syncLanguageNames paints from it. */
+export const WS_CODE_FIELDS = ['vernLang', 'analLang'];
+
+/** Paint the language name under each code box in `root`: the `[data-langname="<field>"]` line names
+ *  the language of the input whose `attr` is <field>, and `label(name)` words it in the UI language.
+ *  Writes ONLY that line, never the code box; hidden whenever there is no name.
+ *  ⚠ One lookup per known field, never a sweep of the form: see "no live monitoring" in
+ *  test/no-autocorrect-vernacular.test.mjs for what sweeps in this module have cost. */
+export function syncLanguageNames(root, attr, label) {
+  if (!root || typeof root.querySelector !== 'function') return Promise.resolve();
+  const pairs = WS_CODE_FIELDS
+    .map((k) => [root.querySelector(`[data-langname="${k}"]`), root.querySelector(`[${attr}="${k}"]`)])
+    .filter(([line]) => line);
+  if (!pairs.length) return Promise.resolve();
+  return loadLanguageNames().then((names) => {
+    for (const [line, input] of pairs) {
+      const name = input ? languageNameIn(names, input.value) : '';
+      const text = name ? (typeof label === 'function' ? label(name) : name) : '';
+      if (line.textContent !== text) line.textContent = text;
+      line.hidden = !text;
+    }
+  });
+}
+
+/** Keep the names live while someone types: one delegated listener, on a form built per render. */
+export function wireLanguageNames(root, attr, label) {
+  if (!root || typeof root.addEventListener !== 'function') return;
+  root.addEventListener('input', (e) => {
+    const k = e.target && typeof e.target.getAttribute === 'function' ? e.target.getAttribute(attr) : null;
+    if (WS_CODE_FIELDS.includes(k)) syncLanguageNames(root, attr, label);
+  });
+}
+
 /** Apply this suite's typing policy to one field. Idempotent; safe to call on every render. */
 export function applyTyping(el, kind) {
   if (!el || !KINDS.has(kind)) return el;

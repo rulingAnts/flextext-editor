@@ -15,7 +15,8 @@ Developed collaboratively with [Claude Code](https://claude.com/claude-code)
 (Anthropic's AI coding agent), which implemented the application from the
 FLEx flextext schema and real interlinear exports under Seth's direction.
 Bundles [wavesurfer.js](https://wavesurfer.xyz/) (BSD-3-Clause, see
-`js/vendor/wavesurfer.LICENSE`).
+`js/vendor/wavesurfer.LICENSE`), and language names derived from SIL International's
+[langtags.json](https://github.com/silnrsi/langtags) (MIT, see `js/vendor/langtags.LICENSE`).
 
 > ## ⚠ Which branch you are looking at
 >

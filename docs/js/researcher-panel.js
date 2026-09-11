@@ -1314,7 +1314,7 @@ function header(titleKey, withLock) {
     ${withLock ? `<button class="icon-btn rp-headbtn" data-act="refresh" title="${esc(t('panel.dash.refresh'))}" aria-label="${esc(t('panel.dash.refresh'))}">↻</button>` : ''}
     <select id="rp-lang" title="${esc(t('research.lang'))}">${LANGS.map((l) =>
       `<option value="${esc(l)}"${getLang() === l ? ' selected' : ''}>${esc(LANG_NAMES[l] || l)}</option>`).join('')}</select>
-    ${releaseNotesLink()}
+    ${feedbackLink()}
     <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
     ${withLock ? `<button class="secondary-btn rp-lock" data-act="lock">${esc(t('panel.lock'))}</button>` : ''}
   </div>`;
@@ -1358,6 +1358,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v683', date: '2026-09-11', items: [
+    { k: 'panel.rel.new.feedbackLink', issue: 69 },
+  ] },
   { v: 'v682', date: '2026-09-11', items: [
     { k: 'panel.rel.new.freeEnterNext', issue: 78 },
   ] },
@@ -1817,9 +1820,19 @@ async function setMemberNick(rid, name) {
   nickCache = next;
 }
 
+/* FEEDBACK, IN THE HEADER WHERE "RELEASE NOTES" WAS. Seth, 2026-09-11: "We need to rename the 'Release
+ * Notes' link, because only software developer geeks will look for it there", then "I like the
+ * Feedback link idea." Always shown: reporting a problem never depends on there being notes to read. */
+function feedbackLink() {
+  return `<button class="link-btn rp-known" data-act="feedback">${esc(t('panel.feedback.btn'))}</button>`;
+}
+
+/* The version notes, now "About this version…". Seth: "Release notes or 'About this version...' can go
+ * in the help menu", and the Feedback window "can include its own link to the Release Notes". So it is
+ * an entry inside those two windows (data-notes, wired by each of them), no longer a header link. */
 function releaseNotesLink() {
   if (!RELEASES.length && !KNOWN_ISSUES.length) return '';
-  return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.rel.btn'))}</button>`;
+  return `<button type="button" class="link-btn" data-notes>${esc(t('panel.rel.btn'))}</button>`;
 }
 /* "Report a problem" and "Suggest a feature" (#69) — copied from PAT's issueUrl rather than invented
  * (Seth: "just like we have in PAT"), and reached from Release notes, beside the version.
@@ -1929,14 +1942,43 @@ function releaseNotesModal() {
   }));
 }
 
+/* THE FEEDBACK WINDOW: one place for everything a researcher might want to tell us or check. Seth,
+ * 2026-09-11: "the 'Feedback link' can include its own link to the Release Notes or something. Also a
+ * 'Known Issues and Planned Fixes' link that points to the GitHub Issues page."
+ *
+ * ⚠ Each way on CLOSES this window first. Every modal listens for Escape on document, so a stacked
+ * pair would both close on one press (the same reason releaseNotesModal hands over to reportModal).
+ * The issues page is the exception: it leaves the app, so this window can stay for whatever is next. */
+function feedbackModal() {
+  const notes = releaseNotesLink();
+  const m = modal(`<h3>${esc(t('panel.feedback.title'))}</h3>
+    <p class="note">${esc(t('panel.feedback.intro'))}</p>
+    <div class="rp-feedback">
+      <button type="button" class="secondary-btn" data-report="bug">${esc(t('panel.reportBug'))}</button>
+      <button type="button" class="secondary-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button>
+      <button type="button" class="secondary-btn" data-issues title="${esc(t('panel.feedback.knownTip'))}">${esc(t('panel.feedback.known'))}</button>
+    </div>
+    ${notes ? `<p class="note">${notes}</p>` : ''}
+    <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
+  m.el.querySelectorAll('[data-report]').forEach((b) => b.addEventListener('click', () => {
+    m.close();
+    reportModal(b.dataset.report);
+  }));
+  m.el.querySelector('[data-issues]').addEventListener('click', () => openExternal(ISSUES_URL.replace(/\/$/, '')));
+  m.el.querySelectorAll('[data-notes]').forEach((b) => b.addEventListener('click', () => {
+    m.close();
+    releaseNotesModal();
+  }));
+}
+
 function wire(sel, ev, fn) { const el = root.querySelector(sel); if (el) el.addEventListener(ev, fn); }
 function wireActs(handlers) {
   root.querySelectorAll('[data-act]').forEach((el) => {
     let fn = handlers[el.dataset.act];
     if (!fn && el.dataset.act === 'help') fn = showPanelHelp;   // the header help button is universal
-    // …and so is Release notes: the header renders in several views, and a link that works in one of
-    // them is worse than no link. Not estate-gated — the notes belong on production too (v494).
-    if (!fn && el.dataset.act === 'known') fn = releaseNotesModal;
+    // …and so is Feedback: the header renders in several views, and a link that works in one of them is
+    // worse than no link. Not estate-gated: reports, and the notes it leads to, belong on production too (v494).
+    if (!fn && el.dataset.act === 'feedback') fn = feedbackModal;
     /* …and so is copy-my-id. A <button> rather than a span with a click handler, so Enter and Space
      * work without inventing key handling, and screen readers announce it as an action.
      * ⚠ The clipboard can refuse (insecure context, permissions) — the same shape as the Account
@@ -1972,9 +2014,16 @@ function wireActs(handlers) {
 // Researcher documentation (incl. the honest Security section) — lives HERE in the panel,
 // not in the field app's help. The help.html string is trusted static i18n markup.
 function showPanelHelp() {
-  const m = modal(`<div class="rp-help">${t('panel.help.html')}</div>
+  // "About this version…" leads the help (Seth: it "can go in the help menu"), above the long guide.
+  const notes = releaseNotesLink();
+  const m = modal(`${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}<div class="rp-help">${t('panel.help.html')}</div>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+  // Hands over rather than stacking, for the Escape reason given at feedbackModal.
+  m.el.querySelectorAll('[data-notes]').forEach((b) => b.addEventListener('click', () => {
+    m.close();
+    releaseNotesModal();
+  }));
 }
 /* ⚠ A DISABLED BUTTON READS AS BROKEN, NOT AS BUSY (Seth, 2026-08-18: an action "does take a while
  * for the UI to update… that could be alarming to a user"). Every panel action is a network round

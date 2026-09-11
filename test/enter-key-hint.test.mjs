@@ -36,15 +36,15 @@ test('both full-line boxes set it before the first focus and refresh it on each 
   // baseline rows (segmentation mode)
   assert.match(STRIPS, /const enterHint = \(\) => applyEnterKeyHint\(input, !!\(deps\.enterAdvances && deps\.enterAdvances\(\)\)\);\s*\n\s*enterHint\(\);/);
   assert.match(STRIPS, /input\.addEventListener\('focus', \(\) => \{ growArea\(input\); enterHint\(\); \}\);/);
-  // free translation
-  assert.match(APP, /applyEnterKeyHint\(input, enterAtEndAdvances\(\)\);\s*\n\s*input\.addEventListener\('focus', \(\) => \{ growArea\(input\); applyEnterKeyHint\(input, enterAtEndAdvances\(\)\); \}\);/);
+  // free translation. #78: "Next" only where the phone's own page order lands where Enter's walk does.
+  assert.match(APP, /applyEnterKeyHint\(input, freeEnterShowsNext\(\)\);\s*\n\s*input\.addEventListener\('focus', \(\) => \{ growArea\(input\); applyEnterKeyHint\(input, freeEnterShowsNext\(\)\); \}\);/);
 });
 
 test('the legacy multi-line baseline keeps its newline key, and word glosses are untouched', () => {
   // there Enter starts a paragraph, so the newline key is the truth
   const legacy = APP.slice(APP.indexOf("$('#baseline-text').addEventListener('blur'"), APP.indexOf("$('#baseline-text').addEventListener('blur'") + 1500);
   assert.doesNotMatch(legacy, /applyEnterKeyHint/);
-  assert.equal((APP.match(/applyEnterKeyHint\(input, enterAtEndAdvances\(\)\)/g) || []).length, 2,
+  assert.equal((APP.match(/applyEnterKeyHint\(input, freeEnterShowsNext\(\)\)/g) || []).length, 2,
     'only the free translation in app.js — created once, refreshed on focus');
   assert.equal((APP.match(/applyEnterKeyHint\(/g) || []).length, 2, 'no other box in app.js was given a label');
 });

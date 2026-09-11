@@ -64,7 +64,7 @@ test('Gloss: the same rule, and it takes precedence over trimming an edge line',
   const j = APP.indexOf("} else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {");
   assert.ok(i > -1 && j > -1, 'both branches present');
   assert.ok(i < j, 'the advance branch is first, so it wins when the setting is on');
-  assert.match(APP.slice(i, j), /const next = all\[all\.indexOf\(fi\) \+ 1\];/, 'it walks to the next translation');
+  assert.match(APP.slice(i, j), /walkOnFromFree\(g\);/, 'it walks on to the next line (#78 decides which box)');
   // the edge-split branches survive — they are simply out of reach until the line is armed
   assert.match(APP, /e\.key === 'Enter' && atStart && joinSplitAllowed\('gloss'\)/);
 });

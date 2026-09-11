@@ -1022,6 +1022,42 @@ function enterAtEndAdvances(s) {
   return s.enterAtEnd === 'advance';
 }
 
+/* WHERE ENTER GOES FROM THE END OF A FREE TRANSLATION, on the Gloss tab (#78). Seth, 2026-09-11:
+ * "let's do next line's first gloss by default (but also if glosses aren't editable, then it should
+ * go on to the free translation), and give the researcher the choice." So by default Enter follows
+ * reading order (the glosses, the free translation, then the next line's first gloss), and `free`
+ * keeps a translator on the free translations. Each falls back to the other kind of box: a line has
+ * no gloss boxes when word glossing is off (they are not built at all) or when it has no words. */
+function freeEnterGoesToGloss(s) { return (s || settings).freeEnterNext !== 'free'; }
+
+function nextBoxAfterFree(lineEl) {
+  const lines = [...document.querySelectorAll('#gloss-body .segment')];
+  const at = lines.indexOf(lineEl);
+  const next = at < 0 ? null : lines[at + 1];
+  if (!next) return null;
+  const gloss = next.querySelector('.gloss-input');
+  const free = next.querySelector('.free-input');
+  return freeEnterGoesToGloss() ? (gloss || free) : (free || gloss);
+}
+
+/** Walk on from the end of a free translation. The last line keeps the caret: a keyboard that closes
+ *  itself at the end reads as the app quitting (see focusStripAfter in segment-strips.js). */
+function walkOnFromFree(lineEl) {
+  const next = nextBoxAfterFree(lineEl);
+  if (!next) return;
+  next.focus();
+  try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
+  try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); }
+}
+
+/* ⚠ THE PHONE KEYBOARD MUST LAND IN THE SAME PLACE. A phone's "Next" key does not send Enter: it moves
+ * to the next text box in page order, which from a free translation is the next line's first gloss
+ * (or, on a line without gloss boxes, its free translation). That IS the default walk, so the default
+ * keeps the Next label. For `free`, page order would go to the wrong box, so the translation box asks
+ * for the ordinary Enter key instead, and the line break that key types becomes the same walk (the
+ * box's input handler). Not yet confirmed on an Android device. */
+function freeEnterShowsNext() { return enterAtEndAdvances() && freeEnterGoesToGloss(); }
+
 /* THE CUT-TAB FAMILY OF GATES (Seth, 2026-08-13). All default ON — `!== false`, the same polarity
  * as `segmentation` and the OPPOSITE of `backspaceJoin`. The difference is deliberate and worth
  * stating once: backspaceJoin REMOVES a shortcut people were relying on, so absent must mean off;
@@ -1496,10 +1532,7 @@ function decorateGlossSegments() {
              * armed, or on a device still set to the old `split` behaviour. */
             if (!atEnd) { e.preventDefault(); return; }
             e.preventDefault();
-            const all = [...document.querySelectorAll('.free-input')];
-            const next = all[all.indexOf(fi) + 1];
-            if (next) { next.focus(); try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* noop */ }
-                        try { next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { next.scrollIntoView(); } }
+            walkOnFromFree(g);   // #78: the next line's first gloss by default, or its free translation
           } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
             /* ⚠ AFTER the advance branch, not before it (Seth, 2026-09-08). A BLANK box satisfies
              * atStart and atEnd at once, so while this came first it swallowed every Enter on an
@@ -1517,10 +1550,8 @@ function decorateGlossSegments() {
              * "For the free translation or baseline, enter/return positions the split on that text
              * tier"); the walk to the next line (2026-09-04) remains for a box with nothing to split. */
             if (fi.value.trim() && joinSplitAllowed('gloss')) { glossPlace(i, 'free', fi.selectionStart ?? fi.value.length); return; }
-            // Not a split: Enter walks to the next line's translation, the FLEx-style walk the word glosses already have.
-            const all = [...document.querySelectorAll('.free-input')];
-            const next = all[all.indexOf(fi) + 1];
-            if (next) { next.focus(); try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* fine */ } }
+            // Not a split: Enter walks on to the next line, the same walk as the move-to-next branch above (#78).
+            walkOnFromFree(g);
           }
         });
       }
@@ -4148,6 +4179,24 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   input.__prevVal = input.value;
   queueMicrotask(() => growArea(input));
   if (analFont) input.style.fontFamily = analFont;
+  /* ⚠ A PHONE'S ENTER ARRIVES AS A LINE BREAK, NOT AS A KEY (#78). Typed at the END of the box, exactly
+   * where the Enter key would walk on, the break is taken back out and becomes that same walk, so the
+   * keyboard and the researcher's setting agree. "Where the Enter key walks" means: Enter set to move to
+   * the next line, and a line decorateGlossSegments has wired, whose ▶ bar is the sign (a text-only
+   * line has no bar and no Enter walk, so a phone must not invent one there), not armed for a cut. Only
+   * a real line-break input counts: a paste that ends in a newline is not someone pressing Enter.
+   * ⚠ REGISTERED BEFORE the handler below, which would otherwise turn the break into a space first; the
+   * walk itself waits until that handler has stored the text. */
+  input.addEventListener('input', (e) => {
+    if (e.inputType !== 'insertLineBreak' && e.inputType !== 'insertParagraph') return;
+    if (!enterAtEndAdvances() || input.value.slice(input.selectionStart ?? 0).trim()) return;
+    const line = input.closest('.segment');
+    if (!line || !line.querySelector('.gseg-bar') || line.classList.contains('cut-armed')) return;
+    const at = input.selectionStart ?? input.value.length;
+    input.value = input.value.slice(0, at).replace(/[\r\n]+$/, '') + input.value.slice(at);
+    try { input.setSelectionRange(input.value.length, input.value.length); } catch { /* detached */ }
+    setTimeout(() => walkOnFromFree(line), 0);
+  });
   /* ⚠ WRAPPING YES, LINE BREAKS NO. Seth, 2026-09-10: "Do not allow users to enter linefeeds or
    * carriage returns or manual line breaks though in those boxes, just word wrapping." A free
    * translation is one run of prose; a literal newline in it would travel into the .flextext and the
@@ -4206,8 +4255,8 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * tall, not zero pixels tall until the user starts typing. Or focuses the field" — which the
    * min-height floor guarantees. This only fixes a PRE-FILLED box that needed more than one line. */
   // The phone keyboard's Enter label — see applyEnterKeyHint. Before the first focus, and on each one.
-  applyEnterKeyHint(input, enterAtEndAdvances());
-  input.addEventListener('focus', () => { growArea(input); applyEnterKeyHint(input, enterAtEndAdvances()); });
+  applyEnterKeyHint(input, freeEnterShowsNext());
+  input.addEventListener('focus', () => { growArea(input); applyEnterKeyHint(input, freeEnterShowsNext()); });
   // The ✂ under the caret, whenever Enter here would place a split (plans/split-tiers.md).
   registerCaretScissors(input, freeRow, () => glossCaretWant(input, seg), (at) => {
     const i = current ? current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg) : -1;
@@ -5053,7 +5102,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon',
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'freeEnterNext','cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon',
                    /* ⚠ THE TYPING SETTINGS WERE MISSING FROM THIS LIST since they shipped in v663,
                     * so the panel could push them but never READ BACK what a device actually had —
                     * its form fell through to defaults and showed the researcher a value the device
@@ -6665,6 +6714,8 @@ const SETUP_GROUPS = [
     { k: 'glossBreak', type: 'select', opts: ['period', 'underscore', 'hyphen'], optPrefix: 'panel.opt.glossBreak.', note: 'panel.f.glossBreakNote' },
     { k: 'singleSpace', type: 'checkbox', note: 'panel.f.singleSpaceNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
+    // Where that walk goes from the END of a free translation on the Gloss tab (#78): the next line's first gloss by default.
+    { k: 'freeEnterNext', type: 'select', opts: ['gloss', 'free'], optPrefix: 'panel.opt.freeEnterNext.', note: 'panel.f.freeEnterNextNote' },
     // Whether the plain Space bar plays (automatic = off on a touch screen, where Space is typing).
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
@@ -7046,6 +7097,7 @@ function deviceSetupValues() {
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
     else if (f.k === 'wordGloss') v.wordGloss = s.wordGloss !== false;
     else if (f.k === 'glossLanding') v.glossLanding = s.glossLanding === 'gloss' ? 'gloss' : 'free';
+    else if (f.k === 'freeEnterNext') v.freeEnterNext = s.freeEnterNext === 'free' ? 'free' : 'gloss';
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     // Same rule as the panel's twin: an explicit value wins, otherwise a device that has stored

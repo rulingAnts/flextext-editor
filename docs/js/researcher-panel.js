@@ -810,6 +810,8 @@ const GROUPS = [
     { k: 'glossBreak', type: 'select', opts: ['period', 'underscore', 'hyphen'], optPrefix: 'panel.opt.glossBreak.', note: 'panel.f.glossBreakNote' },
     { k: 'singleSpace', type: 'checkbox', note: 'panel.f.singleSpaceNote' },
     { k: 'enterAtEnd', type: 'select', opts: ['advance', 'split'], optPrefix: 'panel.opt.enterAtEnd.', note: 'panel.f.enterAtEndNote' },
+    // Where that walk goes from the END of a free translation on the Gloss tab (#78): the next line's first gloss by default.
+    { k: 'freeEnterNext', type: 'select', opts: ['gloss', 'free'], optPrefix: 'panel.opt.freeEnterNext.', note: 'panel.f.freeEnterNextNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
     { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
@@ -1356,6 +1358,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v682', date: '2026-09-11', items: [
+    { k: 'panel.rel.new.freeEnterNext', issue: 78 },
+  ] },
   { v: 'v681', date: '2026-09-11', items: [
     { k: 'panel.rel.new.wsLanguageGuessWarning', issue: 68 },
   ] },
@@ -9627,6 +9632,7 @@ function toFormValues(s) {
     else if (f.k === 'glossTab') v.glossTab = s.glossTab !== false;
     else if (f.k === 'wordGloss') v.wordGloss = s.wordGloss !== false;
     else if (f.k === 'glossLanding') v.glossLanding = s.glossLanding === 'gloss' ? 'gloss' : 'free';
+    else if (f.k === 'freeEnterNext') v.freeEnterNext = s.freeEnterNext === 'free' ? 'free' : 'gloss';
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     /* ⚠ A NEW PROJECT GETS THE NEW BEHAVIOUR; an existing one keeps whatever it had (Seth,

@@ -121,9 +121,8 @@ test('#42 Enter in a free-translation box walks to the next line when no split a
   const i = APP.indexOf("else if (e.key === 'Enter' && !e.shiftKey) {");
   assert.ok(i > 0, 'the walk branch exists');
   const branch = APP.slice(i, i + 1300);   // the split-placing branch sits between the literal and the walk now
-  assert.match(branch, /document\.querySelectorAll\('\.free-input'\)/);
-  assert.match(branch, /all\[all\.indexOf\(fi\) \+ 1\]/, 'the next translation box in document order');
-  assert.match(branch, /next\.focus\(\)/);
+  // #78 (Seth, 2026-09-11) moved where the walk lands into walkOnFromFree: the next line's first gloss by default.
+  assert.match(branch, /walkOnFromFree\(g\);/, 'the walk to the next line');
   const before = APP.slice(i - 400, i);
   assert.match(before, /joinSplitAllowed\('gloss'\)/, 'the split branches are tried first; the walk is the fallback');
 });

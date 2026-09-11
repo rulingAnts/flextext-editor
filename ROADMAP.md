@@ -136,6 +136,13 @@ split scissors do not show up between word/gloss pairs where the punctuation sit
   which only exists once a text has audio, and the preview pane cannot drive a file picker to attach
   one. The predicate is exercised across ten punctuation shapes; the placement mirrors the existing
   working edge-✂ code and is pinned by source assertions. The rendered row is Seth's check.
+- ⚠⚠⚠ **And the placement was wrong (fixed in v685).** The block asked `canSplitBefore` about
+  `docSegments(doc)[i]`, the line's audio time span, which has no words, instead of the phrase
+  `doc.paragraphs[i].segments[0]`. Every gap was refused, so from v676 to v684 no ✂ appeared between
+  any word/gloss pair (Seth, in Firefox: *"Now scissors don't appear between interlinear word/gloss
+  pairs at all!"*). The source assertions pinned that very variable, and "the pane cannot attach
+  audio" was not true: v685 was checked rendered on a synthetic timed text, in the preview and in
+  headless Firefox 155, against v684's code and the fix.
 
 ## 0e. Released 2026-09-10 (v675)
 

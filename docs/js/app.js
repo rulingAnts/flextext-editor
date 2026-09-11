@@ -1392,13 +1392,19 @@ function decorateGlossSegments() {
      *
      * ⚠ THE GAP INDEX IS THE MODEL INDEX, and that needs no counting: renderSegment appends one
      * .word-cell per seg.words entry, punctuation included, so the gap before cells[k] IS k. The
-     * old code counted preceding .word-cell elements to reach the same number the long way. */
+     * old code counted preceding .word-cell elements to reach the same number the long way.
+     *
+     * ⚠⚠ ASK ABOUT THE PHRASE, NOT THE TIME SPAN. docSegments(doc)[i] is line i's stretch of audio,
+     * { start, end } and no words, so asking canSplitBefore about it refused every gap: from v676 to
+     * v684 no ✂ appeared between ANY word/gloss pair, in every browser (Seth: "Now scissors don't
+     * appear between interlinear word/gloss pairs at all!"). The words live on the phrase,
+     * paragraphs[i].segments[0], which the Enter-split code below already reads. */
     const gapRow = g.querySelector('.word-row');
-    const gapSeg = docSegments(current.doc)[i];
-    if (gapRow && gapSeg) {
+    const gapPhrase = current.doc.paragraphs[i] && current.doc.paragraphs[i].segments[0];
+    if (gapRow && gapPhrase) {
       const cells = [...gapRow.querySelectorAll('.word-cell')];
       for (let k = 1; k < cells.length; k++) {
-        if (!canSplitBefore(gapSeg, k)) continue;
+        if (!canSplitBefore(gapPhrase, k)) continue;
         /* Find the column at this gap, or make one. A bare .chain-btn already sitting there is
          * ADOPTED rather than replaced, so its click handler and its own merge survive. */
         let wrapEl = cells[k].previousElementSibling;

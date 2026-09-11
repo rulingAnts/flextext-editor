@@ -81,8 +81,8 @@ test('Gloss tab: the ✂ between words, the translation\'s caret and the playhea
    * placed per gap, where `k` IS that index because renderSegment appends one .word-cell per
    * seg.words entry, punctuation included. */
   assert.match(APP, /sc\.addEventListener\('click', \(\) => glossPlace\(i, 'words', k\)\);/);
-  assert.match(APP, /if \(!canSplitBefore\(gapSeg, k\)\) continue;/,
-    'and WHICH gaps get one is canSplitBefore, not canMerge');
+  assert.match(APP, /if \(!canSplitBefore\(gapPhrase, k\)\) continue;/,
+    'and WHICH gaps get one is canSplitBefore, not canMerge — asked about the phrase, never the time span');
   assert.doesNotMatch(APP.replace(/\/\*[\s\S]*?\*\//g, ''), /querySelectorAll\('\.chain-btn'\)\.forEach/,
     'the ✂ no longer rides on the chain-links, which is what made canMerge decide both questions');
   assert.match(APP, /glossPlace\(i, 'words', atStart \? w : w \+ 1\);/);

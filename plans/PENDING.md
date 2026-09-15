@@ -324,11 +324,21 @@ the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.
   paragraph), whole lines only, clean nesting, any unit inside any other. Decisions are recorded in
   [#80](https://github.com/rulingAnts/flextext-editor/issues/80). Best built after the one-tree model
   above, so it can mark propositions too. Future: export chosen clauses or sentences to LingTree.
-- **Suite: a Copy button for FLEx-equivalent TSV** (Editor, Audio Segmenter, PAT, preview HTML,
-  especially the preview HTML): exactly what FieldWorks' Print View copy gives. Off by default on
-  paired devices, on for unpaired ones, and researcher-controlled
+- **Suite: a Copy button on every line for FLEx-equivalent TSV** (Editor, Audio Segmenter, PAT,
+  preview HTML, especially the preview HTML): what FieldWorks' Print View copy gives, in the exact
+  form LingTeX-Word reads (English FLEx labels, tabs kept, no BOM; the full contract is in the
+  issue). Off by default on paired devices, on for unpaired ones, and researcher-controlled
   ([#81](https://github.com/rulingAnts/flextext-editor/issues/81)). Shares its serializer with #52's
   per-line export menu.
+- ⭐ **Right-to-left writing systems: HIGH PRIORITY** (Seth, 2026-09-15: *"let's make sure support
+  for right-to-left vernacular writing systems (like Hebrew, Arabic, etc) is a suggestion in our
+  GitHub Issues, and a high priority one"*). Tracked in
+  [#48](https://github.com/rulingAnts/flextext-editor/issues/48), now labeled `priority: high`;
+  design notes in `BACKLOG.md` ("right-to-left language support"). Direction is set independently
+  for the overview player, the segment players, the vernacular and each analysis writing system;
+  audio may optionally run right to left; a ✂ split moves text by each tier's own direction. Engine-
+  and suite-wide, and how much is shared engine versus each app's own screens is not yet known. A
+  right-to-left UI is the separate, larger half of the same issue.
 
 ## 5 — Parked, and parked for reasons
 

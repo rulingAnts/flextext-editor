@@ -1,6 +1,34 @@
-# PAT: one tree — propositions become lines (PLAN, not built)
+# PAT: one tree — propositions become lines (PLAN, partly in place)
 
-**Status: design.** Nothing implemented. Seth's proposal, 2026-08-08.
+**Status, checked against the code at v685 (2026-09-15): partly in place; the model change itself is
+not built.** Seth's proposal, 2026-08-08. On 2026-09-15 Seth remembered this as already enacted, so
+the code was searched before this status was rewritten: every branch (local and on GitHub), stashes,
+worktrees, pull requests, and every copy of `paragraph-model.js` on disk. Nothing anywhere removes
+`line.props`.
+
+- **Already works**
+  - Splitting any line, imported texts included (the suite's one splitting rule, v598:
+    `splitLineTiers`).
+  - Editing a line's free translation (`setLineFree`).
+  - In a diagram built from scratch every line already is a proposition: "+ Line", Enter for a new
+    line, `addLine`, `setLineImplicit`.
+  - Lines and propositions are grouped on one surface (v205–v207; see §1).
+- **Not built**
+  - `line.props` is still a separate kind of unit: ids like `L3p1`, the "+ proposition" button,
+    `addProp` / `setPropText` / `setPropImplicit` / `deleteProp`, the export code, and three test
+    files.
+  - An imported text cannot gain a line, so it cannot gain a free-translation-only line: `addLine`
+    calls `requireAuthored` ("This text was imported — its wording cannot be edited here."). The
+    workflow in the quote below depends on exactly that.
+  - No migration and no `.fxpa` version bump: `FXPA_VERSION` is still 1 (§6).
+  - §8: the outdated "may not mix propositions" comment is still in `paragraph-model.js` (:517).
+- **Stranded on unmerged branches:** that comment's fix, a §6 note that the method-presets `.fxpa`
+  change must share this plan's single version bump, and the v320 GUID gate that §3 depends on. They
+  live on `v321-hardening` / `parked-v319-v321` / `guid-identity-gate` (8–9 Aug; merged into staging
+  then, never into the release line), tracked in `PENDING.md`.
+- **Worth finishing before #80.** The grammatical-unit layer (#80) marks whole lines only, so it
+  cannot mark a proposition until propositions are lines. Finishing this plan first spares #80 a
+  second pass.
 
 > *"I think we should not have propositions and segments/language data lines as different
 > categories/things in our model. I think it should be one tree that includes both. … Instead of

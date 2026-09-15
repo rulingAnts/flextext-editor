@@ -315,6 +315,20 @@ the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.
   and queues the `.flextext` with its times; ⤓ stays as the unpaired way out. **End-to-end pairing
   is unverified** — it needs a researcher account (staging) or the rig (`./devctl.sh start`);
   `test/segmenter-pairing.test.mjs` pins the static half, and the sheet's §2c has the walk-through.
+- **PAT: finish the one-tree model before building #80** (checked 2026-09-15). Propositions are only
+  partly lines today: scratch diagrams and line splitting work, but `line.props` is still its own
+  kind of unit, and an imported text cannot gain a free-translation-only line. The status, the
+  missing pieces and the stranded `v321-hardening` work are in `pat-one-tree-model.md`. Seth
+  remembers this as already enacted, so confirm with him before starting.
+- **PAT: an optional grammatical-unit layer**: core/VP, clause, sentence (and an optional
+  paragraph), whole lines only, clean nesting, any unit inside any other. Decisions are recorded in
+  [#80](https://github.com/rulingAnts/flextext-editor/issues/80). Best built after the one-tree model
+  above, so it can mark propositions too. Future: export chosen clauses or sentences to LingTree.
+- **Suite: a Copy button for FLEx-equivalent TSV** (Editor, Audio Segmenter, PAT, preview HTML,
+  especially the preview HTML): exactly what FieldWorks' Print View copy gives. Off by default on
+  paired devices, on for unpaired ones, and researcher-controlled
+  ([#81](https://github.com/rulingAnts/flextext-editor/issues/81)). Shares its serializer with #52's
+  per-line export menu.
 
 ## 5 — Parked, and parked for reasons
 

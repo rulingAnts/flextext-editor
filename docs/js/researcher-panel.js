@@ -1162,14 +1162,74 @@ async function route() {
   renderDashboard();
 }
 
+/* ⚠ SIGNING IN WITH GOOGLE OUTLIVES SIGNING OUT HERE (2026-09-22). Our sign-out ends this app's
+ * session and nothing more: the Google session in this browser survives it, so on a shared machine
+ * the next person can open Gmail or Drive as the researcher who just "signed out". Our sign-out
+ * looks complete and is not.
+ *
+ * The app cannot fix that by signing them out of Google. Checked against
+ * accounts.google.com/.well-known/openid-configuration: NO `end_session_endpoint`, no front- or
+ * back-channel logout; `revocation_endpoint` revokes OUR tokens, not their browser's Google
+ * session. And no site may end another site's session in any case — that is the browser's rule,
+ * not a gap to engineer around. So: the truth in words before the button, the truth again on the
+ * screen a sign-out lands on, the account chooser asked of Google in the worker
+ * (prompt=select_account), and Google's own sign-out page offered as a CHOICE — never as a
+ * consequence, because on someone's own laptop signing them out of every Google service is hostile.
+ *
+ * ⚠ MEASURED, NOT ASSUMED (2026-09-22): /Logout answers 302 and ends on Google's own "Sign in"
+ * page, and `?continue=` pointing back at one of our hosts is REFUSED (400) — so that page cannot
+ * return anyone to the panel, which is why the copy says it opens Google's page instead of
+ * promising a result. It is Google's UI, not an API; if it ever stops signing people out, the
+ * button still lands them on a Google page where they can do it by hand. */
+const GOOGLE_ACCOUNT_URL = 'https://myaccount.google.com/';
+const GOOGLE_SIGNOUT_URL = 'https://accounts.google.com/Logout';
+
+/* Set by every sign-out path, read once by the sign-in screen it lands on — that screen is where the
+ * other half of the truth belongs. A flag rather than an argument because route() is reached from a
+ * dozen places and takes none; `signOutHere` is the ONE place this panel calls Researcher.signOut(),
+ * so a future sign-out cannot quietly skip saying it. */
+let signedOutNotice = false;
+function signOutHere() { Researcher.signOut(); signedOutNotice = true; }
+
+/* The deliberate sign-out (the account modal) asks which sign-out is meant — Seth, 2026-09-22:
+ * "Sign out of Researcher Panel only (leaves Google Account logged into this device)" or "Sign out
+ * of Google Account for all apps on this device".
+ *
+ * ⚠ The panel's own sign-out happens either way, and FIRST, so this app is signed out even if the
+ * Google leg is abandoned at Google's page. */
+function signOutChoiceModal() {
+  return new Promise((resolve) => {
+    const m = modal(`
+      <h3>${esc(t('panel.signout.choiceTitle'))}</h3>
+      <p class="note">${esc(t('panel.signout.choiceIntro'))}</p>
+      <button class="primary-btn" data-m="panel">${esc(t('panel.signout.panelOnly'))}</button>
+      <p class="note rp-choice-note">${esc(t('panel.signout.panelOnlyNote'))}</p>
+      <a class="secondary-btn rp-gout" data-m="google" href="${GOOGLE_SIGNOUT_URL}" target="_blank" rel="noopener noreferrer">${esc(t('panel.signout.alsoGoogle'))}</a>
+      <p class="note rp-choice-note">${esc(t('panel.signout.alsoGoogleNote'))}</p>
+      <button class="link-btn" data-m="cancel">${esc(t('panel.confirm.cancel'))}</button>`,
+      false, () => resolve(null));
+    m.el.querySelector('[data-m="panel"]').onclick = () => { resolve('panel'); m.close(); };
+    m.el.querySelector('[data-m="google"]').onclick = () => { resolve('google'); m.close(); };
+    m.el.querySelector('[data-m="cancel"]').onclick = () => m.close();
+  });
+}
+
 // Sign-in screen: one "Sign in with Google" button (replaces the email+password + 2FA screens).
 function renderSignIn(note) {
   stopDashPoll();
+  const justSignedOut = signedOutNotice;
+  signedOutNotice = false;
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
       <h2>${esc(t('panel.signin.title'))}</h2>
+      ${justSignedOut ? `<div class="rp-signout-done">
+        <p class="note">${esc(t('panel.signout.done'))}</p>
+        <p class="note">${esc(t('panel.signout.finish'))}</p>
+        <a class="link-btn rp-gout" href="${GOOGLE_ACCOUNT_URL}" target="_blank" rel="noopener noreferrer">${esc(t('panel.signout.googleBtn'))}</a>
+      </div>` : ''}
       <p class="note">${esc(t('panel.signin.intro'))}</p>
       ${note ? `<p class="banner warn-banner">${esc(note)}</p>` : ''}
+      <p class="note info-note warn-note rp-shared-note"><span class="rp-shared-icon" aria-hidden="true">⚠</span> ${esc(t('panel.signin.sharedNote'))}</p>
       <button class="primary-btn" data-act="google">${esc(t('panel.signin.btn'))}</button>
       <label class="check-label rp-stay"><input type="checkbox" id="rp-stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
     </div></div>`;
@@ -1197,7 +1257,7 @@ function renderReconnecting() {
       <button class="primary-btn" data-act="retry">${esc(t('panel.conn.retry'))}</button>
       <button class="link-btn" data-act="signout">${esc(t('panel.account.signout'))}</button>
     </div></div>`;
-  wireActs({ retry: () => route(), signout: () => { Researcher.signOut(); route(); }, exit: close });
+  wireActs({ retry: () => route(), signout: () => { signOutHere(); route(); }, exit: close });
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => route(), 8000);
 }
@@ -1215,7 +1275,7 @@ function renderAwaiting() {
     </div></div>`;
   wireActs({
     recheck: (btn) => busy(btn, async () => { try { await Researcher.bootstrap(); } catch { /* stay pending */ } route(); }),
-    signout: () => { Researcher.signOut(); route(); },
+    signout: () => { signOutHere(); route(); },
     exit: close,
   });
 }
@@ -1244,7 +1304,7 @@ function renderAccountSwitch() {
     </div></div>`;
   wireActs({
     erase: (btn) => busy(btn, async () => { try { await deps.eraseAllData(); } catch (e) { errToast(e); } }),
-    cancel: () => { Researcher.signOut(); route(); },   // drop the new session; old data stays for its owner
+    cancel: () => { signOutHere(); route(); },   // drop the new session; old data stays for its owner
     exit: close,
   });
 }
@@ -1358,6 +1418,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v686', date: '2026-09-22', items: [
+    { k: 'panel.rel.new.googleSessionWarning' },
+  ] },
   { v: 'v685', date: '2026-09-11', items: [
     { k: 'panel.rel.fix.splitScissorsBack', issue: 73 },
   ] },
@@ -2510,7 +2573,7 @@ async function renderDashboard(prefetched) {
   const keepTop = inPlace && scroller ? scroller.scrollTop : null;
   if (!prefetched && !inPlace) {
     root.innerHTML = header('panel.title', true) + `<div class="rp-body">${loadingHtml('panel.dash.loading')}</div>`;
-    wireActs({ exit: close, lock: () => { Researcher.signOut(); route(); } });
+    wireActs({ exit: close, lock: () => { signOutHere(); route(); } });
   }
   let data = prefetched;
   if (!data) {
@@ -2791,7 +2854,7 @@ async function renderDashboard(prefetched) {
 
   wireActs({
     exit: close,
-    lock: () => { Researcher.signOut(); route(); },
+    lock: () => { signOutHere(); route(); },
     new: () => newDeviceModal(),
     /* ⚠ A HARD REFRESH, AND VISIBLY SO (Seth, 2026-09-01: "doesn't seem like the refresh button is
      * doing anything at all… I think a hard refresh is what we want, the equivalent of
@@ -9304,8 +9367,26 @@ function accountModal() {
   };
   m.el.querySelector('[data-m="stay"]').onchange = (e) => Researcher.setStaySignedIn(e.target.checked);
   m.el.querySelector('[data-m="signout"]').onclick = async () => {
-    if (!await confirmModal(t('panel.account.confirmSignout'))) return;
-    Researcher.signOut(); m.close(); deps.onSignedUp && deps.onSignedUp(); route();
+    const how = await signOutChoiceModal();
+    if (!how) return;
+    /* ⚠ THE GOOGLE LEG IS THE ANCHOR'S OWN NAVIGATION, NEVER A CALL FROM HERE. external-link.js
+     * owns every exit from this suite: on Android it hands the URL to the OS as an `intent://` VIEW
+     * so the DEFAULT BROWSER opens it in its own task (a Custom Tab inside the PWA is a safety bug
+     * here, not a nicety — Seth, 2026-09-22: "pass that to the browser profile and browser that's
+     * connected with that PWA, not the PWA itself"), on desktop and iOS it opens a real new window,
+     * and on a PAIRED device it is blocked outright, because such a device has no clickable way off
+     * the site at all. Calling openExternal() from here would be a second, policy-free exit — the
+     * one thing that module exists to prevent.
+     *
+     * ⚠ AND THE PROFILE IS THE POINT, not merely the window: an installed PWA shares cookies with
+     * the browser profile it was installed from, so a Google sign-out clears the session THIS app
+     * uses only when it happens in that same browser. That is also why the copy promises nothing
+     * about the outcome — if the phone's default browser is a different one, Google signs that
+     * browser out instead, and a promise would have been a lie on exactly the shared machine this
+     * whole change exists for. Our own sign-out has already happened by then, which is the half we
+     * are answerable for. */
+    signOutHere(); m.close(); deps.onSignedUp && deps.onSignedUp();
+    route();
   };
   m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // permanent server-side account delete
   driveSection(m.el.querySelector('#rp-drive-body'));

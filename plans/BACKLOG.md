@@ -679,9 +679,19 @@ is unlimited, uncached and polled while doing TWO full `driveListAll` passes (ea
 files); and the panel polls `GET /v1/researcher` every 12s. Neither is the cause of a bad-connection
 day, but both are real work per tick.
 
-## FUTURE: right-to-left language support — Arabic-script vernaculars (Seth, 2026-08-27)
+## ⭐ HIGH PRIORITY (2026-09-15): right-to-left language support — Arabic-script vernaculars (Seth, 2026-08-27)
 
 > *"That'll be most challenging in our gloss/free translation tab. Future feature, not now."*
+
+⚠ **Raised to high priority, and widened, on 2026-09-15** (tracked in #48). Seth: *"let's make sure
+support for right-to-left vernacular writing systems (like Hebrew, Arabic, etc) is a suggestion in
+our GitHub Issues, and a high priority one."* The same day he added three requirements. Direction is
+set **independently** for the overview player, the segment players, the vernacular text and each
+analysis writing system, by researchers and by unpaired users. Audio may optionally run right to
+left (the waveform, or at least a thin-line segment player), so the playhead moves with the text. And
+a ✂ split on right-to-left text moves the text to the LEFT onto the new line, decided separately for
+the segment audio, the vernacular and each analysis writing system. Engine- and suite-wide; how much
+is shared engine versus each app's own screens is not yet known.
 
 The data-language case (an RTL VERNACULAR and/or analysis language), distinct from an RTL UI
 language (full panel mirroring — separate, bigger, unrequested). Three shapes to support: RTL vern
@@ -695,9 +705,11 @@ What makes it tractable when its time comes:
   interlinear ROW on the Gloss tab — token ORDER must flow right-to-left for an RTL vernacular
   while each token's gloss beneath may be LTR, and wrapping must break rows from the right.
   (CSS: row-reverse/rtl direction on the token row + logical properties instead of left/right.)
-- ⚠ The TIME AXIS NEVER FLIPS: Cut-tab strips, mini-waves, and the player run left→right by
-  convention regardless of text direction — only text runs RTL. Mixing these is the classic
-  RTL-audio-tool mistake.
+- ⚠ The TIME AXIS DOES NOT FLIP WITH THE TEXT: Cut-tab strips, mini-waves, and the player run
+  left→right by convention regardless of text direction — only text runs RTL. Mixing these is the
+  classic RTL-audio-tool mistake. ⚠ Qualified by Seth on 2026-09-15: the overview player and the
+  segment players each get their own direction setting, independent of the text's, so audio CAN run
+  right to left as a deliberate choice (the waveform, or at least a thin-line segment player).
 - FLEx itself renders RTL interlinear; its behaviour is the round-trip fidelity reference.
 - Exports need dir too: the HTML preview (dir on the container), EAF is direction-neutral.
 

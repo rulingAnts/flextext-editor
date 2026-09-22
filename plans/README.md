@@ -55,7 +55,8 @@ landed?** If the answer depends on nobody finding the repo, it goes in `notes/` 
 | `segment-split-join-plan.md` | guided split/join in the **Paragraph Analysis Tool** — plan only |
 | `fxed-fxpa-formats-plan.md` | how the `.fxed` decision was reached, and why the alternatives lost |
 | `fxed-format-spec.md` | **the `.fxed` spec** — container, manifest, what must not travel — plan only |
-| `pat-one-tree-model.md` | PAT drops the line/proposition split — **one tree, every unit a line** — plan only |
+| `google-session-and-signout.md` | signing out of the app can never end the user's Google session (Google supports no RP-initiated logout) — the warning, the sign-out choice and `prompt=select_account` that ship instead, with what was measured — **shipped v686** |
+| `pat-one-tree-model.md` | PAT drops the line/proposition split — **one tree, every unit a line** — **partly in place** (scratch diagrams, line splitting); the model change itself is not built (checked 2026-09-15) |
 | `audio-matching-mode.md` | the guided match-existing-text-to-audio step + segmentation-on-by-default for new installs — plan only |
 | `onestory-bridge.md` | a `.flextext` + audio sidecar beside a OneStory Editor project — **a brief for an OUTSIDE team.** Nothing built, nobody working on it; two tracks (OSE as-is, and OSE schema changes to negotiate) |
 | `drive-as-truth.md` | text identity (`doc_id` vs `recording_id`), the three origins, and a reconciler so Drive/D1/UI stop drifting — **design note**, supersedes `project-split.md` VII.1 |

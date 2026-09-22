@@ -69,10 +69,11 @@ test('every sign-out path lands on the other half of the truth', () => {
    * reconnect screen, and the account-switch cancel — and each said nothing. */
   assert.equal((bare(PANEL).match(/Researcher\.signOut\(\)/g) || []).length, 1,
     'exactly one call to Researcher.signOut() in the whole panel');
-  assert.match(PANEL, /function signOutHere\(\) \{ Researcher\.signOut\(\); signedOutNotice = true; \}/,
-    'and it lives in signOutHere(), which arms the notice');
+  const fn = PANEL.slice(PANEL.indexOf('function signOutHere()'), PANEL.indexOf('function googleAccountUrl('));
+  assert.match(fn, /Researcher\.signOut\(\);/, 'and it lives in signOutHere()');
+  assert.match(fn, /signedOutNotice = true;/, 'which arms the notice');
   const screen = PANEL.slice(PANEL.indexOf('function renderSignIn(note)'), PANEL.indexOf('function renderConnecting()'));
-  assert.match(screen, /const justSignedOut = signedOutNotice;\s*\n\s*signedOutNotice = false;/,
+  assert.match(screen, /const justSignedOut = signedOutNotice;[\s\S]{0,140}signedOutNotice = false;/,
     'the screen reads the flag once and clears it, so the notice does not follow them around');
   for (const k of ['panel.signout.done', 'panel.signout.finish', 'panel.signout.googleBtn']) {
     assert.ok(screen.includes(k), `${k} is rendered there`);
@@ -125,4 +126,29 @@ test('no copy claims the app signs anyone out of Google, in either language', ()
     'no English copy promises a Google sign-out this app cannot perform');
   assert.doesNotMatch(I18N, /(?<!tidak dapat |tidak |bukan )mengeluarkan Anda dari Google/i,
     'nor does the Indonesian');
+});
+
+test('the Google link names, and asks for, the account that just signed out', () => {
+  /* ⚠ A BROWSER CAN HOLD SEVERAL GOOGLE ACCOUNTS, and myaccount.google.com opens the DEFAULT one,
+   * which need not be the one the panel used (Seth, 2026-09-22: "we need to make sure it's the same
+   * Google Account that just signed out on this app… Just in case the user is signed into
+   * multiple"). Two halves, because one is not enough: `authuser` asks Google for that account, and
+   * the screen NAMES it — the parameter is Google's own convention rather than a documented API, and
+   * an account silently opened wrong would tell nobody anything. */
+  assert.match(PANEL, /function signOutHere\(\) \{\s*\n\s*signedOutEmail = Researcher\.accountEmail\(\) \|\| '';\s*\n\s*Researcher\.signOut\(\);/,
+    '⚠ the address is read BEFORE signOut(), which clears the stored auth it comes from');
+  assert.match(PANEL, /function googleAccountUrl\(email\) \{\s*\n\s*return GOOGLE_ACCOUNT_URL \+ \(email \? '\?authuser=' \+ encodeURIComponent\(email\) : ''\);/,
+    'the link carries ?authuser=<that address>, encoded, and falls back to the plain page without one');
+  const screen = PANEL.slice(PANEL.indexOf('function renderSignIn(note)'), PANEL.indexOf('function renderConnecting()'));
+  assert.match(screen, /href="\$\{esc\(googleAccountUrl\(justSignedOutEmail\)\)\}"/, 'the screen uses it');
+  assert.match(screen, /panel\.signout\.asAccount', \{ email: justSignedOutEmail \}/, 'and names the account in words');
+  assert.match(screen, /const justSignedOutEmail = signedOutEmail;[\s\S]{0,120}signedOutEmail = '';/,
+    'read once and cleared, like the flag beside it — a stale address would name the wrong account next time');
+  const choice = PANEL.slice(PANEL.indexOf('function signOutChoiceModal()'), PANEL.indexOf('// Sign-in screen'));
+  assert.match(choice, /panel\.signout\.signedInAs', \{ email: Researcher\.accountEmail\(\) \}/,
+    'the choice modal says which account as well: "sign out of Google" means nothing without it');
+  for (const k of ['panel.signout.asAccount', 'panel.signout.signedInAs']) {
+    assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2,
+      `${k} exists in both languages`);
+  }
 });

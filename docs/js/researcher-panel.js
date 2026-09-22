@@ -1189,7 +1189,29 @@ const GOOGLE_SIGNOUT_URL = 'https://accounts.google.com/Logout';
  * dozen places and takes none; `signOutHere` is the ONE place this panel calls Researcher.signOut(),
  * so a future sign-out cannot quietly skip saying it. */
 let signedOutNotice = false;
-function signOutHere() { Researcher.signOut(); signedOutNotice = true; }
+/* ⚠ CAPTURED BEFORE THE SIGN-OUT, because signOut() clears the stored auth accountEmail() reads —
+ * and the account has to be named AFTER it, on the screen that offers the Google link. Seth,
+ * 2026-09-22: "we need to make sure it's the same Google Account that just signed out on this app…
+ * Just in case the user is signed into multiple." */
+let signedOutEmail = '';
+function signOutHere() {
+  signedOutEmail = Researcher.accountEmail() || '';
+  Researcher.signOut();
+  signedOutNotice = true;
+}
+
+/* Google's account settings FOR ONE ACCOUNT. `authuser` is how Google's own product URLs pick an
+ * account when a browser holds several, and it survives Google's redirect (measured 2026-09-22:
+ * /?authuser=… → /intro?authuser=…). ⚠ A BEST EFFORT, NOT A GUARANTEE — it is Google's convention
+ * rather than a documented API, so the screen also NAMES the account in words: somebody who lands
+ * on the wrong one can see that and switch, which a parameter alone would never tell them.
+ *
+ * ⚠ The address in the query is the researcher's own, going to the provider that issued it, on a
+ * link opened with rel="noopener noreferrer" — no third party is in this URL. Without an email
+ * (an older session, or a sign-out we did not route) it falls back to the plain settings page. */
+function googleAccountUrl(email) {
+  return GOOGLE_ACCOUNT_URL + (email ? '?authuser=' + encodeURIComponent(email) : '');
+}
 
 /* The deliberate sign-out (the account modal) asks which sign-out is meant — Seth, 2026-09-22:
  * "Sign out of Researcher Panel only (leaves Google Account logged into this device)" or "Sign out
@@ -1202,6 +1224,7 @@ function signOutChoiceModal() {
     const m = modal(`
       <h3>${esc(t('panel.signout.choiceTitle'))}</h3>
       <p class="note">${esc(t('panel.signout.choiceIntro'))}</p>
+      ${Researcher.accountEmail() ? `<p class="note">${esc(t('panel.signout.signedInAs', { email: Researcher.accountEmail() }))}</p>` : ''}
       <button class="primary-btn" data-m="panel">${esc(t('panel.signout.panelOnly'))}</button>
       <p class="note rp-choice-note">${esc(t('panel.signout.panelOnlyNote'))}</p>
       <a class="secondary-btn rp-gout" data-m="google" href="${GOOGLE_SIGNOUT_URL}" target="_blank" rel="noopener noreferrer">${esc(t('panel.signout.alsoGoogle'))}</a>
@@ -1218,14 +1241,17 @@ function signOutChoiceModal() {
 function renderSignIn(note) {
   stopDashPoll();
   const justSignedOut = signedOutNotice;
+  const justSignedOutEmail = signedOutEmail;
   signedOutNotice = false;
+  signedOutEmail = '';
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
       <h2>${esc(t('panel.signin.title'))}</h2>
       ${justSignedOut ? `<div class="rp-signout-done">
         <p class="note">${esc(t('panel.signout.done'))}</p>
         <p class="note">${esc(t('panel.signout.finish'))}</p>
-        <a class="link-btn rp-gout" href="${GOOGLE_ACCOUNT_URL}" target="_blank" rel="noopener noreferrer">${esc(t('panel.signout.googleBtn'))}</a>
+        ${justSignedOutEmail ? `<p class="note">${esc(t('panel.signout.asAccount', { email: justSignedOutEmail }))}</p>` : ''}
+        <a class="link-btn rp-gout" href="${esc(googleAccountUrl(justSignedOutEmail))}" target="_blank" rel="noopener noreferrer">${esc(t('panel.signout.googleBtn'))}</a>
       </div>` : ''}
       <p class="note">${esc(t('panel.signin.intro'))}</p>
       ${note ? `<p class="banner warn-banner">${esc(note)}</p>` : ''}
@@ -1418,6 +1444,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v687', date: '2026-09-22', items: [
+    { k: 'panel.rel.fix.googleAccountLink' },
+  ] },
   { v: 'v686', date: '2026-09-22', items: [
     { k: 'panel.rel.new.googleSessionWarning' },
   ] },

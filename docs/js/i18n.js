@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v686';
+export const ENGINE_VERSION = 'v687';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -975,6 +975,13 @@ internet after the first time.</p>
   'panel.signout.done': 'You are signed out of FlexText in this browser. You are still signed in to Google — this app cannot sign you out of that.',
   'panel.signout.finish': 'On a shared computer, finish by opening your Google account settings and signing out there, or by closing the private window you were using.',
   'panel.signout.googleBtn': 'Open Google account settings',
+  /* ⚠ WHICH Google account (Seth, 2026-09-22: "we need to make sure it's the same Google Account
+   * that just signed out on this app… Just in case the user is signed into multiple"). The link
+   * carries ?authuser=<that address>, which is Google's own convention rather than a documented
+   * API — so the account is NAMED here as well. A parameter that silently opens the wrong account
+   * tells nobody anything; a named account lets the person see it and switch. */
+  'panel.signout.asAccount': 'You were signed in as {email}. A browser can hold several Google accounts, so check that Google opens that one.',
+  'panel.signout.signedInAs': 'Signed in as {email}.',
   /* The deliberate sign-out asks which sign-out is meant (Seth, 2026-09-22). ⚠ The second option is
    * worded as OPENING Google's page, not as signing them out of Google: the URL is Google's own UI
    * rather than a documented API, it ends every Google session in the browser (not just ours), and
@@ -1514,6 +1521,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.googleAccountLink': 'The link to your Google account settings after signing out now points at the account you had signed in with, and names it, in case the browser holds more than one Google account. The sign-out choice names it too.'
     ,'panel.rel.new.googleSessionWarning': 'The Researcher panel now says plainly what signing in with Google means on a computer that is not yours: you stay signed in to Google in that browser even after you sign out of FlexText. The sign-in screen says so before you sign in; the screen you land on after signing out says it again and offers your Google account settings; and signing out from your account now asks whether you mean the panel only, or Google as well. Google also asks which account you are using, instead of signing you straight back in as whoever used that browser last. Ending a Google session is something only you can do — in your browser, or by closing a private window.'
     ,'panel.rel.fix.splitScissorsBack': 'On the Gloss tab, the ✂ between word/gloss pairs is back. Since v676 it had vanished from every line, because the check that decides where a line can be split was reading the line’s stretch of audio, which holds no words, instead of the words themselves. The punctuation rules from v676 still apply: a line can be split just after a comma, never just before one.'
     ,'panel.rel.new.reportLinks': 'The Researcher Panel now has Report a problem and Suggest a feature links, the same as the Paragraph Analysis Tool has. They are in Release notes, beside the version. A problem report fills in the app version, which site you are on and your browser \u2014 and nothing else: no account, device, text or key information, because the issue tracker is public.'
@@ -3550,6 +3558,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.signout.done': 'Anda sudah keluar dari FlexText di peramban ini. Anda masih masuk ke Google — aplikasi ini tidak dapat mengeluarkan Anda dari Google.',
   'panel.signout.finish': 'Di komputer bersama, selesaikan dengan membuka setelan akun Google Anda dan keluar di sana, atau dengan menutup jendela pribadi yang Anda pakai.',
   'panel.signout.googleBtn': 'Buka setelan akun Google',
+  'panel.signout.asAccount': 'Anda tadi masuk sebagai {email}. Satu peramban dapat menyimpan beberapa akun Google, jadi periksa bahwa Google membuka akun itu.',
+  'panel.signout.signedInAs': 'Masuk sebagai {email}.',
   'panel.signout.choiceTitle': 'Keluar',
   'panel.signout.choiceIntro': 'Keluar dari sini tidak mengeluarkan Anda dari Google di peramban ini. Pilih yang Anda inginkan:',
   'panel.signout.panelOnly': 'Keluar dari Panel Peneliti saja',
@@ -3993,6 +4003,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.googleAccountLink': 'Tautan ke setelan akun Google setelah keluar kini mengarah ke akun yang Anda pakai untuk masuk, dan menyebutkan akunnya, untuk kasus peramban menyimpan lebih dari satu akun Google. Pilihan keluar juga menyebutkannya.'
     ,'panel.rel.new.googleSessionWarning': 'Panel Peneliti kini menjelaskan dengan jelas arti masuk dengan Google di komputer yang bukan milik Anda: Anda tetap masuk ke Google di peramban itu meskipun sudah keluar dari FlexText. Layar masuk mengatakannya sebelum Anda masuk; layar setelah keluar mengatakannya lagi dan menawarkan setelan akun Google Anda; dan keluar dari akun Anda sekarang menanyakan apakah Anda hanya bermaksud keluar dari panel, atau dari Google juga. Google juga menanyakan akun mana yang Anda pakai, bukan langsung memasukkan Anda sebagai orang yang terakhir memakai peramban itu. Mengakhiri sesi Google hanya dapat Anda lakukan sendiri — di peramban Anda, atau dengan menutup jendela pribadi.'
     ,'panel.rel.fix.splitScissorsBack': 'Di tab Gloss, ✂ di antara pasangan kata dan glos sudah kembali. Sejak v676 gunting itu hilang dari setiap baris, karena pemeriksaan yang menentukan di mana sebuah baris dapat dipisah membaca potongan audio baris itu, yang tidak berisi kata, bukan kata-katanya sendiri. Aturan tanda baca dari v676 tetap berlaku: baris dapat dipisah tepat setelah koma, tidak pernah tepat sebelumnya.'
     ,'panel.rel.new.reportLinks': 'Panel Peneliti sekarang memiliki tautan Laporkan masalah dan Usulkan fitur, sama seperti Alat Analisis Paragraf. Tautannya ada di Catatan rilis, di samping versi. Laporan masalah mengisi versi aplikasi, situs yang Anda pakai, dan peramban Anda \u2014 tidak ada yang lain: tidak ada informasi akun, perangkat, teks, atau kunci, karena pelacak masalah bersifat publik.'

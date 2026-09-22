@@ -1358,6 +1358,22 @@ body.rp-standalone main { padding-top: 0; }
 .ws-lang-warn { margin: 0; color: var(--text); }
 .ws-lang-warn-icon { color: var(--warn); filter: drop-shadow(0 0 3px var(--warn-glow)); }
 
+/* The shared-computer note above the "Sign in with Google" button (2026-09-22): the same triangle,
+ * color and glow as the warning above, in an inset note rather than a red banner. Signing in with
+ * Google leaves a Google session behind that this app cannot end, which is a fact most researchers
+ * read once and forget — it has to inform without reading as an error. */
+.rp-shared-note { margin: 10px 0; color: var(--text); }
+.rp-shared-icon { color: var(--warn); filter: drop-shadow(0 0 3px var(--warn-glow)); }
+/* What is still true after signing out, at the top of the screen the sign-out lands on. */
+.rp-signout-done { display: grid; gap: 6px; margin: 0 0 14px; }
+/* Each sign-out option's consequence, directly under its own button. */
+.rp-choice-note { margin: -4px 0 12px; }
+/* The two ways out to Google are real links, not buttons calling a helper: external-link.js routes
+ * every offsite <a> to the OS browser (and removes it altogether on a paired device). Styled to sit
+ * where a button would. */
+a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
+.rp-signout-done p { margin: 0; }
+
 /* Required-settings validation: red-ring an offending field + show its inline message. */
 .rp-field.rp-invalid input, .rp-field.rp-invalid select, .rp-field.rp-invalid textarea { border-color: #d92d20; outline: 1px solid #d92d20; }
 .check-label.rp-invalid { color: #d92d20; }

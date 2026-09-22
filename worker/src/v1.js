@@ -2605,7 +2605,26 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
       client_id: cid, redirect_uri: redirectUri, response_type: 'code',
       scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
-      access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true',
+      /* ⚠ select_account IS THE SHARED-COMPUTER HALF, AND `consent` DOES NOT GIVE IT (2026-09-22).
+       * Without it, a returning visitor is signed straight back in as whoever used this browser
+       * last — no chooser, no click — which on a lab or office machine is silently the wrong
+       * person. With it, Google at least asks which account. It is one parameter and it is the
+       * biggest practical improvement available here, because the sign-out half cannot be built:
+       * Google advertises no `end_session_endpoint` and no front- or back-channel logout (checked
+       * against its openid-configuration on 2026-09-22), `revocation_endpoint` revokes OUR tokens
+       * rather than their browser session, and no site may end another site's session regardless.
+       *
+       * ⚠⚠ `consent` STAYS BESIDE IT — replacing it would disconnect every researcher's Drive.
+       * Google returns a REFRESH TOKEN only when consent is granted afresh, and that refresh token
+       * IS the Drive connection this suite runs on (drive_refresh_enc → driveAccessToken). `prompt`
+       * is a space-separated SET, so both apply: the chooser, then consent.
+       *
+       * ⚠ NOT `login`. That forces a full re-authentication — password, usually 2FA — on every
+       * sign-in, a cost paid over village connections by everyone to protect the minority on a
+       * borrowed machine. The borrowed machine is answered by the chooser above, by leaving "stay
+       * signed in" unticked (24h session, sessionStorage token), and by what the panel now says
+       * before the button. */
+      access_type: 'offline', prompt: 'select_account consent', include_granted_scopes: 'true',
       state, code_challenge: challenge, code_challenge_method: 'S256',
     }).toString();
     return Response.redirect(authUrl, 302);

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v685';
+export const ENGINE_VERSION = 'v686';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -956,6 +956,36 @@ internet after the first time.</p>
    * permission is FOR before it says what to do — "grant this scope" means nothing to a translator,
    * and the honest reason (their work lives in their own Drive) is also the reassuring one. */
   'panel.signin.driveRequired': 'FlexText keeps your texts and recordings in your own Google Drive, so that permission is not optional. Please sign in again and leave the Google Drive box ticked.',
+  /* ⚠ SIGNING IN WITH GOOGLE OUTLIVES SIGNING OUT HERE, AND ONLY WORDS CAN FIX IT (2026-09-22).
+   * Checked against accounts.google.com/.well-known/openid-configuration that morning: Google
+   * advertises NO `end_session_endpoint` and no front- or back-channel logout. Its
+   * `revocation_endpoint` revokes OUR tokens, not the person's Google session in this browser — and
+   * no site may end another site's session in any case. So the shared-computer hazard is met by
+   * saying so BEFORE the button, and by the worker asking Google for the account chooser
+   * (prompt=select_account), not by a sign-out we cannot perform.
+   *
+   * ⚠ It also names the app's OWN long session, because the two compound: "Stay signed in" keeps a
+   * 90-day sliding session in localStorage, while unticked is 24 hours in sessionStorage. One
+   * sentence of fact, one of advice, and no alarm — most researchers are on their own laptop, where
+   * none of this matters to them. */
+  'panel.signin.sharedNote': 'Signing in with Google keeps you signed in to Google in this browser, even after you sign out here. If this is not your own computer — a library, a shared office machine, someone else’s laptop — use a private window and leave “Stay signed in” unticked, so nothing is left behind when you close it.',
+  /* Shown on the sign-in screen right after a sign-out, which is where the other half of that truth
+   * belongs. ⚠ NEVER SAY THE APP SIGNED THEM OUT OF GOOGLE. It cannot, and a false reassurance is
+   * worse than no warning at all: it is the sentence that would leave someone's mail open. */
+  'panel.signout.done': 'You are signed out of FlexText in this browser. You are still signed in to Google — this app cannot sign you out of that.',
+  'panel.signout.finish': 'On a shared computer, finish by opening your Google account settings and signing out there, or by closing the private window you were using.',
+  'panel.signout.googleBtn': 'Open Google account settings',
+  /* The deliberate sign-out asks which sign-out is meant (Seth, 2026-09-22). ⚠ The second option is
+   * worded as OPENING Google's page, not as signing them out of Google: the URL is Google's own UI
+   * rather than a documented API, it ends every Google session in the browser (not just ours), and
+   * it cannot return anyone here. Promising the outcome is the one thing that could leave somebody
+   * believing they are out when they are not. */
+  'panel.signout.choiceTitle': 'Sign out',
+  'panel.signout.choiceIntro': 'Signing out here does not sign you out of Google in this browser. Choose what you want:',
+  'panel.signout.panelOnly': 'Sign out of the Researcher panel only',
+  'panel.signout.panelOnlyNote': 'You stay signed in to Google in this browser — fine on your own computer.',
+  'panel.signout.alsoGoogle': 'Sign out here, and open Google’s sign-out page',
+  'panel.signout.alsoGoogleNote': 'Google’s own page opens outside this app, in your browser, and signs that browser out of every Google app and account — not only FlexText. It cannot bring you back here.',
   'panel.conn.title': 'Reconnecting',
   'panel.conn.offline': 'Can’t reach the server right now. The app keeps retrying automatically — you stay signed in, and it recovers on its own when the connection comes back.',
   'panel.conn.reconnecting': 'Reconnecting… (retrying automatically)',
@@ -1484,6 +1514,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.new.googleSessionWarning': 'The Researcher panel now says plainly what signing in with Google means on a computer that is not yours: you stay signed in to Google in that browser even after you sign out of FlexText. The sign-in screen says so before you sign in; the screen you land on after signing out says it again and offers your Google account settings; and signing out from your account now asks whether you mean the panel only, or Google as well. Google also asks which account you are using, instead of signing you straight back in as whoever used that browser last. Ending a Google session is something only you can do — in your browser, or by closing a private window.'
     ,'panel.rel.fix.splitScissorsBack': 'On the Gloss tab, the ✂ between word/gloss pairs is back. Since v676 it had vanished from every line, because the check that decides where a line can be split was reading the line’s stretch of audio, which holds no words, instead of the words themselves. The punctuation rules from v676 still apply: a line can be split just after a comma, never just before one.'
     ,'panel.rel.new.reportLinks': 'The Researcher Panel now has Report a problem and Suggest a feature links, the same as the Paragraph Analysis Tool has. They are in Release notes, beside the version. A problem report fills in the app version, which site you are on and your browser \u2014 and nothing else: no account, device, text or key information, because the issue tracker is public.'
     ,'panel.rel.fix.enterKeyHint': 'On a phone keyboard, the Enter key in the baseline and free-translation boxes now says what it will do. Since those boxes began wrapping long lines, Android\u2019s keyboard had been showing its new-line key there \u2014 a key promising a line break in a box that does not allow one. It now shows Next where Enter moves on to the next line, which is the usual setting, and the ordinary Enter key where it splits the line instead. The plain baseline box used when audio segmentation is off keeps its new-line key, because there Enter really does start a new paragraph.'
@@ -2014,7 +2045,6 @@ internet after the first time.</p>
   'panel.account.title': 'Account',
   'panel.account.signedInAs': 'Signed in as',
   'panel.account.signout': 'Sign out of this browser',
-  'panel.account.confirmSignout': 'Sign out? You will need to sign in with Google again.',
   'panel.account.stay': 'Stay signed in on this device',
   'panel.account.stayNote': 'Off by default: when you close the app it locks, and you sign in again next time. Turn on only on a device that is yours alone.',
   /* Signed-in browsers (Phase A). "Browser" rather than "session" or "device" on purpose: a
@@ -3516,6 +3546,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.signin.connecting': 'Menghubungkan…',
   'panel.signin.expired': 'Sesi Anda berakhir — silakan masuk lagi.',
   'panel.signin.driveRequired': 'FlexText menyimpan teks dan rekaman Anda di Google Drive Anda sendiri, jadi izin itu tidak opsional. Silakan masuk lagi dan biarkan kotak Google Drive tetap tercentang.',
+  'panel.signin.sharedNote': 'Masuk dengan Google membuat Anda tetap masuk ke Google di peramban ini, bahkan setelah Anda keluar dari sini. Jika ini bukan komputer Anda sendiri — komputer perpustakaan, komputer kantor bersama, laptop orang lain — pakailah jendela pribadi (incognito) dan jangan centang “Tetap masuk di perangkat ini”, supaya tidak ada yang tertinggal saat jendela ditutup.',
+  'panel.signout.done': 'Anda sudah keluar dari FlexText di peramban ini. Anda masih masuk ke Google — aplikasi ini tidak dapat mengeluarkan Anda dari Google.',
+  'panel.signout.finish': 'Di komputer bersama, selesaikan dengan membuka setelan akun Google Anda dan keluar di sana, atau dengan menutup jendela pribadi yang Anda pakai.',
+  'panel.signout.googleBtn': 'Buka setelan akun Google',
+  'panel.signout.choiceTitle': 'Keluar',
+  'panel.signout.choiceIntro': 'Keluar dari sini tidak mengeluarkan Anda dari Google di peramban ini. Pilih yang Anda inginkan:',
+  'panel.signout.panelOnly': 'Keluar dari Panel Peneliti saja',
+  'panel.signout.panelOnlyNote': 'Anda tetap masuk ke Google di peramban ini — tidak masalah di komputer Anda sendiri.',
+  'panel.signout.alsoGoogle': 'Keluar dari sini, lalu buka halaman keluar Google',
+  'panel.signout.alsoGoogleNote': 'Halaman Google sendiri terbuka di luar aplikasi ini, di peramban Anda, dan mengeluarkan peramban itu dari semua aplikasi dan akun Google — bukan hanya FlexText. Halaman itu tidak dapat membawa Anda kembali ke sini.',
   'panel.conn.title': 'Menyambung ulang',
   'panel.conn.offline': 'Tidak dapat menghubungi server saat ini. Aplikasi terus mencoba lagi otomatis — Anda tetap masuk, dan akan pulih sendiri saat koneksi kembali.',
   'panel.conn.reconnecting': 'Menyambung ulang… (mencoba lagi otomatis)',
@@ -3953,6 +3993,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.new.googleSessionWarning': 'Panel Peneliti kini menjelaskan dengan jelas arti masuk dengan Google di komputer yang bukan milik Anda: Anda tetap masuk ke Google di peramban itu meskipun sudah keluar dari FlexText. Layar masuk mengatakannya sebelum Anda masuk; layar setelah keluar mengatakannya lagi dan menawarkan setelan akun Google Anda; dan keluar dari akun Anda sekarang menanyakan apakah Anda hanya bermaksud keluar dari panel, atau dari Google juga. Google juga menanyakan akun mana yang Anda pakai, bukan langsung memasukkan Anda sebagai orang yang terakhir memakai peramban itu. Mengakhiri sesi Google hanya dapat Anda lakukan sendiri — di peramban Anda, atau dengan menutup jendela pribadi.'
     ,'panel.rel.fix.splitScissorsBack': 'Di tab Gloss, ✂ di antara pasangan kata dan glos sudah kembali. Sejak v676 gunting itu hilang dari setiap baris, karena pemeriksaan yang menentukan di mana sebuah baris dapat dipisah membaca potongan audio baris itu, yang tidak berisi kata, bukan kata-katanya sendiri. Aturan tanda baca dari v676 tetap berlaku: baris dapat dipisah tepat setelah koma, tidak pernah tepat sebelumnya.'
     ,'panel.rel.new.reportLinks': 'Panel Peneliti sekarang memiliki tautan Laporkan masalah dan Usulkan fitur, sama seperti Alat Analisis Paragraf. Tautannya ada di Catatan rilis, di samping versi. Laporan masalah mengisi versi aplikasi, situs yang Anda pakai, dan peramban Anda \u2014 tidak ada yang lain: tidak ada informasi akun, perangkat, teks, atau kunci, karena pelacak masalah bersifat publik.'
     ,'panel.rel.fix.enterKeyHint': 'Di papan ketik ponsel, tombol Enter di kotak teks dasar dan terjemahan bebas sekarang menunjukkan apa yang akan dilakukannya. Sejak kotak-kotak itu membungkus baris panjang, papan ketik Android menampilkan tombol baris baru di sana \u2014 tombol yang menjanjikan pemutus baris di kotak yang tidak mengizinkannya. Sekarang tombol itu menampilkan Berikutnya ketika Enter berpindah ke baris berikutnya, yaitu setelan yang biasa, dan tombol Enter biasa ketika Enter memisah baris. Kotak teks dasar biasa yang dipakai saat segmentasi audio dimatikan tetap memakai tombol baris baru, karena di sana Enter memang memulai paragraf baru.'
@@ -4414,7 +4455,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.account.title': 'Akun',
   'panel.account.signedInAs': 'Masuk sebagai',
   'panel.account.signout': 'Keluar dari peramban ini',
-  'panel.account.confirmSignout': 'Keluar? Anda perlu masuk dengan Google lagi.',
   'panel.account.stay': 'Tetap masuk di perangkat ini',
   'panel.account.stayNote': 'Mati secara bawaan: saat Anda menutup aplikasi, ia terkunci dan Anda masuk lagi berikutnya. Aktifkan hanya pada perangkat yang hanya milik Anda.',
   'panel.sessions.title': 'Peramban yang masuk',

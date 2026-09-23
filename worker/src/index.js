@@ -175,6 +175,88 @@ async function bucketBytes(env) {
   return { total, files };
 }
 
+/* ---------------- the page a person sees when something breaks ----------------
+   Until 2026-09-23 every failure in /v1/ answered with raw JSON on a blank white page — which is what a
+   researcher actually saw the day D1's account-wide free quota ran out mid-session: `{"error":"v1_error",
+   "message":"D1_ERROR: Your account has exceeded..."}`. Alarming, unexplained, and with nothing to do about it.
+
+   An API client still gets JSON; nothing about the apps' own error handling changes. What changes is the case
+   where the thing on the other end is a PERSON with a browser — a top-level navigation such as the OAuth
+   callback — and those now get a branded page that says what happened in a sentence, shows the reference and
+   the time so support has something to work with, and offers a Report button that opens a pre-filled GitHub
+   issue. The repository is public, so that link works for any user with a GitHub account.
+
+   Deliberately self-contained: no stylesheet, no image, no script, no font. It has to render when the rest of
+   the estate is broken, and this Worker's host serves no assets of its own. (Seth, 2026-09-23.) */
+const REPO = 'rulingAnts/flextext-editor';
+const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** A browser asking for a page, rather than the apps' own fetch() asking for data. */
+function wantsHtml(request) {
+  const a = (request.headers.get('accept') || '').toLowerCase();
+  if (!a.includes('text/html')) return false;
+  // a same-origin fetch() sends Sec-Fetch-Mode: cors; a real navigation sends 'navigate'
+  const mode = (request.headers.get('sec-fetch-mode') || '').toLowerCase();
+  return mode ? mode === 'navigate' : true;
+}
+
+function errorPage({ message, path, when, status = 500 }) {
+  const title = 'Flextext — something went wrong';
+  const issue = `https://github.com/${REPO}/issues/new?labels=bug&title=` +
+    encodeURIComponent(`App error: ${String(message || 'unknown').slice(0, 80)}`) +
+    '&body=' + encodeURIComponent(
+      `**What I was doing:**\n(please describe, if you can)\n\n` +
+      `**Where:** \`${path || ''}\`\n` +
+      `**When:** ${when}\n` +
+      `**Error:** \`${String(message || '').slice(0, 500)}\`\n`);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)}</title>
+<style>
+ :root{--ink:#1c1917;--muted:#57534e;--brand:#b45309;--brand-2:#92400e;--paper:#fffbf5;--line:#e7e0d5}
+ *{box-sizing:border-box} html,body{height:100%}
+ body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;
+   display:flex;align-items:center;justify-content:center;padding:24px}
+ .card{max-width:34rem;width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;
+   box-shadow:0 10px 30px rgba(60,40,10,.08);overflow:hidden}
+ .bar{height:6px;background:repeating-linear-gradient(45deg,var(--brand),var(--brand) 12px,var(--brand-2) 12px,var(--brand-2) 24px)}
+ .in{padding:1.6rem 1.7rem 1.5rem}
+ .word{font-weight:800;letter-spacing:.02em;color:var(--brand-2);font-size:1.05rem;margin:0 0 1rem}
+ .word span{color:var(--ink)}
+ h1{font-size:1.25rem;margin:0 0 .6rem;line-height:1.3}
+ p{margin:0 0 .9rem;color:var(--muted)}
+ .meta{background:#faf7f2;border:1px solid var(--line);border-radius:8px;padding:.7rem .8rem;margin:1rem 0;
+   font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#44403c;word-break:break-word}
+ .meta b{color:var(--ink);font-weight:600}
+ .row{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.2rem}
+ .btn{display:inline-block;padding:.6rem 1.15rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:.94rem}
+ .go{background:var(--brand);color:#fff} .go:hover{background:var(--brand-2)}
+ .ghost{border:1px solid var(--line);color:var(--ink)} .ghost:hover{border-color:var(--brand)}
+ @media (prefers-color-scheme:dark){
+  :root{--ink:#f5f1ea;--muted:#c3bcb1;--paper:#1a1713;--line:#3a332a}
+  body{background:var(--paper)} .card{background:#221e19} .meta{background:#1c1915}
+  .word span{color:var(--ink)} .ghost{color:var(--ink)} }
+</style></head><body>
+<div class="card"><div class="bar"></div><div class="in">
+  <p class="word">FLEx<span>Text</span></p>
+  <h1>The app ran into a problem.</h1>
+  <p>Please try again in a little while. Nothing you had saved has been lost — this happened on our side, not yours.</p>
+  <div class="meta"><b>When:</b> ${escHtml(when)}<br><b>Where:</b> ${escHtml(path || '/')}<br><b>Details:</b> ${escHtml(String(message || '').slice(0, 300))}</div>
+  <div class="row">
+    <a class="btn go" href="/">Try again</a>
+    <a class="btn ghost" href="${escHtml(issue)}" target="_blank" rel="noopener">Report this</a>
+  </div>
+</div></div></body></html>`;
+}
+
+/** JSON for the apps, a page for a person. Same status either way. */
+function failure(request, url, message, status, origin, env) {
+  const when = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  if (!wantsHtml(request)) return json({ error: 'v1_error', message }, status, origin, env);
+  return new Response(errorPage({ message, path: url?.pathname, when, status }), {
+    status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...corsHeaders(origin, env) },
+  });
+}
+
 function withCors(resp, origin, env) {
   const h = new Headers(resp.headers);
   const c = corsHeaders(origin, env);
@@ -206,7 +288,8 @@ export default {
         // A thrown /v1/ error is itself worth seeing — it is the shape a probe for an unhandled
         // input takes. Logged, then handled exactly as before.
         await secLog(env, request, 'v1_threw', { message: String(e && e.message || e).slice(0, 200) });
-        return json({ error: 'v1_error', message: e.message || String(e) }, 500, origin, env);
+        // a person in a browser gets a branded page; the apps' own fetch() still gets the same JSON
+        return failure(request, url, e.message || String(e), 500, origin, env);
       }
     }
 

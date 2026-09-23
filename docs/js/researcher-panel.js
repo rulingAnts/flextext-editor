@@ -1444,6 +1444,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v688', date: '2026-09-23', items: [
+    { k: 'panel.rel.new.robotsTxt' },
+  ] },
   { v: 'v687', date: '2026-09-22', items: [
     { k: 'panel.rel.fix.googleAccountLink' },
   ] },

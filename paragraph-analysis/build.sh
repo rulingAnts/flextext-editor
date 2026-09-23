@@ -32,7 +32,7 @@ fi
 rm -rf public
 mkdir -p public
 cp -R ../docs public/flextext-editor
-cp index.html manifest.webmanifest sw.js public/
+cp index.html manifest.webmanifest sw.js robots.txt public/
 cp -R icons public/icons
 # A staging deploy under an unchanged VERSION would leave every browser serving the OLD
 # cache for ever (cache-first, keyed by VERSION). Preview builds only; production is exempt.

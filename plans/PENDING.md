@@ -330,6 +330,14 @@ the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.
   issue). Off by default on paired devices, on for unpaired ones, and researcher-controlled
   ([#81](https://github.com/rulingAnts/flextext-editor/issues/81)). Shares its serializer with #52's
   per-line export menu.
+- ⭐ **NEXT WEEK (Seth, 2026-09-25): queued researcher actions, then bulk actions.** Confirming a
+  move holds the modal from the first request to the last — minutes on a village link, during which
+  the researcher can do nothing else. v689 made it show its progress; the fix is to record the
+  intent, close the modal and run it in the background
+  ([#84](https://github.com/rulingAnts/flextext-editor/issues/84)), which also makes bulk actions
+  ([#83](https://github.com/rulingAnts/flextext-editor/issues/83)) mostly free. Design them
+  together; the job tray, the pending markers and the account-scoped move records are already most
+  of the parts, and the one real decision is where the queue lives and who owns it.
 - ⭐ **Right-to-left writing systems: HIGH PRIORITY** (Seth, 2026-09-15: *"let's make sure support
   for right-to-left vernacular writing systems (like Hebrew, Arabic, etc) is a suggestion in our
   GitHub Issues, and a high priority one"*). Tracked in

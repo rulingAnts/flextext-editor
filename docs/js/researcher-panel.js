@@ -1446,6 +1446,7 @@ const RELEASES = [
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
   { v: 'v689', date: '2026-09-24', items: [
     { k: 'panel.rel.fix.stuckMoves' },
+    { k: 'panel.rel.fix.glossBreakLabel' },
   ] },
   { v: 'v688', date: '2026-09-23', items: [
     { k: 'panel.rel.new.robotsTxt' },

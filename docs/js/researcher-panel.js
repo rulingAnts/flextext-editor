@@ -1447,6 +1447,7 @@ const RELEASES = [
   { v: 'v689', date: '2026-09-24', items: [
     { k: 'panel.rel.fix.stuckMoves' },
     { k: 'panel.rel.fix.glossBreakLabel' },
+    { k: 'panel.rel.fix.moveProgress' },
   ] },
   { v: 'v688', date: '2026-09-23', items: [
     { k: 'panel.rel.new.robotsTxt' },
@@ -6946,59 +6947,86 @@ async function moveTextModal(fromId, docId, title) {
     // Filing into ANOTHER project's box is a cross-project act too, and says so by name.
     if (to.startsWith('__unassigned:') && !(await confirmCrossProjectFile(to.slice(13), homeProject))) return;
     const say = m.el.querySelector('#rp-move-say');
+    /* ⚠ A SLOW CONNECTION IS THE NORMAL CASE HERE, NOT THE EDGE ONE. This is three or four round
+     * trips in a row, and researcher.js gives every one of them a 20 s timeout and four backed-off
+     * retries — so on a village link this button could sit grey and silent for minutes, which is
+     * indistinguishable from a frozen app. Seth, 2026-09-25: "when I push the Move button to confirm
+     * moving a text, it sits frozen there for a long time if the connection is slow."
+     *
+     * Nothing here can make the network faster. What it can do is wear the suite's own in-flight
+     * affordance (busy(): disabled + spinner, restored on EVERY exit path, including the early
+     * return below), name the step that is actually running, and — after six seconds — admit that
+     * the step is taking a while, which is the difference between "it is working" and "it is dead".
+     *
+     * ⚠ The steps are named BEFORE each call, never after: a label that appears once a slow call
+     * returns is a label nobody waiting ever reads. */
+    let slowTimer = null;
+    const stage = (key, vars) => {
+      say.hidden = false; say.className = 'rp-adm-say';
+      const base = t(key, vars || {});
+      say.textContent = base;
+      clearTimeout(slowTimer);
+      slowTimer = setTimeout(() => { say.textContent = base + ' ' + t('panel.move.slow'); }, 6000);
+    };
     try {
-      e.target.disabled = true;
+      await busy(e.target, async () => {
 
-      if (to.startsWith('__unassigned')) {
-        /* ⚠ A TARGETED box needs the re-parent EXPLICITLY: the sweep files a text into ITS OWN
-         * project's Unassigned, so any other project must be asked for. Issued alongside the removal
-         * rather than after it — the folder id is stable, so the device's final upload lands
-         * correctly either way. */
-        const target = to.startsWith('__unassigned:') ? to.slice(13) : '';
-        if (target) await Researcher.driveUnassign([docId], target, unassignFolderEcho([docId]));
-        /* The upload-first removal, identical to the del-text path: a fresh Drive copy lands BEFORE
-         * the device drops its own. Nothing is re-parented here — the text is still on the device
-         * until the delete confirms, and filing it early would put it in the assign queue while a
-         * device still holds it, which is the exact state the sweep exists to resolve. The sweep
-         * files it once no device reports it. */
-        const r2 = await Researcher.uploadDelete(fromId, docId);
-        pendingCmds.set(docId, { seq: r2.seq, kind: 'delete', instanceId: fromId, at: Date.now() });
-        savePending(Researcher.currentAccountId());
+        if (to.startsWith('__unassigned')) {
+          /* ⚠ A TARGETED box needs the re-parent EXPLICITLY: the sweep files a text into ITS OWN
+           * project's Unassigned, so any other project must be asked for. Issued alongside the removal
+           * rather than after it — the folder id is stable, so the device's final upload lands
+           * correctly either way. */
+          const target = to.startsWith('__unassigned:') ? to.slice(13) : '';
+          if (target) { stage('panel.move.stepFile'); await Researcher.driveUnassign([docId], target, unassignFolderEcho([docId])); }
+          /* The upload-first removal, identical to the del-text path: a fresh Drive copy lands BEFORE
+           * the device drops its own. Nothing is re-parented here — the text is still on the device
+           * until the delete confirms, and filing it early would put it in the assign queue while a
+           * device still holds it, which is the exact state the sweep exists to resolve. The sweep
+           * files it once no device reports it. */
+          stage('panel.move.stepRelease');
+          const r2 = await Researcher.uploadDelete(fromId, docId);
+          pendingCmds.set(docId, { seq: r2.seq, kind: 'delete', instanceId: fromId, at: Date.now() });
+          savePending(Researcher.currentAccountId());
+          m.close();
+          deps.toast(t('panel.inst.delSent'), 6000);
+          renderDashboard();
+          return;
+        }
+
+        /* The sources were RESOLVED BEFORE this modal opened (moveSources) — re-listing here would
+         * spend a second round trip to re-derive an answer we already have, and could in principle
+         * disagree with the one the eligibility gate passed on.
+         *
+         * v3: role tags, not the deleted extension-sniffing table. `bundle` survives HERE and only
+         * here — a legacy text's only flextext may still be inside an uploaded zip, and it is the
+         * WORKER that extracts it server-side (storeZipEntry). The panel no longer reads zips. */
+        const idOf = (f) => (f && f.id) || null;
+        const fields = { to, flextextFileId: idOf(src.picks.flextext), extractFromZipId: idOf(src.picks.bundle),
+                         audioFileId: idOf(src.audio) };
+        stage('panel.move.stepFolder');
+        const r = await Researcher.moveText(fromId, docId, fields);
+        const assignFields = { title };
+        if (r.audioUrl) assignFields.audioUrl = r.audioUrl;
+        if (r.flextextUrl) assignFields.flextextUrl = r.flextextUrl;
+        if (!assignFields.audioUrl && !assignFields.flextextUrl) {
+          // The device only materializes an assignment that carries a resource — with nothing to
+          // stream, the move cannot deliver content and must say so instead of half-happening.
+          say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = t('panel.move.nothingToMove');
+          return;   // busy() restores the button on every exit path, this one included
+        }
+        const toName = (insts.find((x) => x.instance_id === to) || {}).nickname || '?';
+        stage('panel.move.stepAssign', { device: toName });
+        await Researcher.assign(to, docId, assignFields);
+        recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: toName, docId, title,
+          audioUrl: assignFields.audioUrl || '', flextextUrl: assignFields.flextextUrl || '' })]);
+        stage('panel.move.stepRecord');
+        await saveMoves((cur) => { cur[docId] = { from: fromId, to, title, at: Date.now(), stage: 'assigned' }; return cur; });
         m.close();
-        deps.toast(t('panel.inst.delSent'), 6000);
+        deps.toast(t('panel.move.sent', { device: toName }), 6000);
         renderDashboard();
-        return;
-      }
-
-      /* The sources were RESOLVED BEFORE this modal opened (moveSources) — re-listing here would
-       * spend a second round trip to re-derive an answer we already have, and could in principle
-       * disagree with the one the eligibility gate passed on.
-       *
-       * v3: role tags, not the deleted extension-sniffing table. `bundle` survives HERE and only
-       * here — a legacy text's only flextext may still be inside an uploaded zip, and it is the
-       * WORKER that extracts it server-side (storeZipEntry). The panel no longer reads zips. */
-      const idOf = (f) => (f && f.id) || null;
-      const fields = { to, flextextFileId: idOf(src.picks.flextext), extractFromZipId: idOf(src.picks.bundle),
-                       audioFileId: idOf(src.audio) };
-      const r = await Researcher.moveText(fromId, docId, fields);
-      const assignFields = { title };
-      if (r.audioUrl) assignFields.audioUrl = r.audioUrl;
-      if (r.flextextUrl) assignFields.flextextUrl = r.flextextUrl;
-      if (!assignFields.audioUrl && !assignFields.flextextUrl) {
-        // The device only materializes an assignment that carries a resource — with nothing to
-        // stream, the move cannot deliver content and must say so instead of half-happening.
-        say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = t('panel.move.nothingToMove');
-        e.target.disabled = false; return;
-      }
-      await Researcher.assign(to, docId, assignFields);
-      const toName = (insts.find((x) => x.instance_id === to) || {}).nickname || '?';
-      recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: toName, docId, title,
-        audioUrl: assignFields.audioUrl || '', flextextUrl: assignFields.flextextUrl || '' })]);
-      await saveMoves((cur) => { cur[docId] = { from: fromId, to, title, at: Date.now(), stage: 'assigned' }; return cur; });
-      m.close();
-      deps.toast(t('panel.move.sent', { device: toName }), 6000);
-      renderDashboard();
-    } catch (err) { say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = String(err.message || err); e.target.disabled = false; }
+      });
+    } catch (err) { say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = String(err.message || err); }
+    finally { clearTimeout(slowTimer); }
   });
 }
 

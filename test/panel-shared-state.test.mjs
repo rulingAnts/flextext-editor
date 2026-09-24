@@ -82,8 +82,15 @@ console.log('\na move is two pending actions, and both are visible (v392)');
      'the row knows whether THIS device is the one losing the text');
   ok(/const deleting = !!d\.pendingDelete \|\| !!\(p && p\.kind === 'delete'\) \|\| mvSource;/.test(panel),
      'a pending removal reads as pending from the START, not only once its command is issued');
-  ok(/const moveChip = mvSource \?/.test(panel),
-     'the moving chip belongs to the source; the destination tells its own assignment story');
+  ok(/const moveChip = mvSource\s*\n\s*\?/.test(panel),
+     'the moving chip belongs to the source; a destination still awaiting the text tells its own assignment story');
+  /* ⚠ THE RULE GREW ON 2026-09-24, it was not dropped. It assumed the destination row is a GHOST for
+   * as long as a move is open — true until the destination RECEIVES the text while the source has
+   * still not released it, which is where a move stuck on an erased device lives. In that state the
+   * ghost is gone and the source row is gone, so the only row that can say anything is the one
+   * holding the text, and before this it said nothing at all while silently losing its Move button. */
+  ok(/: \(mv && !d\.__assigning\)/.test(panel),
+     'and a row that already HOLDS the text names the device that has not released its copy');
   ok(/: mvSource \? cancelRemovalBtn/.test(panel),
      'and the removal carries its own Cancel, with the ordinary label');
   // Order: once stage 2 issues the real uploadDelete, THAT is the thing to withdraw.

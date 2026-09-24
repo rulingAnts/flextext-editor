@@ -3,9 +3,9 @@
  * Seth, 2026-09-23: the landing page should be easy to find — "I'd like people searching for a
  * tool like FlexText Editor to find it easily" — while the apps themselves are not for crawling,
  * and the search engines, social platforms and AI crawlers of states that police what their people
- * may read are asked to stay away. "The security of the app doesn't depend on hiding it from search
- * engines and bots, but making it SLIGHTLY less exposed to bots connected with hostile governments
- * wouldn't be a bad idea."
+ * may read are asked to stay away. Seth is explicit that this is a courtesy layer and not a defence:
+ * "The security of the app doesn't depend on hiding it from search engines and bots" — it is worth
+ * asking anyway, and worth costing nothing when the answer is ignored.
  *
  * ⚠ A robots.txt IS ONLY READ AT A HOST'S ROOT, and this suite has eight hosts built from seven
  * different directories. A file in docs/ covers the editor and is inert on the satellites, where it

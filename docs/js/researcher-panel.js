@@ -1444,6 +1444,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v689', date: '2026-09-24', items: [
+    { k: 'panel.rel.fix.stuckMoves' },
+  ] },
   { v: 'v688', date: '2026-09-23', items: [
     { k: 'panel.rel.new.robotsTxt' },
   ] },
@@ -2663,7 +2666,28 @@ async function renderDashboard(prefetched) {
    * decision)" — the automatic part stands; the waiting part is what he withdrew. */
   {
     const transitions = [];                      // applied to the account copy in ONE locked write
+    const orphaned = [];                         // moves whose source device no longer exists
     for (const [docId, mv] of pendingMoves) {
+      /* ⚠ A MOVE WHOSE SOURCE IS GONE CAN NEVER FINISH, AND NOTHING USED TO NOTICE. The 'removing'
+       * branch below completes only when the source REPORTS and no longer lists the doc — rightly,
+       * since an unreadable report must not be read as a deletion. But a device that was erased and
+       * reset, deleted, or unlinked never reports again, so the record sat open forever. A stale
+       * record hides the Move button on EVERY card (see moveBtn), and the only chip that explains it
+       * draws on the source row, which by then does not exist — so the text simply had one button
+       * fewer than its neighbours, with nothing to say why.
+       *
+       * Seth, 2026-09-24, after migrating a laptop exactly that way: "some texts aren't able to be
+       * moved from device to device… for some of them, I moved them once, but they don't show me the
+       * move option to move them again."
+       *
+       * ⚠ CLOSING THE RECORD REMOVES NOTHING. The destination's assignment is durable server-side
+       * and proceeds; the text stays where it is; a source that somehow returns keeps its copy. The
+       * only thing abandoned is a removal with nobody left to deliver it. */
+      if (!sourceCanRelease(mv.from)) {
+        transitions.push(['gone', docId]);
+        orphaned.push(mv.title || '?');
+        continue;
+      }
       if (mv.stage === 'assigned') {
         /* ⚠ EVERY panel advances moves now, so check the source is not ALREADY being told to remove
          * this text before telling it again. Two panels polling in the same second would otherwise
@@ -2689,11 +2713,17 @@ async function renderDashboard(prefetched) {
     if (transitions.length) {
       await saveMoves((cur) => {
         for (const [what, docId] of transitions) {
-          if (what === 'done') delete cur[docId];
+          if (what === 'done' || what === 'gone') delete cur[docId];
           else if (cur[docId]) cur[docId].stage = 'removing';
         }
         return cur;
       });
+      // One toast for the sweep, not one per text: a migration can orphan a whole device's worth.
+      if (orphaned.length) {
+        deps.toast(orphaned.length === 1
+          ? t('panel.move.sourceGone', { title: orphaned[0] })
+          : t('panel.move.sourceGoneN', { n: orphaned.length }), 9000);
+      }
     }
   }
   loadCollapsed(Researcher.currentAccountId());
@@ -4192,6 +4222,29 @@ async function runMenuConversion(wrap, kind, itemEl) {
 // The current inventory item for a doc, for the static fallback path.
 /* Did this instance report a readable inventory at all? Distinguishes "the text is not there" from
  * "we cannot see what is there" — a revoked instance, or one whose report failed to decrypt. */
+/* CAN THE DEVICE A MOVE IS TAKING THE TEXT FROM STILL RELEASE IT? Absent from the account
+ * (deleted, or unlinked) or erased (wipe confirmed) means never. A device that is merely OFFLINE —
+ * or freshly linked and not yet reporting — still can, and the move goes on waiting for it, which is
+ * the entire point of the wait.
+ *
+ * ⚠ NEVER JUDGE FROM AN EMPTY LIST. Before the first dashboard payload lands there are no instances
+ * at all, and "not in the list" would then be true of every device in the account — closing every
+ * in-flight move in one sweep. Same trap as absent-because-unreadable below: no data is not a fact. */
+function sourceCanRelease(instanceId) {
+  const list = (lastData && lastData.instances) || null;
+  if (!Array.isArray(list) || !list.length) return true;
+  const it = list.find((x) => x && x.instance_id === instanceId);
+  if (!it) return false;                                   // deleted or unlinked from the account
+  const installs = it.installs || [];
+  if (!installs.length) return true;                       // linked, not yet reporting: still might
+  return installs.some((ins) => ins && ins.wipe_state !== 'confirmed');
+}
+
+function instanceNick(instanceId) {
+  const it = ((lastData && lastData.instances) || []).find((x) => x && x.instance_id === instanceId);
+  return (it && it.nickname) || t('panel.move.unknownDevice');
+}
+
 function instanceReported(instanceId) {
   for (const it of (lastData && lastData.instances) || []) {
     if (it.instance_id !== instanceId) continue;
@@ -4718,7 +4771,17 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         // The chip belongs to the device LOSING the text. The destination's half of the move is its
         // pending ASSIGNMENT, which its own ghost row already tells.
-        const moveChip = mvSource ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
+        /* ⚠ THE OTHER END OF A MOVE SHOWED NOTHING AT ALL, and that is what made this hard to
+         * diagnose from the outside. A move record hides Move on every card, but only the SOURCE row
+         * drew a chip — so on the destination the row just had one button fewer, with nothing to say
+         * why and nothing to act on. It now says which device has not released its copy, and offers
+         * the same escape the source row offers. */
+        const moveChip = mvSource
+          ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>`
+          : (mv && !d.__assigning)
+            ? ` <span class="rp-tag rp-tag-moving" title="${esc(t('panel.move.srcChipWhy', { from: instanceNick(mv.from) }))}">${esc(t('panel.move.srcChip'))}</span>`
+              + (memberCtx ? '' : ` <button class="link-btn rp-cancel" data-iact="clear-move" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.clearBtn'))}</button>`)
+            : '';
         const moveBtn = (memberCtx || !d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
         /* A move is NOTHING MORE than a pending assignment and a pending removal, each cancellable
@@ -5137,6 +5200,17 @@ async function instanceActionInner(el) {
        * way to call a move off; this one is a deliberate choice and says so. */
       const docId = el.dataset.id;
       if (!await confirmModal(t('panel.move.keepBothWarn', { title: el.dataset.title || '?' }))) return;
+      await busy(el, () => saveMoves((cur) => { delete cur[docId]; return cur; }));
+      deps.toast(t('panel.inst.cancelled'), 4000);
+      renderDashboard(lastData || undefined);
+    } else if (act === 'clear-move') {
+      /* The destination's half of the cancel the source row already offers, for a move that cannot
+       * finish on its own. Dropping the record stops the sweep waiting on a removal nobody can
+       * deliver — it removes nothing, cancels no assignment, and frees the text to be moved again.
+       * Confirmed rather than instant, because on a HEALTHY move this leaves the old device holding
+       * a copy, which is the same end state cancel-removal warns about above. */
+      const docId = el.dataset.id;
+      if (!await confirmModal(t('panel.move.clearConfirm', { title: el.dataset.title || '?' }))) return;
       await busy(el, () => saveMoves((cur) => { delete cur[docId]; return cur; }));
       deps.toast(t('panel.inst.cancelled'), 4000);
       renderDashboard(lastData || undefined);

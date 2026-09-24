@@ -226,8 +226,11 @@ console.log('\nUnassigned is a real destination on a DEVICE move — and nothing
    * device still holds it. A DIFFERENT project's box has no such helper: the sweep files a text into
    * its own project, so any other target must be re-parented explicitly. */
   ok(/const target = to\.startsWith\('__unassigned:'\) \? to\.slice\(13\) : '';/.test(mv)
-     && /if \(target\) await Researcher\.driveUnassign\(\[docId\], target, unassignFolderEcho\(\[docId\]\)\);/.test(mv),
+     && /if \(target\) \{ stage\('panel\.move\.stepFile'\); await Researcher\.driveUnassign\(\[docId\], target, unassignFolderEcho\(\[docId\]\)\); \}/.test(mv),
      'only a TARGETED box re-parents; the home box is still left to the sweep');
+  /* ⚠ The call grew a progress label in v689 (it names the step BEFORE the request, since a slow
+   * connection makes this the difference between "working" and "frozen") — the RULE above is
+   * unchanged: driveUnassign still runs only inside `if (target)`. */
   /* The label gained a project name (each project has its OWN Unassigned box), so the option now
    * spans more source — but the two flags either side of it are the claim: never disabled, and
    * pre-selected exactly when no device can receive the text. */

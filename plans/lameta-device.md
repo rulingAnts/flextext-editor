@@ -41,8 +41,9 @@ session; ELAN inside lameta is **view/listen only** in v1; **owner-only** linkin
   seq-filter/ack loop and the backoff, and talks through `researcher.js`'s `api()` with
   `auth:false` plus `x-fx-install`/`x-fx-secret`. Extracting a shared device core is the job of
   the day a Kr-less shell agent is wanted.
-- Storage: IndexedDB `flextext-lameta` (stores `handles`, `links`), keyed
-  `${accountId}:${instanceId}`. Never `flextext-sync-session` or the `flextext-sync` database — the
+- Storage: files.js's own IndexedDB `flextext-files` (one store): a record per link at
+  `<accountId>:lameta:<instanceId>` holding the folder handle AND the install identity together, plus
+  an index at `<accountId>:lameta-index`. (Built v692; the plan said `flextext-lameta` with two stores.) Never `flextext-sync-session` or the `flextext-sync` database — the
   panel also runs on the editor origin (`?mode=researcher`), where those belong to the editor's own
   install. The folder handle and the install credentials live together because the folder is on
   this computer; another browser sees the card but "linked on another computer".
@@ -155,7 +156,7 @@ the first install, as any device re-pair does.
 | 0 | this plan, the spec, the doc corrections | — |
 | 1 | ✅ v690 — Workstream 1 release: sanitizer port, 25 roles, type table, the `done`/contributors defects, manifest schema 3 | the lameta download passes lameta's naming rule; Status and contributors right |
 | 2 | ✅ v691 (staging) — `files.js` + tests; hidden "Link…" that only picks and lists `Sessions/` | Chrome: folder picked, sessions listed, permission survives an installed-PWA relaunch; Firefox: the honest message |
-| 3 | `researcher.js` helpers; agent link + poll/report; card badge/status/gates | a "linked" lameta card with the badge and engine version, zero texts; Unlink; second-browser link revokes the first |
+| 3 | ✅ v692 (staging) — `researcher.js` helpers; agent link + poll/report; card badge/status/gates | a "linked" lameta card with the badge and engine version, zero texts; Unlink; second-browser link revokes the first |
 | 4 | Adopt | an adopted session appears; Files ▾ builds ELAN/lameta downloads from the Drive copy; Move… offered |
 | 5 | `buildConversionSources` + `buildLametaSessionFiles`; `assign` materialize | a phone's text moved in; lameta reopened shows it; ELAN opens the EAF; media ref right; nothing of ours listed |
 | 6 | checkout + return | out: phone holds it, card stops listing it, files remain; back: annotation set refreshed, `.session` untouched |

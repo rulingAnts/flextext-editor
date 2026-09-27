@@ -118,6 +118,12 @@ export async function recallFolder(key) {
 export async function forgetFolder(key) {
   try { return await caps.store('delete', key); } catch { return false; }
 }
+/* Small records that belong WITH the folders (a link's install identity, an index of links): the
+ * same store, so a folder and what was done with it live and die together. Structured-cloneable
+ * values only. */
+export async function stashPut(key, value) { return caps.store('put', key, value); }
+export async function stashGet(key) { try { return await caps.store('get', key); } catch { return null; } }
+export async function stashDelete(key) { try { return await caps.store('delete', key); } catch { return false; } }
 
 /* ─── timeouts ────────────────────────────────────────────────────────────────────────────────── */
 export class FilesTimeout extends Error {

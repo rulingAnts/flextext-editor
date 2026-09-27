@@ -1446,6 +1446,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v693', date: '2026-09-27', items: [
+    { k: 'panel.rel.new.lametaAdopt' },
+  ] },
   { v: 'v692', date: '2026-09-27', items: [
     { k: 'panel.rel.new.lametaLink' },
   ] },
@@ -5060,7 +5063,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
-      ${isLameta ? lametaStatusHtml(it.instance_id) : ''}
+      ${isLameta ? lametaBlockHtml(it.instance_id, mManage) : ''}
       ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
       <div class="rp-inst-actions">
         ${/* The everyday actions moved to the header as icons; what is left on this row is the
@@ -5202,6 +5205,8 @@ async function instanceActionInner(el) {
       await busy(el, () => Researcher.approveInstall(id, installId, ins && ins.pubkey));
       deps.toast(t('panel.inst.approved'), 4000);
       renderDashboard();
+    } else if (act === 'lameta-adopt') {
+      await lametaAdoptModal(id, el.dataset.name || '');
     } else if (act === 'lameta-allow') {
       // The folder permission needs a click (a user gesture) — this is that click.
       const a = await lametaAgentGet();
@@ -5516,12 +5521,78 @@ function lametaStatusHtml(id) {
   const { text, allow, waiting } = lametaStatusText(id);
   return `<div class="note rp-lameta-status" data-lameta-status="${esc(id)}">${esc(text)}${waiting ? ' · ' + esc(t('panel.lameta.waiting', { n: waiting })) : ''}${allow ? ` <button class="link-btn" data-iact="lameta-allow" data-i="${esc(id)}">${esc(t('panel.lameta.allow'))}</button>` : ''}</div>`;
 }
+/* The sessions the agent found that are NOT texts here yet (milestone 4, Adopt), and the ones that
+ * carry a manifest but belong to another holder. Rendered only in the browser that holds the link:
+ * elsewhere the agent has no scan to show. A folded list — a project has hundreds of sessions and
+ * the card is not the place to read them all. */
+function lametaSessionsHtml(id, canManage, open = false) {
+  const s = lametaAgent && lametaAgent.status(id);
+  if (!s || !s.linked || !Array.isArray(s.sessions)) return '';
+  const unadopted = s.sessions.filter((e) => e && !e.docId);
+  const elsewhere = s.sessions.filter((e) => e && e.docId && !(e.custody && e.custody.kind === 'lameta' && e.custody.id === id));
+  if (!unadopted.length && !elsewhere.length) return '';
+  const rows = unadopted.slice(0, 300).map((e) => `<li>${esc(e.name)}${e.available === false ? ` <span class="note">${esc(t('panel.lameta.notDownloaded'))}</span>` : ''}${canManage && e.available !== false
+    ? ` <button class="link-btn" data-iact="lameta-adopt" data-i="${esc(id)}" data-name="${esc(e.name)}">${esc(t('panel.lameta.adoptBtn'))}</button>` : ''}</li>`).join('');
+  return `<details class="rp-lameta-unadopted"${open ? ' open' : ''}><summary>${esc(t('panel.lameta.unadopted', { n: unadopted.length }))}</summary>
+    ${unadopted.length ? `<ul class="rp-lameta-sessions">${rows}</ul>` : ''}
+    ${elsewhere.length ? `<p class="note">${esc(t('panel.lameta.elsewhere', { n: elsewhere.length }))}</p>` : ''}</details>`;
+}
+function lametaBlockHtml(id, canManage, open = false) {
+  return `<div class="rp-lameta-block" data-lameta-block="${esc(id)}" data-manage="${canManage ? '1' : ''}">${lametaStatusHtml(id)}${lametaSessionsHtml(id, canManage, open)}</div>`;
+}
 function paintLametaStatus(id) {
-  const el = root && root.querySelector(`[data-lameta-status="${CSS.escape(id)}"]`);
+  const el = root && root.querySelector(`[data-lameta-block="${CSS.escape(id)}"]`);
   if (!el) return;
-  el.outerHTML = lametaStatusHtml(id);
-  const fresh = root.querySelector(`[data-lameta-status="${CSS.escape(id)}"] [data-iact]`);
-  if (fresh) fresh.addEventListener('click', () => instanceAction(fresh));
+  const details = el.querySelector('details');
+  el.outerHTML = lametaBlockHtml(id, el.dataset.manage === '1', !!(details && details.open));   // keep the fold as the person left it
+  for (const fresh of root.querySelectorAll(`[data-lameta-block="${CSS.escape(id)}"] [data-iact]`)) fresh.addEventListener('click', () => instanceAction(fresh));
+}
+
+/* ─── ADOPT ONE SESSION (plans/lameta-device.md §6) ─── */
+async function lametaAdoptModal(instanceId, sessionName) {
+  const a = await lametaAgentGet();
+  const m = modal(`<h3>${esc(t('panel.lameta.adoptTitle', { name: sessionName }))}</h3><div class="rp-lameta-body">${loadingHtml('panel.dl.loading', true)}</div>
+    <button class="link-btn" data-m="cancel">${esc(t('panel.new.cancel'))}</button>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  const body = m.el.querySelector('.rp-lameta-body');
+  let prep;
+  try { prep = await a.prepareAdopt(instanceId, sessionName); }
+  catch (e) { body.innerHTML = `<p class="note">${esc(t('panel.err', { msg: (e && e.message) || String(e) }))}</p>`; return; }
+  const radio = (group, list, picked) => list.map((f, i) => `<label class="rp-radio"><input type="radio" name="${group}" value="${esc(f.name)}"${(picked ? f.name === picked : i === 0) ? ' checked' : ''}> ${esc(f.name)} <span class="note">${esc(fmtSize(f.size))}</span></label>`).join('');
+  /* The choices a person makes: which recording when several qualify, which .flextext when several
+   * exist; the title from the .session (the folder name failing that). A missing recording is
+   * said, and adopting without one is allowed — a text can gain audio later. */
+  body.innerHTML = `
+    <p class="note">${esc(t('panel.lameta.adoptIntro'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.lameta.textTitle'))}</span><input class="rp-lameta-title" value="${esc(prep.title)}" spellcheck="false"></label>
+    <div class="rp-field"><span>${esc(t('panel.lameta.adoptRecording'))}</span>
+      ${prep.recording.candidates.length ? radio('rp-lameta-rec', prep.recording.candidates, prep.recording.pick && prep.recording.pick.name) : `<p class="note">${esc(t('panel.lameta.adoptNoAudio'))}</p>`}</div>
+    <div class="rp-field"><span>${esc(t('panel.lameta.adoptFlextext'))}</span>
+      ${prep.flextext.candidates.length ? radio('rp-lameta-ft', prep.flextext.candidates, prep.flextext.pick && prep.flextext.pick.name) : `<p class="note">${esc(t('panel.lameta.adoptNone'))}</p>`}</div>
+    ${prep.eaf ? `<p class="note">${esc(t('panel.lameta.eafKept', { name: prep.eaf }))}</p>` : ''}
+    ${prep.unavailable.length ? `<p class="note">${esc(t('panel.lameta.unavailable', { names: prep.unavailable.join(', ') }))}</p>` : ''}
+    <button class="primary-btn" data-m="go">${esc(t('panel.lameta.adoptGo'))}</button>`;
+  body.querySelector('[data-m="go"]').onclick = (e) => busy(e.target, async () => {
+    const title = ((body.querySelector('.rp-lameta-title') || {}).value || '').trim() || sessionName;
+    const recording = (body.querySelector('input[name="rp-lameta-rec"]:checked') || {}).value || null;
+    const flextext = (body.querySelector('input[name="rp-lameta-ft"]:checked') || {}).value || null;
+    let plan;
+    try { plan = await a.beginAdopt(instanceId, sessionName, { title, recording, flextext, done: prep.done }); }
+    catch (err) { errToast(err); return; }
+    /* Through the assign-upload queue — the same record shape as an assignment, plus `manifest`
+     * (already built) and `lameta` (what finishAdopt needs). Resumable across a panel restart,
+     * pausable, cancellable, exactly like an assignment. */
+    await db.putMedia(AQ_PREFIX + plan.docId, {
+      instanceId, projectFolderId: '', title, ttlDays: assignTtlDays(), state: 'queued', at: Date.now(), queuedAt: Date.now(),
+      vernLang: plan.manifest.writingSystems.vern, analLang: plan.manifest.writingSystems.anal,
+      audio: plan.audio, flextext: plan.flextext, flexGuid: plan.flexGuid,
+      manifest: plan.manifest, lameta: { instanceId, sessionName, done: !!plan.done },
+    });
+    m.close();
+    runAssignUpload(plan.docId);
+    deps.toast(t('panel.lameta.adoptQueued', { name: sessionName }), 5000);
+    paintAssignQueue();
+  });
 }
 
 async function lametaLinkModal() {
@@ -6128,7 +6199,9 @@ async function runAssignUpload(docId) {
       const audioSha = rec.audio ? await blobSha256(rec.audio.blob) : '';
       const ftSha = rec.flextext ? await blobSha256(rec.flextext.blob) : '';
       const withSha = (row, sha) => (sha ? { ...row, sha256: sha } : row);
-      const manifest = buildSourceManifest({
+      // An ADOPT (rec.lameta) arrives with its manifest already built by the agent — origin 'lameta',
+      // the session it came from, the hashes of the files it read; the builder here is for uploads.
+      const manifest = rec.manifest || buildSourceManifest({
         docId, title: rec.title || '',
         origin: 'assigned',
         originatedAt: rec.queuedAt || Date.now(),
@@ -6180,11 +6253,21 @@ async function runAssignUpload(docId) {
      *
      * The estate is a Drive SEARCH and lags by seconds, so the dashboard is refreshed rather than
      * merely repainted — otherwise the text the researcher just uploaded is briefly nowhere. */
-    if (rec.projectFolderId) {
-      endJob(t('panel.aq.doneProject'));
+    if (rec.projectFolderId || rec.lameta) {
+      if (rec.lameta) {
+        /* An ADOPT ends here too (plans/lameta-device.md §6): the bytes are on Drive under the lameta
+         * device, and the agent already holds the files — no streaming URLs, no assign command. What
+         * is left is the session's flextext/ subfolder (the manifest copy, the custody record) and
+         * the report that lists the text. Written LAST, after the upload, so a cancelled adopt leaves
+         * no half-claimed session behind. */
+        const a = await lametaAgentGet();
+        await a.finishAdopt(rec.lameta.instanceId, { docId, sessionName: rec.lameta.sessionName, manifest: rec.manifest,
+                                                     manifestFileId: rec.manifestFileId || '', done: !!rec.lameta.done });
+      }
+      endJob(t(rec.lameta ? 'panel.aq.doneAdopt' : 'panel.aq.doneProject'));
       await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
       aqActive.delete(docId); aqStop.delete(docId);
-      deps.toast(t('panel.assign.projQueuedDone', { title: rec.title || '' }), 6000);
+      deps.toast(t(rec.lameta ? 'panel.lameta.adopted' : 'panel.assign.projQueuedDone', { title: rec.title || '' }), 6000);
       renderDashboard();
       paintAssignQueue();
       return;

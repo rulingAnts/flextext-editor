@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v692';
+export const ENGINE_VERSION = 'v693';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1113,6 +1113,24 @@ internet after the first time.</p>
   'panel.lameta.unlinked': 'This computer no longer holds the link.',
   'panel.lameta.waiting': '{n} command(s) waiting for a later version',
   'panel.lameta.deleteRefused': 'a delete was refused — nothing in a lameta project is ever deleted from here',
+  // Milestone 4: Adopt an existing session.
+  'panel.lameta.unadopted': '{n} session(s) not yet FlexText texts',
+  'panel.lameta.elsewhere': '{n} session(s) carry a FlexText manifest but their text lives on another device — move the text here to link them.',
+  'panel.lameta.notDownloaded': 'not downloaded yet',
+  'panel.lameta.adoptBtn': 'Adopt…',
+  'panel.lameta.adoptTitle': 'Adopt “{name}”',
+  'panel.lameta.adoptIntro': 'The session becomes a FlexText text of this device: its recording and .flextext are copied to Drive, and the session folder gets a flextext/ subfolder with the text’s manifest (lameta never lists it). Nothing in the session is renamed or removed.',
+  'panel.lameta.textTitle': 'Title',
+  'panel.lameta.adoptRecording': 'Recording',
+  'panel.lameta.adoptFlextext': 'FLEx text (.flextext)',
+  'panel.lameta.adoptNone': 'none — the text can be added later',
+  'panel.lameta.adoptNoAudio': 'No recording among the session’s files. The text is adopted without audio; a recording can be added later.',
+  'panel.lameta.eafKept': 'The ELAN file ({name}) stays in the session; this version does not copy it to Drive.',
+  'panel.lameta.unavailable': 'Not downloaded yet, so not offered: {names}',
+  'panel.lameta.adoptGo': 'Adopt',
+  'panel.lameta.adoptQueued': 'Adopting “{name}” — the files are uploading to Drive.',
+  'panel.lameta.adopted': '“{title}” is now a FlexText text of this project.',
+  'panel.aq.doneAdopt': 'Adopted',
   'panel.dash.refresh': 'Refresh',
   // Admin modal — OWNER-only (ALLOWED_RESEARCHERS). The Worker enforces this independently; the
   // hidden link is convenience, never the security boundary.
@@ -1578,6 +1596,7 @@ internet after the first time.</p>
     ,'panel.rel.fix.stuckMoves': 'Texts that could not be moved can be moved again. When a text is moved between devices, the panel waits for the old device to confirm it let go of its copy — and a device that has since been erased, deleted or unlinked can never confirm anything, so that wait never ended and the Move button stayed hidden on every device, with nothing on screen to say why. Those moves now close themselves, and while a move is genuinely waiting, the text says which device has not released its copy and offers a Clear. Nothing is deleted either way: the text stays where it is.'
     ,'panel.rel.fix.glossBreakLabel': 'The setting that picks what a space becomes inside a gloss box is now called “Morpheme-break character in glosses”. It was called a word break, which is backwards: a gloss labels one word, and the character marks a break between the morphemes inside it.'
     ,'panel.rel.fix.moveProgress': 'Moving a text now shows what it is doing. On a slow connection the Move button used to sit grey and silent while three or four requests went back and forth, which looked exactly like a frozen app; it now spins, names the step it is on, and says so when a step is taking a while.'
+    ,'panel.rel.new.lametaAdopt': 'A linked lameta project lists the sessions that are not FlexText texts yet, and each can be adopted (still behind ?lameta=1): the recording and the .flextext are copied to Drive under the lameta device — through the same resumable upload as an assignment — and the session folder gains a flextext/ subfolder holding the text’s manifest and its custody record, which lameta never lists. Nothing in the session is renamed or removed; a text without a recording or without a .flextext can be adopted too. The ELAN file stays in the session for now.'
     ,'panel.rel.new.lametaLink': 'A lameta project can now be linked as a device (still hidden behind ?lameta=1 while it is being built): the panel creates the device, pairs itself to it, and while it is open on that computer it reports the project as a device with the lameta badge. Nothing moves in or out yet — that comes next. Unlink and Delete work as for any device; Invite, Assign and Erase are never offered for a lameta project.'
     ,'panel.rel.new.lametaLinkPreview': 'Groundwork for treating a lameta project as a device (a preview for the maintainer, hidden unless the panel is opened with ?lameta=1): on Chrome or Edge on a computer the panel can be handed the project folder, remember it, list its sessions, and — installed as an app — keep the folder permission after a relaunch. Nothing is linked or written yet; other browsers are told plainly that they cannot grant a folder.'
     ,'panel.rel.new.lametaProgress': 'The lameta session download now carries the text’s progress: consent, recording, segmentation, transcription, and each language’s glosses and free translations, written as lameta custom fields (Stage_Transcribe and so on) that lameta shows on the session and keeps when it saves. The person who signed the consent receipt is listed as a speaker, the text’s own ids travel with it, and a copy of its source manifest sits in a flextext/ subfolder that lameta never lists. The field format is shared with the corpus checklist and a coming lameta update (plans/lameta-progress-spec.md).'
@@ -3741,6 +3760,24 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.lameta.unlinked': 'Komputer ini tidak lagi menyimpan tautannya.',
   'panel.lameta.waiting': '{n} perintah menunggu versi berikutnya',
   'panel.lameta.deleteRefused': 'penghapusan ditolak — tidak ada yang pernah dihapus dari proyek lameta lewat sini',
+  // Milestone 4: Adopsi sesi yang sudah ada.
+  'panel.lameta.unadopted': '{n} sesi belum menjadi teks FlexText',
+  'panel.lameta.elsewhere': '{n} sesi membawa manifes FlexText tetapi teksnya berada di perangkat lain — pindahkan teksnya ke sini untuk menautkannya.',
+  'panel.lameta.notDownloaded': 'belum terunduh',
+  'panel.lameta.adoptBtn': 'Adopsi…',
+  'panel.lameta.adoptTitle': 'Adopsi “{name}”',
+  'panel.lameta.adoptIntro': 'Sesi ini menjadi teks FlexText di perangkat ini: rekaman dan berkas .flextext-nya disalin ke Drive, dan folder sesi mendapat subfolder flextext/ berisi manifes teks (lameta tidak pernah menampilkannya). Tidak ada isi sesi yang diganti nama atau dihapus.',
+  'panel.lameta.textTitle': 'Judul',
+  'panel.lameta.adoptRecording': 'Rekaman',
+  'panel.lameta.adoptFlextext': 'Teks FLEx (.flextext)',
+  'panel.lameta.adoptNone': 'tidak ada — teksnya dapat ditambahkan nanti',
+  'panel.lameta.adoptNoAudio': 'Tidak ada rekaman di antara berkas sesi. Teks diadopsi tanpa audio; rekaman dapat ditambahkan nanti.',
+  'panel.lameta.eafKept': 'Berkas ELAN ({name}) tetap di sesi; versi ini belum menyalinnya ke Drive.',
+  'panel.lameta.unavailable': 'Belum terunduh, jadi tidak ditawarkan: {names}',
+  'panel.lameta.adoptGo': 'Adopsi',
+  'panel.lameta.adoptQueued': 'Mengadopsi “{name}” — berkasnya sedang diunggah ke Drive.',
+  'panel.lameta.adopted': '“{title}” kini menjadi teks FlexText di proyek ini.',
+  'panel.aq.doneAdopt': 'Diadopsi',
   'panel.dash.refresh': 'Segarkan',
   'panel.admin.btn': 'Admin',
   'panel.admin.title': 'Administrasi',
@@ -4119,6 +4156,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.stuckMoves': 'Teks yang tadinya tidak bisa dipindahkan kini dapat dipindahkan lagi. Saat teks dipindahkan antar perangkat, panel menunggu perangkat lama memastikan salinannya sudah dilepas — dan perangkat yang sudah dihapus, dihilangkan, atau diputus tidak akan pernah bisa memastikan apa pun, sehingga penantian itu tidak pernah berakhir dan tombol Pindahkan tetap tersembunyi di semua perangkat, tanpa penjelasan apa pun di layar. Pemindahan seperti itu kini menutup dirinya sendiri, dan selama pemindahan memang masih menunggu, teksnya menyebutkan perangkat mana yang belum melepas salinannya dan menyediakan tombol Bersihkan. Tidak ada yang dihapus: teksnya tetap di tempatnya.'
     ,'panel.rel.fix.glossBreakLabel': 'Setelan yang memilih karakter pengganti spasi di dalam kotak gloss kini bernama “Karakter pemisah morfem di gloss”. Sebelumnya disebut pemisah kata, dan itu terbalik: gloss memberi label untuk satu kata, dan karakter itu menandai batas antar morfem di dalamnya.'
     ,'panel.rel.fix.moveProgress': 'Memindahkan teks kini menunjukkan apa yang sedang dikerjakan. Pada koneksi lambat, tombol Pindahkan dulu hanya diam dan kelabu sementara tiga atau empat permintaan berjalan bolak-balik, persis seperti aplikasi yang membeku; kini tombol itu berputar, menyebutkan langkah yang sedang berjalan, dan memberi tahu bila sebuah langkah memakan waktu.'
+    ,'panel.rel.new.lametaAdopt': 'Proyek lameta yang tertaut menampilkan daftar sesi yang belum menjadi teks FlexText, dan tiap sesi dapat diadopsi (masih di balik ?lameta=1): rekaman dan berkas .flextext disalin ke Drive di bawah perangkat lameta — lewat unggahan yang dapat dilanjutkan, sama seperti penugasan — dan folder sesi mendapat subfolder flextext/ berisi manifes teks dan catatan kepemilikannya, yang tidak pernah ditampilkan lameta. Tidak ada isi sesi yang diganti nama atau dihapus; teks tanpa rekaman atau tanpa .flextext pun dapat diadopsi. Berkas ELAN untuk sementara tetap di sesi.'
     ,'panel.rel.new.lametaLink': 'Proyek lameta kini dapat ditautkan sebagai perangkat (masih tersembunyi di balik ?lameta=1 selama dibangun): panel membuat perangkatnya, memasangkan dirinya sendiri, dan selama terbuka di komputer itu melaporkan proyek sebagai perangkat berlencana lameta. Belum ada yang dipindahkan masuk atau keluar — itu menyusul. Lepas tautan dan Hapus bekerja seperti perangkat lain; Undang, Tugaskan, dan Hapus total tidak pernah ditawarkan untuk proyek lameta.'
     ,'panel.rel.new.lametaLinkPreview': 'Landasan untuk memperlakukan proyek lameta sebagai perangkat (pratinjau untuk pengelola, tersembunyi kecuali panel dibuka dengan ?lameta=1): di Chrome atau Edge di komputer, panel dapat diberi folder proyek, mengingatnya, menampilkan daftar sesinya, dan — bila terpasang sebagai aplikasi — mempertahankan izin folder setelah dibuka ulang. Belum ada yang ditautkan atau ditulis; peramban lain diberi tahu dengan jelas bahwa mereka tidak dapat memberikan izin folder.'
     ,'panel.rel.new.lametaProgress': 'Unduhan sesi lameta kini membawa kemajuan teks: persetujuan, rekaman, segmentasi, transkripsi, serta gloss dan terjemahan bebas tiap bahasa, ditulis sebagai bidang khusus lameta (Stage_Transcribe dan seterusnya) yang ditampilkan lameta pada sesi dan tetap dipertahankan saat menyimpan. Penanda tangan bukti persetujuan dicantumkan sebagai penutur, id teks ikut serta, dan salinan manifes sumbernya ditaruh di subfolder flextext/ yang tidak pernah ditampilkan lameta. Format bidangnya dipakai bersama daftar periksa korpus dan pembaruan lameta yang akan datang (plans/lameta-progress-spec.md).'

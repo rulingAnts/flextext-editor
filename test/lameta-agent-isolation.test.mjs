@@ -12,8 +12,9 @@ const FILES = read('../docs/js/files.js');
 const PANEL = read('../docs/js/researcher-panel.js');
 const RES = read('../docs/js/researcher.js');
 
-test('the agent has no module-level imports: everything is injected, so node can run the loop', () => {
-  assert.doesNotMatch(AGENT, /^\s*import\s/m);
+test('the agent imports only the two pure format modules; every platform is injected, so node can run the loop', () => {
+  const imports = [...AGENT.matchAll(/^\s*import\s[\s\S]*?from '([^']+)';/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(imports, ['./lameta.js', './seg-exports.js'], 'the session format and the manifest builder — nothing with a browser behind it');
   assert.match(AGENT, /export function createLametaAgent\(\{ R, F,/);
 });
 

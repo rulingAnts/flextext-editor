@@ -1160,6 +1160,7 @@ async function route() {
   }
   if (!Researcher.isApprovedSelf()) return renderAwaiting();   // signed in but pending → awaiting-approval screen
   renderDashboard();
+  lametaAgentBoot();   // the lameta device agent, when this browser holds a link (plans/lameta-device.md)
 }
 
 /* ⚠ SIGNING IN WITH GOOGLE OUTLIVES SIGNING OUT HERE (2026-09-22). Our sign-out ends this app's
@@ -1196,6 +1197,7 @@ let signedOutNotice = false;
 let signedOutEmail = '';
 function signOutHere() {
   signedOutEmail = Researcher.accountEmail() || '';
+  if (lametaAgent) lametaAgent.stop();   // the device stops with the session that authorizes it
   Researcher.signOut();
   signedOutNotice = true;
 }
@@ -1444,6 +1446,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v692', date: '2026-09-27', items: [
+    { k: 'panel.rel.new.lametaLink' },
+  ] },
   { v: 'v691', date: '2026-09-27', items: [
     { k: 'panel.rel.new.lametaLinkPreview' },
   ] },
@@ -2433,6 +2438,7 @@ function parseUA(ua) {
 // the platform first is what makes that comprehensible instead of looking like a duplicate.
 const PLATFORM_KEY = {
   'web': 'panel.dev.platWeb',
+  'lameta': 'panel.dev.platLameta',        // the panel itself, holding a lameta project's folder (lameta-agent.js)
   'android-recorder': 'panel.dev.platAndroidRec',
   'android-editor': 'panel.dev.platAndroidEd',
   'windows': 'panel.dev.platWindows',
@@ -4647,6 +4653,11 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
   const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless;   // texts: assign, done, delete
   const mDrive = (!memberCtx || mCaps.drive === 'read' || mCaps.drive === 'manage') && !mKeyless;   // Files… menu
   const installs = it.installs || [];
+  /* A lameta project held by a panel (lameta-agent.js): the badge comes from what the install
+   * REPORTS, like every other kind. It keeps Settings, Unlink and Delete; it never gets Invite (the
+   * agent claimed its own invite), Assign (texts arrive by Move, milestone 5) or Erase (the folder is
+   * the researcher's own corpus — nothing here is ever erased). */
+  const isLameta = installs.some((i) => i.inventory && i.inventory.type === 'lameta');
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
   // hides a pending install, a remote wipe or a stuck engine would conceal exactly the states that
@@ -5040,7 +5051,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
            The count going back INSIDE the toggle also restores the collapse hit target it had
            before, so the phone-tap behaviour comes back with the layout fix. */''}
       ${collapsed ? '' : `<div class="rp-inst-quick">
-        ${mAssign ? `<button class="rp-iconbtn" data-iact="assign" data-i="${esc(it.instance_id)}" title="${esc(t('panel.inst.assign'))}" aria-label="${esc(t('panel.inst.assign'))}">${ICON_NEWTEXT}</button>` : ''}
+        ${mAssign && !isLameta ? `<button class="rp-iconbtn" data-iact="assign" data-i="${esc(it.instance_id)}" title="${esc(t('panel.inst.assign'))}" aria-label="${esc(t('panel.inst.assign'))}">${ICON_NEWTEXT}</button>` : ''}
         ${mManage ? `<button class="rp-iconbtn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.settings'))}" aria-label="${esc(t('panel.inst.settings'))}">${ICON_GEAR}</button>` : ''}
         ${memberCtx ? '' : projectMoveIconBtn(it)}
       </div>`}
@@ -5049,6 +5060,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
+      ${isLameta ? lametaStatusHtml(it.instance_id) : ''}
       ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
       <div class="rp-inst-actions">
         ${/* The everyday actions moved to the header as icons; what is left on this row is the
@@ -5095,10 +5107,10 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
            * them honest; it did not — it made the button wrong. */
           const connect = live
             ? (`<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" title="${esc(t('panel.inst.revokeInstallTip'))}" aria-label="${esc(t('panel.inst.revokeInstall'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>`)
-            : (mInvite ? `<button class="rp-split-half" data-iact="invite" data-i="${I}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.inviteTip'))}" aria-label="${esc(t('panel.inst.link'))}">${ICON_LINK}<span>${esc(t('panel.inst.link'))}</span></button>` : '');
+            : (mInvite && !isLameta ? `<button class="rp-split-half" data-iact="invite" data-i="${I}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.inviteTip'))}" aria-label="${esc(t('panel.inst.link'))}">${ICON_LINK}<span>${esc(t('panel.inst.link'))}</span></button>` : '');
           const unlink = connect;
           const del = `<button class="rp-split-half" data-iact="revoke" data-i="${I}" data-name="${NM}" data-i18n-title="panel.inst.revokeTip" title="${esc(t('panel.inst.revokeTip'))}">${ICON_X}<span>${esc(t('panel.inst.revoke'))}</span></button>`;
-          const wipe = (!memberCtx && live)
+          const wipe = (!memberCtx && live && !isLameta)
             ? `<button class="rp-wipe-btn" data-iact="wipe-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" data-i18n-title="panel.wipe.tip" title="${esc(t('panel.wipe.tip'))}"><span class="rp-skull" aria-hidden="true">☠</span><span>${esc(t('panel.wipe.btn'))}</span></button>`
             : '';
           /* No separator element: the group takes its own line (flex-basis:100%), so there is
@@ -5190,6 +5202,11 @@ async function instanceActionInner(el) {
       await busy(el, () => Researcher.approveInstall(id, installId, ins && ins.pubkey));
       deps.toast(t('panel.inst.approved'), 4000);
       renderDashboard();
+    } else if (act === 'lameta-allow') {
+      // The folder permission needs a click (a user gesture) — this is that click.
+      const a = await lametaAgentGet();
+      const ok = await busy(el, () => a.requestPermission(id));
+      if (!ok) deps.toast(t('panel.lameta.denied'), 6000);
     } else if (act === 'revoke') {
       if (!await confirmModal(t('panel.inst.confirmRevoke', { name: el.dataset.name || '' }))) return;
       await busy(el, () => Researcher.revokeInstance(id));
@@ -5456,6 +5473,57 @@ function lametaLinkBtnHtml() {
 // One remembered folder per account, in files.js's own store — never the editor's databases.
 const lametaFolderKey = () => `${Researcher.currentAccountId() || 'anon'}:lameta-preview`;
 
+/* ─── THE AGENT IN THE PANEL (milestone 3) ───────────────────────────────────────────────────────
+ * lameta-agent.js is created once, with the real researcher.js and files.js injected, and started
+ * only where a link can exist: behind the flag, for the owner, once this account has a link on
+ * record. It polls while the panel is open — a device that is a folder on this computer can only
+ * sync while something on this computer is running — and stops with the session (signOutHere). */
+let lametaAgent = null;
+async function lametaAgentGet() {
+  if (lametaAgent) return lametaAgent;
+  const [{ createLametaAgent }, F] = await Promise.all([import('./lameta-agent.js'), import('./files.js')]);
+  lametaAgent = createLametaAgent({
+    R: Researcher, F, engineVersion: ENGINE_VERSION, ua: navigator.userAgent,
+    onChange: (id) => paintLametaStatus(id),
+    visible: () => document.visibilityState === 'visible',
+  });
+  return lametaAgent;
+}
+async function lametaAgentBoot() {
+  if (!lametaLinkEnabled() || !Researcher.isOwnerSelf()) return;
+  try {
+    const a = await lametaAgentGet();
+    if ((await a.links()).length) a.start();
+  } catch (e) { console.warn('[flextext] lameta agent did not start:', e); }
+}
+/* The card's status line for a lameta device: from the agent's live state when this browser holds
+ * the link, "linked on another computer" when it does not (the install reports; this panel cannot
+ * see its folder). Repainted in place by onChange — the dashboard's own repaint cannot see agent
+ * state, and a full render for every tick would be noise. */
+function lametaStatusText(id) {
+  const s = lametaAgent && lametaAgent.status(id);
+  if (!s) return { text: t('panel.lameta.statusElsewhere'), allow: false, waiting: 0 };
+  if (!s.linked) return { text: t('panel.lameta.unlinked'), allow: false, waiting: 0 };
+  const folder = s.folderName || '?';
+  if (s.permission === 'prompt' || s.permission === 'denied') return { text: t('panel.lameta.statusPerm', { folder }), allow: true, waiting: s.waiting.length };
+  const text = s.lastTickAt
+    ? t('panel.lameta.statusHere', { folder, time: new Date(s.lastTickAt).toLocaleTimeString() })
+    : t('panel.lameta.statusHereNever', { folder });
+  const err = s.lastError === 'delete_refused' ? t('panel.lameta.deleteRefused') : (s.lastError && s.lastError !== 'revoked' ? t('panel.err', { msg: s.lastError }) : '');
+  return { text: err ? `${text} · ${err}` : text, allow: false, waiting: s.waiting.length };
+}
+function lametaStatusHtml(id) {
+  const { text, allow, waiting } = lametaStatusText(id);
+  return `<div class="note rp-lameta-status" data-lameta-status="${esc(id)}">${esc(text)}${waiting ? ' · ' + esc(t('panel.lameta.waiting', { n: waiting })) : ''}${allow ? ` <button class="link-btn" data-iact="lameta-allow" data-i="${esc(id)}">${esc(t('panel.lameta.allow'))}</button>` : ''}</div>`;
+}
+function paintLametaStatus(id) {
+  const el = root && root.querySelector(`[data-lameta-status="${CSS.escape(id)}"]`);
+  if (!el) return;
+  el.outerHTML = lametaStatusHtml(id);
+  const fresh = root.querySelector(`[data-lameta-status="${CSS.escape(id)}"] [data-iact]`);
+  if (fresh) fresh.addEventListener('click', () => instanceAction(fresh));
+}
+
 async function lametaLinkModal() {
   const F = await import('./files.js');
   const cap = F.folderCapability();
@@ -5477,9 +5545,34 @@ async function lametaLinkModal() {
       if (!sprj || !sessions) { list.innerHTML = `<p class="note">${esc(t('panel.lameta.notProject', { name: handle.name }))}</p>`; return; }
       // Directories only: every directory under Sessions/ IS a session to lameta (plans/lameta-device.md §3).
       const rows = (await F.listDir(sessions)).filter((e) => e.kind === 'directory');
-      list.innerHTML = `<p class="note">${esc(t('panel.lameta.sessions', { n: rows.length, project: sprj.name.replace(/\.sprj$/i, '') }))}</p>
+      const projectName = sprj.name.replace(/\.sprj$/i, '');
+      const agent = await lametaAgentGet();
+      const already = await agent.linkedFor(handle);
+      list.innerHTML = `<p class="note">${esc(t('panel.lameta.sessions', { n: rows.length, project: projectName }))}</p>
         <ul class="rp-lameta-sessions">${rows.slice(0, 500).map((r) => `<li>${esc(r.name)}</li>`).join('')}</ul>
-        <p class="note">${esc(t('panel.lameta.previewNote'))}</p>`;
+        ${already
+          ? `<p class="note">${esc(t('panel.lameta.alreadyLinked', { name: already.nickname || projectName }))}</p>`
+          : `<label class="rp-field"><span>${esc(t('panel.lameta.nick'))}</span><input class="rp-lameta-nick" value="${esc(projectName)}" spellcheck="false"></label>
+             <p class="note">${esc(t('panel.lameta.linkNote'))}</p>
+             <button class="primary-btn" data-m="link">${esc(t('panel.lameta.linkNow'))}</button>`}`;
+      /* LINK (milestone 3): the agent creates the device, claims its own invite, accepts and
+       * approves — then the ordinary settings modal, exactly as after "+ New device", so the lane
+       * carries the codes a session file and an EAF need. */
+      const linkBtn = list.querySelector('[data-m="link"]');
+      if (linkBtn) linkBtn.onclick = (e) => busy(e.target, async () => {
+        const nick = ((list.querySelector('.rp-lameta-nick') || {}).value || '').trim();
+        if (!nick) { deps.toast(t('panel.new.needNick'), 4000); return; }
+        const intoProject = (currentProject && currentProject !== STRAY_TAB && !isMemberTab(currentProject)) ? currentProject : '';
+        let made;
+        try { made = await agent.link({ handle, nickname: nick, projectName, sprjName: sprj.name, projectFolderId: intoProject }); }
+        catch (err) { errToast(err); return; }
+        m.close();
+        deps.toast(t('panel.lameta.linked'), 6000);
+        agent.start();
+        renderDashboard();
+        try { await openSettingsModal({ kind: 'instance', instance: { instance_id: made.instanceId, nickname: nick, installs: [] } }, { projectFolderId: intoProject }); }
+        catch { deps.toast(t('panel.new.createdNotConfigured'), 9000); }
+      });
     } catch (e) {
       // A cloud folder that has not downloaded answers late or never: say so, never spin (files.js's clock).
       list.innerHTML = `<p class="note">${esc(e && e.code === 'FILES_TIMEOUT' ? t('panel.lameta.slowFolder') : ((e && e.message) || String(e)))}</p>`;

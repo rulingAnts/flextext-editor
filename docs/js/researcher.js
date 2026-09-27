@@ -656,6 +656,20 @@ export async function deliverKey(instanceId, installId, installPubkeyB64) {
   return { ok: true };
 }
 
+/* ---------------- the panel AS an install (the lameta device agent, plans/lameta-device.md) ------
+ *
+ * The report route authenticates an INSTALL, so a device that lives inside the panel has to BE an
+ * install: it claims an invite the panel minted for an instance the panel created, and from then on
+ * polls and reports with install headers — on the same api() as everything else, minus the
+ * researcher headers. Ki never leaves this module: the agent asks for a sealed report and an
+ * opened command, and gets exactly that. */
+export function apiAsInstall(method, path, install, opts = {}) {
+  const headers = { ...(opts.headers || {}), 'x-fx-install': install.installId, 'x-fx-secret': install.installSecret };
+  return api(method, path, { ...opts, headers, auth: false });
+}
+export async function encryptForInstance(instanceId, obj) { return encryptJSON(await getKi(instanceId), obj); }
+export async function decryptForInstance(instanceId, token) { return decryptJSON(await getKi(instanceId), token); }
+
 /* ---------------- commands (encrypted payloads) ---------------- */
 
 // type (and id, when present) stay plaintext for the Worker's routing/validation; the

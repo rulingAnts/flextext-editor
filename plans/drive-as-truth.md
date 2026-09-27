@@ -1440,6 +1440,13 @@ originated in editor or recorder by recording or opening files should also creat
 with a manifest file."* It is a real gap, it predates all of this, and it is not fixed in v395 —
 filed here rather than folded into a crowd change.
 
+**Second writer (2026-09-27, `plans/lameta-device.md`).** When a lameta project is a device, the
+session folder carries its own copies under `Sessions/<id>/flextext/`: `flextext-manifest.json`
+(the immutable birth copy) and `flextext-history.json` with a folded `custody` summary
+(`{holder:{kind,id,name}, since}`) beside the events. The lameta agent writes the local history for
+its own medium exactly as the worker writes the Drive one; D1 `drive_object.instance_id` stays the
+authority and the local copy is reconciled from the estate on every run.
+
 ### 16.13 "Append-only" was doing less work than it looked — the format question, answered
 
 Seth: *"Do we really want a json file to be append-only? I assume you don't mean LITERALLY,

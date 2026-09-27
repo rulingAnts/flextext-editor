@@ -153,8 +153,8 @@ the first install, as any device re-pair does.
 | M | Build | Seth checks on staging (against a COPY of the lameta project — staging is the real account) |
 |---|---|---|
 | 0 | this plan, the spec, the doc corrections | — |
-| 1 | Workstream 1 release: sanitizer port, 25 roles, type table, the `done`/contributors defects, manifest schema 3 | the lameta download passes lameta's naming rule; Status and contributors right |
-| 2 | `files.js` + tests; hidden "Link…" that only picks and lists `Sessions/` | Chrome: folder picked, sessions listed, permission survives an installed-PWA relaunch; Firefox: the honest message |
+| 1 | ✅ v690 — Workstream 1 release: sanitizer port, 25 roles, type table, the `done`/contributors defects, manifest schema 3 | the lameta download passes lameta's naming rule; Status and contributors right |
+| 2 | ✅ v691 (staging) — `files.js` + tests; hidden "Link…" that only picks and lists `Sessions/` | Chrome: folder picked, sessions listed, permission survives an installed-PWA relaunch; Firefox: the honest message |
 | 3 | `researcher.js` helpers; agent link + poll/report; card badge/status/gates | a "linked" lameta card with the badge and engine version, zero texts; Unlink; second-browser link revokes the first |
 | 4 | Adopt | an adopted session appears; Files ▾ builds ELAN/lameta downloads from the Drive copy; Move… offered |
 | 5 | `buildConversionSources` + `buildLametaSessionFiles`; `assign` materialize | a phone's text moved in; lameta reopened shows it; ELAN opens the EAF; media ref right; nothing of ours listed |

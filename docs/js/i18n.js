@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v690';
+export const ENGINE_VERSION = 'v691';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1077,6 +1077,28 @@ internet after the first time.</p>
   'panel.dash.texts': 'Texts',
   'panel.dash.glossIcons': 'Gloss tab icon on devices:',
   'panel.dash.newDevice': '+ New device',
+  // Link a lameta project (plans/lameta-device.md) — the milestone-2 preview, behind ?lameta=1.
+  'panel.lameta.linkBtn': 'Link a lameta project…',
+  'panel.lameta.title': 'lameta project',
+  'panel.lameta.thisBrowser': 'This browser',
+  'panel.lameta.unsupported.no-picker': 'Linking a lameta project needs Chrome or Edge on a computer. {browser} cannot open a folder on this disk — it has no way to grant one.',
+  'panel.lameta.unsupported.mobile': 'Linking a lameta project needs Chrome or Edge on a computer; a phone or tablet cannot grant a folder.',
+  'panel.lameta.unsupported.insecure': 'This page is not on a secure (https) address, so the browser will not grant a folder here.',
+  'panel.lameta.installedNote': 'This is an installed app: a folder you allow stays allowed after the app is closed and reopened.',
+  'panel.lameta.tabNote': 'In a browser tab the folder must be allowed again each time the tab is opened. Install the panel (Chrome or Edge: Install…) to keep the permission.',
+  'panel.lameta.remembered': 'Remembered folder: {name}',
+  'panel.lameta.permGranted': 'access allowed',
+  'panel.lameta.permPrompt': 'access needs to be allowed again',
+  'panel.lameta.allow': 'Allow access',
+  'panel.lameta.denied': 'Access was not allowed; the folder stays remembered.',
+  'panel.lameta.list': 'List sessions',
+  'panel.lameta.pick': 'Choose the lameta project folder…',
+  'panel.lameta.pickOther': 'Choose another folder…',
+  'panel.lameta.forget': 'Forget this folder',
+  'panel.lameta.notProject': '“{name}” is not a lameta project folder: it needs a .sprj file and a Sessions/ folder. Choose the project folder itself.',
+  'panel.lameta.sessions': '{project}: {n} sessions in Sessions/',
+  'panel.lameta.previewNote': 'Preview only, in this version: the folder is listed, not yet linked. Linking, adopting sessions and moving texts in and out come next.',
+  'panel.lameta.slowFolder': 'The folder did not answer in time. If it lives in iCloud Drive or Google Drive, its files may not be downloaded yet.',
   'panel.dash.refresh': 'Refresh',
   // Admin modal — OWNER-only (ALLOWED_RESEARCHERS). The Worker enforces this independently; the
   // hidden link is convenience, never the security boundary.
@@ -1542,6 +1564,7 @@ internet after the first time.</p>
     ,'panel.rel.fix.stuckMoves': 'Texts that could not be moved can be moved again. When a text is moved between devices, the panel waits for the old device to confirm it let go of its copy — and a device that has since been erased, deleted or unlinked can never confirm anything, so that wait never ended and the Move button stayed hidden on every device, with nothing on screen to say why. Those moves now close themselves, and while a move is genuinely waiting, the text says which device has not released its copy and offers a Clear. Nothing is deleted either way: the text stays where it is.'
     ,'panel.rel.fix.glossBreakLabel': 'The setting that picks what a space becomes inside a gloss box is now called “Morpheme-break character in glosses”. It was called a word break, which is backwards: a gloss labels one word, and the character marks a break between the morphemes inside it.'
     ,'panel.rel.fix.moveProgress': 'Moving a text now shows what it is doing. On a slow connection the Move button used to sit grey and silent while three or four requests went back and forth, which looked exactly like a frozen app; it now spins, names the step it is on, and says so when a step is taking a while.'
+    ,'panel.rel.new.lametaLinkPreview': 'Groundwork for treating a lameta project as a device (a preview for the maintainer, hidden unless the panel is opened with ?lameta=1): on Chrome or Edge on a computer the panel can be handed the project folder, remember it, list its sessions, and — installed as an app — keep the folder permission after a relaunch. Nothing is linked or written yet; other browsers are told plainly that they cannot grant a folder.'
     ,'panel.rel.new.lametaProgress': 'The lameta session download now carries the text’s progress: consent, recording, segmentation, transcription, and each language’s glosses and free translations, written as lameta custom fields (Stage_Transcribe and so on) that lameta shows on the session and keeps when it saves. The person who signed the consent receipt is listed as a speaker, the text’s own ids travel with it, and a copy of its source manifest sits in a flextext/ subfolder that lameta never lists. The field format is shared with the corpus checklist and a coming lameta update (plans/lameta-progress-spec.md).'
     ,'panel.rel.fix.lametaNaming': 'File and folder names in the lameta download now follow lameta’s naming rule to the letter: accents fold to plain letters (Café.wav becomes Cafe.wav rather than Caf_.wav), names Windows reserves (con, com1) get an underscore instead of being erased, and a name that already complies is left exactly as it is. Contributor roles now cover all twenty-five that lameta knows, a role it does not know is written as unspecified rather than guessed as speaker, and dates and languages are typed the way lameta types them.'
     ,'panel.rel.fix.lametaDone': 'A text marked Done now downloads as a Finished lameta session. Every session read In_Progress before, whatever the coworker had marked: the download looked for the mark in a place nothing had ever written it.'
@@ -3667,6 +3690,28 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.texts': 'Teks',
   'panel.dash.glossIcons': 'Ikon tab Terjemahan Balik di perangkat:',
   'panel.dash.newDevice': '+ Perangkat baru',
+  // Tautkan proyek lameta (plans/lameta-device.md) — pratinjau milestone 2, di balik ?lameta=1.
+  'panel.lameta.linkBtn': 'Tautkan proyek lameta…',
+  'panel.lameta.title': 'Proyek lameta',
+  'panel.lameta.thisBrowser': 'Peramban ini',
+  'panel.lameta.unsupported.no-picker': 'Menautkan proyek lameta memerlukan Chrome atau Edge di komputer. {browser} tidak dapat membuka folder di disk ini — tidak ada cara untuk memberikan izin folder.',
+  'panel.lameta.unsupported.mobile': 'Menautkan proyek lameta memerlukan Chrome atau Edge di komputer; ponsel atau tablet tidak dapat memberikan izin folder.',
+  'panel.lameta.unsupported.insecure': 'Halaman ini tidak berada di alamat aman (https), sehingga peramban tidak akan memberikan izin folder di sini.',
+  'panel.lameta.installedNote': 'Ini aplikasi terpasang: folder yang Anda izinkan tetap diizinkan setelah aplikasi ditutup dan dibuka kembali.',
+  'panel.lameta.tabNote': 'Di tab peramban, folder harus diizinkan lagi setiap kali tab dibuka. Pasang panel (Chrome atau Edge: Pasang…) agar izinnya tersimpan.',
+  'panel.lameta.remembered': 'Folder yang diingat: {name}',
+  'panel.lameta.permGranted': 'akses diizinkan',
+  'panel.lameta.permPrompt': 'akses perlu diizinkan lagi',
+  'panel.lameta.allow': 'Izinkan akses',
+  'panel.lameta.denied': 'Akses tidak diizinkan; foldernya tetap diingat.',
+  'panel.lameta.list': 'Daftar sesi',
+  'panel.lameta.pick': 'Pilih folder proyek lameta…',
+  'panel.lameta.pickOther': 'Pilih folder lain…',
+  'panel.lameta.forget': 'Lupakan folder ini',
+  'panel.lameta.notProject': '“{name}” bukan folder proyek lameta: harus ada berkas .sprj dan folder Sessions/. Pilih folder proyeknya sendiri.',
+  'panel.lameta.sessions': '{project}: {n} sesi di Sessions/',
+  'panel.lameta.previewNote': 'Baru pratinjau di versi ini: foldernya ditampilkan, belum ditautkan. Penautan, pengadopsian sesi, dan pemindahan teks keluar-masuk menyusul.',
+  'panel.lameta.slowFolder': 'Folder tidak menjawab tepat waktu. Jika berada di iCloud Drive atau Google Drive, berkasnya mungkin belum terunduh.',
   'panel.dash.refresh': 'Segarkan',
   'panel.admin.btn': 'Admin',
   'panel.admin.title': 'Administrasi',
@@ -4045,6 +4090,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.stuckMoves': 'Teks yang tadinya tidak bisa dipindahkan kini dapat dipindahkan lagi. Saat teks dipindahkan antar perangkat, panel menunggu perangkat lama memastikan salinannya sudah dilepas — dan perangkat yang sudah dihapus, dihilangkan, atau diputus tidak akan pernah bisa memastikan apa pun, sehingga penantian itu tidak pernah berakhir dan tombol Pindahkan tetap tersembunyi di semua perangkat, tanpa penjelasan apa pun di layar. Pemindahan seperti itu kini menutup dirinya sendiri, dan selama pemindahan memang masih menunggu, teksnya menyebutkan perangkat mana yang belum melepas salinannya dan menyediakan tombol Bersihkan. Tidak ada yang dihapus: teksnya tetap di tempatnya.'
     ,'panel.rel.fix.glossBreakLabel': 'Setelan yang memilih karakter pengganti spasi di dalam kotak gloss kini bernama “Karakter pemisah morfem di gloss”. Sebelumnya disebut pemisah kata, dan itu terbalik: gloss memberi label untuk satu kata, dan karakter itu menandai batas antar morfem di dalamnya.'
     ,'panel.rel.fix.moveProgress': 'Memindahkan teks kini menunjukkan apa yang sedang dikerjakan. Pada koneksi lambat, tombol Pindahkan dulu hanya diam dan kelabu sementara tiga atau empat permintaan berjalan bolak-balik, persis seperti aplikasi yang membeku; kini tombol itu berputar, menyebutkan langkah yang sedang berjalan, dan memberi tahu bila sebuah langkah memakan waktu.'
+    ,'panel.rel.new.lametaLinkPreview': 'Landasan untuk memperlakukan proyek lameta sebagai perangkat (pratinjau untuk pengelola, tersembunyi kecuali panel dibuka dengan ?lameta=1): di Chrome atau Edge di komputer, panel dapat diberi folder proyek, mengingatnya, menampilkan daftar sesinya, dan — bila terpasang sebagai aplikasi — mempertahankan izin folder setelah dibuka ulang. Belum ada yang ditautkan atau ditulis; peramban lain diberi tahu dengan jelas bahwa mereka tidak dapat memberikan izin folder.'
     ,'panel.rel.new.lametaProgress': 'Unduhan sesi lameta kini membawa kemajuan teks: persetujuan, rekaman, segmentasi, transkripsi, serta gloss dan terjemahan bebas tiap bahasa, ditulis sebagai bidang khusus lameta (Stage_Transcribe dan seterusnya) yang ditampilkan lameta pada sesi dan tetap dipertahankan saat menyimpan. Penanda tangan bukti persetujuan dicantumkan sebagai penutur, id teks ikut serta, dan salinan manifes sumbernya ditaruh di subfolder flextext/ yang tidak pernah ditampilkan lameta. Format bidangnya dipakai bersama daftar periksa korpus dan pembaruan lameta yang akan datang (plans/lameta-progress-spec.md).'
     ,'panel.rel.fix.lametaNaming': 'Nama berkas dan folder di unduhan lameta kini mengikuti aturan penamaan lameta secara persis: huruf beraksen dilipat menjadi huruf biasa (Café.wav menjadi Cafe.wav, bukan Caf_.wav), nama yang dicadangkan Windows (con, com1) diberi garis bawah alih-alih dihapus, dan nama yang sudah sesuai dibiarkan apa adanya. Peran kontributor kini mencakup semua dua puluh lima peran yang dikenal lameta, peran yang tidak dikenalnya ditulis sebagai tidak ditentukan dan bukan ditebak sebagai penutur, dan tanggal serta bahasa diberi tipe seperti yang dilakukan lameta.'
     ,'panel.rel.fix.lametaDone': 'Teks yang ditandai Selesai kini diunduh sebagai sesi lameta berstatus Finished. Sebelumnya setiap sesi terbaca In_Progress, apa pun tanda dari rekan kerja: unduhan mencari tandanya di tempat yang tidak pernah ditulis apa pun.'

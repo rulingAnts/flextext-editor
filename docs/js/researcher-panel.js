@@ -27,7 +27,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
 import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, driveFolderLink, recordingSince, HISTORY_KINDS } from './history.js';
 import { makeZip } from './zip.js';
-import { lametaSessionEntries, lametaSessionId, lametaFlextextMedia } from './lameta.js';
+import { lametaSessionEntries, lametaSessionId, lametaFlextextMedia, deriveStages, lametaHowToOpen } from './lameta.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
@@ -1444,6 +1444,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v690', date: '2026-09-27', items: [
+    { k: 'panel.rel.new.lametaProgress' },
+    { k: 'panel.rel.fix.lametaNaming' },
+    { k: 'panel.rel.fix.lametaDone' },
+  ] },
   { v: 'v689', date: '2026-09-24', items: [
     { k: 'panel.rel.fix.stuckMoves' },
     { k: 'panel.rel.fix.glossBreakLabel' },
@@ -3131,15 +3136,19 @@ function textLabel(d) {
   return d.titleHash || t('panel.inst.untitledText');
 }
 
-function filesMenuHtml(instanceId, docId, title, audioUrl, fileId, viaMember) {
+function filesMenuHtml(instanceId, docId, title, audioUrl, fileId, viaMember, done) {
   if (!FILES_MENU_ENABLED) return '';
   if (!docId) return '';
   const au = /^https?:\/\//i.test(String(audioUrl || '')) ? audioUrl : '';
+  /* `data-done` is the text's Done mark, which the lameta session download turns into lameta's
+   * Status. ⚠ Nothing wrote it before v690: the lameta branch read `wrap.dataset.done`, this
+   * function had no `done` argument and the modal copied no such attribute, so every session
+   * shipped In_Progress whatever the coworker had marked. The rows that know the mark pass it. */
   /* `data-viamember` selects the download LANE, not whether the button exists (v468). A member with
    * drive:read downloads through the project-scoped route that runs under the owner's Drive token;
    * the owner keeps the account route, which can also serve files from a bridged legacy identity
    * that does not live under this doc's folder. */
-  return `<span class="rp-dl" data-fmenu${viaMember ? ' data-viamember="1"' : ''} data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
+  return `<span class="rp-dl" data-fmenu${viaMember ? ' data-viamember="1"' : ''} data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}"${done ? ' data-done="1"' : ''}>
     <button class="link-btn rp-dl-btn" aria-haspopup="dialog">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button></span>`;
 }
 
@@ -3434,7 +3443,7 @@ function openFilesModal(rowWrap) {
     <span class="rp-dl" data-fmenu${rowWrap.dataset.viamember ? ' data-viamember="1"' : ''}
           data-i="${esc(rowWrap.dataset.i || '')}" data-id="${esc(rowWrap.dataset.id || '')}"
           data-title="${esc(rowWrap.dataset.title || '')}" data-audio="${esc(rowWrap.dataset.audio || '')}"
-          data-fileid="${esc(rowWrap.dataset.fileid || '')}">
+          data-fileid="${esc(rowWrap.dataset.fileid || '')}"${rowWrap.dataset.done ? ' data-done="1"' : ''}>
       <div class="rp-dl-menu rp-dlm-list" role="menu">
         <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span>
       </div>
@@ -3649,6 +3658,19 @@ const CONSENT_ROLES = ['consent-clip', 'consent-prompt', 'consent-receipt'];
 const PROTECTED_ROLES = [...SOURCE_AUDIO_ROLES, ...SOURCE_FT_ROLES, ...CONSENT_ROLES, 'manifest'];
 const hasRole = (f, roles) => roles.includes(String((f && f.role) || ''));
 const isFlextextName = (f) => /\.flextext$/i.test(String((f && f.name) || ''));
+/* The <interlinear-text guid> as the .flextext carries it — the join key corpus-keeper, the corpus
+ * checklist and lameta's Flex_Text_Guid field use (manifest schema 3). From the TEXT, never from a
+ * parsed doc: parseFlextext mints a guid for a file that has none, and a minted one points nowhere. */
+const flextextTextGuid = (xml) => ((/<interlinear-text\b[^>]*?\bguid="([^"]+)"/.exec(String(xml || '')) || [])[1] || '');
+/* Full SHA-256 of a blob for the manifest (schema 3), or '' above 256 MiB: a sampled hash is not
+ * integrity, and Drive lists its own checksum for anything larger once it is there. */
+async function blobSha256(blob) {
+  if (!blob || typeof blob.arrayBuffer !== 'function' || blob.size > 256 * 1024 * 1024) return '';
+  try {
+    const d = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return ''; }
+}
 
 /* The files a text's SOURCE material resolves to, newest-first input assumed.
  * - audio: the tagged original. Detection is by ROLE so a later story rename leaves a cosmetically
@@ -4169,17 +4191,50 @@ async function runMenuConversion(wrap, kind, itemEl) {
       /* …with its one reference to the recording pointed at the file this package actually ships
        * (lametaFlextextMedia changes that attribute and nothing else). */
       if (src.xml) entries.push({ name: pkgBase + '.flextext', data: new Blob([lametaFlextextMedia(src.xml, src.segMedia ? src.segMedia.name : '')], { type: 'application/xml' }) });
-      /* Only what we actually know. Everything else — Genre, Date, Location, Access — is left out
-       * for the researcher to complete in lameta, which is what lameta is for; an empty element
-       * would read as answered. ⚠ And a value outside lameta's vocabulary is DROPPED silently, so
-       * nothing is approximated. */
+      /* Only what we actually know. Genre, Date, Location, Access are left out for the researcher to
+       * complete in lameta, which is what lameta is for: an empty element would read as answered,
+       * and a guessed value would read as a fact. */
+      const manifest = (wrap._menuSrc && wrap._menuSrc.manifest) || null;
+      const files = wrap._allFiles || [];
+      /* v690: what the suite can DERIVE travels too (plans/lameta-progress-spec.md §4) — the stage
+       * fields from the parsed doc, the manifest and the folder's role tags — plus the person who
+       * signed the consent receipt, as a speaker. A receipt that cannot be read names nobody. */
+      const stages = deriveStages({ doc: src.doc, manifest, files, analLang: src.anal || '' });
+      const contributors = [];
+      const receiptFile = files.find((f) => hasRole(f, ['consent-receipt']) && /\.json$/i.test(String(f.name || '')));
+      if (receiptFile) {
+        try {
+          const receipt = JSON.parse(await (await menuFetch(wrap, receiptFile.id)).text());
+          const who = String((receipt && receipt.signatureName) || '').trim();
+          if (who) contributors.push({ name: who, role: 'speaker' });
+        } catch (e) { console.warn('[flextext] consent receipt not readable for the lameta session:', e); }
+      }
+      /* The suite's copy of the manifest rides in the session's flextext/ subfolder, where lameta
+       * never looks (plans/lameta-device.md §3): the birth facts that let a lameta device adopt this
+       * folder later. The bytes Drive holds when the file is there; the parsed copy otherwise. */
+      const suiteFiles = [];
+      const manifestFile = files.find((f) => hasRole(f, ['manifest']) || f.name === MANIFEST_NAME);
+      if (manifestFile || manifest) {
+        let data = null;
+        if (manifestFile) { try { data = await menuFetch(wrap, manifestFile.id); } catch { data = null; } }
+        if (!data && manifest) data = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+        if (data) suiteFiles.push({ name: MANIFEST_NAME, data });
+      }
+      // HOW-TO-OPEN gains the lameta paragraph: where to unzip, and the rename rule for a taken id.
+      const howTo = entries.find((x) => x.name === 'HOW-TO-OPEN.txt');
+      if (howTo) howTo.data = new Blob([await new Blob([howTo.data]).text(), '\n', lametaHowToOpen(pkgBase)], { type: 'text/plain' });
+      // The guid as the FILE carries it — parseFlextext mints one for a file without, and a minted
+      // guid written as a join key would point at nothing.
+      const flexGuid = flextextTextGuid(src.xml);
       const sessionEntries = lametaSessionEntries({
         id: pkgBase,
         title,
         done: wrap.dataset.done === '1' || wrap.dataset.done === 'true',
         vernLang: src.vern || '',
         analLang: src.anal || '',
-      }, entries);
+        stages, contributors,
+        docId: wrap.dataset.id || '', flexGuid, engine: ENGINE_VERSION,
+      }, entries, suiteFiles);
       saveBlobAs(await makeZip(sessionEntries), `${base} lameta session.zip`);
       saved = true;
       if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);
@@ -4862,7 +4917,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * than disabled — a dead control reads as broken. */
         const dl = (memberCtx && !mDrive) ? ''
           : previewBtnHtml(it.instance_id, d.id, d.title || '', !!memberCtx)
-            + filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx);
+            + filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx, !!d.done);
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
@@ -5587,6 +5642,8 @@ function assignModal(target) {
       audio: audioFile ? { blob: audioFile, name: audioFile.name, mime: audioFile.type || 'application/octet-stream', size: audioFile.size } : null,
       // Stored as the TEXT we just validated (not the File) — what was checked is what ships.
       flextext: ftFile ? { blob: new Blob([ftText], { type: 'application/xml' }), name: ftFile.name, mime: 'application/xml', size: ftFile.size } : null,
+      // The FLEx text guid, for the manifest (schema 3): read from the file while we hold its text.
+      flexGuid: ftFile ? flextextTextGuid(ftText) : '',
     });
     runAssignUpload(docId);   // deliberately not awaited — the queue reports through the dashboard card
     m.close();
@@ -5879,17 +5936,24 @@ async function runAssignUpload(docId) {
        * buildSourceManifest — two writers of the one contract every consumer checks completeness
        * against, so the first divergence would have surfaced as "this package is incomplete" on a
        * text that was fine. It now calls the same function the device does. */
+      /* schema 3: the files' hashes and the FLEx text guid. Hashing happens here, in the queue and
+       * off any button, and only up to 256 MiB (blobSha256's rule); a larger recording simply has
+       * no `sha256`, and Drive's own checksum answers for it once listed. */
+      const audioSha = rec.audio ? await blobSha256(rec.audio.blob) : '';
+      const ftSha = rec.flextext ? await blobSha256(rec.flextext.blob) : '';
+      const withSha = (row, sha) => (sha ? { ...row, sha256: sha } : row);
       const manifest = buildSourceManifest({
         docId, title: rec.title || '',
         origin: 'assigned',
         originatedAt: rec.queuedAt || Date.now(),
         engine: ENGINE_VERSION, buildTag: BUILD_TAG,
         vern: rec.vernLang || '', anal: rec.analLang || '',
-        audio: rec.audio ? { name: rec.audio.name, mime: rec.audio.mime, bytes: rec.audio.size, derived: false } : null,
+        audio: rec.audio ? withSha({ name: rec.audio.name, mime: rec.audio.mime, bytes: rec.audio.size, derived: false }, audioSha) : null,
         files: [
-          ...(rec.audio ? [{ name: rec.audio.name, role: 'source-audio', mime: rec.audio.mime, bytes: rec.audio.size }] : []),
-          ...(rec.flextext ? [{ name: rec.flextext.name, role: 'source-flextext', mime: rec.flextext.mime, bytes: rec.flextext.size }] : []),
+          ...(rec.audio ? [withSha({ name: rec.audio.name, role: 'source-audio', mime: rec.audio.mime, bytes: rec.audio.size }, audioSha)] : []),
+          ...(rec.flextext ? [withSha({ name: rec.flextext.name, role: 'source-flextext', mime: rec.flextext.mime, bytes: rec.flextext.size }, ftSha)] : []),
         ],
+        flex: rec.flexGuid ? { textGuid: rec.flexGuid } : null,
         // Uploaded by a researcher, and WHICH researcher account — the third origin Seth asked to
         // be able to tell apart from Drive alone.
         source: { kind: 'researcher', id: Researcher.currentAccountId() || '' },
@@ -6141,7 +6205,7 @@ function crowdTextRows(rec, estate) {
         <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
       </div>
       <div class="rp-text-actions">
-        ${iid ? previewBtnHtml(iid, tx.docId, tx.title || '') + filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
+        ${iid ? previewBtnHtml(iid, tx.docId, tx.title || '') + filesMenuHtml(iid, tx.docId, tx.title || '', '', '', false, !!tx.done) : ''}
         ${busy ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>`
           : `<button class="link-btn" data-uact="cmove" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
         <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`}
@@ -7804,7 +7868,7 @@ function renderUnassignedCard(estate, projectFolderId) {
         <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
       </div>
       <div class="rp-text-actions">
-        ${iid ? previewBtnHtml(iid, tx.docId, tx.title || '') + filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
+        ${iid ? previewBtnHtml(iid, tx.docId, tx.title || '') + filesMenuHtml(iid, tx.docId, tx.title || '', '', '', false, !!tx.done) : ''}
         ${tx.pending
           ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>`
           : `<button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
@@ -8359,7 +8423,7 @@ function storageModal() {
           <div class="note rp-store-meta">${esc(gb(tx.bytes))} · ${esc(t('panel.store.nFiles', { n: tx.files }))}</div>
         </div>
         <div class="rp-store-actions">
-          ${firstInstanceId() ? previewBtnHtml(firstInstanceId(), tx.docId, tx.title || '') + filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '') : ''}
+          ${firstInstanceId() ? previewBtnHtml(firstInstanceId(), tx.docId, tx.title || '') + filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '', '', '', false, !!tx.done) : ''}
           ${un && !inFlightTx(tx)
             ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`
             : (inFlightTx(tx) ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>` : '')}

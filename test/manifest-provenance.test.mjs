@@ -92,7 +92,7 @@ console.log('\nthe declaration rules that make completeness derivable');
      'the manifest declares ITSELF first — a consumer listing the folder sees a complete set');
   ok(m.files.length === 2 && m.files[1].name === 'a.wav', '...followed by the declared sources');
   ok(!('complete' in m), 'there is no `complete` flag to go stale — completeness is DERIVED');
-  ok(m.schema === 2, 'schema is stamped by the builder, never by a caller');
+  ok(m.schema === 3, 'schema is stamped by the builder, never by a caller');
   /* Additive-only is what lets a schema-1 reader handle a schema-2 file. Pin the keys schema 1
    * shipped: dropping or renaming one silently breaks readers already in the field. */
   for (const k of ['schema', 'docId', 'title', 'origin', 'originatedAt', 'writtenAt', 'engine',
@@ -156,6 +156,17 @@ console.log('\nunknown keys are DROPPED, deliberately — and that is worth know
   const keys = Object.keys(buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, source: { kind: 'crowd' } })).sort();
   ok(keys.join(',') === 'audio,buildTag,consent,docId,engine,files,origin,originatedAt,schema,source,title,writingSystems,writtenAt',
      `the accepted field set is pinned (got ${keys.join(',')})`);
+  /* schema 3 (v690): `flex` and `lameta` join the set — and only when GIVEN, so the default shape
+   * above is byte-for-byte what a schema-2 writer produced. */
+  const full = Object.keys(buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, source: { kind: 'crowd' },
+    flex: { textGuid: 'g' }, lameta: { sessionId: 's', projectName: 'P', projectGuid: 'pg' } })).sort();
+  ok(full.join(',') === 'audio,buildTag,consent,docId,engine,files,flex,lameta,origin,originatedAt,schema,source,title,writingSystems,writtenAt',
+     `...and with schema 3's identity blocks given, exactly those two more (got ${full.join(',')})`);
+  const s3 = buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, flex: { textGuid: 'g' }, lameta: { sessionId: 's' } });
+  ok(s3.flex.textGuid === 'g' && s3.lameta.sessionId === 's' && s3.lameta.projectName === '' && s3.lameta.projectGuid === '',
+     'flex and lameta pass through, the lameta project fields defaulting to empty strings');
+  ok(!('flex' in buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, flex: { textGuid: '' } })),
+     'an empty guid is no guid: the block is omitted');
 }
 
 console.log('\ncustody history is NOT in the manifest');

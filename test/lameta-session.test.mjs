@@ -1,19 +1,20 @@
-/* THE LAMETA SESSION FOLDER — checked against a REAL lameta project, not against a guess.
+/* THE LAMETA SESSION FOLDER — checked against REAL lameta files, not against a guess.
  *
- * Ground truth: Seth's own project at ~/Documents/lameta/Fayu-restructure-plan/, and the working
- * tool from the corpus-restructuring session (`lameta-editor/lameta_core.py`) which edits lameta
- * projects on disk. The vocabularies and the field order in lameta.js are copied from that tool's
- * VOCAB and SESSION_ORDER.
+ * Ground truth: Seth's own projects under ~/Documents/lameta/ and, since v690, lameta's own code
+ * (the shipped 3.0.21-beta bundle and the upstream source). Until v690 the vocabularies came from
+ * `lameta-editor/lameta_core.py`, whose lists were partial (seven of twenty-five roles) and whose
+ * belief that lameta DROPS an unrecognised value was wrong: lameta keeps a value it has not seen
+ * and registers it as an encountered one. Omission is still the rule — a field that looks answered
+ * but was guessed is worse than a blank — but the reason is honesty, not loss.
  *
- * ⚠ THE REASON THIS MATTERS MORE THAN USUAL: lameta DROPS an unrecognised value rather than
- * complaining, and a session whose folder name does not match its id is INVISIBLE to it. Both
- * failures are silent, so a bad export looks like a successful one until a researcher notices work
- * missing from their corpus. */
+ * ⚠ THE FAILURE THAT IS STILL SILENT: a session whose folder name does not match its id is broken
+ * in lameta (every directory under Sessions/ is a session, read from <dirname>.session), and a bad
+ * export looks like a successful one until a researcher notices work missing from their corpus. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   lametaSessionXml, lametaSessionId, lametaStatus, lametaFileMetaXml, lametaSessionEntries,
-  LAMETA_STATUS, LAMETA_ROLES, LAMETA_GENRES, LAMETA_ANNOTATION_EXT,
+  LAMETA_STATUS, LAMETA_ROLES, LAMETA_GENRES, LAMETA_TYPES, LAMETA_SUITE_DIR, lametaFileType, lametaHowToOpen,
 } from '../docs/js/lameta.js';
 
 /* This is a REAL session file from Seth's project, copied verbatim. It is the shape to match. */
@@ -75,20 +76,32 @@ test('ids are restricted to the charset lameta itself uses', () => {
   assert.doesNotMatch(lametaSessionId('ünïcödé x'), /[^0-9a-zA-Z_.\-]/);
 });
 
-/* ⚠ AN UNRECOGNISED VALUE IS DROPPED BY LAMETA, SILENTLY. So anything outside the vocabulary must be
- * omitted rather than approximated — a field that looks answered but is not is worse than a blank. */
+/* ⚠ A VALUE OUTSIDE THE VOCABULARY IS NEVER APPROXIMATED. lameta would keep it (it registers values it
+ * has not seen), but a guessed genre or role reads as a fact about the recording. Omit, or write
+ * what lameta itself writes for "not specified". */
 test('values outside lameta vocabularies are omitted, never approximated', () => {
   const xml = lametaSessionXml({ title: 'x', genre: 'folk tale', status: 'nearly done' });
   assert.doesNotMatch(xml, /folk tale/, 'an invented genre does not travel');
   assert.doesNotMatch(xml, /<Genre/, 'it is omitted entirely rather than blanked');
   assert.match(xml, /<Status type="string">In_Progress<\/Status>/, 'a bad status falls back to a real one');
 
-  const role = lametaSessionXml({ title: 'x', contributors: [{ name: 'A', role: 'glosser' }] });
-  assert.match(role, /<role>speaker<\/role>/, 'an unknown role becomes a real one, not passed through');
+  /* lameta's own "no role" encoding, read from its bundle: the role element says participant and a
+   * sibling <smxrole>unspecified</smxrole> tells lameta to read it back as no role at all. v665–v689
+   * wrote `speaker` here — a guess presented as a fact. */
+  const role = lametaSessionXml({ title: 'x', contributors: [{ name: 'A', role: 'glosser' }, { name: 'B', role: 'transcriber' }] });
+  assert.match(role, /<name>A<\/name>\n\s*<role>participant<\/role>\n\s*<smxrole>unspecified<\/smxrole>\n\s*<date>0001-01-01<\/date>/,
+    'an unknown role is written the way lameta writes an unspecified one');
+  assert.match(role, /<name>B<\/name>\n\s*<role>transcriber<\/role>\n\s*<date>/, 'a known role has no smxrole');
+  assert.doesNotMatch(role, /glosser|<role>speaker/, 'neither passed through nor guessed');
 
   for (const v of ['narrative', 'elicitation', 'conversation']) assert.ok(LAMETA_GENRES.includes(v));
   assert.deepEqual(LAMETA_STATUS, ['Incoming', 'In_Progress', 'Finished', 'Skipped']);
-  assert.ok(LAMETA_ROLES.includes('speaker') && LAMETA_ROLES.includes('transcriber'));
+  // All twenty-five of lameta's roles (its locale/roles.csv), not lameta_core.py's seven.
+  assert.equal(LAMETA_ROLES.length, 25);
+  for (const r of ['annotator', 'consultant', 'depositor', 'interviewer', 'signer', 'singer', 'speaker', 'transcriber',
+    'careful_speech_speaker', 'research_participant']) {
+    assert.ok(LAMETA_ROLES.includes(r), r);
+  }
 });
 
 test('done maps to Finished, and unfinished work to In_Progress', () => {
@@ -108,10 +121,36 @@ test('unknown fields are left out for the researcher to fill in lameta', () => {
   }
 });
 
-test('the vernacular and analysis languages land in the right fields', () => {
+test('the vernacular and analysis languages land in the right fields, typed as lameta types them', () => {
   const xml = lametaSessionXml({ title: 'x', vernLang: 'fau', analLang: 'id' });
-  assert.match(xml, /<languages type="string">fau<\/languages>/, 'subject language = vernacular');
+  /* lameta's own type attributes (its writer, read from the bundle): the subject languages are a
+   * languageChoices field, the working language a string. It reads either; writing its own keeps a
+   * session it re-saves identical to the one we wrote. */
+  assert.match(xml, /<languages type="languageChoices">fau<\/languages>/, 'subject language = vernacular');
   assert.match(xml, /<WorkingLanguages type="string">id<\/WorkingLanguages>/, 'working = analysis');
+});
+
+test('a date is a bare element, as lameta writes dates', () => {
+  const xml = lametaSessionXml({ title: 'x', date: '2026-09-27' });
+  assert.match(xml, /\n  <Date>2026-09-27<\/Date>\n/, 'no type attribute on a date');
+});
+
+/* The suite's own files ride in a SUBFOLDER of the session — lameta ignores subfolders, so they are
+ * never listed, exported, or given a .meta (plans/lameta-device.md §3). */
+test('suite files go under flextext/ with no .meta, and HOW-TO-OPEN explains the folder', () => {
+  const entries = lametaSessionEntries({ id: 'narr_x', title: 'X' }, [{ name: 'narr_x.wav', data: 'W' }],
+    [{ name: 'flextext-manifest.json', data: '{}' }]);
+  const names = entries.map((e) => e.name);
+  assert.equal(LAMETA_SUITE_DIR, 'flextext');
+  assert.ok(names.includes('Sessions/narr_x/flextext/flextext-manifest.json'));
+  assert.ok(!names.some((n) => n.startsWith('Sessions/narr_x/flextext/') && n.endsWith('.meta')), 'no sidecar in the subfolder');
+  assert.deepEqual(names.filter((n) => !n.includes('/flextext/')),
+    ['Sessions/narr_x/narr_x.session', 'Sessions/narr_x/narr_x.wav', 'Sessions/narr_x/narr_x.wav.meta'], 'the rest is unchanged');
+  const how = lametaHowToOpen('narr_x');
+  assert.match(how, /Sessions\/narr_x\/, the folder lameta lists as one session/);
+  assert.match(how, /rename this folder BEFORE unzipping/, 'the rule for a taken id');
+  assert.match(how, /the folder name and the id must agree exactly/);
+  assert.match(how, /Sessions\/narr_x\/flextext\/ belongs to the FlexText apps/);
 });
 
 test('XML special characters in a title cannot break the file', () => {
@@ -137,8 +176,13 @@ test('every file gets the .meta sidecar lameta keeps beside it', () => {
 /* ⚠ THE SAYMORE PROFILE MUST NOT APPEAR HERE. lameta has no annotation editor — it opens ELAN — so
  * the two-tier SayMore file would be a strict downgrade in the tool the researcher lands in, and
  * SayMore's `<media>.annotations.eaf` name is the slot SayMore itself rewrote. */
-test('lameta recognises our annotation formats, and .flextext is one of them', () => {
-  for (const e of ['.eaf', '.pfsx', '.flextext']) assert.ok(LAMETA_ANNOTATION_EXT.includes(e), e);
+test('lameta types our files: ELAN, FLEx and audio — and .fxpa is NOT a lameta type', () => {
+  assert.equal(lametaFileType('x.eaf'), 'elan'); assert.equal(lametaFileType('x.pfsx'), 'elan');
+  assert.equal(lametaFileType('x.flextext'), 'flex');
+  assert.equal(lametaFileType('x.wav'), 'audio'); assert.equal(lametaFileType('x.M4A'), 'audio');
+  assert.equal(lametaFileType('x.fxpa'), '', 'the old header claimed lameta knew .fxpa; it does not');
+  assert.equal(lametaFileType('x.flextext.meta'), '', 'a sidecar is not a typed file');
+  assert.ok(LAMETA_TYPES.flex.includes('fwdata') && LAMETA_TYPES.video.includes('mp4'));
   const src = readFileSync(new URL('../docs/js/lameta.js', import.meta.url), 'utf8');
   assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\//g, ''), /annotations\.eaf/,
     'nothing here emits the SayMore-managed filename');
@@ -187,6 +231,36 @@ test('only fields we actually know are written; the rest are left for lameta', (
     assert.doesNotMatch(branch, new RegExp('\\b' + f + ':', 'i'),
       `${f} is NOT invented — the researcher chooses it from lameta's own list`);
   }
+});
+
+/* v690: the session carries what the suite can DERIVE — stages, the consent receipt's signer, the
+ * text's ids — and the manifest copy under flextext/, where lameta never looks. */
+test('the panel derives stages, names the receipt signer, and packs the manifest copy', () => {
+  const branch = PANEL.slice(PANEL.indexOf("if (kind === 'lameta') {"),
+                             PANEL.indexOf("} else if (kind === 'elan' || kind === 'saymore') {"));
+  assert.match(branch, /deriveStages\(\{ doc: src\.doc, manifest, files, analLang: src\.anal \|\| '' \}\)/,
+    'stages from the doc, the manifest and the folder');
+  assert.match(branch, /receipt\.signatureName/, 'the receipt names the speaker');
+  assert.match(branch, /role: 'speaker'/, '...as a speaker, a role lameta has');
+  assert.match(branch, /suiteFiles\.push\(\{ name: MANIFEST_NAME/, 'the manifest copy');
+  assert.match(branch, /lametaSessionEntries\(\{[\s\S]*?\}, entries, suiteFiles\)/, 'goes in through the writer, under flextext/');
+  assert.match(branch, /lametaHowToOpen\(pkgBase\)/, 'HOW-TO-OPEN gains the lameta paragraph');
+  assert.match(branch, /const flexGuid = flextextTextGuid\(src\.xml\)/, 'the FLEx guid as the FILE carries it, never a minted one');
+  assert.match(branch, /engine: ENGINE_VERSION/);
+  assert.doesNotMatch(branch, /flextext-history/, 'a download records no custody: the text still lives where it lives');
+});
+
+/* ⚠ THE DONE DEFECT (v665–v689). The lameta branch read `wrap.dataset.done`, and nothing ever wrote
+ * it: filesMenuHtml had no `done` argument and the modal copied no such attribute, so every session
+ * shipped In_Progress whatever the coworker had marked. Seth verified format, not Status. */
+test('the Done mark reaches the lameta branch: rendered by the rows, copied by the modal', () => {
+  assert.match(PANEL, /function filesMenuHtml\(instanceId, docId, title, audioUrl, fileId, viaMember, done\)/);
+  assert.match(PANEL, /\$\{done \? ' data-done="1"' : ''\}/, 'the row writes it');
+  const modal = (PANEL.match(/function openFilesModal\(rowWrap\) \{[\s\S]*?\n\}/) || [''])[0];
+  assert.match(modal, /rowWrap\.dataset\.done \? ' data-done="1"' : ''/, 'the modal copies it');
+  assert.match(PANEL, /filesMenuHtml\(it\.instance_id, d\.id, d\.title \|\| '', '', '', !!memberCtx, !!d\.done\)/, "a device's text row passes it");
+  assert.ok((PANEL.match(/filesMenuHtml\([^)]*!!tx\.done\)/g) || []).length >= 2, 'so do the estate rows');
+  assert.match(PANEL, /done: wrap\.dataset\.done === '1' \|\| wrap\.dataset\.done === 'true'/, 'and the branch reads it');
 });
 
 test('both menu labels exist in English and Indonesian', () => {

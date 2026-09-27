@@ -120,7 +120,7 @@ Rules every writer follows:
 
 | step id | key | derived from | rule |
 |---|---|---|---|
-| consent | `Stage_Consent` | manifest `consent.response` or `consent.receipt`, or a `consent-*` role file present | present → done |
+| consent | `Stage_Consent` | manifest `consent.response` or `consent.receipt`, or a `consent-clip` / `consent-receipt` role file present (a `consent-prompt` alone is not consent) | present → done |
 | record | `Stage_Record` | a `source-audio` role file present | present → done |
 | segment | `Stage_Segment` | `segmentsFromOffsets(doc)` (`docs/js/flextext.js`) | aligned phrases ≥ 95% → done; > 0 → in_progress |
 | transcribe | `Stage_Transcribe` | phrases with a non-empty baseline / phrases | same 95% bar (the checklist's `FX_DONE_BAR`) |

@@ -43,7 +43,14 @@ console.log('\nthe manifest carries what a consumer needs without opening a sing
     // `audio,` / `origin,` are ES shorthand for the destructured params — both forms count.
     ok(new RegExp('(^|\\s)' + k + '[,:]').test(body), `declares ${k}`);
   }
-  ok(/schema: 2/.test(body), 'schema is versioned, so readers can branch on it later');
+  ok(/schema: 3/.test(body), 'schema is versioned, so readers can branch on it later');
+  /* schema 3 (v690): identity and integrity, every piece ABSENT when unknown so nothing reads as an
+   * answer — the same rule `source` follows. */
+  for (const k of ['flex', 'lameta']) ok(new RegExp('(^|\\s)' + k + ' = null').test(body), `takes ${k}, absent by default`);
+  ok(/\.\.\.\(flex && flex\.textGuid \? \{ flex: \{ textGuid: String\(flex\.textGuid\) \} \} : \{\}\)/.test(body),
+     'flex.textGuid is written only when known');
+  ok(/\.\.\.\(lameta && lameta\.sessionId \? \{ lameta: \{/.test(body), 'lameta{} only for a text born in a lameta session');
+  ok(!/sha256/.test(body), 'hashes are not minted by the builder: a writer that has one puts it on the row it describes');
 }
 
 console.log('\ncompleteness is DERIVED from the declared file list, never a stored flag');

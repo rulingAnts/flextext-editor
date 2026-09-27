@@ -5376,7 +5376,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const listChildren = async (parent) => {
           const lq = encodeURIComponent(`'${parent}' in parents and trashed=false`);
           const list = await driveJson(access, 'GET',
-            'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime,appProperties)&q=' + lq);
+            'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime,appProperties,sha256Checksum)&q=' + lq);
           return list.files || [];
         };
         const rows = await listChildren(folderId);
@@ -5399,6 +5399,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // device uploaded — the panel needs that to honour "show the cached link if and only
           // if no copy exists in the folder".
           role: (f.appProperties && f.appProperties.flextextRole) || '',
+          /* Drive's own SHA-256 of the bytes (v690, manifest schema 3): what lets a reader match a
+           * file by content rather than name — the lameta agent's return trip, a re-download check —
+           * without the client ever hashing a 200 MB recording. Google computes it for uploaded
+           * files; '' for the few kinds it does not. */
+          sha256: f.sha256Checksum || '',
         })).sort((a, b) => String(b.modified).localeCompare(String(a.modified)));   // newest-first ACROSS the merge
         return j({ folderId, originalsFolderId: (assignFolder && assignFolder.id) || null, files }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }

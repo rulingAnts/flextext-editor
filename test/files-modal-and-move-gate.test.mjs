@@ -51,7 +51,8 @@ console.log('\n...and the modal carries its own [data-fmenu], so every handler s
 {
   const fn = (panel.match(/function openFilesModal\(rowWrap\) \{[\s\S]*?\n\}/) || [''])[0];
   ok(/data-fmenu/.test(fn), 'the modal contains a [data-fmenu] wrapper');
-  for (const d of ['data-i=', 'data-id=', 'data-title=', 'data-audio=', 'data-fileid=']) {
+  // data-done joined in v690: the lameta download's Status reads it (see test/lameta-session.test.mjs).
+  for (const d of ['data-i=', 'data-id=', 'data-title=', 'data-audio=', 'data-fileid=', 'data-done=']) {
     ok(fn.includes(d), `...seeded with ${d} from the row`);
   }
   /* THE POINT: the delegated handlers find their context with closest('[data-fmenu]'). Because the

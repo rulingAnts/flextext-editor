@@ -44,7 +44,9 @@ const STUBS = ['t', 'deps', 'db', 'Researcher', 'confirmModal', 'renderDashboard
   'assignQueueHtml', 'root', 'paintJobs', 'fmtSize', 'lastData', 'estateCache', 'buildSourceManifest',
   'MANIFEST_NAME', 'ENGINE_VERSION', 'BUILD_TAG', 'recordEvents', 'assignedEvent', 'pendingCmds',
   'savePending', 'setTimeout', 'dlStatus', 'bridgedIds', 'memberDlVia', 'prepareConversionSources',
-  'buildSegEntriesFor', 'makeZip', 'document', 'URL'];
+  'buildSegEntriesFor', 'makeZip', 'document', 'URL',
+  // v690: the manifest's schema-3 hashes are computed in runAssignUpload through this helper.
+  'blobSha256'];
 
 function loadPanel(stubs) {
   const body = `${TRAY}\n${AQ}\n${fnSrc('async function runAssignUpload(docId) {')}
@@ -91,6 +93,7 @@ function world(over = {}) {
     dlStatus: () => {}, bridgedIds: (id) => ({ ids: [id] }), memberDlVia: () => null,
     prepareConversionSources: async () => ({ error: 'none' }), buildSegEntriesFor: async () => [],
     makeZip: async () => ({}),
+    blobSha256: async () => '',
     document: { createElement: () => ({ click() {}, remove() {}, style: {} }), body: { appendChild() {} } },
     URL: { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} },
   };

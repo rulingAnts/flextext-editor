@@ -5884,6 +5884,10 @@ async function queueMediaUpload(docId) {
      * durable fact; resolving it to a name is the reader's job.
      * An unmanaged device has no instance id and says so with '' rather than claiming another kind. */
     source: { kind: 'device', id: (Sync.enrollment() || {}).instanceId || '' },
+    /* schema 3: the FLEx text guid. On a device the doc IS the authority — the .flextext it uploads
+     * is serialized from this same guid — so the model's value is the file's value here. No hashes
+     * from a phone: hashing a 200 MB recording before Send is exactly the wait v614 removed. */
+    flex: rec.doc && rec.doc.textAttrs && rec.doc.textAttrs.guid ? { textGuid: rec.doc.textAttrs.guid } : null,
   });
   const queue = [
     { slot: 'manifest', name: MANIFEST_NAME, role: 'manifest', mime: 'application/json',

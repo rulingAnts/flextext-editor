@@ -1,7 +1,7 @@
 # The lameta session folder — format, and what we emit
 
 **Status:** built and shipped — the writer (`docs/js/lameta.js`) in v665, the panel's download in
-v665/v675, lameta-compliant file names in v684. Issue #71 stays open for consent → Access, the
+v665/v675, lameta-compliant file names in v684; v690 ports lameta's naming rule exactly (accents fold, reserved stems avoided), carries all twenty-five contributor roles and lameta's own field types, fixes the Done mark (every session had read In_Progress), and adds the progress fields (`plans/lameta-progress-spec.md`) and the manifest copy under `flextext/`. Issue #71 stays open for consent → Access, the
 speaker as a `People/` record, genre, and recording provenance. The **round trip** (a lameta project
 as a device) is `plans/lameta-device.md`, and the progress fields are `plans/lameta-progress-spec.md`.
 

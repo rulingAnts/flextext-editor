@@ -311,9 +311,11 @@ This is the part that has caused real outages when done wrong — read
   question is asked in one place so a native shell can answer it better later
   (`plans/typing-policy.md`).
 - **lameta export:** `docs/js/lameta.js` + `plans/lameta-session-export.md`. Pure, node-testable.
-  ⚠ lameta discovers sessions by folder, drops unrecognised vocabulary values silently, and ignores a
-  session whose folder name does not match its id — all three failures are invisible, so the tests
-  check against a real session file rather than the spec.
+  ⚠ lameta treats every directory under `Sessions/` as a session, keeps unrecognized values
+  verbatim, and re-reads a project only on reopen (no watcher, no lock file) — see the corrections
+  in the plan. The tests check against a real session file rather than the spec. The round trip
+  (a lameta project as a device) is `plans/lameta-device.md`; the progress fields both the suite
+  and the lameta PR write are `plans/lameta-progress-spec.md`.
 - **Backend first:** when a change touches `worker/` or D1, deploy the worker (manual-dispatch
   `worker-deploy.yml`) before any client that depends on it — including CORS: a new `x-fx-*`
   header must be in the worker's allow-list before any deployed client sends it.

@@ -1558,13 +1558,27 @@ export const MANIFEST_NAME = 'flextext-manifest.json';
  *
  * Additive by design: readers MUST ignore keys they do not know, so a schema-1 reader handles this
  * unchanged and an old manifest simply has no `source`. */
+/* ---------------- schema 3: identity and integrity (v690) ----------------
+ * Two optional blocks and two optional keys, every one ABSENT when unknown (like `source`):
+ *   flex:   { textGuid }                 the .flextext's <interlinear-text guid> — the join key the
+ *                                        FLEx-side tools (corpus-keeper, the corpus checklist,
+ *                                        lameta's Flex_Text_Guid field) use
+ *   lameta: { sessionId, projectName, projectGuid }
+ *                                        written by the lameta device agent for a text born in
+ *                                        (adopted from) a lameta session; `source.kind` is 'lameta'
+ *   files[].sha256, audio.sha256         full SHA-256 hex, only when the writer computed it off any
+ *                                        UI path (≤ 256 MiB); a sampled hash is not integrity, and
+ *                                        Drive lists its own checksum for everything once it is there
+ * New roles a file may carry: elan-eaf, elan-pfsx, derived-wav — the ELAN set and the converted WAV
+ * a lameta session holds. Readers gate on nothing: a schema-2 reader handles all of this unchanged. */
 export function buildSourceManifest({
   docId, title = '', origin, originatedAt = null, engine = '', buildTag = '',
   vern = '', anal = '', audio = null, files = [], consent = null, source = null,
+  flex = null, lameta = null,
   now = Date.now(),
 } = {}) {
   return {
-    schema: 2,
+    schema: 3,
     docId,
     title: title || '',
     origin,
@@ -1583,6 +1597,13 @@ export function buildSourceManifest({
     audio,
     files: [{ name: MANIFEST_NAME, role: 'manifest', mime: 'application/json', bytes: 0 }, ...files],
     consent: consent || { mode: '', prompt: false, response: false, receipt: false },
+    // schema 3 (the block above): absent rather than empty, so nothing looks like an answer.
+    ...(flex && flex.textGuid ? { flex: { textGuid: String(flex.textGuid) } } : {}),
+    ...(lameta && lameta.sessionId ? { lameta: {
+      sessionId: String(lameta.sessionId),
+      projectName: String(lameta.projectName || ''),
+      projectGuid: String(lameta.projectGuid || ''),
+    } } : {}),
   };
 }
 

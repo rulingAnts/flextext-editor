@@ -151,6 +151,19 @@ console.log('\n...and an UNREADABLE manifest is treated as none, never as a brok
   ok(!wrongShape.html.includes('data-drivefile='), '...with no per-file rows either');
 }
 
+console.log('\n...and a NEWER manifest (schema 3, with keys this reader never heard of) renders like the old one');
+{
+  /* The additive contract, exercised: schema 3 (v690) adds flex{}, lameta{}, sha256 on rows — and a
+   * later schema will add more. A reader that gated on the number, or choked on a key, would turn
+   * every text written by a newer device into a "no manifest" menu. */
+  const newer = { ...MANIFEST, schema: 3, flex: { textGuid: 'g-1' }, lameta: { sessionId: 'Kisah_Rusa' }, future: { x: 1 },
+    audio: { ...MANIFEST.audio, sha256: 'ab'.repeat(32) }, files: MANIFEST.files.map((f) => ({ ...f, sha256: 'cd'.repeat(32) })) };
+  const a = await runMenu(FULL_FOLDER, MANIFEST);
+  const b = await runMenu(FULL_FOLDER, newer);
+  ok(a.rows === b.rows && a.rows > 2, `the same ${a.rows} rows (got ${b.rows})`);
+  ok(b.html.includes('data-conv=') && b.html.includes('data-drivefile='), 'conversions and per-file rows all present');
+}
+
 console.log('\n...and with no manifest AND no folder id, it says so rather than showing an empty menu');
 {
   const { html } = await runMenu([], undefined, { folderId: '' });

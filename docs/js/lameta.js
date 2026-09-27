@@ -587,3 +587,88 @@ export function lametaSessionEntries(session = {}, files = [], suiteFiles = []) 
   }
   return [...root, ...out];
 }
+
+/* ─── READING A SESSION lameta WROTE (the agent's Adopt, plans/lameta-device.md §6) ─────────────
+ *
+ * A tolerant, DOM-free read of the elements Adopt needs: the title and Status for the text, the
+ * contributors for the manifest, the custom fields for the progress merge. Tags are matched by
+ * name and the `type` attribute is ignored (lameta reads any form); entities are unescaped; a
+ * contributor's <smxrole>unspecified</smxrole> reads back as no role, exactly as lameta's own
+ * loader does. This READS. Nothing here rewrites a session lameta holds. */
+const unesc = (s) => String(s == null ? '' : s)
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+  .replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
+const tagText = (xml, tag) => {
+  const m = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`).exec(xml);
+  return m ? unesc(m[1].trim()) : '';
+};
+export function parseLametaSession(xml) {
+  const s = String(xml || '');
+  const out = {
+    id: tagText(s, 'id'), title: tagText(s, 'Title'), status: tagText(s, 'Status'), genre: tagText(s, 'Genre'),
+    date: tagText(s, 'Date'), languages: tagText(s, 'languages'), workingLanguages: tagText(s, 'WorkingLanguages'),
+    contributors: [], customFields: {},
+  };
+  const cb = /<Contributions(?:\s[^>]*)?>([\s\S]*?)<\/Contributions>/.exec(s);
+  if (cb) {
+    for (const m of cb[1].matchAll(/<contributor>([\s\S]*?)<\/contributor>/g)) {
+      const c = m[1];
+      const smx = tagText(c, 'smxrole');
+      out.contributors.push({ name: tagText(c, 'name'), role: smx === 'unspecified' ? '' : (smx || tagText(c, 'role')), date: tagText(c, 'date') });
+    }
+  }
+  const cf = /<CustomFields(?:\s[^>]*)?>([\s\S]*?)<\/CustomFields>/.exec(s);
+  if (cf) for (const m of cf[1].matchAll(/<([A-Za-z_][\w.-]*)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/g)) out.customFields[m[1]] = unesc(m[2].trim());
+  out.done = out.status === 'Finished';
+  return out;
+}
+
+/* ─── THE HISTORY FILE: custody and events, the agent's own record (plans/lameta-device.md §3) ──
+ *
+ * Custody is never in the manifest (plans/drive-as-truth.md §16.12): the manifest holds birth
+ * facts and is immutable; this file holds who has the text NOW and how it got there. D1's
+ * drive_object.instance_id is the authority; this is the local mirror the agent reconciles. */
+export const LAMETA_HISTORY_NAME = 'flextext-history.json';
+const MOVES = ['created', 'adopted', 'assigned', 'moved', 'checked_out', 'returned'];
+export function newHistory({ docId, sessionId = '', holder = null, by = null, kind = 'adopted', now = Date.now() } = {}) {
+  const at = new Date(now).toISOString();
+  const to = holder || { kind: 'unassigned' };
+  return { schema: 1, docId: String(docId || ''), sessionId, custody: { holder: to, since: at },
+           events: [{ at, kind, to, ...(by ? { by } : {}) }] };
+}
+/** A new object with the event appended; a custody-changing kind also moves `custody`. */
+export function withHistoryEvent(h, { kind, from = null, to = null, by = null, now = Date.now() } = {}) {
+  const at = new Date(now).toISOString();
+  const base = h && typeof h === 'object' ? h : { schema: 1, events: [] };
+  const out = { ...base, events: [...(base.events || []), { at, kind, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(by ? { by } : {}) }] };
+  if (to && MOVES.includes(kind)) out.custody = { holder: to, since: at };
+  return out;
+}
+export function historyCustody(h) { return (h && h.custody && h.custody.holder) || { kind: 'unassigned' }; }
+
+/* ─── ADOPT: which file is the recording, which the FLEx text ───────────────────────────────────
+ * Root files of a session ([{ name, size }]). The primary recording is audio by lameta's own type
+ * table, never our converted copy, never a consent clip, never a `.returned-<date>` twin; lossless
+ * beats lossy; ONE clear winner is picked, and several in the top class are a choice a person makes
+ * (name, size — the modal adds the duration). The FLEx text is the one `.flextext`; several are a
+ * choice; none is an audio-only adopt. */
+const LOSSLESS = ['wav', 'flac', 'aiff', 'aif', 'caf', 'au'];
+const extOf = (n) => ((/\.([A-Za-z0-9]+)$/.exec(String(n || '')) || [])[1] || '').toLowerCase();
+export function pickPrimaryRecording(files = []) {
+  const audio = (files || []).filter((f) => f && lametaFileType(f.name) === 'audio')
+    .filter((f) => !/\.converted-NOT-ARCHIVAL\./i.test(f.name) && !/^consent-/i.test(f.name) && !/\.returned-\d{4}-\d\d-\d\d/.test(f.name));
+  if (!audio.length) return { pick: null, candidates: [] };
+  const lossless = audio.filter((f) => LOSSLESS.includes(extOf(f.name)));
+  const top = (lossless.length ? lossless : audio).slice().sort((a, b) => (b.size || 0) - (a.size || 0));
+  return { pick: top.length === 1 ? top[0] : null, candidates: top };
+}
+export function pickFlextext(files = []) {
+  const fts = (files || []).filter((f) => f && /\.flextext$/i.test(String(f.name || '')));
+  return { pick: fts.length === 1 ? fts[0] : null, candidates: fts };
+}
+/** A mime for a recording by its extension, for the manifest and the upload (Drive wants one). */
+export function audioMimeOf(name) {
+  return ({ wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', ogg: 'audio/ogg',
+            wma: 'audio/x-ms-wma', aiff: 'audio/aiff', aif: 'audio/aiff', au: 'audio/basic', amr: 'audio/amr', caf: 'audio/x-caf' })[extOf(name)]
+    || 'application/octet-stream';
+}

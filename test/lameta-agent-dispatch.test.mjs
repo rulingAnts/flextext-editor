@@ -75,7 +75,8 @@ test('inspectProject: a .sprj and a Sessions/ make a project; sessions are its d
 });
 
 test('the inventory is a device inventory: type lameta, platform lameta, the engine version, no texts yet', () => {
-  const inv = buildInventory({ projectName: 'Fayu', folderName: 'Fayu', settings: { vernLang: 'fau' } }, { sessions: 2 }, { engineVersion: 'v692', ua: 'UA' });
+  // `sessions` is the scan's list; sessions without a manifest (no docId) are not texts.
+  const inv = buildInventory({ projectName: 'Fayu', folderName: 'Fayu', settings: { vernLang: 'fau' } }, { sessions: [{ name: 'a' }, { name: 'b' }] }, { engineVersion: 'v692', ua: 'UA' });
   assert.equal(inv.type, 'lameta'); assert.equal(inv.platform, 'lameta'); assert.equal(inv.engineVersion, 'v692');
   assert.deepEqual(inv.items, []); assert.deepEqual(inv.settings, { vernLang: 'fau' });
   assert.deepEqual(inv.lameta, { projectName: 'Fayu', folder: 'Fayu', sessions: 2, available: true });

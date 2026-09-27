@@ -2013,6 +2013,10 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
 /* "+ New device" on the FLAT layout (no tab strip to ride — tabbed layouts put it on the strip
  * row itself, .rp-newdev-btn above). Right-aligned to match. */
 .rp-newdev { display: flex; justify-content: flex-end; margin: 2px 0 10px; }
+/* Link a lameta project (milestone 2 preview, ?lameta=1): a quiet link beside + New device, and
+   the session list the modal shows — capped, scrolling, never a page-long dump of 200 names. */
+.rp-newdev .rp-lameta-link { align-self: center; margin-right: 12px; order: -1; }
+.rp-lameta-sessions { max-height: 14rem; overflow: auto; margin: 6px 0; padding-left: 1.2em; font-size: .92em; columns: 2; }
 /* Apply-template device checklist: capped + scrollable so a big project cannot push the modal's
  * buttons off screen. */
 .rp-apply-list { display: flex; flex-direction: column; gap: 4px; max-height: 38vh; overflow-y: auto;

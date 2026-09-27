@@ -1444,6 +1444,9 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v691', date: '2026-09-27', items: [
+    { k: 'panel.rel.new.lametaLinkPreview' },
+  ] },
   { v: 'v690', date: '2026-09-27', items: [
     { k: 'panel.rel.new.lametaProgress' },
     { k: 'panel.rel.fix.lametaNaming' },
@@ -2873,7 +2876,7 @@ async function renderDashboard(prefetched) {
        * [by the tabs]"). On tabbed layouts it rides the strip row itself — renderProjectSwitcher
        * owns it there. The FLAT layout has no strip, so it keeps this row at the top of the
        * device column. */
-      const newDevBtn = `<div class="rp-newdev"><button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button></div>`;
+      const newDevBtn = `<div class="rp-newdev"><button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>${lametaLinkBtnHtml()}</div>`;
       /* ONE PROJECT AT A TIME once projects exist; the classic flat layout otherwise, byte for byte.
        * `scope` is null on a flat estate, which is the whole backward-compatibility story. */
       if (!scope) {
@@ -2925,6 +2928,7 @@ async function renderDashboard(prefetched) {
     exit: close,
     lock: () => { signOutHere(); route(); },
     new: () => newDeviceModal(),
+    'lameta-link': () => lametaLinkModal(),
     /* ⚠ A HARD REFRESH, AND VISIBLY SO (Seth, 2026-09-01: "doesn't seem like the refresh button is
      * doing anything at all… I think a hard refresh is what we want, the equivalent of
      * ctrl+shift+r, not just a soft refresh").
@@ -5425,6 +5429,95 @@ function newDeviceModal() {
       deps.toast(t('panel.new.createdNotConfigured'), 9000);
     }
   });
+}
+
+/* ─── LINK A lameta PROJECT (plans/lameta-device.md) — milestone 2: pick and list, behind a flag ──
+ *
+ * A lameta project's Sessions/ folder is to become a device: texts move in as session folders and
+ * out again as checkouts, with the panel — installed as a Chrome/Edge app — as the agent that holds
+ * the folder. That whole design rests on one browser fact with risk in it: that the File System
+ * Access API hands over a folder AND that an installed app keeps the permission across a relaunch.
+ * So this milestone ships exactly that part, hidden: the button renders only after the panel is
+ * opened once with `?lameta=1` (remembered in localStorage) and only for the account owner, and all
+ * it does is pick the project folder, remember it, list Sessions/, and — on a later open — show
+ * whether the permission survived. Firefox and Safari get an honest sentence, not a dead button.
+ * files.js is loaded by import() so it enters no offline shell. */
+const LAMETA_LINK_FLAG = 'rp-lameta-link';
+function lametaLinkEnabled() {
+  try {
+    if (new URLSearchParams(location.search).get('lameta') === '1') localStorage.setItem(LAMETA_LINK_FLAG, '1');
+    return localStorage.getItem(LAMETA_LINK_FLAG) === '1';
+  } catch { return false; }
+}
+function lametaLinkBtnHtml() {
+  if (!lametaLinkEnabled() || !Researcher.isOwnerSelf()) return '';
+  return `<button class="link-btn rp-lameta-link" data-act="lameta-link">${esc(t('panel.lameta.linkBtn'))}</button>`;
+}
+// One remembered folder per account, in files.js's own store — never the editor's databases.
+const lametaFolderKey = () => `${Researcher.currentAccountId() || 'anon'}:lameta-preview`;
+
+async function lametaLinkModal() {
+  const F = await import('./files.js');
+  const cap = F.folderCapability();
+  const m = modal(`<h3>${esc(t('panel.lameta.title'))}</h3><div class="rp-lameta-body">${loadingHtml('panel.dl.loading', true)}</div>
+    <button class="link-btn" data-m="close">${esc(t('panel.help.close'))}</button>`);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  const body = m.el.querySelector('.rp-lameta-body');
+  if (!cap.ok) {
+    // The honest sentence: which browser, and why it cannot — never a picker that silently fails.
+    body.innerHTML = `<p class="note">${esc(t('panel.lameta.unsupported.' + cap.why, { browser: cap.browser || t('panel.lameta.thisBrowser') }))}</p>`;
+    return;
+  }
+  const show = async (list, handle) => {
+    list.innerHTML = loadingHtml('panel.dl.loading', true);
+    try {
+      const root = await F.listDir(handle);
+      const sprj = root.find((e) => e.kind === 'file' && /\.sprj$/i.test(e.name));
+      const sessions = await F.getDir(handle, 'Sessions');
+      if (!sprj || !sessions) { list.innerHTML = `<p class="note">${esc(t('panel.lameta.notProject', { name: handle.name }))}</p>`; return; }
+      // Directories only: every directory under Sessions/ IS a session to lameta (plans/lameta-device.md §3).
+      const rows = (await F.listDir(sessions)).filter((e) => e.kind === 'directory');
+      list.innerHTML = `<p class="note">${esc(t('panel.lameta.sessions', { n: rows.length, project: sprj.name.replace(/\.sprj$/i, '') }))}</p>
+        <ul class="rp-lameta-sessions">${rows.slice(0, 500).map((r) => `<li>${esc(r.name)}</li>`).join('')}</ul>
+        <p class="note">${esc(t('panel.lameta.previewNote'))}</p>`;
+    } catch (e) {
+      // A cloud folder that has not downloaded answers late or never: say so, never spin (files.js's clock).
+      list.innerHTML = `<p class="note">${esc(e && e.code === 'FILES_TIMEOUT' ? t('panel.lameta.slowFolder') : ((e && e.message) || String(e)))}</p>`;
+    }
+  };
+  const paint = async () => {
+    const saved = await F.recallFolder(lametaFolderKey());
+    const perm = saved ? await F.permissionState(saved.handle) : 'prompt';
+    body.innerHTML = `
+      ${saved ? `<p class="note">${esc(t('panel.lameta.remembered', { name: saved.name || '?' }))} · ${esc(t(perm === 'granted' ? 'panel.lameta.permGranted' : 'panel.lameta.permPrompt'))}</p>` : ''}
+      <p class="note">${esc(t(cap.installed ? 'panel.lameta.installedNote' : 'panel.lameta.tabNote'))}</p>
+      <div class="rp-inst-actions">
+        ${saved && perm !== 'granted' ? `<button class="primary-btn" data-m="allow">${esc(t('panel.lameta.allow'))}</button>` : ''}
+        ${saved && perm === 'granted' ? `<button class="primary-btn" data-m="list">${esc(t('panel.lameta.list'))}</button>` : ''}
+        <button class="${saved ? 'secondary-btn' : 'primary-btn'}" data-m="pick">${esc(t(saved ? 'panel.lameta.pickOther' : 'panel.lameta.pick'))}</button>
+        ${saved ? `<button class="link-btn" data-m="forget">${esc(t('panel.lameta.forget'))}</button>` : ''}
+      </div>
+      <div class="rp-lameta-list"></div>`;
+    const list = body.querySelector('.rp-lameta-list');
+    const on = (sel, fn) => { const b = body.querySelector(sel); if (b) b.onclick = (e) => busy(e.target, fn); };
+    on('[data-m="pick"]', async () => {
+      let handle;
+      // The picker rejects with AbortError when the person cancels — that is no news, not an error.
+      try { handle = await F.pickFolder({ id: 'lameta-project' }); }
+      catch (e) { if (e && e.name === 'AbortError') return; throw e; }
+      await F.rememberFolder(lametaFolderKey(), handle);
+      await paint();
+      await show(body.querySelector('.rp-lameta-list'), handle);
+    });
+    on('[data-m="allow"]', async () => {
+      if (await F.requestFolderPermission(saved.handle)) { await paint(); await show(body.querySelector('.rp-lameta-list'), saved.handle); }
+      else deps.toast(t('panel.lameta.denied'), 6000);
+    });
+    on('[data-m="list"]', async () => show(list, saved.handle));
+    on('[data-m="forget"]', async () => { await F.forgetFolder(lametaFolderKey()); await paint(); });
+    if (saved && perm === 'granted') await show(list, saved.handle);
+  };
+  await paint();
 }
 
 async function inviteModal(instanceId) {

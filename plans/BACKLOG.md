@@ -5282,3 +5282,51 @@ enrollment path, the same area as the invite-exfil work already recorded in memo
 
 ⚠ Do this deliberately, not at the end of a session. It touches enrollment, and the failure mode is
 one researcher's corpus appearing under another's account.
+
+## Consent Manager + a companion collector, per speaker (Seth, 2026-09-28) — DISTANT FUTURE
+
+> *"…set up Consent Collector as a researcher-facing app (with Google Drive/Oauth login and a link
+> from Researcher Panel, and rebranded as "Consent Manager") and build a coworker/native-speaker
+> facing companion app that the researcher can send consent collecting requests to. These should be
+> per-speaker, rather than per-text, and integrated with lameta but also have room in the consent
+> manager panel for the researcher to make notes or link with texts in the corpus that specifically
+> do and do not have permissions (or different levels of permissions) from the speaker. That's for
+> later though. Distant future feature."*
+
+**Recorded, not scheduled.** Nothing here is started. `plans/consent-person-based.md` (the
+person-based consent plan, itself not started) is the design this builds on, and its §3.6 already
+holds the core of the idea as "two faces of one app". What today's note changes, and what it settles:
+
+- **Two apps, not two faces.** The researcher's side becomes its own app, **Consent Manager** — the
+  Consent Collector rebranded, signed in with Google like the Researcher Panel (OAuth, Drive), reached
+  from a link in the panel's Utilities. The coworker's side is a separate **companion app** in the
+  family of the paired satellites (recorder, segmenter): it pairs to a device instance and receives
+  consent-collecting *requests* from the researcher — §3.6's "assigned worklist", now with a wire
+  shape: a request is a command to the device, like `assign` (these people, optionally these texts,
+  this script), done when the receipts are back in the report.
+- **Per speaker, not per text.** The unit of a request and of a record is the person (§3.1); a text
+  is what a permission is *about*, and one speaker's answer can cover many texts or none. The
+  corpus-keeper plan and §3.2 took the same decision; today's note confirms it for both apps.
+- **The manager's own room.** Beside the receipts and the four states (§3.2), the manager holds what
+  no device ever sees: the researcher's notes per person, and explicit links from a person to texts
+  in the corpus that *do* and that *do not* carry that person's permission — with a level, not a
+  boolean (the three shapes §2 found — open / registered / by-request — plus the researcher's hold,
+  which may only narrow). Those links are the researcher's classification: logged, reversible,
+  never a device's to make or to see.
+- **lameta.** Receipts and the recorded consent land in lameta's shape (`People/<Name>/<Name>_Consent.*`,
+  §3.7, §5) so lameta's "consented" boolean lights; the per-text permission links have no home in
+  lameta (its consent is a per-person filename convention with no scope, §5), so they stay in the
+  manager's own record. The lameta device agent (`plans/lameta-device.md`) is the natural writer of
+  the `People/` files once it exists.
+
+**What it reuses:** the panel's sign-in and the worker's researcher routes; the device lane
+(instance, invite, encrypted commands and report) for the companion; the manifest's consent block
+(schema 3) and the receipt JSON; the question bank (§4). **What it needs that does not exist:** a
+person record in D1 that never carries a name in clear (§3.4); a `consentRequest` command and the
+report that answers it; the manager's own storage for notes and text links (E2EE under the
+researcher's key, like the settings blobs); the Utilities link.
+
+**Open, for the day this is scheduled:** whether the companion is the existing Consent Collector
+code with the manager face removed, or a new shell; how a request names a text that is not yet in
+the suite (a lameta session id, a title?); what a "level" is called to a coworker who only ever sees
+the speaker's own answer (§3.6: the companion must not show other people's decisions).

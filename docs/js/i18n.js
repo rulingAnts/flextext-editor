@@ -78,6 +78,9 @@ en: {
   'record.recording': 'Recording… {time}',
   'record.review': 'Listen to check the recording, then Save — or Re-record and try again.',
   'record.converting': 'Saving recording… {pct}%',
+  // #88 review: past the first 5 s of a save that is still waiting for the consent record's location.
+  // Without it the line sat on "Saving recording… 100%" for up to 20 s and read as stuck.
+  'record.waitingLocation': 'Saving recording — waiting a few more seconds for the device location for the consent record…',
   'record.micError': 'Could not use the microphone: {msg}',
   // Both subsystems failed. Naming only the browser one sends people after the wrong cause.
   'record.micErrorBoth': 'Could not use the microphone. Direct recording: {native}. Browser recording: {browser}.',
@@ -266,7 +269,7 @@ en: {
   'consent.signLabel': 'Type your name to give permission',
   'consent.signBtn': 'Sign & continue',
   'consent.needName': 'Please type your name first.',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked on the device the first time consent is collected there, and only while the consent dialog is open) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked only while the consent dialog is open, usually just the first time on each device) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.give': 'Give permission',
@@ -2797,6 +2800,7 @@ id: {
   'record.recording': 'Merekam… {time}',
   'record.review': 'Dengarkan dulu rekamannya, lalu Simpan — atau Rekam ulang kalau belum pas.',
   'record.converting': 'Menyimpan rekaman… {pct}%',
+  'record.waitingLocation': 'Menyimpan rekaman — menunggu lokasi perangkat beberapa detik lagi untuk catatan persetujuan…',
   'record.micError': 'Mikrofon tidak bisa dipakai: {msg}',
   'record.micErrorBoth': 'Mikrofon tidak bisa dipakai. Perekaman langsung: {native}. Perekaman peramban: {browser}.',
   'record.noAudio': 'Tidak ada suara yang terekam — silakan coba lagi.',
@@ -2978,7 +2982,7 @@ id: {
   'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
   'consent.signBtn': 'Tanda tangan & lanjutkan',
   'consent.needName': 'Silakan ketik nama Anda dulu.',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan di perangkat saat persetujuan pertama kali dikumpulkan di sana, dan hanya selama dialog persetujuan terbuka) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan hanya selama dialog persetujuan terbuka, biasanya hanya pertama kali di setiap perangkat) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.give': 'Beri izin',

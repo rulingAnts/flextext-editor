@@ -6791,8 +6791,13 @@ async function moveSources(fromId, docId, title) {
       if (body && typeof body === 'object' && Array.isArray(body.files)) manifest = body;
     } catch { manifest = null; }
   }
+  /* ⚠ THE EXTENSION FALLBACK IS FOR LEGACY *UNTAGGED* FILES ONLY (#89, Brian Plimley, 2026-10-01).
+   * It once matched ANY audio-shaped name, so a folder whose recording had not arrived yet but whose
+   * consent clip had (consent-response.mp3, role `consent-clip`) resolved `audio` to the CONSENT CLIP
+   * — which passed the gate below and would have been assigned as the recording. A tagged file has
+   * already said what it is; only a file with no role at all is left for the name to guess about. */
   const audio = picks.audio ||
-    all.find((f) => /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
+    all.find((f) => !f.role && /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
   /* ⚠ A FLEXTEXT IS REQUIRED ONLY IF ONE IS SUPPOSED TO EXIST (Seth, 2026-08-19: "I want to be able
    * to move any text anywhere, except to a crowd recorder").
    *
@@ -6807,8 +6812,33 @@ async function moveSources(fromId, docId, title) {
    * manifest is for: declared-but-missing refuses, never-declared moves as the recording it is. */
   const declaresFlextext = Array.isArray(manifest && manifest.files) && manifest.files.some((f) =>
     isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES));
-  return { all, picks, manifest, audio, declaresFlextext,
-           ok: !!(manifest && audio && (picks.flextext || !declaresFlextext)) };
+  /* ⚠ AND A RECORDING IS REQUIRED ONLY IF ONE IS DECLARED — the same rule, the other half
+   * (#89, Brian Plimley, 2026-10-01).
+   *
+   * The flextext half above was relaxed in v416 and this half was not: `audio` stayed an
+   * unconditional term of `ok`. So a .flextext-only text — a project upload with no recording, whose
+   * manifest says `audio: null` and lists only a `source-flextext` row — could never move anywhere,
+   * which is the opposite of "move any text anywhere". Brian saw it as "My device … too old to
+   * receive a move" on a current device: the TEXT was refused and the DEVICE was blamed (see
+   * groupedDestinations' `subOf`).
+   *
+   * Nothing downstream needs a recording. Both commit paths send `audioFileId: null`, the worker
+   * mints an audio URL only when given a file id (mintTextfileUrl returns null otherwise), and the
+   * device opens a flextext-only assign as an ordinary text.
+   *
+   * "Declared" means what every manifest writer does when a recording exists — the device, the crowd
+   * page and the panel's own upload lane each set a non-null `audio` and/or list a SOURCE_AUDIO_ROLES
+   * row — so either counts. So, exactly as for the flextext:
+   *   - declared and present → moves;
+   *   - declared and ABSENT  → refuses (a recording still uploading must not be dropped by a move);
+   *   - never declared       → moves without one.
+   * And at least one deliverable must exist: a manifest that declares neither and a folder holding
+   * neither has nothing for the destination to open. `declaredMissing` tells the two refusals apart,
+   * so the note says "a named file has not arrived" only when that is what happened. */
+  const declaresAudio = !!manifest && (!!manifest.audio || manifest.files.some((f) => hasRole(f, SOURCE_AUDIO_ROLES)));
+  const declaredMissing = (declaresAudio && !audio) || (declaresFlextext && !picks.flextext);
+  return { all, picks, manifest, audio, declaresAudio, declaresFlextext, declaredMissing,
+           ok: !!(manifest && (audio || !declaresAudio) && (picks.flextext || !declaresFlextext) && (audio || picks.flextext)) };
 }
 
 /* ── DESTINATIONS, GROUPED BY PROJECT ─────────────────────────────────────────────────────────────
@@ -6879,9 +6909,10 @@ const ICON_MOVE = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fi
 const ICON_LINK = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 7H7a5 5 0 0 0 0 10h2.5"/><path d="M14.5 7H17a5 5 0 0 1 0 10h-2.5"/><path d="M8 12h8"/></svg>';
 
 /* ⚠ MODULE SCOPE, NOT INSIDE moveTextModal. groupedDestinations() is a separate function defined
- * ABOVE it and calls tooOldLabel twice; declared as a const inside the modal these were a
- * ReferenceError the moment a move dialog rendered a device that could not receive. The static
- * tests pass either way, which is exactly why this is worth a comment rather than a quiet fix. */
+ * ABOVE it and uses tooOldLabel (since #89, as its default `subOf`); declared as a const inside
+ * the modal these were a ReferenceError the moment a move dialog rendered a device that could not
+ * receive. The static tests pass either way, which is exactly why this is worth a comment rather
+ * than a quiet fix. */
 const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
 /* ⚠ SAY WHAT WE KNOW AND WHEN WE LEARNED IT (issue #16). The gate reads the version the DEVICE
  * LAST REPORTED, which the panel cannot refresh on its own — the device has to check in. So
@@ -6900,7 +6931,15 @@ const tooOldLabel = (x) => {
     : t('panel.move.tooOldUnknown');
 };
 
-function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
+/* ⚠ `subOf(x)` SAYS WHY A TILE IS DISABLED, AND ONLY THE CALLER KNOWS (#89, Brian Plimley,
+ * 2026-10-01). Both tile sites used to hard-code tooOldLabel(x), so EVERY disabled device read
+ * "reported v689 as of just now — too old to receive a move" — including a current device that was
+ * disabled because the TEXT could not be sent (no manifest, a declared file missing, a listing that
+ * failed). The version shown was right and the conclusion was false; closed issue #16 was the same
+ * mislabel by another route. canPick folds two reasons into one boolean, so the caller that knows
+ * which one applied supplies the words. Default tooOldLabel: a caller that passes nothing keeps the
+ * old behaviour exactly. */
+function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned, subOf = tooOldLabel) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (!projects.length) return '';
   const order = [...projects].sort((a, b) => (b.folderId === homeProject) - (a.folderId === homeProject));
@@ -6918,7 +6957,7 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
     out.push(`<div class="rp-move-group${away ? ' rp-move-away' : ''}">
       <div class="rp-move-group-h">${esc(p.name || t('panel.proj.defaultName'))}${away ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.move.otherProject'))}</span>` : ''}</div>
       ${mine.map((x) => { const ok = canPick(x); const checked = ok && first && !away; if (checked) first = false;
-                          return opt(x.instance_id, x.nickname || '?', ok ? '' : tooOldLabel(x), !ok, checked); }).join('')}
+                          return opt(x.instance_id, x.nickname || '?', ok ? '' : subOf(x), !ok, checked); }).join('')}
       ${withUnassigned ? opt('__unassigned:' + p.folderId,
           t('panel.move.unassignedOf', { project: p.name || t('panel.proj.defaultName') }),
           away ? t('panel.move.unassignedAway') : t('panel.move.unassignedHere'), false, false) : ''}
@@ -6928,7 +6967,7 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const loose = insts.filter((x) => !projects.some((p) => projectOfInstance(x.instance_id) === p.folderId));
   if (loose.length) {
     out.push(`<div class="rp-move-group"><div class="rp-move-group-h">${esc(t('panel.proj.outside'))}</div>
-      ${loose.map((x) => { const ok = canPick(x); return opt(x.instance_id, x.nickname || '?', ok ? '' : tooOldLabel(x), !ok, false); }).join('')}</div>`);
+      ${loose.map((x) => { const ok = canPick(x); return opt(x.instance_id, x.nickname || '?', ok ? '' : subOf(x), !ok, false); }).join('')}</div>`);
   }
   return out.join('');
 }
@@ -6983,19 +7022,28 @@ async function moveTextModal(fromId, docId, title) {
     try { src = await moveSources(fromId, docId, title); }
     catch { src = null; }
     if (!src) why = 'panel.dl.zipFailed';
-    else if (!src.ok) why = src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest';
+    /* Three causes, three notes (#89): no manifest; a file the manifest NAMES has not arrived; or
+     * nothing declared and nothing deliverable in the folder — "incomplete" would be false there. */
+    else if (!src.ok) why = !src.manifest ? 'panel.move.noManifest'
+      : src.declaredMissing ? 'panel.move.manifestIncomplete' : 'panel.move.nothingToMove';
   }
   const deviceOk = !why;
   const firstOk = deviceOk ? insts.find((y) => y._canReceive) : null;
 
   const opt = (value, label, sub, disabled, checked) => tileOpt('rp-move-to', value, label, sub, disabled, checked);
   const homeProject = projectOfInstance(fromId);
-  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive, true);
+  /* ⚠ A DISABLED TILE NAMES ITS OWN REASON (#89, Brian Plimley, 2026-10-01). canPick below is
+   * `deviceOk && x._canReceive` — two different refusals in one boolean — and the tile used to
+   * print tooOldLabel for both, so a current device read "too old" whenever the TEXT was the
+   * problem. The version label belongs to the version gate alone; a text refusal points at the
+   * note above, which carries the actual cause (`why`). Used by the flat fallback too. */
+  const blockedSub = (x) => (!x._canReceive ? tooOldLabel(x) : t('panel.move.textBlocked'));
+  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive, true, blockedSub);
 
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
-    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : tooOldLabel(x),
+    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', deviceOk && x._canReceive ? '' : blockedSub(x),
                            !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
     ${grouped ? '' : opt('__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
     ${grouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
@@ -7943,7 +7991,9 @@ async function adoptTextModal(docId, title, opts = {}) {
     try { src = await moveSources(insts[0].instance_id, docId, title); }
     catch { src = null; }
     if (!src) why = 'panel.dl.zipFailed';
-    else if (!src.ok) why = src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest';
+    // Same three causes as moveTextModal (#89): only a NAMED file that has not arrived is "incomplete".
+    else if (!src.ok) why = !src.manifest ? 'panel.move.noManifest'
+      : src.declaredMissing ? 'panel.move.manifestIncomplete' : 'panel.move.nothingToMove';
   }
   if (why && !opts.unassign) { deps.toast(t(why), 10000); return; }
   const deviceOk = !why;
@@ -7957,11 +8007,17 @@ async function adoptTextModal(docId, title, opts = {}) {
     return (dev && dev.projectId) || tx.projectId || '';
   })();
   const adoptOpt = (value, label, sub, disabled, checked) => tileOpt('rp-adopt-to', value, label, sub, disabled, checked);
-  const adoptGrouped = groupedDestinations(insts, homeProject, adoptOpt, () => deviceOk, !!opts.unassign);
+  /* ⚠ THE ONLY REFUSAL HERE IS ABOUT THE TEXT, so a disabled tile must never wear the device's
+   * version (#89, Brian Plimley, 2026-10-01 — "My device … too old to receive a move" on a current
+   * device, from this very modal). canPick is `() => deviceOk`: adopt has no version gate, and adding
+   * one is a separate behaviour change, not part of this fix. The neutral label points at the note,
+   * which names the real cause — and stays true when that cause was a failed listing, not the text. */
+  const textBlocked = () => t('panel.move.textBlocked');
+  const adoptGrouped = groupedDestinations(insts, homeProject, adoptOpt, () => deviceOk, !!opts.unassign, textBlocked);
 
   const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.unassigned.moveIntro' : why))}</p>
-    ${adoptGrouped || insts.map((x, i) => tileOpt('rp-adopt-to', x.instance_id, x.nickname || '?', '', !deviceOk, deviceOk && i === 0)).join('')}
+    ${adoptGrouped || insts.map((x, i) => tileOpt('rp-adopt-to', x.instance_id, x.nickname || '?', deviceOk ? '' : textBlocked(), !deviceOk, deviceOk && i === 0)).join('')}
     ${opts.unassign && !adoptGrouped ? tileOpt('rp-adopt-to', '__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyCrowd'), false, !deviceOk) : ''}
     ${opts.unassign && adoptGrouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
     <div class="rp-adm-say" hidden></div>

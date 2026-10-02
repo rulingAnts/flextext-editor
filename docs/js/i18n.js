@@ -109,6 +109,7 @@ en: {
   'cc.savedOne': 'Permission saved for 1 text.',
   'cc.savedMany': 'Permission saved for {n} texts.',
   'cc.consentOff': 'No permission questions are set up yet, so there is nothing to record. Ask your researcher to turn them on.',
+  'cc.waitingLocation': 'Saving permission — waiting a few more seconds for the device location…',
   // Bringing texts in — shared by both satellites (see satImportFiles).
   'sat.open': 'Open .flextext file\u2026',
   'sat.openPair': 'Open text + recording together\u2026',
@@ -265,7 +266,7 @@ en: {
   'consent.signLabel': 'Type your name to give permission',
   'consent.signBtn': 'Sign & continue',
   'consent.needName': 'Please type your name first.',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked just once at first use) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked on the device the first time consent is collected there, and only while the consent dialog is open) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.give': 'Give permission',
@@ -1042,7 +1043,7 @@ internet after the first time.</p>
 <h3>Files &amp; FLEx</h3>
 <p>The editor reads and writes FLEx <code>.flextext</code> files; analyses it doesn't edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline you changed — same behaviour as FLEx. Files containing several texts import as separate texts. Back into FieldWorks: <i>Texts &amp; Words → Import → FLExText interlinear document</i>. A file shared through a messaging app arrives as <code>….flextext.txt</code> (messengers only accept certain types) — FLEx's import opens it as-is, or just drop the <code>.txt</code>; this app opens it directly too.</p>
 <h3>Speaker permission (consent)</h3>
-<p>Per device you can require a consent step before a coworker records: a written and/or spoken prompt, and they confirm by tapping <b>Yes/No</b>, by <b>recording the speaker saying yes</b>, or by <b>typing the speaker's name</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable <code>.txt</code>) into the upload — the exact prompt shown, date/time, the signature or recording, and best-effort device IP (when online) plus an approximate location if the speaker allows (asked once). When the prompt is audio, the exact clip the speaker heard is bundled too, so question and answer stay paired even if you refine the prompt later. A spoken prompt is cached on the device, so it plays offline.</p>
+<p>Per device you can require a consent step before a coworker records: a written and/or spoken prompt, and they confirm by tapping <b>Yes/No</b>, by <b>recording the speaker saying yes</b>, or by <b>typing the speaker's name</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable <code>.txt</code>) into the upload — the exact prompt shown, date/time, the signature or recording, and best-effort device IP (when online) plus an approximate location if the speaker allows (asked only when consent is collected). When the prompt is audio, the exact clip the speaker heard is bundled too, so question and answer stay paired even if you refine the prompt later. A spoken prompt is cached on the device, so it plays offline.</p>
 <h3>Other tools (the in-app Settings tab)</h3>
 <p>A few setup tools live in the editor's own <b>Settings</b> tab — reveal it with <b>7 taps on ?</b> or <b>Ctrl+Alt+R</b> — separate from this panel:</p>
 <ul>
@@ -2820,6 +2821,7 @@ id: {
   'cc.savedOne': 'Izin tersimpan untuk 1 teks.',
   'cc.savedMany': 'Izin tersimpan untuk {n} teks.',
   'cc.consentOff': 'Belum ada pertanyaan izin yang disiapkan, jadi tidak ada yang bisa direkam. Minta peneliti Anda menyalakannya.',
+  'cc.waitingLocation': 'Menyimpan izin — menunggu lokasi perangkat beberapa detik lagi…',
   'sat.open': 'Buka berkas .flextext\u2026',
   'sat.openPair': 'Buka teks + rekaman sekaligus\u2026',
   'sat.openAny': 'Buka teks dan/atau rekaman\u2026',
@@ -2970,7 +2972,7 @@ id: {
   'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
   'consent.signBtn': 'Tanda tangan & lanjutkan',
   'consent.needName': 'Silakan ketik nama Anda dulu.',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan sekali saja saat pertama dipakai) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan di perangkat saat persetujuan pertama kali dikumpulkan di sana, dan hanya selama dialog persetujuan terbuka) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.give': 'Beri izin',
@@ -3644,7 +3646,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <h3>File &amp; FLEx</h3>
 <p>Editor membaca dan menulis file FLEx <code>.flextext</code>; analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya Anda ubah — sama seperti FLEx. File berisi beberapa teks diimpor sebagai teks terpisah. Kembali ke FieldWorks: <i>Texts &amp; Words → Import → FLExText interlinear document</i>. File yang dibagikan lewat aplikasi pesan tiba sebagai <code>….flextext.txt</code> (aplikasi pesan hanya menerima jenis tertentu) — impor FLEx membukanya apa adanya, atau hapus saja <code>.txt</code>; aplikasi ini juga membukanya langsung.</p>
 <h3>Izin penutur (consent)</h3>
-<p>Per perangkat Anda bisa mewajibkan langkah izin sebelum rekan kerja merekam: pengingat tertulis dan/atau suara, lalu mereka mengonfirmasi dengan <b>Ya/Tidak</b>, dengan <b>merekam penutur mengatakan ya</b>, atau dengan <b>mengetik nama penutur</b>. Setiap persetujuan menulis <code>consent-receipt.json</code> (+ <code>.txt</code> yang mudah dibaca) ke dalam unggahan — pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, serta sebisanya IP perangkat (saat online) dan lokasi perkiraan bila penutur mengizinkan (ditanya sekali). Bila pengingatnya audio, salinan persis klip yang didengar penutur ikut dibungkus, sehingga pertanyaan dan jawaban tetap berpasangan walau pengingat diperbaiki nanti. Pengingat suara disimpan di perangkat sehingga bisa diputar tanpa internet.</p>
+<p>Per perangkat Anda bisa mewajibkan langkah izin sebelum rekan kerja merekam: pengingat tertulis dan/atau suara, lalu mereka mengonfirmasi dengan <b>Ya/Tidak</b>, dengan <b>merekam penutur mengatakan ya</b>, atau dengan <b>mengetik nama penutur</b>. Setiap persetujuan menulis <code>consent-receipt.json</code> (+ <code>.txt</code> yang mudah dibaca) ke dalam unggahan — pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, serta sebisanya IP perangkat (saat online) dan lokasi perkiraan bila penutur mengizinkan (ditanyakan hanya saat persetujuan dikumpulkan). Bila pengingatnya audio, salinan persis klip yang didengar penutur ikut dibungkus, sehingga pertanyaan dan jawaban tetap berpasangan walau pengingat diperbaiki nanti. Pengingat suara disimpan di perangkat sehingga bisa diputar tanpa internet.</p>
 <h3>Alat lain (tab Pengaturan di aplikasi)</h3>
 <p>Beberapa alat penyiapan ada di tab <b>Pengaturan</b> editor — tampilkan dengan <b>7 ketukan pada ?</b> atau <b>Ctrl+Alt+R</b> — terpisah dari panel ini:</p>
 <ul>

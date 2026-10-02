@@ -725,6 +725,8 @@ symptom.
 
 ### Location: asked once, app-wide, at first tap — and that is DELIBERATE
 
+> **RESOLVED by #88 (Seth, 2026-10-02):** the prompt now fires only while the consent dialog is up — `requestConsentThen` calls `requestConsentGeo()` right after showing `#consent-modal`; the notes below are history. The microphone half stays open.
+
 `primeGeolocationOnce()` runs from app setup (`app.js`) and attaches a one-shot `pointerdown`
 listener, so the browser's location prompt fires on the **first tap anywhere in the app**, whether or
 not a consent recording will ever be taken. `readGeoIfGranted()` then reads silently during consent,

@@ -2451,52 +2451,75 @@ let pendingAssent = null; // { blob, name } captured assent, consumed on doc cre
 let pendingCapture = null;   // native capture provenance, awaiting the doc it belongs to
 let pendingReceipt = null; // consent audit record, consumed on doc create
 let pendingPromptAudio = null; // frozen copy of the spoken prompt, consumed on doc create
-let consentCapture = null; // { receipt, promise } in-flight IP/location capture
-let lastGeo = null;       // cached approx location, only set once permission is granted
+let consentCapture = null; // { receipt, geo, promise } the LAST approved consent's IP/location fill
 let crec = null;          // consent-assent recorder state
 
-// Geolocation, asked ONCE and never again. The location permission popup is too
-// disruptive to fire mid-consent, so on the first user tap we make the single
-// request at a calm moment; the browser then remembers the choice forever. If
-// the speaker allowed it we read silently thereafter; if they blocked it (or
-// dismissed and the browser auto-blocked) we never ask again.
-function primeGeolocationOnce() {
-  const ask = async () => {
-    document.removeEventListener('pointerdown', ask, true);
-    if (!navigator.geolocation) return;
-    try {
-      // Don't even call getCurrentPosition if it's already been blocked.
-      if (navigator.permissions) {
-        const st = await navigator.permissions.query({ name: 'geolocation' });
-        if (st.state === 'denied') return;
-      }
-      navigator.geolocation.getCurrentPosition(rememberGeo, () => {},
-        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false });
-    } catch { /* unsupported / insecure context */ }
-  };
-  document.addEventListener('pointerdown', ask, true);
+/* ⚠ LOCATION IS ASKED ONLY WHILE THE CONSENT DIALOG IS UP (#88, Brian Plimley, 2026-09-30; Seth,
+ * 2026-10-02: "it's a consent-related permission. So it should only prompt the user when the
+ * consent dialog box is up").
+ *
+ * It used to be asked on the FIRST TAP ANYWHERE: setup() armed a one-shot pointerdown listener in
+ * every app that boots the engine, so the editor, the recorder, the Consent Collector and the Audio
+ * Segmenter all said "app.flextext.app wants to know your location" to people whose workflow has no
+ * consent step at all. Brian's report is the cost of that: an unexplained location request is what a
+ * sketchy app does. The old reason — a system popup is too disruptive mid-consent, so ask at a calm
+ * moment — lost to scope: location is part of a consent record and is asked for nowhere else.
+ *
+ * So nothing at boot or on a tap touches navigator.geolocation any more. requestConsentThen calls
+ * requestConsentGeo() the moment the dialog becomes visible — after the consent-off return, so a
+ * device whose settings ask for no consent is never asked — and keeps the promise PER FLOW (on the
+ * consentCapture of the approval it belongs to), never in a module global: a fix from a dialog that
+ * was cancelled can never land on a later receipt. The browser remembers the answer, so the prompt
+ * itself appears the first time consent is collected on a device and later readings are silent.
+ *
+ * Never re-asks a device that said no ('denied'). If permissions.query is missing or throws (older
+ * Safari does not know the 'geolocation' name) it still asks: getCurrentPosition is the request, the
+ * query is only a courtesy check. Resolves to the receipt's approxLocation shape, or null. */
+async function requestConsentGeo() {
+  // Crowd receipts stay location-free (see captureConsentContext) — so a stranger is never asked.
+  if (CROWD_MODE) return null;
+  if (!navigator.geolocation) return null;
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      const st = await navigator.permissions.query({ name: 'geolocation' });
+      if (st && st.state === 'denied') return null;
+    }
+  } catch { /* query unsupported for geolocation — ask anyway */ }
+  try {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej,
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false }));
+    return geoRecord(pos);
+  } catch { return null; } // refused, no fix, insecure context
 }
 
-function rememberGeo(pos) {
-  lastGeo = {
+function geoRecord(pos) {
+  return {
     lat: pos.coords.latitude, lon: pos.coords.longitude,
     accuracyMeters: Math.round(pos.coords.accuracy),
     at: new Date(pos.timestamp).toISOString(),
   };
 }
 
-// Refresh the cached location WITHOUT ever prompting: only read when the
-// permission is already 'granted' (so this can run during the consent flow).
-async function readGeoIfGranted() {
-  try {
-    if (!navigator.geolocation || !navigator.permissions) return;
-    const st = await navigator.permissions.query({ name: 'geolocation' });
-    if (st.state !== 'granted') return;
-    const pos = await new Promise((res, rej) =>
-      navigator.geolocation.getCurrentPosition(res, rej,
-        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false }));
-    rememberGeo(pos);
-  } catch { /* no fix / unsupported */ }
+/* How long a receipt waits for its location after the speaker gives consent. getCurrentPosition's
+ * own 15 s timeout only starts once permission is granted — an unanswered browser prompt never times
+ * out — so without this cap a prompt left sitting would hold the receipt for ever. */
+const CONSENT_GEO_WAIT_MS = 20000;
+
+/* Before a receipt is COPIED or STORED, give its IP/location fill a chance to finish. Five seconds
+ * for everything, as before; beyond that ONLY while this flow's location request is still pending
+ * (the first-time prompt is being answered, or the first fix is being found), and never past
+ * CONSENT_GEO_WAIT_MS from approval, because captureConsentContext gives up there itself.
+ * `onLocationWait` lets a caller say why it is still waiting. */
+async function settleConsentCapture(capture, onLocationWait) {
+  if (!capture || !capture.promise) return;
+  let settled = false;
+  const done = Promise.resolve(capture.promise).catch(() => {}).then(() => { settled = true; });
+  await Promise.race([done, new Promise((r) => setTimeout(r, 5000))]);
+  if (!settled && capture.geo && capture.geo.pending) {
+    if (onLocationWait) onLocationWait();
+    await done;
+  }
 }
 
 // Stable per-device id so a researcher can correlate a coworker's submissions.
@@ -2526,10 +2549,10 @@ function consentConfirmList(s) {
   return (s.consentMode && s.consentMode !== 'off') ? [s.consentResp || 'yesno'] : [];
 }
 
-// Build the consent audit record at the moment permission is given. The IP and
-// (if the speaker allowed location once) approxLocation are filled in best
-// effort by captureConsentContext; both stay "unavailable" when offline or when
-// location was never granted. Location NEVER prompts here — see readGeoIfGranted.
+// Build the consent audit record at the moment permission is given. The IP and approxLocation
+// start as "unavailable" and are filled in best effort by captureConsentContext — the location
+// from THIS consent's own request (requestConsentGeo, started when the dialog opened, #88). Both
+// stay "unavailable" when offline, when location was refused, or when no fix arrived in time.
 function buildConsentReceipt(assent, signatureName) {
   const now = new Date();
   const ask = consentAskList();
@@ -2563,15 +2586,16 @@ function buildConsentReceipt(assent, signatureName) {
     deviceId: CROWD_MODE ? crowdSessionId : deviceId(),
     userAgent: navigator.userAgent,
     ipAddress: 'unavailable',
-    approxLocation: lastGeo || 'unavailable',
+    approxLocation: 'unavailable',
   };
 }
 
-// Best effort, no prompt: fill in the public IP (needs internet) and a fresh
-// location reading — but ONLY if the speaker already granted location at the
-// one-time first-tap request (readGeoIfGranted never prompts). Failures leave
-// the "unavailable" placeholders. Re-persists the owning doc once values arrive.
-async function captureConsentContext(receipt) {
+// Best effort, never prompts by itself: fill in the public IP (needs internet) and the location
+// THIS consent's dialog asked for. `geo` is that flow's own requestConsentGeo() promise (#88), so a
+// reading can only ever land on the receipt of the dialog that requested it. It is waited on for at
+// most CONSENT_GEO_WAIT_MS: an unanswered browser prompt must not hold the receipt for ever.
+// Failures leave the "unavailable" placeholders. Re-persists the owning doc once values arrive.
+async function captureConsentContext(receipt, geo) {
   // Crowd receipts stay location-free: no raw IP, no geolocation for an anonymous
   // stranger (the worker logs coarse country only, server-side). The field-worker
   // calibration (silent IP + opt-in location) does NOT transfer to the public.
@@ -2583,9 +2607,14 @@ async function captureConsentContext(receipt) {
         if (r.ok) receipt.ipAddress = (await r.json()).ip || 'unavailable';
       } catch { /* offline / blocked */ }
     })(),
-    readGeoIfGranted(),
+    (async () => {
+      const loc = await Promise.race([
+        Promise.resolve(geo).catch(() => null),
+        new Promise((r) => setTimeout(() => r(null), CONSENT_GEO_WAIT_MS)),
+      ]);
+      if (loc) receipt.approxLocation = loc;
+    })(),
   ]);
-  if (lastGeo) receipt.approxLocation = lastGeo;
   if (current && current.consentReceipt === receipt) { try { await persist(); } catch { /* noop */ } }
 }
 
@@ -2754,13 +2783,22 @@ async function requestConsentThen(onApproved) {
 
   $('#consent-modal').hidden = false;
 
-  // On consent, capture the audit record and (best effort, no prompt) IP + location.
+  /* ⚠ THE LOCATION REQUEST STARTS HERE, AND ONLY HERE: the consent dialog is now on screen (#88,
+   * Brian Plimley, 2026-09-30; Seth, 2026-10-02: only when the consent dialog is up). Everything
+   * that returns above — consent switched off on this device — never gets this far, and the crowd
+   * page is refused inside requestConsentGeo. Started now rather than at "Give consent" so a fix is
+   * usually in hand by the time the speaker has answered. `geo` belongs to THIS dialog: proceed()
+   * below hands it to this receipt only, and a cancelled dialog's request resolves into nothing. */
+  const geo = { pending: true, promise: null };
+  geo.promise = requestConsentGeo().finally(() => { geo.pending = false; });
+
+  // On consent, capture the audit record and (best effort) IP + this dialog's location.
   const proceed = (assent, signatureName) => {
     pendingAssent = assent;
     pendingReceipt = buildConsentReceipt(assent, signatureName);
-    // Fire-and-forget IP/location fill; keep the handle so buildBundle can
-    // briefly await it before zipping the receipt.
-    consentCapture = { receipt: pendingReceipt, promise: captureConsentContext(pendingReceipt) };
+    // Fire-and-forget IP/location fill; keep the handle so the receipt's consumers can
+    // settle it (settleConsentCapture) before they copy, store or zip the receipt.
+    consentCapture = { receipt: pendingReceipt, geo, promise: captureConsentContext(pendingReceipt, geo.promise) };
     closeConsentModal();
     onApproved(assent);
   };
@@ -3569,6 +3607,16 @@ async function saveRecording() {
         { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false, normalize: !!settings.norm },
         (f) => recordUI('saving', { pct: Math.round(f * 100) }));
       file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
+    }
+    /* ⚠ SETTLE THE RECEIPT'S LOCATION BEFORE THE TEXT IS WRITTEN (#88). The doc is stored once
+     * below, and in record mode `current` is cleared straight after, so captureConsentContext's late
+     * persist can never reach it; Lane A then packages the STORED copy. A short take made the first
+     * time consent is collected — prompt just answered, first fix still coming — would otherwise
+     * keep "unavailable" for good. Usually instant: a real take outlasts CONSENT_GEO_WAIT_MS. The
+     * modal still says it is saving meanwhile, so Cancel stays possible and must be honored. */
+    if (pendingReceipt && consentCapture && consentCapture.receipt === pendingReceipt) {
+      await settleConsentCapture(consentCapture);
+      if (!rec) return;   // cancelled while waiting: closeRecordModal already discarded the take
     }
     const assent = pendingAssent;     // closeRecordModal clears these; preserve
     const receipt = pendingReceipt;   // them for the new doc
@@ -8452,16 +8500,23 @@ async function ccCollectFor(ids) {
     // Consent is configured OFF: requestConsentThen calls back with no receipt built. Retrofitting
     // nothing onto a text would be worse than refusing, so say why.
     if (!pendingReceipt) { toast(t('cc.consentOff')); return; }
+    // Taken BEFORE waiting: a second "Ask for permission" during the wait restarts
+    // requestConsentThen, which clears the pending globals this group's consent lives in.
+    const payload = { assent: pendingAssent, receipt: pendingReceipt, promptAudio: pendingPromptAudio };
+    const capture = consentCapture && consentCapture.receipt === payload.receipt ? consentCapture : null;
     /* Let the IP/location fill finish BEFORE the receipt is copied. It mutates the object in
      * place, so copying first would freeze N receipts at "unavailable" while the original filled
-     * in, and the group would carry weaker records than a single text would. The 5s cap is the
-     * same bound buildBundleFor uses: a slow lookup must not hold a speaker at the table. */
-    if (consentCapture && consentCapture.promise) {
-      await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
-    }
-    const payload = { assent: pendingAssent, receipt: pendingReceipt, promptAudio: pendingPromptAudio };
+     * in, and the group would carry weaker records than a single text would.
+     *
+     * ⚠ The 5s cap alone is no longer enough (#88): the location is now requested when the dialog
+     * opens, so the FIRST time consent is collected on a device the browser's prompt, or the first
+     * fix after it, can still be in progress when the speaker says yes — and these copies are made
+     * once and never revisited. settleConsentCapture keeps waiting past 5s ONLY while this
+     * dialog's location request is pending, never past CONSENT_GEO_WAIT_MS from approval, and the
+     * toast says why the table is waiting. A slow IP lookup still gets 5s, as before. */
+    await settleConsentCapture(capture, () => toast(t('cc.waitingLocation'), CONSENT_GEO_WAIT_MS));
     const done = await ccAttachConsent(ids, payload);
-    pendingAssent = null; pendingReceipt = null; pendingPromptAudio = null;
+    if (pendingReceipt === payload.receipt) { pendingAssent = null; pendingReceipt = null; pendingPromptAudio = null; }
     ccSelected.clear();
     toast(done.length === 1 ? t('cc.savedOne') : t('cc.savedMany').replace('{n}', done.length));
     renderConsentView();
@@ -12351,7 +12406,7 @@ function setup() {
   // silently evicted when the device runs low on space.
   navigator.storage?.persist?.().catch(() => {});
   setupServiceWorker();
-  primeGeolocationOnce();
+  // (No location request here, or anywhere at boot: it belongs to the consent dialog — #88.)
 
   // ----- Record-only mode: show just the recorder UI and stop here. -----
   if (RECORD_MODE) {

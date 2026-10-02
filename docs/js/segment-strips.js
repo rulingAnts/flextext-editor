@@ -1055,6 +1055,16 @@ export function renderStrips() {
     input.className = 'seg-text';
     input.rows = 1;
     input.value = text;
+    /* ⚠ GHOST TEXT ON AN EMPTY LINE (#91, Brian Plimley, 2026-10-02): "the text box where an Editor
+     * user types the baseline is invisible until you click on it and type in it." The box has no
+     * border of its own (see .seg-text in app.css), so an empty line read as nothing at all. A
+     * placeholder says "type here" and vanishes on the first keystroke; it is never a value, so it
+     * cannot reach the doc, the .flextext or the EAF. On EVERY empty line, not just the first — any
+     * empty line is somewhere a transcriber may land. The data attribute is what lets applyI18n()
+     * repaint it on a language switch without a re-render; the direct write covers the first paint.
+     * ⚠ No spellcheck/autocorrect attributes here — the vernacular policy is inherited (below). */
+    input.dataset.i18nPh = 'baseline.linePh';
+    input.placeholder = deps.t('baseline.linePh');
     // ⚠ Deferred: the row is not in the document yet, and growArea cannot measure a detached node.
     input.__prevVal = input.value;
     queueMicrotask(() => growArea(input));

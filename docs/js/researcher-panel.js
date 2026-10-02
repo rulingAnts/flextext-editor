@@ -1883,12 +1883,18 @@ let projDefCache = null;
 /* Keys saved into the template but not yet pushed to every device — see applyTemplateModal. Same
  * prefs blob, same round trip; a list of field keys per project, never any values. */
 let projPendCache = null;
-async function loadProjectDefaults() {
+/* `strict` RETHROWS a failed read (after the same reset), for a caller about to WRITE: the
+ * forgiving default turns "could not read" into "there are none", which is fine for a prefill and
+ * wrong right before saveProjectDefaults rewrites the whole map from this cache (#85/#86). */
+async function loadProjectDefaults({ strict = false } = {}) {
   try {
     const p = (await Researcher.getPrefs()) || {};
     projDefCache = p.projectDefaults || {};
     projPendCache = p.projectDefaultsPending || {};
-  } catch { projDefCache = {}; projPendCache = {}; }
+  } catch (err) {
+    projDefCache = {}; projPendCache = {};
+    if (strict) throw err;
+  }
   return projDefCache;
 }
 function projectPending(folderId) {
@@ -1909,6 +1915,32 @@ async function saveProjectDefaults(folderId, settings) {
   if (settings && Object.keys(settings).length) next[folderId] = settings; else delete next[folderId];
   await Researcher.setPref('projectDefaults', next);
   projDefCache = next;
+}
+/* A DEVICE'S PUSHED SETTINGS, AS ITS PROJECT'S FIRST TEMPLATE — the device form's "also use these
+ * as the defaults for new devices" offer (#85/#86, Brian Plimley, 2026-09-30; Seth, 2026-10-02:
+ * "maybe it would be good to ask them if they want to make those settings default for other new
+ * devices"). Input is the exact patch changeSettings just shipped; output is what is stored.
+ *
+ * WHAT IS LEFT OUT, AND WHY ONLY THIS. The device form and the template form are ONE form —
+ * both render SET_TABS from the same GROUPS and both read it back through readForm — so the patch
+ * already has the template's shape, derived keys (autoDelUploaded, toolbarButtons, consentAudio)
+ * included. The device's NAME is the one field the template form lacks, and it never enters the
+ * patch (renameInstance carries it separately). What remains is a key that should never be a
+ * default:
+ *   • appLang — a one-shot "switch this device's language" COMMAND, not a setting (see readForm
+ *     and the merge in applyTemplateModal: the device re-runs applyDeviceLang whenever the key is
+ *     merely present). Stored in a template it would be dead weight on the seed path, which always
+ *     opens at 'follow' (toFormValues), and live ammunition on "push the whole template", which
+ *     would flip the language of every device in the project, including the ones whose coworkers
+ *     chose their own. The language a researcher pushes is for THIS device's user.
+ * The consent prompt stays: its URL is minted unscoped and plays on any device, which is exactly
+ * why the template form can upload one (see the SCOPE note above GROUPS). A copy, never the
+ * caller's object — the patch is still the record of what was pushed. */
+const NEVER_A_PROJECT_DEFAULT = ['appLang'];
+function deviceSettingsAsTemplate(pushed) {
+  const tpl = { ...(pushed || {}) };
+  for (const k of NEVER_A_PROJECT_DEFAULT) delete tpl[k];
+  return tpl;
 }
 
 /* COWORKER NICKNAMES — the owner's own label for a person the server deliberately no longer names.
@@ -7512,18 +7544,31 @@ async function projectNewModal() {
       }
       currentProject = r.folderId;                     // open the thing that was just made
       m.close();
-      deps.toast(t('panel.proj.created', { name }), 5000);
+      /* ⚠ PROJECT DEFAULTS ARE OPTIONAL — creating a project ends HERE (#85/#86, Brian Plimley,
+       * 2026-09-30; Seth, 2026-10-02).
+       *
+       * They used to be required: a new project went straight into its Default settings (Seth,
+       * 2026-08-31: "let's require the user to fill in project defaults for any new projects they
+       * create from now on"), on the reasoning that every device the project ever gets is born from
+       * what is put there. Reversed on 2026-10-02, for the two problems Brian reported:
+       *   • #85 — the dialog opened AFTER the project and its Drive folder already existed, so its
+       *     Cancel read as "don't create the project" and did nothing of the kind: the project
+       *     turned up in the list anyway. The name dialog's Cancel, above, is the only one that
+       *     comes before anything is made, and now it is the only one in this flow.
+       *   • #86 — a page of "default device settings" is overwhelming when you are only starting,
+       *     and confusing when no device is being made yet.
+       * Seth's ruling: "the user doesn't have to set defaults for the project, but they DO have to
+       * fill in required device settings (which we have set up with validation rules already) for
+       * a new device". That is what makes skipping safe — nothing a field worker holds depends on a
+       * template. Every device is validated on its OWN form (validateDeviceSettings: the
+       * writing-system codes, a way to send work out, at least one editor tab), and the invite gate
+       * re-validates before any link is minted, so no device can be invited without its codes,
+       * template or not. The other half of his ruling — "maybe it would be good to ask them if they
+       * want to make those settings default for other new devices" — lives on the device form
+       * (openSettingsModal's asDefault offer), at the moment there are real settings to keep.
+       * The toast says the defaults are optional and names the control, so they stay findable. */
+      deps.toast(t('panel.proj.created', { name }), 8000);
       renderFromSettledEstate();
-      /* A new project goes straight into its Default settings (Seth, 2026-08-31: "let's require
-       * the user to fill in project defaults for any new projects they create from now on") — the
-       * same move newDeviceModal makes for a new device, for the same reason: the one moment the
-       * researcher is already thinking about this project is now, and every device it ever gets
-       * is born from what they put here. Save is gated by the usual validation; closing without
-       * saving leaves the project template-less, which the device flow still survives (blank form
-       * + the invite gate), so the requirement guides rather than traps. */
-      deps.toast(t('panel.proj.nowDefaults', { name }), 6000);
-      await loadProjectDefaults();
-      openSettingsModal({ kind: 'project', project: { folderId: r.folderId, name } });
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
@@ -10239,25 +10284,41 @@ async function openSettingsModal(target, opts = {}) {
   source = (target.project && projectDefaults(target.project.folderId))
     || (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
+  /* THE DEVICE'S OWN PROJECT — the Drive folder id its template is keyed by, resolved ONCE for the
+   * whole modal: the seed below reads it, and so does the "also use these as the project's
+   * defaults" offer by the Push button (#85/#86). The create flow hands the folder id straight in
+   * (opts.projectFolderId — the estate cannot know a device created seconds ago); every other way
+   * in (a card's Settings button, the invite gate's flagOnOpen) resolves it from the estate the
+   * same way projectScope does.
+   * ⚠ OWNED projects only, by construction rather than by a check: estateCache is the caller's OWN
+   * Drive, and newDeviceModal passes no folder for a shared tab (its id is a D1 uuid). A device in
+   * someone else's project therefore resolves nothing — which is right, because templates live in
+   * the owner's prefs under the owner's Kr, and a member could neither read nor write one.
+   * Device mode only: a template form has no project to look up, it IS one. */
+  let ownedFolder = '';
+  if (target.instance && !target.project) {
+    ownedFolder = opts.projectFolderId || '';
+    if (!ownedFolder) {
+      const dev = ((estateCache && estateCache.devices) || []).find((d) =>
+        (d.instanceId && d.instanceId === target.instance.instance_id)
+        || (d.folderId && d.folderId === target.instance.oauth_folder_id));
+      ownedFolder = dev ? (dev.projectId || '') : '';
+    }
+  }
+  /* ⚠ loadProjectDefaults() BEFORE either reader — projectDefaults() is synchronous over a cache
+   * that may be cold (the projDefCache rule; see the Default settings button). Cheap when warm:
+   * getPrefs decrypts only when the settings blob's ciphertext has changed. */
+  if (ownedFolder) await loadProjectDefaults();
   /* THE TEMPLATE'S COPY SITE (v519): a device with no settings at all seeds its form from the
    * project's default settings — this is the "new devices are born with the template" half of the
    * v505 feature, which until now only STORED templates. Never over real settings: the pushed
    * snapshot and the device's own report both outrank it, so an already-configured device can
-   * never have its truth papered over by a template. The create flow hands the folder id straight
-   * in (opts.projectFolderId — the estate cannot know a device created seconds ago); the retry
-   * path (a card's Settings button after a failed first delivery) resolves it from the estate the
-   * same way projectScope does. Prefill only — the PUSH stays the researcher's explicit act. */
+   * never have its truth papered over by a template. Prefill only — the PUSH stays the
+   * researcher's explicit act. */
   let seededFromTemplate = false;
   let unreadable = false;
   if (target.instance && !target.project && !Object.keys(source || {}).length) {
-    let folder = opts.projectFolderId || '';
-    if (!folder) {
-      const dev = ((estateCache && estateCache.devices) || []).find((d) =>
-        (d.instanceId && d.instanceId === target.instance.instance_id)
-        || (d.folderId && d.folderId === target.instance.oauth_folder_id));
-      folder = dev ? (dev.projectId || '') : '';
-    }
-    if (folder) {
+    if (ownedFolder) {
       /* ⚠ "HAS NO SETTINGS" AND "ITS SETTINGS COULD NOT BE READ" ARE DIFFERENT FACTS, and
        * getInstanceSettings answers null to BOTH: its lane read swallows its own failures, and the
        * snapshot fallback is empty for a device somebody ELSE configured. Seeding on the second
@@ -10276,8 +10337,7 @@ async function openSettingsModal(target, opts = {}) {
         } catch { unreadable = true; }
       }
       if (empty) {
-        await loadProjectDefaults();
-        const tpl = projectDefaults(folder);
+        const tpl = projectDefaults(ownedFolder);     // loaded just above
         if (tpl && Object.keys(tpl).length) { source = tpl; seededFromTemplate = true; }
       }
     }
@@ -10298,6 +10358,36 @@ async function openSettingsModal(target, opts = {}) {
   }
   fillForm(box, toFormValues(source));
   wireIconPicks(box);
+  /* "ALSO USE THESE AS THE PROJECT'S DEFAULTS" (#85/#86, Brian Plimley, 2026-09-30; Seth,
+   * 2026-10-02: "the user doesn't have to set defaults for the project, but they DO have to fill in
+   * required device settings… and maybe it would be good to ask them if they want to make those
+   * settings default for other new devices").
+   *
+   * Project defaults stopped being demanded at project creation (projectNewModal), so this is where
+   * a template can be born instead: from settings the researcher has just filled in for a real
+   * device and that have just passed the device's own validation — which is stricter than the
+   * template form's (templateMode relaxes the consent-audio rule), so whatever it stores would pass
+   * there too. UNTICKED by default: it is an offer, and the push is the act.
+   *
+   * Shown ONLY when all three hold:
+   *   • device mode — a template form is already the place for defaults;
+   *   • an OWNED project resolved (ownedFolder above) — a member's device resolves none, and the
+   *     owner's prefs are not theirs to write;
+   *   • that project has NO template yet. Changing an existing one is the Projects card's
+   *     Default settings, whose save captures the previous template for applyTemplateModal's
+   *     "only what changed" delta and its pending-apply bookkeeping. Overwriting it from here
+   *     would skip both, silently.
+   * ⚠ No data-f on the checkbox: collectRaw reads every [data-f], and this is not a setting. */
+  const ownedTpl = ownedFolder ? projectDefaults(ownedFolder) : null;
+  const offerAsDefault = !!ownedFolder && !(ownedTpl && Object.keys(ownedTpl).length);
+  const ownedName = ownedFolder
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === ownedFolder) || {}).name || t('panel.proj.defaultName'))
+    : '';
+  if (offerAsDefault) {
+    const enc = box.querySelector('.rp-enc');
+    if (enc) enc.insertAdjacentHTML('beforebegin', `<label class="check-label rp-set-asdefault"><input type="checkbox" id="rp-set-asdefault"> ${esc(t('panel.set.asProjectDefault', { name: ownedName }))}</label>
+      <p class="note">${esc(t('panel.set.asProjectDefaultNote'))}</p>`);
+  }
   /* THE CONSENT PROMPT IN A PROJECT TEMPLATE (Seth, 2026-09-09: "I'd like to be able to upload a
    * recording as either default or override (just like any other setting on the project default
    * device settings) consent prompt").
@@ -10468,6 +10558,9 @@ async function openSettingsModal(target, opts = {}) {
         if (!targets.length) { deps.toast(t('panel.set.projSaved'), 4000); return; }
         applyTemplateModal(target.project, patch, prevTpl, targets);
       } else {
+        // Read now, while the form is certainly in the DOM; acted on only after the push below.
+        const asDefaultBox = offerAsDefault ? box.querySelector('#rp-set-asdefault') : null;
+        const asDefault = !!(asDefaultBox && asDefaultBox.checked);
         /* Rename FIRST, and only when actually changed — a rename bumps desired_rev, and doing it
          * needlessly would wake every install's poll for nothing. A failed rename aborts before the
          * settings push so the toast can never claim more than happened. Blank = keep the old name
@@ -10486,7 +10579,38 @@ async function openSettingsModal(target, opts = {}) {
           if (cachedRow) cachedRow.nickname = newNick;
         }
         await Researcher.changeSettings(target.instance.instance_id, patch);
-        m.close(); deps.toast(t('panel.set.pushed'), 4000);
+        /* THE PUSH HAS LANDED; THE TEMPLATE IS A SECOND, SEPARATE FACT (#85/#86). Only now, only
+         * when ticked, and in its OWN try: a failed prefs write must never turn a successful push
+         * into an error — the device has its settings either way, and letting it reach the outer
+         * catch would say they failed. Each outcome gets one toast naming both facts.
+         * What is stored is what the next "+ New device" in this project is seeded from — through
+         * the copy site above, unchanged — and what the Projects card's Default settings opens on.
+         * Deliberately NOT applyTemplateModal and NOT the pending-apply list: nothing is offered
+         * to the project's other devices. This one already has these settings, and nobody asked
+         * about the rest.
+         * ⚠ RE-READ, STRICTLY, BEFORE WRITING. saveProjectDefaults writes the WHOLE per-project map
+         * from the cache, so a cache that silently fell back to {} would erase every other
+         * project's template; strict makes a failed read land in the catch instead. And the offer
+         * was judged when the form opened: a template that appeared since (another tab, another
+         * panel) is KEPT, and the toast says so — this path starts a template, never replaces one. */
+        let doneKey = 'panel.set.pushed';
+        if (asDefault) {
+          try {
+            await loadProjectDefaults({ strict: true });
+            const nowTpl = projectDefaults(ownedFolder);
+            if (nowTpl && Object.keys(nowTpl).length) doneKey = 'panel.set.asDefaultExists';
+            else {
+              await saveProjectDefaults(ownedFolder, deviceSettingsAsTemplate(patch));
+              doneKey = 'panel.set.pushedAsDefault';
+            }
+          } catch (err) {
+            console.warn('[panel] settings pushed, but saving them as the project defaults failed:', err);
+            doneKey = 'panel.set.asDefaultFailed';
+          }
+        }
+        m.close();
+        deps.toast(t(doneKey, { name: ownedName }),
+          doneKey === 'panel.set.pushed' ? 4000 : doneKey === 'panel.set.pushedAsDefault' ? 6000 : 10000);
         renderDashboard(lastData || undefined);   // the card shows the new name now, not at the next poll
       }
     } catch (err) { errToast(err); }

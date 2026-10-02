@@ -14,8 +14,13 @@
  * deleted record back. Back persists before it leaves; this path must NOT — so leaveEditor runs
  * after `current = null`, where persist() returns at once.
  *
- * Source pins first, then the real function lifted out of app.js and run against stubs, so the
- * order is the function's actual behaviour and not a regex's opinion of it.
+ * The review of the fix (2026-10-02) found the same symptom by a second route — the Audio
+ * Segmenter's own 🗑, reachable with the matcher still open because its Texts tab does not close it —
+ * and the matcher steps that await (Done, clearing a draft, "start over?") carrying on, or throwing,
+ * after a delete had closed the matcher under them. Those are pinned here too.
+ *
+ * Source pins first, then the real functions lifted out of app.js and run against stubs, so the
+ * order is the functions' actual behaviour and not a regex's opinion of it.
  * Run: node --test test/remote-delete-open-text.test.mjs
  */
 import { test } from 'node:test';
@@ -70,6 +75,49 @@ test('#90: deleteUploadedDoc leaves the open text the whole way (source)', () =>
      'persist() still returns at once on a null `current` — the reason the order above is safe');
   ok(/await deleteUploadedDoc\(docId\);/.test(asyncFn(app, 'deleteConfirmedDoc')),
      'the researcher\'s remote deletes (delete / uploadDelete) still end in this teardown');
+
+  console.log('\nthe share menu goes with the text it belongs to (review of #90)');
+  const iShare = body.indexOf("const shareMenu = $('#share-menu');");
+  ok(iShare > iLeave && iShare < iShow, 'the open-text branch hides #share-menu, which also sits outside the views');
+  ok(/if \(shareMenu\) shareMenu\.hidden = true;/.test(body),
+     'through a guarded lookup — the recorder page and two satellites have no share menu at all');
+  ok(!/closeShareMenu\(/.test(body), 'not closeShareMenu(), whose $(\'#share-menu\').hidden would throw there');
+  done();
+});
+
+test('#90 review: the Segmenter\'s own 🗑 and the matcher\'s async steps (source)', () => {
+  const { ok, done } = checker();
+
+  console.log('\nuserDeleteDoc: the segmenter can delete the text its matcher has open');
+  const ud = asyncFn(app, 'userDeleteDoc');
+  const iConfirm = ud.indexOf('if (!await confirmDialog(msg)) return;');
+  const iGuard = ud.indexOf('if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();');
+  ok(iGuard > 0, 'an open matcher on the text being deleted is closed through mgClose()');
+  ok(iConfirm > 0 && iGuard > iConfirm, 'only once the user has said yes — Cancel leaves the matcher as it was');
+  ok(iGuard < ud.indexOf('if (!d || !uploads || backedUp) {'),
+     'and before BOTH branches, so the upload-first one goes through uploadDocById, not the editor\'s doUpload');
+  /* Why the list can be on screen with the matcher open: show() hides the home tabs only for the
+   * editor's own views, and the segmenter's Texts tab shows its list without closing the matcher. */
+  ok(/const inEditor = view === 'cut' \|\| view === 'baseline' \|\| view === 'gloss'/.test(fn(app, 'show')),
+     '(show(\'matcher\') is not an editor view, so the home tabs stay up over the matcher)');
+  ok(/else \{ sgRenderList\(\); show\('segmenter'\); \}/.test(fn(app, 'setupSegmenterMode')),
+     '(and the Texts tab shows the list without closing it — the route the review reproduced)');
+
+  console.log('\nmgCommit stops if the matcher closed while it was waiting');
+  const mc = asyncFn(app, 'mgCommit');
+  const G = 'if (!MG || MG.docId !== id) return;';
+  ok(/const id = MG\.docId;\s*\n\s*const rec = await db\.getDoc\(id\);\s*\n\s*if \(!MG \|\| MG\.docId !== id\) return;/.test(mc),
+     'after reading the record, before anything reads MG');
+  ok(/await db\.putDoc\(rec\);\s*\n\s*if \(!MG \|\| MG\.docId !== id\) return;[^\n]*\n[\s\S]*?current = rec;/.test(mc),
+     'after the commit write, before `current` is pointed at the record again');
+  const iLastGuard = mc.lastIndexOf(G);
+  const iClear = mc.indexOf('await mgClearDraft(MG.docId);');
+  ok(iClear > 0 && iLastGuard > 0 && iLastGuard < iClear && iLastGuard > mc.indexOf('uploadDocById(rec.id)'),
+     'and after the paired send, before mgClearDraft(MG.docId) — which threw when MG had gone');
+  ok(/if \(!rec \|\| !rec\.matchDraft\) return;\s*\n(\s*\/\/[^\n]*\n)*\s*if \(!MG \|\| MG\.docId !== id\) return;\s*\n\s*delete rec\.matchDraft;/.test(asyncFn(app, 'mgClearDraft')),
+     'mgClearDraft re-checks between its read and its write, or clearing could put a deleted text back');
+  ok(/if \(!await confirmDialog\(t\('mg\.startOverConfirm'\)\)\) return;\s*\n\s*if \(!MG\) return;/.test(asyncFn(app, 'mgStartOver')),
+     'mgStartOver checks MG after its dialog, as mgGuess already did');
   done();
 });
 
@@ -89,9 +137,11 @@ function harness(env) {
     function show(v) { calls.push('show:' + v); }
     function mgClose() { calls.push('mgClose'); MG = null; current = null; }
     function refreshList() { calls.push('refreshList'); }
+    const shareEl = env.shareMenu ? { hidden: false } : null;   // some shells have no share menu
+    const $ = (sel) => (sel === '#share-menu' ? shareEl : null);
     const db = { deleteDoc: (id) => { calls.push('deleteDoc:' + id); return Promise.resolve(); } };
     ${src}
-    return { run: (id) => deleteUploadedDoc(id), state: () => ({ calls, current, MG }) };
+    return { run: (id) => deleteUploadedDoc(id), state: () => ({ calls, current, MG, shareEl }) };
   `);
   return make(env);
 }
@@ -103,12 +153,20 @@ test('#90: deleteUploadedDoc, run for real against stubs', async () => {
 
   console.log('\nthe editor, the deleted text open (Brian\'s case)');
   {
-    const h = harness({ ...editor, current: { id: 'A' } });
+    const h = harness({ ...editor, current: { id: 'A' }, shareMenu: true });
     await h.run('A');
     const s = h.state();
     ok(same(s.calls, ['splitCancel', 'leaveEditor(current=null)', 'show:texts', 'deleteDoc:A', 'refreshList']),
        `released, left, list shown, then deleted (${s.calls.join(' → ')})`);
     ok(s.current === null, 'nothing is open afterwards');
+    ok(s.shareEl.hidden === true, 'and its share menu, if it was open, is closed with it');
+  }
+
+  console.log('\nthe editor, a DIFFERENT text open, its share menu up');
+  {
+    const h = harness({ ...editor, current: { id: 'B' }, shareMenu: true });
+    await h.run('A');
+    ok(h.state().shareEl.hidden === false, 'the menu belongs to the text the user IS working on — left alone');
   }
 
   console.log('\nthe editor, a DIFFERENT text open');
@@ -129,11 +187,13 @@ test('#90: deleteUploadedDoc, run for real against stubs', async () => {
 
   console.log('\nthe recorder and the consent collector: the leave, but no texts view');
   for (const mode of ['RECORD_MODE', 'CONSENT_MODE']) {
-    const h = harness({ ...editor, [mode]: true, current: { id: 'A' } });
-    await h.run('A');
-    const s = h.state();
-    ok(same(s.calls, ['splitCancel', 'leaveEditor(current=null)', 'deleteDoc:A', 'refreshList']),
-       `${mode}: released and left, never show('texts') — the shell has no such view (${s.calls.join(' → ')})`);
+    for (const shareMenu of [true, false]) {
+      const h = harness({ ...editor, [mode]: true, current: { id: 'A' }, shareMenu });
+      await h.run('A');
+      const s = h.state();
+      ok(same(s.calls, ['splitCancel', 'leaveEditor(current=null)', 'deleteDoc:A', 'refreshList']),
+         `${mode}, ${shareMenu ? 'with' : 'NO'} share menu: released and left, never show('texts') — the shell has no such view (${s.calls.join(' → ')})`);
+    }
   }
 
   console.log('\nthe segmenter, the deleted text open in the matcher');
@@ -163,6 +223,170 @@ test('#90: deleteUploadedDoc, run for real against stubs', async () => {
     const s = h.state();
     ok(same(s.calls, ['splitCancel', 'leaveEditor(current=null)', 'deleteDoc:A', 'refreshList']),
        `the editor branch still releases it and hides the dock (${s.calls.join(' → ')})`);
+  }
+  done();
+});
+
+/* The review's findings, run for real. A "remote delete" below is what deleteUploadedDoc does to the
+ * matcher before it touches storage: mgClose() — MG and `current` dropped — in the middle of
+ * whatever await the stubbed storage call stands for. */
+function lift(names, body, env) {
+  const srcs = names.map((n) => fn(app, n) || asyncFn(app, n));
+  srcs.forEach((s, i) => { if (!s) throw new Error(names[i] + ' not found'); });
+  return new Function('env', `
+    let MG = env.MG;
+    let current = env.current;
+    let mgDraftTimer = 0;
+    const SEGMENTER_MODE = env.SEGMENTER_MODE !== false;
+    const calls = [];
+    function mgClose() { calls.push('mgClose'); MG = null; current = null; }
+    const remoteDelete = () => { calls.push('remoteDelete'); mgClose(); };
+    const t = (k) => k;
+    function toast(m) { calls.push('toast:' + m); }
+    ${body}
+    ${srcs.join('\n')}
+    return { calls, get MG() { return MG; }, get current() { return current; } };
+  `)(env);
+}
+const count = (calls, name) => calls.filter((c) => c === name).length;
+
+test('#90 review: the Segmenter\'s own 🗑, run for real', async () => {
+  const { ok, done } = checker();
+  const run = async (env) => {
+    const h = lift(['userDeleteDoc'], `
+      const db = {
+        getDoc: async (id) => (env.rec || { id }),
+        deleteDoc: async (id) => { calls.push('deleteDoc:' + id); },
+      };
+      const Sync = { workerUploadTarget: () => env.uploads, reportNow() {} };
+      const confirmDialog = async () => { calls.push('confirm'); return env.answer !== false; };
+      const getUpload = () => null;
+      const uploadView = { delete() {}, has: () => false };
+      function renderUploadQueue() {}
+      function refreshList() { calls.push('refreshList'); }
+      let pend = [];
+      const pendingUpDel = () => pend.slice();
+      const setPendingUpDel = (ids) => { pend = ids; };
+      async function doUpload() { calls.push('doUpload'); }
+      async function uploadDocById(id) { calls.push('uploadDocById:' + id); }
+      globalThis.__ud = (id, title) => userDeleteDoc(id, title);
+    `, env);
+    await globalThis.__ud(env.del, 'T');
+    return h;
+  };
+
+  console.log('\nOpen → Texts tab → 🗑 → OK, no upload target (the review\'s reproduction)');
+  {
+    const h = await run({ MG: { docId: 'A' }, current: { id: 'A' }, uploads: false, del: 'A' });
+    ok(h.calls.indexOf('mgClose') > h.calls.indexOf('confirm') && h.calls.indexOf('mgClose') < h.calls.indexOf('deleteDoc:A'),
+       `the matcher is closed after the yes and before the delete (${h.calls.join(' → ')})`);
+    ok(h.MG === null && h.current === null, 'nothing is left open over the empty list — so no dock, no player');
+  }
+
+  console.log('\nthe same, with an upload target and changes not yet on Drive (upload first, delete later)');
+  {
+    const h = await run({ MG: { docId: 'A' }, current: { id: 'A' }, uploads: true, rec: { id: 'A' }, del: 'A' });
+    ok(h.calls.includes('mgClose') && h.calls.includes('uploadDocById:A') && !h.calls.includes('doUpload'),
+       `closed, then sent by uploadDocById as the matcher's own Done sends — not the editor's doUpload (${h.calls.join(' → ')})`);
+  }
+
+  console.log('\nCancel, or a DIFFERENT text in the matcher, or the editor');
+  {
+    const h = await run({ MG: { docId: 'A' }, current: { id: 'A' }, uploads: false, del: 'A', answer: false });
+    ok(!h.calls.includes('mgClose') && h.MG && h.MG.docId === 'A', 'Cancel leaves the matcher exactly as it was');
+  }
+  {
+    const h = await run({ MG: { docId: 'B' }, current: { id: 'B' }, uploads: false, del: 'A' });
+    ok(!h.calls.includes('mgClose') && h.MG.docId === 'B' && h.current.id === 'B', 'another text\'s matcher is left alone');
+  }
+  {
+    const h = await run({ SEGMENTER_MODE: false, MG: null, current: null, uploads: false, del: 'A' });
+    ok(same(h.calls, ['confirm', 'deleteDoc:A', 'refreshList']), `the editor's delete is unchanged (${h.calls.join(' → ')})`);
+  }
+  delete globalThis.__ud;
+  done();
+});
+
+test('#90 review: matcher steps that await, with the delete landing in the middle', async () => {
+  const { ok, done } = checker();
+
+  const commitRun = async (env) => {
+    const h = lift(['mgCommit'], `
+      let puts = 0;
+      const db = {
+        getDoc: async (id) => { calls.push('getDoc:' + id); if (env.during === 'getDoc') remoteDelete(); return { id, doc: {} }; },
+        putDoc: async (r) => { puts++; calls.push('putDoc#' + puts); if (env.during === 'putDoc#' + puts) remoteDelete(); },
+        broadcastLive() {},
+      };
+      const newGuid = () => 'g';
+      const makeSegment = () => ({ words: [] });
+      const mergePhrases = (p) => p[0];
+      const docStats = () => ({});
+      const Sync = { workerUploadTarget: () => true, reportNow() {} };
+      async function uploadDocById(id) { calls.push('uploadDocById:' + id); if (env.during === 'upload') remoteDelete(); }
+      async function mgClearDraft(id) { calls.push('mgClearDraft:' + id); }
+      function sgRenderList() { calls.push('sgRenderList'); }
+      globalThis.__mc = () => mgCommit();
+      globalThis.__cur = () => current;
+    `, env);
+    let threw = null;
+    try { await globalThis.__mc(); } catch (e) { threw = e; }
+    return { h, threw };
+  };
+  const open = () => ({ MG: { docId: 'A', spans: [{ start: 0, end: 1000 }], lines: [{ id: 'l1', guid: 'g1', phrases: [{ words: [] }] }] },
+                        current: { id: 'A', stale: true } });
+
+  console.log('\nDone with nothing in the way (paired) — unchanged');
+  {
+    const { h, threw } = await commitRun(open());
+    ok(!threw, 'no error');
+    ok(h.calls.includes('putDoc#1') && h.calls.includes('putDoc#2') && h.calls.includes('uploadDocById:A')
+       && h.calls.includes('mgClearDraft:A') && count(h.calls, 'mgClose') === 1 && h.calls.includes('sgRenderList'),
+       `commit, done flag, send, clear the draft, close (${h.calls.join(' → ')})`);
+  }
+
+  for (const during of ['getDoc', 'putDoc#1', 'putDoc#2', 'upload']) {
+    console.log(`\nthe delete lands during ${during}`);
+    const { h, threw } = await commitRun({ ...open(), during });
+    ok(!threw, `no error (before: a TypeError on the null MG, at MG.lines or mgClearDraft(MG.docId)) ${threw ? '— ' + threw.message : ''}`);
+    ok(globalThis.__cur() === null, '`current` is left null — never pointed back at the deleted record');
+    ok(count(h.calls, 'mgClose') === 1, 'the exit ran once — the delete\'s; Done does not close it a second time');
+    ok(!h.calls.includes('mgClearDraft:A') && !h.calls.some((c) => c.startsWith('toast:mg.committed')),
+       `no draft clear, no "committed" toast for a text that is gone (${h.calls.join(' → ')})`);
+    const putsAfter = h.calls.slice(h.calls.indexOf('remoteDelete')).filter((c) => c.startsWith('putDoc'));
+    ok(putsAfter.length === 0, 'and no write issued after the delete began — nothing can put it back');
+  }
+  delete globalThis.__mc; delete globalThis.__cur;
+
+  console.log('\nmgClearDraft: the delete lands between its read and its write');
+  for (const during of [null, 'getDoc']) {
+    const h = lift(['mgClearDraft'], `
+      const db = {
+        getDoc: async (id) => { calls.push('getDoc:' + id); if (env.during === 'getDoc') remoteDelete(); return { id, matchDraft: { at: 1 } }; },
+        putDoc: async (r) => { calls.push('putDoc:' + ('matchDraft' in r ? 'withDraft' : 'cleared')); },
+        broadcastLive() {},
+      };
+      globalThis.__cd = (id) => mgClearDraft(id);
+    `, { MG: { docId: 'A' }, current: null, during });
+    await globalThis.__cd('A');
+    ok(during ? !h.calls.some((c) => c.startsWith('putDoc')) : h.calls.includes('putDoc:cleared'),
+       during ? `no write after the matcher closed (${h.calls.join(' → ')})` : 'with the matcher open it still clears the draft');
+  }
+  delete globalThis.__cd;
+
+  console.log('\nmgStartOver: the delete lands while "start over?" is on screen');
+  {
+    const h = lift(['mgStartOver'], `
+      const confirmDialog = async () => { remoteDelete(); return true; };
+      async function mgClearDraft(id) { calls.push('mgClearDraft:' + id); }
+      function mgOpen(id) { calls.push('mgOpen:' + id); }
+      globalThis.__so = () => mgStartOver();
+    `, { MG: { docId: 'A' }, current: { id: 'A' } });
+    let threw = null;
+    try { await globalThis.__so(); } catch (e) { threw = e; }
+    ok(!threw, `OK after the delete does not throw (it read MG.docId of null) ${threw ? '— ' + threw.message : ''}`);
+    ok(!h.calls.includes('mgOpen:A') && !h.calls.some((c) => c.startsWith('mgClearDraft')), 'and does not try to reopen the deleted text');
+    delete globalThis.__so;
   }
   done();
 });

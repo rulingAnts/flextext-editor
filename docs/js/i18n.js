@@ -309,6 +309,12 @@ en: {
     + 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
     + 'every place you can cut. Tap it again to put them away.',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
+  /* ⚠ THE GHOST IN EACH EMPTY SEGMENT BOX (#91, Brian Plimley, 2026-10-02: "the text box where an
+   * Editor user types the baseline is invisible until you click on it"). The classic box above has
+   * always had one; the per-line strips never did. KEEP IT SHORT: `field-sizing: content` sizes an
+   * empty box to its placeholder, and a phone strip column is ~260px — a ghost that wraps makes
+   * every empty line two lines tall. */
+  'baseline.linePh': 'Type what you hear…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
   'gloss.blankLine': '(blank line — nothing to gloss)',
@@ -2997,6 +3003,7 @@ id: {
     + 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
     + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
+  'baseline.linePh': 'Ketik yang Anda dengar…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
   'gloss.blankLine': '(baris kosong — tidak ada yang digloss)',

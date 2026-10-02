@@ -4633,10 +4633,40 @@ function deleteAfterUpload() {
 // Delete a just-uploaded doc + all its media, then refresh whichever list is
 // showing. If the doc is open in the editor, leave it first so the user isn't
 // stranded on an editor for a text that no longer exists.
+/* ⚠ "LEAVE IT" MEANS THE WHOLE LEAVE, NOT JUST THE VIEW (#90, Brian Plimley, 2026-10-01). The
+ * Researcher Panel removed a text while it was open in his Editor: the app went to the (empty) texts
+ * list, but "a working audio widget for the text that was deleted" stayed on screen. The player dock
+ * (#audio-player) is a SIBLING of the views, so show('texts') never hides it — only leaveEditor()
+ * does, the one leave-the-text teardown Back and returnToLibraryAfterSend already share (it also
+ * stops the three tab tickers and drops the strip canvases). Every route to a remote or auto delete
+ * of the open text ends here, so this is the one place to fix: the 'delete' command; 'uploadDelete'
+ * (at once, or when its upload lands, or in the boot/online sweep of those intents — the user's own
+ * upload-first 🗑 rides the same intent); auto-delete after an upload; AND the two Done paths that
+ * delete a text already on Drive — setDocDone (the row toggle and the 'setDone' command) and
+ * doUpload's "already saved" branch ("Done – send" on a text auto-backup had sent).
+ *
+ * The same branch closes the share menu: like the dock it sits outside the views, and it always
+ * belongs to `current` (the editor's Share, the recorder's Send), so it would otherwise stay over
+ * the list offering to send a text that no longer exists (review of #90). Hidden directly rather
+ * than through closeShareMenu(), whose lookup is unguarded and some shells have no menu at all.
+ *
+ * ⚠ NO persist() HERE, unlike Back: the record is being deleted, and a write racing db.deleteDoc
+ * could put it back. leaveEditor runs AFTER `current = null`, and persist() returns at once on a null
+ * `current`, so nothing on the way out can resurrect it. It is safe in every shell that reaches this:
+ * the recorder and the consent collector have no dock (`player` stays null) and its lookups are all
+ * guarded. */
 function deleteUploadedDoc(docId) {
+  /* ⚠ THE AUDIO SEGMENTER'S OPEN TEXT LIVES IN THE MATCHER (MG), not in the editor (#90): without
+   * this the matcher stayed up over a deleted record. mgClose() is that app's one exit (ticker,
+   * dock, `current`, back to its own list) and runs FIRST — it releases `current` itself, so the
+   * editor branch below finds nothing open and the segmenter is torn down once, by its own exit. */
+  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
   if (current && current.id === docId) {
     current = null;
     splitCancel();   // a text closed mid-split: dropped, nothing written
+    leaveEditor();   // hides the player dock show() cannot reach, stops the tickers — see above (#90)
+    const shareMenu = $('#share-menu');
+    if (shareMenu) shareMenu.hidden = true;   // the open text's share menu goes with it — see above
     if (!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE) show('texts');   // the satellites have no texts view
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {
@@ -4702,6 +4732,17 @@ async function userDeleteDoc(docId, title) {
     ? t('texts.confirmDeleteUpload', { title: title || t('untitled') })
     : t('texts.confirmDelete', { title: title || t('untitled') });
   if (!await confirmDialog(msg)) return;
+  /* ⚠ THE AUDIO SEGMENTER CAN DELETE THE TEXT IT HAS OPEN (#90 review, 2026-10-02). The editor
+   * cannot: its home tabs are hidden while a text is open, so this list is never on screen with one.
+   * The segmenter's are NOT — show('matcher') does not count as an editor view — and its Texts tab
+   * shows the list without closing the matcher. Open → Texts → 🗑 → OK left `current` null and the
+   * text gone, with the dock still up playing the deleted recording over "No texts on this device
+   * yet": Brian's #90 symptom by a second route. Same guard as deleteUploadedDoc, through the
+   * matcher's own exit, and BEFORE the two branches: the upload-first branch then sends through
+   * uploadDocById (as the matcher's own Done does) rather than the editor's doUpload. Closing here
+   * drops no matching work: mgClose skips a draft save still pending, but the tab tap blurred any
+   * edit and that save's 400ms ran out long before anyone answered the confirm. */
+  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
   if (!d || !uploads || backedUp) {
     // Nothing to preserve (gone / no upload target / already safely on Drive) → remove now,
     // cancelling any stray queued upload so it can't resurrect.
@@ -9269,6 +9310,9 @@ async function mgClearDraft(id) {
   try {
     const rec = await db.getDoc(id);
     if (!rec || !rec.matchDraft) return;
+    // Both callers clear with the matcher open on `id`. If it closed during that read, a remote
+    // delete may be under way — writing `rec` back now would put the text back (#90 review).
+    if (!MG || MG.docId !== id) return;
     delete rec.matchDraft;
     await db.putDoc(rec);
     if (current && current.id === id) delete current.matchDraft;   // same two-writer rule
@@ -9715,7 +9759,17 @@ function mgJoinLine(id) {
  * from the first burst to the last.
  */
 async function mgCommit() {
-  const rec = await db.getDoc(MG.docId);
+  /* ⚠ STILL OPEN AFTER EVERY AWAIT, OR STOP (#90 review, 2026-10-02). A remote delete of this text
+   * now closes the matcher (deleteUploadedDoc → mgClose) — synchronously, BEFORE it issues
+   * db.deleteDoc. A delete landing mid-commit let Done carry on regardless: `current = rec` pointed
+   * at the deleted record again and the paired done-flag write put it back — and with MG now null
+   * it would also throw at mgClearDraft(MG.docId), before its own mgClose. So each await that a
+   * write or an MG read follows re-checks that the matcher is still on THIS text, and quietly stops
+   * if not: whoever closed it already ran the exit. A write issued in the same tick as a passing
+   * check is queued ahead of the delete, so the delete still wins. */
+  const id = MG.docId;
+  const rec = await db.getDoc(id);
+  if (!MG || MG.docId !== id) return;
   if (!rec) { toast(t('toast.cantOpen')); return; }
   rec.doc = rec.doc || {};
   /* ROW i PAIRS WITH ROW i. Audio left over at the end gets a blank line each (Seth, 2026-09-03:
@@ -9761,6 +9815,7 @@ async function mgCommit() {
   Object.assign(rec, docStats(rec.doc));
   rec.modified = Date.now();
   await db.putDoc(rec);
+  if (!MG || MG.docId !== id) return;   // closed mid-write — never point `current` at it again (above)
   /* ⚠ THE OBJECT persist() WRITES. mgOpen pointed `current` at the record as it was BEFORE this
    * session; everything above went into a fresh copy. applyUpdateIfSafe() flushes persist() ahead
    * of a service-worker update — and persist()'s "skip while on the list" guard looks for
@@ -9781,6 +9836,9 @@ async function mgCommit() {
     catch (e) { toast(t('upload.error', { msg: e.message }), 9000); }
   }
   const noAudio = rec.doc.segments.filter((x) => x.timePending).length;
+  // Closed during the send (above): its exit already ran. A draft left behind equals what was just
+  // committed — reopening merely resumes it; clearing it now could race the delete and put it back.
+  if (!MG || MG.docId !== id) return;
   await mgClearDraft(MG.docId);        // committed: the draft has served its purpose
   toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
   // Said AFTER the save and separately: what Done added or left without audio is not a failure,
@@ -10345,6 +10403,7 @@ function mgClose() {
 async function mgStartOver() {
   if (!MG) return;
   if (!await confirmDialog(t('mg.startOverConfirm'))) return;
+  if (!MG) return;                      // the dialog is async; a remote delete may have closed it (#90)
   const id = MG.docId;
   await mgClearDraft(id);
   mgClose();

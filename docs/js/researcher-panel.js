@@ -9941,8 +9941,15 @@ function groupHtml(g, open) {
     + `<div class="rp-group rp-secbody">${notice}${outside}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${help}${wsWarn}${inside}</fieldset></div></details>`;
 }
 
-/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. Both surfaces wire this identically (app.js has the
- * same pair), so keep them in step.
+/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. The one-open-at-a-time rule is wired the same way on
+ * both surfaces (app.js wireSetupTabs / showSetupTab), so keep THAT in step.
+ * ⚠ BUT NOT THE SCROLLING (#87, Brian Plimley, 2026-10-01). This dialog deliberately (a) starts a
+ * newly chosen tab at the top (showSettingsTab) and (b) brings an opened section's top into view
+ * (revealSectionTop) — without them, opening a section after scrolling to the bottom of another
+ * left the reader in the middle of the new one, and a new tab kept the old tab's scroll offset.
+ * The Editor's own surfaces do NOT do this, on purpose: its text tabs keep their place for
+ * low-skilled users (Seth), and its Settings tab scrolls with the page. A later "bring the two back
+ * in step" change must not copy the scroll handling into app.js, nor drop it from here.
  *
  * ONE SECTION OPEN AT A TIME, per Seth 2026-09-09: "we want only one expanded at a time. If another
  * is expanded, then others collapse." Enforced on the `toggle` event rather than by hijacking the
@@ -9950,10 +9957,34 @@ function groupHtml(g, open) {
  * ⚠ `toggle` DOES NOT BUBBLE — the listener goes on each <details>, not on a container. */
 function wireSettingsTabs(box) {
   box.querySelectorAll(".rp-sec").forEach((d) => d.addEventListener("toggle", () => {
-    if (!d.open || !d.parentNode) return;
+    if (!d.open || !d.parentNode) return;               // a CLOSING section never moves the view
     d.parentNode.querySelectorAll(".rp-sec[open]").forEach((o) => { if (o !== d) o.open = false; });
+    revealSectionTop(d);                                 // #87: after the siblings collapsed, not before
   }));
   box.querySelectorAll(".rp-tab").forEach((b) => b.addEventListener("click", () => showSettingsTab(box, b.dataset.tab)));
+}
+
+/* BRING A JUST-OPENED SECTION'S TOP INTO VIEW (#87, Brian Plimley, 2026-10-01). The scroll box is
+ * the dialog's `.rp-groups`; closing a long sibling above shrinks the content and the browser
+ * leaves the reader wherever the clamp lands — often the middle or bottom of the new section.
+ * Only moves when the section's top is above the box or within 48px of its bottom (a summary
+ * sitting at the very foot with its body out of sight); a top already in view is left alone.
+ * ⚠ GUARDS, each a real case:
+ *   - inside a hidden tab panel: no layout, so every rect is 0 — and the markup's `open` on each
+ *     tab's first section fires `toggle` once the dialog is built, hidden tabs included;
+ *   - focus already INSIDE the section (not on its own summary): a validation jump (flagProblems)
+ *     opened it and focused the bad field, and that field owns the view — snapping to the section
+ *     top could push it off the bottom.
+ * ⚠ scrollTop, NEVER scrollIntoView: scrollIntoView scrolls every scrollable ancestor, including
+ * the page behind the fixed modal. Instant, not smooth — the jump IS the fix. */
+function revealSectionTop(d) {
+  const sc = d.closest(".rp-groups");
+  if (!sc || d.closest("[hidden]")) return;
+  const a = document.activeElement;
+  const sum = d.querySelector(":scope > summary");
+  if (a && a !== d && d.contains(a) && !(sum && sum.contains(a))) return;
+  const top = d.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+  if (top < 0 || top > sc.clientHeight - 48) sc.scrollTop += top;
 }
 
 function showSettingsTab(box, tabId) {
@@ -9968,14 +9999,29 @@ function showSettingsTab(box, tabId) {
   const panel = box.querySelector(`.rp-tabpanel[data-tab="${tabId}"]`);
   const first = panel && !panel.querySelector(".rp-sec[open]") && panel.querySelector(".rp-sec");
   if (first) first.open = true;
+  /* ⚠ A NEW TAB STARTS AT THE TOP (#87, Brian Plimley, 2026-10-01). The tab panels share one
+   * scroll box, so without this a tab opened where the last one had been scrolled to — often past
+   * its end. Only `.rp-groups`, never the card: the tab bar (and the device name above it) live in
+   * the card, outside this box. Re-clicking the tab you are on also returns to the top; that is
+   * fine. Panel only — the Editor's tabs keep their place on purpose (see wireSettingsTabs). */
+  const sc = box.querySelector(".rp-groups");
+  if (sc) sc.scrollTop = 0;
 }
 
-// Reveal one SECTION: its macro-tab, then the section itself, closing whatever else was open.
+/* Reveal one SECTION: its macro-tab, then the section itself, closing whatever else was open.
+ * ⚠ THE SIBLINGS CLOSE HERE, SYNCHRONOUSLY (#87, 2026-10-01) — not left to the toggle listener.
+ * showSettingsTab may have just re-opened the tab's FIRST section, and toggle events are queued:
+ * that first section's toggle, queued ahead of ours, ran first and closed the very section a
+ * validation jump had opened (reproduced). Closing it now means its toggle finds it shut and
+ * does nothing. */
 function showSettingsSection(box, secId, tabOf) {
   const map = tabOf || TAB_OF_SEC;
   showSettingsTab(box, map.get(secId) || secId);
   const sec = box.querySelector(`.rp-sec[data-group="${secId}"]`);
-  if (sec && !sec.open) sec.open = true;                 // the toggle listener closes its siblings
+  if (sec && !sec.open) {
+    sec.open = true;
+    if (sec.parentNode) sec.parentNode.querySelectorAll(".rp-sec[open]").forEach((o) => { if (o !== sec) o.open = false; });
+  }
   return sec;
 }
 

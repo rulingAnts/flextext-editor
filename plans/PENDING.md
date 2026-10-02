@@ -34,6 +34,85 @@ The item itself is tracked privately.
 
 ---
 
+## ⏸ PAUSED 2026-10-02 — Brian Plimley's issues, release v694 (resume here)
+
+Seth paused mid-release. Nothing is on staging or production yet. Production is still v689.
+
+**Where it stands**
+- `satellite-apps-v566` @ `98e9dd75` (pushed) has six reviewed fixes merged, one branch each:
+  - #89, `fix/89-move-text-without-audio`: a text with no recording can move, and a device is never
+    labelled "too old" for a refusal that is about the text.
+  - #90, `fix/90-remote-delete-open-text`: a text deleted while open takes its player dock with it,
+    including the Segmenter.
+  - #87, `fix/87-settings-dialog-scroll`: the settings dialog starts each tab at the top and shows an
+    opened section's top. Panel only.
+  - #91, `fix/91-baseline-ghost-text`: "Type what you hear…" on every empty baseline line.
+  - #88, `fix/88-location-only-with-consent`: location is asked only while the consent dialog is up
+    (Seth's decision).
+  - #85/#86, `fix/85-86-project-defaults-optional`: project defaults are optional, and a device with
+    no project defaults offers "use these as the defaults" (Seth's decision).
+  - Also the worker's `keep_vars = true`, merged from `main`.
+  - Full suite 659/659, i18n parity passes.
+- It is **not bumped** (still v690), has **no v694 RELEASES entry or release notes**, and is **not merged into
+  `lameta-device`/`staging`**.
+- `wip/v694-review-notes` @ `54f7c2c9` (pushed) holds a half-done, untested pass over the reviewers' notes
+  (only #88's). Rebase or redo it; do not merge it as is.
+
+**Review notes still to apply before release** (all from independent reviews; none blocking)
+- **#88**
+  - saveRecording race: cancel, re-consent and a new take during the location wait could store the
+    OLD file with the NEW receipt. Capture the take and its receipt before each await; bail if
+    `rec !== take`.
+  - Show "waiting for the location answer" in the record modal during that wait.
+  - Re-check that the dialog is open right before `getCurrentPosition`.
+  - Make the `consent.note` wording not promise "only once".
+  - De-flake the 25 ms timing bound in `consent-location-scope.test.mjs`.
+  - Guard the Consent Collector's ask button during the wait.
+- **#85/#86**
+  - The checkbox and toasts fall back to "Default Project" as the name; use a neutral fallback.
+  - Pin that the Default settings button loads defaults before it opens the form.
+  - Scope down the `strict` comments.
+- **#87**
+  - The reveal threshold must allow for the section header's height (60 px on a phone).
+  - Make the two "kept in step" comments true; the Editor's `showGroup` race is a known follow-up.
+- **#89**
+  - `manifestIncomplete`: "…not in its Drive folder yet. If it does not arrive, download…".
+  - Guard `declaresAudio` like `declaresFlextext`.
+  - Make the consent-clip comment exact.
+  - A neutral `nothingToMove` for adopt.
+  - A one-line note in drive-as-truth.md.
+- **#91**
+  - Fix a test assertion that cannot fail.
+  - Placeholder contrast must reach 4.5:1 on white and `--panel`.
+  - ID string: "Ketik apa yang Anda dengar…", with an honest length guard.
+  - Fix the "no border" comment.
+  - Acknowledge in the code that silence lines also get the ghost.
+
+**Then**
+1. `./bump-version.sh v694`.
+2. Add a RELEASES entry with `{ k, issue }` for 89, 90, 87, 91, 88 and 85/86, with EN + ID notes.
+3. Run the full suite.
+4. Push, merge into `lameta-device` (version and RELEASES conflicts resolve to v694, and lameta's
+   v691–v693 entries are kept), then merge into `staging` and deploy all seven apps.
+5. Verify every host's `sw.js`.
+
+**Seth checks on staging with real clicks**
+- Move… a .flextext-only Unassigned text to a device.
+- Remove an open text from a device: no dock is left behind.
+- Settings dialog scrolling.
+- Ghost text in the baseline.
+- No location prompt with consent off; a prompt with the dialog up when consent is on.
+- New project: no dialog. First device: offers to save its settings as the project defaults.
+
+Then the production push (Seth's), and close #85–#91 with a note to Brian each.
+
+**Worker:** `keep_vars = true` is on `main`, `productionWeb`, `satellite-apps-v566`, `lameta-device` and Seth's local
+`error-page-v689` (cherry-pick `f8670039`, not pushed). `ALLOWED_RESEARCHERS` is a dashboard text
+variable and must never go into `[vars]`, because this repo is public. The worker deploy is still
+deferred: v687's `select_account`, v690's `sha256Checksum`.
+
+---
+
 ## Where things stand (2026-08-16)
 
 - **production (`productionWeb`) = v384** (released 2026-08-17; gates green). Carries everything

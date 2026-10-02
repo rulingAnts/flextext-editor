@@ -7002,7 +7002,12 @@ function setupNoticeHtml(kind) {
 }
 
 /* SECTION → MACRO-TAB, and the accordion wiring. Mirrors the researcher panel’s TAB_OF_SEC /
- * wireSettingsTabs / showSettingsSection exactly — see the long note beside GROUPS over there. */
+ * wireSettingsTabs / showSettingsSection — see the long note beside GROUPS over there.
+ * ⚠ EXCEPT THE SCROLLING, on purpose (#87, Brian Plimley, 2026-10-01). The panel's settings dialog
+ * now starts a newly chosen tab at the top and brings an opened section's top into view; these
+ * functions do neither. This form scrolls with the page, and the Editor keeps its place for
+ * low-skilled users (Seth: the Editor's own text tabs must stay that way). Do not copy the
+ * panel's scrollTop handling in here when bringing the two back in step. */
 const SETUP_TAB_OF_SEC = new Map(SETUP_TABS.flatMap((tb) => tb.secs.map((sec) => [sec, tb.id])));
 
 /* ONE COLLAPSIBLE SECTION. Summary = the section name plus a one-line blurb of what is inside; nine

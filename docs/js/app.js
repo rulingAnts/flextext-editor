@@ -4633,10 +4633,30 @@ function deleteAfterUpload() {
 // Delete a just-uploaded doc + all its media, then refresh whichever list is
 // showing. If the doc is open in the editor, leave it first so the user isn't
 // stranded on an editor for a text that no longer exists.
+/* ⚠ "LEAVE IT" MEANS THE WHOLE LEAVE, NOT JUST THE VIEW (#90, Brian Plimley, 2026-10-01). The
+ * Researcher Panel removed a text while it was open in his Editor: the app went to the (empty) texts
+ * list, but "a working audio widget for the text that was deleted" stayed on screen. The player dock
+ * (#audio-player) is a SIBLING of the views, so show('texts') never hides it — only leaveEditor()
+ * does, the one leave-the-text teardown Back and returnToLibraryAfterSend already share (it also
+ * stops the three tab tickers and drops the strip canvases). Every route to a remote or auto delete
+ * of the open text ends here (the 'delete' and 'uploadDelete' commands, auto-delete after upload),
+ * so this is the one place to fix.
+ *
+ * ⚠ NO persist() HERE, unlike Back: the record is being deleted, and a write racing db.deleteDoc
+ * could put it back. leaveEditor runs AFTER `current = null`, and persist() returns at once on a null
+ * `current`, so nothing on the way out can resurrect it. It is safe in every shell that reaches this:
+ * the recorder and the consent collector have no dock (`player` stays null) and its lookups are all
+ * guarded. */
 function deleteUploadedDoc(docId) {
+  /* ⚠ THE AUDIO SEGMENTER'S OPEN TEXT LIVES IN THE MATCHER (MG), not in the editor (#90): without
+   * this the matcher stayed up over a deleted record. mgClose() is that app's one exit (ticker,
+   * dock, `current`, back to its own list) and runs FIRST — it releases `current` itself, so the
+   * editor branch below finds nothing open and the segmenter is torn down once, by its own exit. */
+  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
   if (current && current.id === docId) {
     current = null;
     splitCancel();   // a text closed mid-split: dropped, nothing written
+    leaveEditor();   // hides the player dock show() cannot reach, stops the tickers — see above (#90)
     if (!RECORD_MODE && !CONSENT_MODE && !SEGMENTER_MODE) show('texts');   // the satellites have no texts view
   }
   return db.deleteDoc(docId).catch(() => {}).then(() => {

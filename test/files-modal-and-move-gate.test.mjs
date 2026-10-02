@@ -174,8 +174,15 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
   const fn = (panel.match(/async function moveSources\([\s\S]*?\n\}/) || [''])[0];
   ok(/Array\.isArray\(body\.files\)/.test(fn),
      'an unreadable or wrong-shaped body is NOT a manifest — same rule the Files list uses');
-  ok(/ok: !!\(manifest && audio && \(picks\.flextext \|\| !declaresFlextext\)\)/.test(fn),
-     'eligibility needs the manifest AND an original recording — and a flextext only if one is declared');
+  /* #89 (Brian Plimley, 2026-10-01): the recording half now follows the rule the flextext half has
+   * followed since v416 — required only if the manifest DECLARES one. The old pin here was
+   * `manifest && audio && …`, which made a .flextext-only text unmovable everywhere. Both
+   * declared-but-absent cases still refuse, and so does a folder with nothing to deliver.
+   * test/move-text-without-audio.test.mjs runs the real function over each case. */
+  ok(/ok: !!\(manifest && \(audio \|\| !declaresAudio\) && \(picks\.flextext \|\| !declaresFlextext\) && \(audio \|\| picks\.flextext\)\)/.test(fn),
+     'eligibility needs the manifest; a recording and a flextext each only if declared; and at least one of them');
+  ok(/const declaresAudio = !!manifest && \(!!manifest\.audio \|\| manifest\.files\.some\(\(f\) => hasRole\(f, SOURCE_AUDIO_ROLES\)\)\)/.test(fn),
+     '...where a recording is "declared" by a non-null `audio` OR a source-audio row — every writer sets one');
 
   /* ⚠ ORDER IS THE FIX. The old code listed the folder only after the researcher had chosen a
    * device and pressed Move, then failed with nothingToMove — a refusal AFTER the commitment, which
@@ -190,8 +197,10 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
   const gateAt = mv.indexOf('await moveSources(');
   const pickerAt = mv.indexOf('const m = modal(');
   ok(gateAt > 0 && pickerAt > gateAt, 'the check runs BEFORE the device picker is built');
-  ok(/why = src\.manifest \? 'panel\.move\.manifestIncomplete' : 'panel\.move\.noManifest'/.test(mv),
-     'and the two causes are named separately — a missing manifest is not an incomplete one');
+  /* #89 added the third cause: a manifest that declares nothing and a folder that holds nothing is
+   * not "incomplete" — no named file is missing — so it gets nothingToMove instead. */
+  ok(/why = !src\.manifest \? 'panel\.move\.noManifest'\s*: src\.declaredMissing \? 'panel\.move\.manifestIncomplete' : 'panel\.move\.nothingToMove'/.test(mv),
+     'and the causes are named separately — a missing manifest is not an incomplete one, and neither is an empty one');
 
   // The commit path must not re-derive what the gate already resolved.
   ok(/idOf\(src\.picks\.flextext\)/.test(mv) && /idOf\(src\.audio\)/.test(mv),

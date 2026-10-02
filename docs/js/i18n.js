@@ -1157,6 +1157,10 @@ internet after the first time.</p>
   'panel.move.slow': 'Still working — on a slow connection this step can take a minute.',
   'panel.move.tooOldAt': 'reported {ver} as of {when} — too old to receive a move',
   'panel.move.tooOldUnknown': 'has not reported its version yet — open the app on that device',
+  /* #89 (Brian Plimley, 2026-10-01): the label on a device tile disabled because the TEXT could not be
+   * sent — never the version, which said "too old" about a current device. Neutral on purpose: the
+   * refusal can also come from a folder listing that failed, so it points at the note, which names it. */
+  'panel.move.textBlocked': 'cannot receive this text — see the note above',
   'panel.move.allTooOld': 'No destination device has reported a new enough app yet. The panel shows the last version each device reported, so a device that has just updated will still look old until it next connects.',
   'panel.move.noOther': 'There is no other device to move to.',
   /* Unassigned as a MOVE TARGET (Seth, 2026-08-19). Not tidiness: §16.25 requires that a text enter
@@ -1182,7 +1186,9 @@ internet after the first time.</p>
    * guess is exactly what the manifest exists to replace. Both strings say the REMEDY, because
    * "can't" with no next step reads as a broken app. */
   'panel.move.noManifest': 'This text cannot be moved automatically: its Drive folder has no manifest, so there is no dependable record of which file is the current text and which is the original recording. Download the folder and re-upload it to the device you want it on.',
-  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest does not identify both a current .flextext and an original recording. Download the folder and re-upload it to the device you want it on.',
+  /* #89: fires only when the manifest NAMES a file that is not in the folder. A text that never had a
+   * recording (or a transcription) is not incomplete and now moves without it. */
+  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest names a file (the current .flextext or the original recording) that is not in its Drive folder yet. Download the folder and re-upload it to the device you want it on.',
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
   'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
   'panel.move.removingSrc': 'moving \u2014 removing from this device',
@@ -3735,6 +3741,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.slow': 'Masih berjalan — pada koneksi lambat, langkah ini bisa memakan waktu satu menit.',
   'panel.move.tooOldAt': 'melaporkan {ver} pada {when} — terlalu lama untuk menerima pemindahan',
   'panel.move.tooOldUnknown': 'belum melaporkan versinya — buka aplikasi di perangkat itu',
+  /* #89 — lihat catatan pada blok en. */
+  'panel.move.textBlocked': 'tidak dapat menerima teks ini — lihat catatan di atas',
   'panel.move.allTooOld': 'Belum ada perangkat tujuan yang melaporkan aplikasi yang cukup baru. Panel menampilkan versi terakhir yang dilaporkan setiap perangkat, jadi perangkat yang baru saja diperbarui akan tetap terlihat lama sampai ia terhubung lagi.',
   'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
   'panel.move.unassignedOpt': 'Google Drive (tidak tertugas)',
@@ -3751,7 +3759,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
   /* v347 \u2014 lihat catatan pada blok en. */
   'panel.move.noManifest': 'Teks ini tidak bisa dipindahkan secara otomatis: folder Drive-nya tidak punya manifes, jadi tidak ada catatan yang bisa diandalkan tentang berkas mana yang merupakan teks terkini dan mana rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
-  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya tidak menyebutkan sekaligus .flextext terkini dan rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
+  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya menyebutkan sebuah berkas (.flextext terkini atau rekaman aslinya) yang belum ada di folder Drive-nya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
   'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
   'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',

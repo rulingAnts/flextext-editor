@@ -5332,3 +5332,55 @@ researcher's key, like the settings blobs); the Utilities link.
 code with the manager face removed, or a new shell; how a request names a text that is not yet in
 the suite (a lameta session id, a title?); what a "level" is called to a coworker who only ever sees
 the speaker's own answer (§3.6: the companion must not show other people's decisions).
+
+## Auto-segment ONE segment: cut a long recording into a few big pieces by hand, then Guess each piece (Seth, 2026-10-03)
+
+> *"add the ability to auto-segment a SEGMENT, so that the user can manually break an audio file that
+> is too large into a few big segments and then autosegment the pieces."*
+
+**Not scheduled.** It is the manual half of issue #93 ("Auto-segmenting not available for recordings
+longer than ten minutes", Seth, 2026-10-02), where Seth suggested the automatic half: the app finds
+convenient points to split a long recording into halves or quarters first, then guesses each piece.
+Build this one first. The automatic version is this same operation, run on pieces the app chose.
+
+**Why the limit exists, and why this does not break it.** `GUESS_MAX_MS` (10 minutes,
+`docs/js/segments.js` ~449, Seth 2026-08-13) caps the INPUT. Detection is cheap at any length (40
+minutes of peaks is about 45 ms). What a phone cannot afford is the OUTPUT: one press on 40 minutes is
+~650 lines, each a live `<canvas>` in the Cut tab. A Guess scoped to one segment of at most 10 minutes
+yields at most ~160 lines per press, which is what the cap already allows. The cap applies to the span
+being guessed, not to the recording.
+
+**What exists today** (`docs/js/segment-strips.js`, shared by the Editor's Cut tab and the Audio Segmenter):
+- `guessSplits(peaks, msPerBucket, opts)` finds the boundaries.
+- `applyGuessedSplits(paragraphs, boundaries, opts)` replaces the whole segmentation.
+- `guessBlockedBecause()` (~2336) refuses when any line has text or the doc has work
+  (`cut.no.guessText`), when there is no audio, or when the recording is over the cap
+  (`cut.no.guessLong`).
+- The Guess handler (~2385) asks `confirmReplace` once anything has been cut by hand.
+
+**The shape:**
+- **A per-segment action**, "✨ Guess lines inside this segment", on a strip or for the segment under
+  the playhead. It is offered when that segment has NO text and is no longer than `GUESS_MAX_MS`.
+  The whole-file ✨ keeps today's rules.
+- **Only that segment changes.** Run `guessSplits` on the peaks sliced to the segment's
+  `[start, end)` and offset the results. Add boundaries only strictly inside it. Every other
+  boundary and every other line, including lines that already have text, stays exactly as it was.
+  Text is sacred, and this never splits a line that has words. So, unlike the whole-file Guess, it
+  is allowed when OTHER lines are transcribed: a coworker can transcribe piece 1, then guess piece 2.
+- **One undo step** for the whole set of new boundaries.
+- **The same detection settings.** Today's thresholds, plus the future "split silence out as blank
+  lines / absorb it / off" device setting (the auto-segmentation entry above, Seth's three choices),
+  apply unchanged inside the range.
+- **Gated like every audio-segmenting affordance:** researcher-toggleable per device, and off where
+  auto-segmentation is off.
+- **Long recordings still end up with hundreds of lines** once every piece is guessed. Building those
+  ~650 canvases is the Cut tab's own scaling problem: #31 (waveform previews stop drawing on 10–15
+  minute files), #46 (draw strips as SVG paths), and the "render only a window of lines" idea in
+  #93. This feature makes long recordings segmentable; it does not make them cheap to display.
+
+**Open, for the day it is scheduled:**
+- Can the action live on the strip itself on a phone without crowding it, or does it belong in the
+  existing ✨ menu as "this segment / whole recording"?
+- For a segment over 10 minutes, offer to split it at its longest pause first (the automatic #93
+  step), or just refuse?
+- Should the Audio Segmenter's matcher get it too?

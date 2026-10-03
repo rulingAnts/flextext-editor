@@ -5387,6 +5387,11 @@ being guessed, not to the recording.
   minute files), #46 (draw strips as SVG paths), and the "render only a window of lines" idea in
   #93. This feature makes long recordings segmentable; it does not make them cheap to display.
 
+**Bigger question, deliberately left for later** (Seth, 2026-10-03): longer recordings may need
+higher-level macro-segmenting, something like chapters that load one at a time in the editor, or
+other options like that. Seth will hold a planning conversation (with Fable) before any of this
+is built. Treat everything in this entry as provisional until then.
+
 **Open, for the day it is scheduled:**
 - Can the action live on the strip itself on a phone without crowding it, or does it belong in the
   existing ✨ menu as "this segment / whole recording"?

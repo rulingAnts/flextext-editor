@@ -5343,6 +5343,15 @@ longer than ten minutes", Seth, 2026-10-02), where Seth suggested the automatic 
 convenient points to split a long recording into halves or quarters first, then guesses each piece.
 Build this one first. The automatic version is this same operation, run on pieces the app chose.
 
+Seth, the same day: *"auto is fine too, but for users who have already started manually segmenting,
+being able to auto-segment by segment is useful as well."* So both are wanted, and they serve
+different people:
+- **The automatic split (#93)** is for a fresh long recording.
+- **The per-segment Guess** is for someone who has already cut part of a recording by hand, or
+  transcribed some lines. Today they have no way to hand the untouched rest to the detector: the
+  whole-file Guess only offers to replace every cut (`confirmReplace`), and it refuses outright once
+  any line has text (`cut.no.guessText`).
+
 **Why the limit exists, and why this does not break it.** `GUESS_MAX_MS` (10 minutes,
 `docs/js/segments.js` ~449, Seth 2026-08-13) caps the INPUT. Detection is cheap at any length (40
 minutes of peaks is about 45 ms). What a phone cannot afford is the OUTPUT: one press on 40 minutes is

@@ -1998,6 +1998,17 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
 .rp-tab { appearance: none; border: none; background: none; padding: 8px 12px; font-size: 14px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .rp-tab.on { color: var(--blue-dark); border-bottom-color: var(--blue); font-weight: 600; }
 
+/* A modal's title row with its ✕ (modalHead in researcher-panel.js). Sticky to the top of the
+   scrolling card, painted over the card's padding so content slides under it, not over it. */
+.rp-modal-head { position: sticky; top: -20px; z-index: 2; display: flex; align-items: flex-start; gap: 10px;
+  margin: -20px -22px 0; padding: 20px 22px 6px; background: #fff; }
+.rp-modal-head h3 { flex: 1 1 auto; margin: 0; }
+.rp-modal-x { appearance: none; flex: none; width: 32px; height: 32px; margin: -4px -6px 0 0; padding: 0;
+  border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--muted);
+  font: 16px/1 inherit; cursor: pointer; }
+.rp-modal-x:hover { color: var(--text); background: var(--panel); }
+.rp-modal-x:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
 /* ---------------- Settings: collapsible sections inside a macro-tab (v641) ----------------
    Nine sections under four tabs, ONE OPEN AT A TIME (the JS enforces that on the toggle event).
    A closed section is a two-line row — name plus a blurb of what is inside — so the whole tab is

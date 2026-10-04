@@ -119,11 +119,14 @@
       <button class="player-play icon-btn2" data-i18n-title="player.play">▶</button>
       <button class="player-home icon-btn2" data-i18n-title="player.home">⏮</button>
       <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
-      <!-- 🔁 REPEAT (Seth, 2026-10-04). One toggle for every ▶ on the page: on, a line's ▶ repeats that
+      <!-- REPEAT (Seth, 2026-10-04). One toggle for every ▶ on the page: on, a line's ▶ repeats that
            line and this ▶ repeats the whole recording. The Player owns the state (audio.js setLoop);
-           its starting state is the device setting loopPlay. 🔁 is Emoji 0.6 (2010), safe everywhere. -->
+           its starting state is the device setting loopPlay. ⚠ A LINE-DRAWN ICON, NOT THE 🔁 EMOJI
+           (Seth: "I don't want an ugly iPhone emoji bubbly curved-square icon") — an emoji is the OS's
+           picture, and Apple's is a blue rounded square. Strokes in currentColor, so it matches the
+           glyph buttons beside it on every phone. -->
       <button class="player-loop icon-btn2" data-i18n-title="player.loop" data-i18n-aria="player.loop"
-              aria-label="Repeat" aria-pressed="false">🔁</button>
+              aria-label="Repeat" aria-pressed="false"><svg class="player-loop-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
       <!-- ✂ at the playhead (Seth, 2026-09-04): cuts whichever piece the big player is inside.
            Hidden until the matcher owns the dock; the engine's Player only looks it up. -->
       <button class="player-cut icon-btn2" data-i18n-title="player.cut" hidden>✂</button>

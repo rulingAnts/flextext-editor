@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v699';
+export const ENGINE_VERSION = 'v700';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1630,7 +1630,7 @@ internet after the first time.</p>
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
     ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording.'
-    ,'panel.rel.new.loopPlay': 'Repeat playback: a \ud83d\udd01 button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
+    ,'panel.rel.new.loopPlay': 'Repeat playback: a Repeat button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
     ,'panel.rel.new.bootScreen': 'The Researcher app shows a loading screen the moment it opens, instead of a blank page until all of its code has downloaded. On a slow connection it says so after 20 seconds and offers a reload; if the connection dropped, it says that.'
     ,'panel.rel.new.helpTutorials': 'Help now opens on the three tutorial videos (Brian Plimley’s, in English, with Indonesian subtitles in the player), with "More help…" below for the written guide.'
     ,'panel.rel.new.modalClose': '"About this version" and Help have a ✕ at the top that stays in reach while you scroll, not only a Close button at the bottom.'
@@ -2336,8 +2336,8 @@ internet after the first time.</p>
   'panel.opt.scale.1.5': 'Largest',
   'panel.f.spacePlays': 'The Space bar plays / pauses the audio',
   'panel.f.spacePlaysNote': 'Automatic = off on a mobile device (an Android phone or tablet), where Space is for typing; on a laptop, touch screen or not, Space plays. Shift+Space always plays or pauses, even inside a text box; so does the \u25b6 button.',
-  'panel.f.loopPlay': 'Start with Repeat (\ud83d\udd01) on',
-  'panel.f.loopPlayNote': 'Off by default. With Repeat on, a line\u2019s \u25b6 plays that line again and again until it is paused, and the big player\u2019s \u25b6 repeats the whole recording. The \ud83d\udd01 button on the player turns it on or off at any time; this only sets what it starts as when a text is opened.',
+  'panel.f.loopPlay': 'Start with Repeat on',
+  'panel.f.loopPlayNote': 'Off by default. With Repeat on, a line\u2019s \u25b6 plays that line again and again until it is paused, and the big player\u2019s \u25b6 repeats the whole recording. The Repeat button on the player turns it on or off at any time; this only sets what it starts as when a text is opened.',
   // ── The three typing dials: analysis language only. plans/typing-policy.md has the reasoning.
   // Each tooltip has to state a platform caveat, because each dial can do less on Android than a
   // researcher would reasonably assume from its name.
@@ -4254,7 +4254,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
     ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya.'
-    ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol \ud83d\udd01 di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
+    ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol Ulangi di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
     ,'panel.rel.new.bootScreen': 'Aplikasi Peneliti kini menampilkan layar pemuatan begitu dibuka, bukan halaman kosong sampai seluruh kodenya selesai diunduh. Pada koneksi lambat, setelah 20 detik aplikasi memberi tahu dan menawarkan muat ulang; jika koneksi terputus, itu pun disebutkan.'
     ,'panel.rel.new.helpTutorials': 'Bantuan kini dibuka dengan tiga video tutorial (buatan Brian Plimley, berbahasa Inggris, dengan subtitel bahasa Indonesia di pemutar video), dan "Bantuan lainnya…" di bawahnya untuk panduan tertulis.'
     ,'panel.rel.new.modalClose': '"Tentang versi ini" dan Bantuan punya tanda ✕ di bagian atas yang tetap terjangkau saat Anda menggulir, bukan hanya tombol Tutup di bagian bawah.'
@@ -4877,8 +4877,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.scale.1.5': 'Paling besar',
   'panel.f.spacePlays': 'Tombol Spasi memutar / menjeda audio',
   'panel.f.spacePlaysNote': 'Otomatis = mati di perangkat seluler (ponsel atau tablet Android), tempat Spasi dipakai untuk mengetik; di laptop, dengan atau tanpa layar sentuh, Spasi memutar. Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks; begitu pula tombol \u25b6.',
-  'panel.f.loopPlay': 'Mulai dengan Ulangi (\ud83d\udd01) menyala',
-  'panel.f.loopPlayNote': 'Mati secara bawaan. Dengan Ulangi menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus sampai dijeda, dan \u25b6 pada pemutar besar mengulang seluruh rekaman. Tombol \ud83d\udd01 di pemutar bisa menyalakan atau mematikannya kapan saja; pengaturan ini hanya menentukan keadaan awalnya saat sebuah teks dibuka.',
+  'panel.f.loopPlay': 'Mulai dengan Ulangi menyala',
+  'panel.f.loopPlayNote': 'Mati secara bawaan. Dengan Ulangi menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus sampai dijeda, dan \u25b6 pada pemutar besar mengulang seluruh rekaman. Tombol Ulangi di pemutar bisa menyalakan atau mematikannya kapan saja; pengaturan ini hanya menentukan keadaan awalnya saat sebuah teks dibuka.',
   // ── Tiga tombol pengetikan: hanya bahasa analisis. Lihat plans/typing-policy.md.
   'panel.sub.analTyping': 'Ejaan, saran kata, dan koreksi otomatis',
   'panel.f.analSpellcheck': 'Periksa ejaan bahasa analisis',

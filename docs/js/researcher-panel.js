@@ -10381,6 +10381,11 @@ async function openSettingsModal(target, opts = {}) {
     <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true);
 
   const box = m.el;
+  // Sized for a form, not a message: see .rp-settings in app.css (the fields area keeps a floor;
+  // on a phone the dialog takes the whole screen).
+  box.classList.add('rp-settings-wrap');
+  const card = box.classList.contains('modal-card') ? box : box.querySelector('.modal-card');
+  if (card) card.classList.add('rp-settings');
   wireSettingsTabs(box);
   wireLanguageNames(box, 'data-f', wsLangLabel);   // the name under each code box follows the typing
   /* showGroup takes a SECTION id, not a tab id — every caller (the validation banner and its jump

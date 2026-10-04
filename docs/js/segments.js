@@ -588,6 +588,64 @@ export function applyGuessedSplits(paragraphs, boundaries, opts = {}) {
   return { ok: true, reason: '', segments: out, paragraphs: out.map(() => '') };
 }
 
+/* THE SAME DETECTOR, INSIDE ONE PIECE (Seth, 2026-10-04: "the ability to 'guess' split a single
+ * segment … one way to work around the ten-minute limit"). The peaks are sliced to [startMs, endMs)
+ * and the detector sees the slice as a recording of its own — its noise floor and speech level come
+ * from this piece alone, its minimum-line rule runs from the piece's start, its "no sliver at the
+ * end" rule ends at the piece's end — and the boundaries are moved back to file time. Only
+ * boundaries strictly inside the piece come back, so the piece's own edges never move.
+ *
+ * ⚠ `base` is the slice's first bucket in file time, not startMs: the slice starts on a bucket
+ * boundary, and adding startMs to bucket-measured offsets would drift by up to one bucket.
+ *
+ * @returns {number[]} boundary times in ms (file time), ascending, strictly inside (startMs, endMs) */
+export function guessSplitsWithin(peaks, msPerBucket, startMs, endMs, opts = {}) {
+  const mpb = isNum(msPerBucket) && msPerBucket > 0 ? msPerBucket : 0;
+  if (!peaks || !peaks.length || !mpb || !isNum(startMs) || !isNum(endMs) || endMs <= startMs) return [];
+  const from = Math.max(0, Math.floor(startMs / mpb));
+  const to = Math.min(peaks.length, Math.ceil(endMs / mpb));
+  if (to - from < 4) return [];
+  const slice = typeof peaks.subarray === 'function' ? peaks.subarray(from, to) : peaks.slice(from, to);
+  const base = from * mpb;
+  return guessSplits(slice, mpb, { ...opts, durationMs: endMs - base })
+    .map((c) => Math.round(base + c))
+    .filter((c) => c > startMs && c < endMs);
+}
+
+/* Apply such a guess to ONE piece: segments[i] becomes k+1 pieces and paragraphs[i] becomes k+1
+ * empty lines, 1:1 like everything else here, and every other segment and paragraph is carried
+ * over untouched. That is what makes it allowed while OTHER lines already have words: the
+ * whole-file applyGuessedSplits refuses any document with text in it; this refuses only a texted
+ * piece. Boundaries closer than minMs to the piece's edges or to each other are dropped rather
+ * than minting a sliver. Same { ok, reason, segments, paragraphs } shape as cutAtPlayhead, so a
+ * caller cannot apply half of it; `added` is how many boundaries went in. */
+export function applyGuessedSplitsWithin(segments, paragraphs, i, boundaries, opts = {}) {
+  const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
+  const segs = (segments || []).map((s) => ({ ...s }));
+  const paras = (paragraphs || []).slice();
+  const fail = (reason) => ({ ok: false, reason, index: i, segments: segs, paragraphs: paras, added: 0 });
+  if (!Number.isInteger(i) || i < 0 || i >= segs.length) return fail('outside');
+  if (String(paras[i] || '').trim()) return fail('hasText');
+  const cur = segs[i];
+  if (!isAligned(cur)) return fail('noAudio');
+  const cuts = [];
+  for (const b of (boundaries || []).filter(isNum).sort((x, y) => x - y)) {
+    const prev = cuts.length ? cuts[cuts.length - 1] : cur.start;
+    if (b - prev < minMs || cur.end - b < minMs) continue;
+    cuts.push(b);
+  }
+  if (!cuts.length) return fail('none');
+  const pieces = [];
+  let start = cur.start;
+  for (const c of cuts) { pieces.push({ ...cur, start, end: c }); start = c; }
+  pieces.push({ ...cur, start, end: cur.end });
+  segs.splice(i, 1, ...pieces);
+  paras.splice(i, 1, ...pieces.map(() => ''));
+  const out = normalizeSegments(segs, opts);
+  if (out.length !== segs.length) return fail('none');          // belt and braces, as cutAtPlayhead
+  return { ok: true, reason: '', index: i, segments: out, paragraphs: paras, added: cuts.length };
+}
+
 /* ---------------------------------------------------------------------------------------------
  * ONE SPLITTING RULE ACROSS THE TABS (Seth, 2026-09-06; plans/split-tiers.md).
  *

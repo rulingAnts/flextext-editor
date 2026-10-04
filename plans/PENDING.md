@@ -34,7 +34,29 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v698 — released 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v698 (1d20e254)
+## ▶ v699 — assembled 2026-10-04 (✨ inside one piece, 🔁 Repeat playback); production is v698 (1d20e254)
+
+On branch `feat/guess-piece-loop`, for staging:
+- **✨ guesses the lines inside ONE piece** (Seth, 2026-10-04: "'guess' split a single segment … one way to
+  work around the ten-minute limit"; the manual half of #93). Same button, two modes (`guessMode` in
+  `docs/js/segment-strips.js`): the whole-file guess in the two states it was ever offered in (the seed, an
+  untouched guess); otherwise the piece under the playhead — empty, ≤ `GUESS_MAX_MS` — and nothing else.
+  No confirm, one undo step; the button is no longer hidden over manual work (scope is the protection).
+  Pure half: `guessSplitsWithin` / `applyGuessedSplitsWithin` in `segments.js` (test/guess-piece.test.mjs).
+  The over-ten-minutes refusal now says how: cut into pieces, then ✨ in each. The segmenter's matcher
+  (`mgGuess`) is unchanged — still whole-file only.
+- **🔁 Repeat** (Seth, 2026-10-04): state on the shared `Player` (`setLoop`/`loop`, `docs/js/audio.js`),
+  so a line's ▶ repeats the line and the dock's ▶/Space repeat the recording, in the editor and the
+  segmenter alike. Toggle on the dock in both shells; device setting `loopPlay` (Typing section, both
+  settings surfaces, default off) is the STARTING state when a text opens. Bounded: one seek per lap on
+  wavesurfer's own tick, no allocation, the one watcher; laps under `LOOP_MIN_LAP_S` (0.3 s) and an empty
+  recording fall back to stop-and-park (Seth: "make sure a loop doesn't have unintended consequences for
+  performance, stability, crash"). test/loop-play.test.mjs drives the real Player with a fake wavesurfer.
+  The PAT keeps its own `<audio>` player: a toggle plus two lines there, later. The unpaired Audio
+  Segmenter's own Settings tab does not list `loopPlay` (its dock toggle works; a paired one gets the
+  researcher's value).
+
+## v698 — released 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes)
 
 All seven apps verified live at v698 (deploy run 37183736070; every endpoint fetched twice 45 s apart,
 research.flextext.app's researcher-panel.js and app.css byte-identical to the commit; main = productionWeb =

@@ -34,12 +34,21 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v698 — assembled 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v696 (9d645f80)
+## ▶ v698 — released 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v698 (1d20e254)
 
-All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
+All seven apps verified live at v698 (deploy run 37183736070; every endpoint fetched twice 45 s apart,
+research.flextext.app's researcher-panel.js and app.css byte-identical to the commit; main = productionWeb =
+staging = 1d20e254). v698 = the researcher PWA boot screen (the shell paints before app.js arrives, with the
+sw.js offline page kept), the tutorial videos in the panel's Help in flextext.app's look (16:9 player, thumbnail
+tiles, Brian's descriptions; Indonesian subtitles on when the UI is Indonesian; never in the editor), a ✕ at the
+top of About this version / Help, known issues replaced by a link to GitHub issues, and the reviewers' notes on
+#85–#91. v697 was renumbered v698 before leaving staging. No issues to close. Nothing is staged beyond production.
+
+Earlier the same day, v696:
+ all seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
 shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
 the settings-dialog room fix, and "a new device cannot be left without settings". Nothing from other
-users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
+users is open. Production carries v690–v698, so the lameta-device milestones M1–M4 are in production
 too, still behind `?lameta=1`.
 
 **Open next (v698):** the reviewers' remaining notes on #85–#91 (listed below; branch

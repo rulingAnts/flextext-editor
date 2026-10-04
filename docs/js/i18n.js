@@ -299,15 +299,22 @@ en: {
 
   'baseline.hint': 'Type or paste the text. Press <b>Enter</b> for a new paragraph. Sentences are split automatically at <code>. ! ?</code>',
   /* SEGMENTATION MODE has a different Enter, so it needs a different sentence — the classic hint
-   * above says "a new paragraph", which here also moves a boundary in the recording. */
-  'baseline.hintSeg': 'Type the words for each line. <b>Enter</b> inside a box breaks the line at the cursor; '
+   * above says "a new paragraph", which here also moves a boundary in the recording.
+   *
+   * ⚠ IN PIECES, ONE PER CAPABILITY (#92, Brian Plimley, 2026-10-02: "even if splitting/joining is
+   * disabled, the instructions still explain how to split/join"). applyBaselineHint in app.js
+   * assembles them from the live settings: the lead always; then EITHER the Enter-splits sentence (a
+   * device still set to `split`, where Enter does divide a line) OR the Enter-moves-on sentence (the
+   * default for new devices — the Enter-splits sentence became false there in v635); and the
+   * sentences that explain how to SPLIT a line (Enter splitting, the ✂ at the left edge) only while
+   * joinSplitBaseline allows one. With every capability on, the assembled text is word for word what
+   * the two single paragraphs (hintSeg / hintSegMove) used to say. */
+  'baseline.hintSegLead': 'Type the words for each line. ',
+  'baseline.hintSegEnterSplit': '<b>Enter</b> inside a box breaks the line at the cursor; '
     + '<b>Enter</b> with no box selected breaks it at the playhead and keeps the words together \u2014 so you can '
     + 'listen and cut without typing.',
-  /* ⚠ THE "MOVE TO NEXT" TWIN. hintSeg above stays exactly right for a device still set to `split`,
-   * where Enter does divide a line. Where Enter moves on instead (the default for new devices) that
-   * sentence became false in v635, and this is the instruction a coworker actually reads. */
-  'baseline.hintSegMove': 'Type the words for each line. <b>Enter</b> moves on to the next line. '
-    + 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
+  'baseline.hintSegEnterMove': '<b>Enter</b> moves on to the next line. ',
+  'baseline.hintSegScissors': 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
     + 'every place you can cut. Tap it again to put them away.',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
   /* ⚠ THE GHOST IN EACH EMPTY SEGMENT BOX (#91, Brian Plimley, 2026-10-02: "the text box where an
@@ -318,6 +325,9 @@ en: {
   'baseline.linePh': 'Type what you hear…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
+  /* The same note for a device whose researcher hid the Baseline tab (#92): it must not send the
+   * glosser to a tab they do not have. applyGlossEmptyHint in app.js picks one or the other. */
+  'gloss.emptyNoBaseline': 'Nothing to gloss yet \u2014 the words of this text have not been typed.',
   'gloss.blankLine': '(blank line — nothing to gloss)',
   'gloss.wordLabel': 'Word',
   'gloss.glossLabel': 'Gloss',
@@ -2291,7 +2301,10 @@ internet after the first time.</p>
   'cut.join': 'Join with previous',
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
   'cut.no.outside': 'Move the playhead into a line first \u2014 press play, then cut where you want the line to end.',
-  'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here. Split it on the Baseline tab instead, where you can choose where the words divide.',
+  /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Baseline tab's split, so segment-strips
+   * (cutRefusal) adds it only when that device has one — Baseline tab shown AND joinSplitBaseline on. */
+  'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here.',
+  'cut.no.hasTextBaseline': 'Split it on the Baseline tab instead, where you can choose where the words divide.',
   'cut.no.tooShort': 'Too close to the edge of the line \u2014 move the playhead a little further in.',
   'cut.no.first': 'This is the first line, so there is nothing before it to join to.',
   /* "Guess the lines" — silence detection over the peaks the waveforms are drawn from. The wording
@@ -3010,16 +3023,19 @@ id: {
   'banner.unset': 'Sistem tulisan belum diatur — teks baru akan memakai kode sementara. Minta tautan pengaturan dari peneliti, atau buka tab <b>Pengaturan</b>.',
 
   'baseline.hint': 'Ketik atau tempel teks di sini. Tekan <b>Enter</b> untuk paragraf baru. Kalimat dipisah otomatis pada <code>. ! ?</code>',
-  'baseline.hintSeg': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> di dalam kotak memotong baris di posisi kursor; '
+  // Potongan-potongan petunjuk tab Ketik (#92) — dirangkai app.js menurut pengaturan perangkat; lihat blok en.
+  'baseline.hintSegLead': 'Ketik kata-kata untuk tiap baris. ',
+  'baseline.hintSegEnterSplit': '<b>Enter</b> di dalam kotak memotong baris di posisi kursor; '
     + '<b>Enter</b> tanpa kotak yang dipilih memotongnya di posisi pemutar dan kata-katanya tetap utuh \u2014 jadi Anda '
     + 'bisa mendengarkan sambil memotong tanpa mengetik.',
-  'baseline.hintSegMove': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> berpindah ke baris berikutnya. '
-    + 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
+  'baseline.hintSegEnterMove': '<b>Enter</b> berpindah ke baris berikutnya. ',
+  'baseline.hintSegScissors': 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
     + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
   'baseline.linePh': 'Ketik yang Anda dengar…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
+  'gloss.emptyNoBaseline': 'Belum ada yang bisa dikerjakan \u2014 kata-kata teks ini belum diketik.',
   'gloss.blankLine': '(baris kosong — tidak ada yang digloss)',
   'gloss.wordLabel': 'Asli',
   'gloss.glossLabel': 'Harfiah',
@@ -4718,7 +4734,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.join': 'Gabung dengan sebelumnya',
   'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',
   'cut.no.outside': 'Pindahkan posisi putar ke dalam sebuah baris dulu \u2014 tekan putar, lalu potong di tempat baris itu ingin diakhiri.',
-  'cut.no.hasText': 'Baris ini sudah ada kata-katanya, jadi tidak bisa dipotong di sini. Pisahkan di tab Ketik saja, di mana Anda bisa memilih di mana kata-katanya dibagi.',
+  'cut.no.hasText': 'Baris ini sudah ada kata-katanya, jadi tidak bisa dipotong di sini.',
+  'cut.no.hasTextBaseline': 'Pisahkan di tab Ketik saja, di mana Anda bisa memilih di mana kata-katanya dibagi.',
   'cut.no.tooShort': 'Terlalu dekat dengan tepi baris \u2014 geser posisi putar sedikit lagi ke tengah.',
   'cut.no.first': 'Ini baris pertama, jadi tidak ada yang mendahuluinya untuk digabung.',
   'cut.guess': 'Tebak barisnya',

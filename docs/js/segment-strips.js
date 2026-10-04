@@ -1990,6 +1990,15 @@ function cutCurrentIndex() {
   return segmentIndexAt(cutSegs(), cutDeps.getPlayer()?.playheadMs?.());
 }
 function cutJoinOk() { return !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTexted()); }
+/* The refusal a texted line gets on this tab ends by pointing at the Baseline tab's split — but only
+ * while that device HAS one (Baseline tab shown and joinSplitBaseline on, read through the host's
+ * `splitOnBaseline`), or the instructions explain a control the user does not have (#92). Absent dep
+ * (an older host that never passed it) keeps the full message, as before. */
+function cutRefusal(reason) {
+  let msg = cutDeps.t('cut.no.' + reason);
+  if (reason === 'hasText' && !(cutDeps.splitOnBaseline && !cutDeps.splitOnBaseline())) msg += ' ' + cutDeps.t('cut.no.hasTextBaseline');
+  return msg;
+}
 
 /* ── the cuts already made, drawn ON THE ONE PLAYER ────────────────────────────────────────────
  * Seth, 2026-08-13: "there's TWO waveform displays at the top of the whole audio file. I don't want
@@ -2223,7 +2232,7 @@ export function cutHere() {
   const ms = cutDeps.getPlayer()?.playheadMs?.();
   const at = cutCurrentIndex();                    // the row to hold still across the rebuild
   const r = cutAtPlayhead(cutSegs(), cutDeps.getParagraphs(doc), ms, { duration: peaksCache.durationMs || null });
-  if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
+  if (!r.ok) { cutSay(cutRefusal(r.reason)); return; }
   /* ⚠ A SPAN WATCHER ARMED BEFORE THE CUT NOW DESCRIBES A SPAN THAT NO LONGER EXISTS. playSpan
    * captures its stop time and its rewind-home when the button is pressed, so auditioning a line and
    * then cutting it — the tab's core loop, listen and cut on the fly — would pause playback at the
@@ -2430,7 +2439,7 @@ export function cutJoinPrev(idx) {
   const i = Number.isInteger(idx) ? idx : cutCurrentIndex();
   const r = joinWithPrevious(cutSegs(), cutDeps.getParagraphs(doc), i,
     { allowTexted: cutJoinOk(), duration: peaksCache.durationMs || null });
-  if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
+  if (!r.ok) { cutSay(cutRefusal(r.reason)); return; }
   if (cutDeps.capture) cutDeps.capture();
   doc.segments = r.segments;
   cutDeps.setParagraphs(doc, r.paragraphs);

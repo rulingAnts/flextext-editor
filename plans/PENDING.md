@@ -34,9 +34,26 @@ The item itself is tracked privately.
 
 ---
 
-## ⏸ PAUSED 2026-10-02 — Brian Plimley's issues, release v694 (resume here)
+## ▶ RESUMED 2026-10-04 — v694 is on staging; the review notes are still open
 
-Seth paused mid-release. Nothing is on staging or production yet. Production is still v689.
+- `satellite-apps-v566` @ b722239a = **v694**: RELEASES entry + EN/ID notes for #89, #90, #87,
+  #91, #88, #85, #86 (one item each; `issue:` links). Suite 659/659.
+- Merged into `lameta-device` (5ecc0567, suite 698/698) and `staging` (8fc6c0a9); all seven apps
+  deployed to staging from 8fc6c0a9 (run 37176452172). Production is still v689.
+- A first merge (de4c6a9f) resolved the version conflicts by taking whole files from the release
+  branch and dropped lameta-device's i18n/sw.js additions (4 failures); replaced by 5ecc0567,
+  which resolved only the conflict hunks. Lesson: never `checkout --theirs` a whole file for a
+  one-line version conflict.
+- #92 (Baseline-tab help still describes split/join when the setting is off) is being built on
+  `fix/92-baseline-help-follows-settings` off this branch; goes out as v695 with the review notes.
+- The review notes below are NOT applied yet (none blocking). Apply them, bump v695, merge the same
+  way (lameta-device, then staging — staging's branch name is held by Seth's
+  `/Users/Seth/GIT/flextext-staging-test` worktree, so merge on a detached checkout and push
+  `HEAD:refs/heads/staging`).
+
+### The paused state as it was (2026-10-02), for the review notes
+
+Seth paused mid-release. (Superseded above for the release mechanics; the notes list stands.)
 
 **Where it stands**
 - `satellite-apps-v566` @ `98e9dd75` (pushed) has six reviewed fixes merged, one branch each:

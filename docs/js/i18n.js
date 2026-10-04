@@ -1038,6 +1038,13 @@ internet after the first time.</p>
   'panel.help.btn': 'Help',
   'panel.help.close': 'Close',
   'panel.help.title': 'Help',
+  'panel.help.more': 'More help…',
+  'panel.tut.title': 'Video tutorials',
+  'panel.tut.n': 'Tutorial {n}',
+  'panel.tut.1.name': 'Signing Up a New Researcher Account',
+  'panel.tut.2.name': 'Using the Editor (Cutting, Transcribing, Glossing, Sending)',
+  'panel.tut.3.name': 'Adding User Devices to your Project',
+  'panel.tut.credit': 'In English, with Indonesian subtitles in the player. Copyright © 2026 Brian Plimley. Used by permission.',
   'panel.err': 'Something went wrong: {msg}',
   'panel.help.html': `
 <h3>The Researcher panel</h3>
@@ -3725,6 +3732,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.help.btn': 'Bantuan',
   'panel.help.close': 'Tutup',
   'panel.help.title': 'Bantuan',
+  'panel.help.more': 'Bantuan lainnya…',
+  'panel.tut.title': 'Video tutorial',
+  'panel.tut.n': 'Tutorial {n}',
+  'panel.tut.1.name': 'Mendaftar Akun Peneliti Baru',
+  'panel.tut.2.name': 'Memakai Editor (Memotong, Menyalin, Memberi Glos, Mengirim)',
+  'panel.tut.3.name': 'Menambahkan Perangkat Pengguna ke Proyek Anda',
+  'panel.tut.credit': 'Berbahasa Inggris, dengan subtitel bahasa Indonesia di pemutar video. Hak cipta © 2026 Brian Plimley. Digunakan dengan izin.',
   'panel.err': 'Terjadi kesalahan: {msg}',
   'panel.help.html': `
 <h3>Panel peneliti</h3>

@@ -1866,6 +1866,14 @@ internet after the first time.</p>
   'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in \u201c{name}\u201d.',
   'panel.set.asDefaultFailed': 'Settings sent to the device \u2014 but saving them as the defaults for \u201c{name}\u201d failed. Open this device\u2019s Settings again to retry.',
   'panel.set.asDefaultExists': 'Settings sent to the device. \u201c{name}\u201d was given default settings while this form was open, so those were kept \u2014 change them with \u201cDefault settings\u201d on the Projects card.',
+  /* The first-time settings box of a just-created device (Seth, 2026-10-04): closing it without a push
+   * either sends the project's defaults or removes the device again — never a device with no settings.
+   * The two firstCancel sentences are appended to the intro note so Cancel's effect is said up front. */
+  'panel.set.firstCancelDefaults': 'If you cancel instead, the project\u2019s default settings are sent to it as they are.',
+  'panel.set.firstCancelUndo': 'If you cancel instead, the device is removed again \u2014 a device cannot be left without settings.',
+  'panel.set.firstDefaultsSent': 'Settings for \u201c{name}\u201d are the project\u2019s defaults \u2014 change them any time with Settings.',
+  'panel.set.firstUndone': '\u201c{name}\u201d was not created: a new device needs its settings, or the project needs default settings.',
+  'panel.set.firstUndoFailed': '\u201c{name}\u201d could not be removed, so it exists without settings \u2014 open its Settings to set it up, or use Delete on its card.',
   'panel.set.readFailed': 'This device\u2019s current settings could not be read just now \u2014 probably the connection. The fields are left blank rather than guessing: close this and reopen it when you are back online, so a push cannot overwrite settings you could not see.',
   'panel.set.promptProject': 'Saved for the whole project. New devices are created with it, and saving offers to send it to the devices already here. A device can still be given its own recording in its own settings, which is played instead of this one.',
   'panel.set.promptNeedsDevice': 'This project has no devices yet, and the recording is uploaded through one of them. Create a device in this project first, then add the recording here \u2014 it will belong to every device in the project, not just that one.',
@@ -4358,6 +4366,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di “{name}”.',
   'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk “{name}”. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
   'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. “{name}” sudah diberi pengaturan bawaan selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
+  'panel.set.firstCancelDefaults': 'Jika Anda membatalkan, pengaturan bawaan proyek dikirim ke perangkat ini apa adanya.',
+  'panel.set.firstCancelUndo': 'Jika Anda membatalkan, perangkat ini dihapus kembali — perangkat tidak boleh dibiarkan tanpa pengaturan.',
+  'panel.set.firstDefaultsSent': 'Pengaturan “{name}” mengikuti bawaan proyek — ubah kapan saja lewat Pengaturan.',
+  'panel.set.firstUndone': '“{name}” tidak dibuat: perangkat baru memerlukan pengaturannya, atau proyek memerlukan pengaturan bawaan.',
+  'panel.set.firstUndoFailed': '“{name}” tidak dapat dihapus, jadi perangkat ini ada tanpa pengaturan — buka Pengaturan untuk menyiapkannya, atau tekan Cabut pada kartunya.',
   'panel.set.readFailed': 'Pengaturan perangkat ini tidak dapat dibaca saat ini — kemungkinan koneksi. Kolom dibiarkan kosong daripada menebak: tutup dan buka lagi setelah Anda kembali daring, agar pengiriman tidak menimpa pengaturan yang tidak dapat Anda lihat.',
   'panel.set.promptProject': 'Disimpan untuk seluruh proyek. Perangkat baru dibuat dengan rekaman ini, dan saat menyimpan Anda akan ditawari untuk mengirimkannya ke perangkat yang sudah ada di sini. Sebuah perangkat tetap dapat diberi rekamannya sendiri di pengaturannya, dan rekaman itulah yang diputar.',
   'panel.set.promptNeedsDevice': 'Proyek ini belum punya perangkat, sedangkan rekaman diunggah melalui salah satunya. Buat dulu satu perangkat di proyek ini, lalu tambahkan rekamannya di sini \u2014 rekaman itu akan menjadi milik semua perangkat dalam proyek, bukan hanya perangkat tersebut.',

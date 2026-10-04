@@ -14,19 +14,7 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ---
 
-## ✅ RELEASED 2026-10-04 — v696 is in production (main = productionWeb = staging = 9d645f80)
-
-All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
-shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
-the settings-dialog room fix, and "a new device cannot be left without settings". Nothing from other
-users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
-too, still behind `?lameta=1`.
-
-**Open next:** the reviewers' remaining notes on #85–#91 (listed below; branch
-`fix/v697-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
-2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
-
-## (history) 0 — a credential-rotation item lived here
+## 0 — a credential-rotation item lived here
 
 ⚠ **Deliberately not described in this repository, which is PUBLIC** (Seth, 2026-09-01: "let's not
 post issues that expose security vulnerabilities").
@@ -46,7 +34,19 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ RESUMED 2026-10-04 — v695 is on staging; the review notes are still open
+## ✅ RELEASED 2026-10-04 — v696 is in production (main = productionWeb = 9d645f80)
+
+All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
+shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
+the settings-dialog room fix, and "a new device cannot be left without settings". Nothing from other
+users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
+too, still behind `?lameta=1`.
+
+**Open next:** the reviewers' remaining notes on #85–#91 (listed below; branch
+`fix/v697-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
+2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
+
+## (history) ▶ RESUMED 2026-10-04 — v695 is on staging; the review notes are still open
 
 **v695 supersedes v694 the same day.** The v694 merge into `lameta-device` lost the `] },` that
 closes the new RELEASES entry (my conflict resolution; the brace sat in the hunk's shared tail), so

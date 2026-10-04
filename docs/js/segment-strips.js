@@ -492,7 +492,7 @@ export function attachCaretScissors(input, host, onCut, label) {
   return dispose;
 }
 
-let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t, hasGloss, say }
+let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t, hasGloss, say, splitOnGloss }
 let peaksCache = { docId: null, peaks: null, durationMs: 0 };
 /* ⚠ A WAVE DRAWN BEFORE THE PEAKS EXISTED MUST REDRAW WHEN THEY ARRIVE (Seth, 2026-08-05: "the
  * first time a text with audio segmentation loads, we get no waveform until we close and re-open
@@ -1314,7 +1314,16 @@ function stripsInfo(i) {
 }
 /* Rule A: a line that already carries glosses or a translation is not this tab's to split or join. */
 function stripsLocked(i) { return !splitAllowed('baseline', stripsInfo(i)); }
-function stripsRefuse() { if (deps.say) deps.say(deps.t('split.no.glossed')); }
+/* The refusal ends by pointing at the Gloss tab, where a glossed line IS split — but only while that
+ * device has one (Gloss tab shown and joinSplitGloss on, read through the host's `splitOnGloss`), or
+ * the instructions explain a control the user does not have (#92). Absent dep (an older host that
+ * never passed it) keeps the full message, as before — same shape as cutRefusal. */
+function stripsRefuse() {
+  if (!deps.say) return;
+  let msg = deps.t('split.no.glossed');
+  if (!(deps.splitOnGloss && !deps.splitOnGloss())) msg += ' ' + deps.t('split.no.glossedGloss');
+  deps.say(msg);
+}
 function stripsSpec(i) {
   return {
     tiers: splitTiers(stripsInfo(i)),

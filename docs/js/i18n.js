@@ -2296,7 +2296,10 @@ internet after the first time.</p>
   'cut.arm': 'Cut this line \u2014 tap again to put the scissors away',
   'split.here': 'Split here',
   'split.cancel': 'Cancel the split',
-  'split.no.glossed': 'This line already has glosses or a translation, so it cannot be split or joined here. Do that on the Gloss tab.',
+  /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Gloss tab's split/join, so segment-strips
+   * (stripsRefuse) adds it only when that device has one — Gloss tab shown AND joinSplitGloss on. */
+  'split.no.glossed': 'This line already has glosses or a translation, so it cannot be split or joined here.',
+  'split.no.glossedGloss': 'Do that on the Gloss tab.',
   'gloss.editWordTip': 'Tap to correct this word; its gloss stays with it',
   'cut.join': 'Join with previous',
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
@@ -4729,7 +4732,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.arm': 'Potong baris ini \u2014 ketuk lagi untuk menyembunyikan gunting',
   'split.here': 'Bagi di sini',
   'split.cancel': 'Batalkan pembagian',
-  'split.no.glossed': 'Baris ini sudah punya glos atau terjemahan, jadi tidak bisa dibagi atau digabung di sini. Lakukan itu di tab Terjemahan Balik.',
+  'split.no.glossed': 'Baris ini sudah punya glos atau terjemahan, jadi tidak bisa dibagi atau digabung di sini.',
+  'split.no.glossedGloss': 'Lakukan itu di tab Terjemahan Balik.',
   'gloss.editWordTip': 'Ketuk untuk memperbaiki kata ini; glosnya tetap ikut',
   'cut.join': 'Gabung dengan sebelumnya',
   'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',

@@ -42,9 +42,17 @@ the settings-dialog room fix, and "a new device cannot be left without settings"
 users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
 too, still behind `?lameta=1`.
 
-**Open next:** the reviewers' remaining notes on #85–#91 (listed below; branch
+**Open next (v697):** the reviewers' remaining notes on #85–#91 (listed below; branch
 `fix/v697-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
 2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
+
+**Already on this branch for v697 (2026-10-04, after the v696 release):**
+- The researcher app's boot screen: inline in `satellites/flextext-researcher/index.html`, paints
+  from the parse, replaced by the panel's first render; "still loading" / "you appear to be
+  offline" at 20 s. The worker's inline offline page is untouched (pinned by
+  `test/researcher-boot-screen.test.mjs`).
+- About this version: the hand-kept Known-issues list is gone; it links to the GitHub issues page
+  (Seth: "ongoing known issues are on the GitHub issues page only").
 
 ## (history) ▶ 2026-10-04 — v696 on staging; the review notes are still open (→ v697)
 

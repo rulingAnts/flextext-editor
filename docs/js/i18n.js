@@ -1198,7 +1198,7 @@ internet after the first time.</p>
   'panel.move.unassignedWhyDevice': 'the device uploads a final copy, then removes its own — the text stays in Drive, filed under Unassigned, ready to assign later',
   'panel.move.unassignedWhyCrowd': 'the text leaves this recorder and joins your queue of texts waiting to be assigned. Nothing is deleted.',
   'panel.move.filed': 'Filed under Unassigned.',
-  'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
+  'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content a device could receive.',
   /* v347 \u2014 a move builds the new assignment from the folder's manifest. Without one there is no
    * dependable answer to "which flextext is current" or "which file is the original audio", and a
    * guess is exactly what the manifest exists to replace. Both strings say the REMEDY, because
@@ -1206,7 +1206,7 @@ internet after the first time.</p>
   'panel.move.noManifest': 'This text cannot be moved automatically: its Drive folder has no manifest, so there is no dependable record of which file is the current text and which is the original recording. Download the folder and re-upload it to the device you want it on.',
   /* #89: fires only when the manifest NAMES a file that is not in the folder. A text that never had a
    * recording (or a transcription) is not incomplete and now moves without it. */
-  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest names a file (the current .flextext or the original recording) that is not in its Drive folder yet. Download the folder and re-upload it to the device you want it on.',
+  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest names a file (the current .flextext or the original recording) that is not in its Drive folder yet. If it does not arrive, download the folder and re-upload it to the device you want it on.',
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
   'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
   'panel.move.removingSrc': 'moving \u2014 removing from this device',
@@ -3811,10 +3811,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.unassignedWhyDevice': 'perangkat mengunggah salinan terakhir, lalu menghapus miliknya sendiri — teksnya tetap di Drive, masuk ke Tidak Tertugas, siap ditugaskan nanti',
   'panel.move.unassignedWhyCrowd': 'teks keluar dari perekam ini dan masuk ke antrean teks yang menunggu ditugaskan. Tidak ada yang dihapus.',
   'panel.move.filed': 'Masuk ke Tidak Tertugas.',
-  'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
+  'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat.',
   /* v347 \u2014 lihat catatan pada blok en. */
   'panel.move.noManifest': 'Teks ini tidak bisa dipindahkan secara otomatis: folder Drive-nya tidak punya manifes, jadi tidak ada catatan yang bisa diandalkan tentang berkas mana yang merupakan teks terkini dan mana rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
-  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya menyebutkan sebuah berkas (.flextext terkini atau rekaman aslinya) yang belum ada di folder Drive-nya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
+  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya menyebutkan sebuah berkas (.flextext terkini atau rekaman aslinya) yang belum ada di folder Drive-nya. Jika tidak juga muncul, unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
   'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
   'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',

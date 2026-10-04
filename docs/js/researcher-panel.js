@@ -6851,9 +6851,12 @@ async function moveSources(fromId, docId, title) {
   }
   /* ⚠ THE EXTENSION FALLBACK IS FOR LEGACY *UNTAGGED* FILES ONLY (#89, Brian Plimley, 2026-10-01).
    * It once matched ANY audio-shaped name, so a folder whose recording had not arrived yet but whose
-   * consent clip had (consent-response.mp3, role `consent-clip`) resolved `audio` to the CONSENT CLIP
-   * — which passed the gate below and would have been assigned as the recording. A tagged file has
-   * already said what it is; only a file with no role at all is left for the name to guess about. */
+   * consent clip had (consent-response.mp3, role `consent-clip`) resolved `audio` to the CONSENT CLIP,
+   * and the gate below passed on it. What followed differed by path: a device-to-device move sends
+   * `idOf(src.audio)` and would have assigned the clip AS the recording; adopt sends the role-tagged
+   * `picks.audio` and would have assigned the text with NO recording while one was still on its way.
+   * A tagged file has already said what it is; only a file with no role at all is left for the name
+   * to guess about. */
   const audio = picks.audio ||
     all.find((f) => !f.role && /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
   /* ⚠ A FLEXTEXT IS REQUIRED ONLY IF ONE IS SUPPOSED TO EXIST (Seth, 2026-08-19: "I want to be able
@@ -6893,7 +6896,8 @@ async function moveSources(fromId, docId, title) {
    * And at least one deliverable must exist: a manifest that declares neither and a folder holding
    * neither has nothing for the destination to open. `declaredMissing` tells the two refusals apart,
    * so the note says "a named file has not arrived" only when that is what happened. */
-  const declaresAudio = !!manifest && (!!manifest.audio || manifest.files.some((f) => hasRole(f, SOURCE_AUDIO_ROLES)));
+  const declaresAudio = !!manifest && (!!manifest.audio ||
+    (Array.isArray(manifest.files) && manifest.files.some((f) => hasRole(f, SOURCE_AUDIO_ROLES))));
   const declaredMissing = (declaresAudio && !audio) || (declaresFlextext && !picks.flextext);
   return { all, picks, manifest, audio, declaresAudio, declaresFlextext, declaredMissing,
            ok: !!(manifest && (audio || !declaresAudio) && (picks.flextext || !declaresFlextext) && (audio || picks.flextext)) };

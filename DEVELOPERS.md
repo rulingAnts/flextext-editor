@@ -148,7 +148,7 @@ Key engine modules (`docs/js/`):
 | `seg-exports.js` | EAF writers (ELAN + SayMore profiles), the self-contained preview page, BWF `bext`, `buildFxpa()` (the `.fxpa` paragraph-analysis interchange), and `loosePlan()`/`buildLooseConversion()` — the same outputs from a user-picked `.flextext` + recording (see §4.1) | **pure** |
 | `paragraph-model.js` | `.fxpa` validate/serialize + the grouping-tree invariants (adjacency, single parent, asym head, levels) | **pure** |
 | `paragraph-ui.js` | the Paragraph Analysis satellite UI (open/convert screen, display modes, audio, bracket tree) | DOM |
-| `audio.js` | the single shared Player (wavesurfer) | DOM |
+| `audio.js` | the single shared Player (wavesurfer); Repeat lives here (`setLoop`/`loop`, honoured by `playSpan` and the finish handler) so every ▶ in the editor and the segmenter follows one state. Tab-specific dock buttons (✨, the segmenter's ✂) are shown and hidden by their tab, never by the Player | DOM |
 | `record-pcm.js`, `convert.js` | capture formats, WAV encoding, archival defaults | mostly pure |
 | `upload.js` | queued, resumable, retry-forever Drive uploads (via the worker) | DOM/db |
 | `crypto.js`, `sync.js`, `researcher.js`, `researcher-panel.js` | E2EE primitives, device sync, accounts, panel UI | mixed |

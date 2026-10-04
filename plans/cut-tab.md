@@ -686,3 +686,39 @@ Two rules it must have:
 1. **Unsegmented texts only** (Seth's own framing). On a segmented text it would silently destroy
    hand-made boundaries; if ever offered there, it must confirm first.
 2. **One undo step**, so a bad guess is one Ctrl+Z rather than fifty joins.
+
+## v701 — ✨ inside ONE piece, and ✨ moves onto the dock (Seth, 2026-10-04)
+
+> *"the ability to 'guess' split a single segment (this is one way to work around the ten-minute
+> limit). So either the whole audio file if it hasn't been segmented, or a selected segment."* —
+> then: *"We need to make the guess button sticky … put it on the overview player? Like in the far
+> right-hand bottom corner."*
+
+**Built.** The same ✨, two modes (`guessMode` in `segment-strips.js`): while the recording is one
+untouched piece — or an untouched previous guess — it is the whole-file guess with every rule from
+v361–v370 (the cap, the confirm, the signature). The moment anything has been cut by hand or has
+words, it guesses **the piece under the playhead** (the tab's selection), only if that piece has no
+words and is at most `GUESS_MAX_MS`, and touches nothing else: `guessSplitsWithin` slices the peaks
+to the piece and `applyGuessedSplitsWithin` replaces `segments[i]` / `paragraphs[i]` alone
+(`segments.js`, measured in `test/guess-piece.test.mjs`). No confirm — nothing anyone made is
+replaced — and one undo step. The v370 rule ("✨ exists only while there is nothing to lose") is
+honoured by scope rather than by absence: the worst an accidental press can do is cut one empty
+piece into lines. The ten-minute cap is the same cap applied to the piece (detection is cheap; rows
+are not), so a 30-minute recording is cut by hand into three or four pieces and guessed piece by
+piece; `cut.no.guessLong` now says exactly that. The ticker re-asks the probe only when the piece
+under the playhead changes (`syncGuessPiece`).
+
+**Where it lives:** on the shared dock's controls row, after ✕ — the dock is sticky on every tab,
+so ✨ is reachable however far the strips are scrolled. `renderCut` shows it, `stopCut` hides it;
+`audio.js` never touches it. The "Guess" word beside the old button went with its row (`#cut-tools`
+keeps only the phone-only ℹ).
+
+**Not built:** the automatic halving Seth sketched in #93 (find convenient points, split in halves or
+quarters, guess each); the segmenter's matcher guess (`mgGuess`) is still whole-file only. And the
+output problem is unchanged — a 40-minute recording guessed piece by piece is still ~650 live
+canvases (#31, #19).
+
+**Alongside, the same release:** Repeat playback on the shared Player (`audio.js` `setLoop`/`loop`),
+a toggle on the dock, device setting `loopPlay` as the starting state. Not Cut-tab logic — noted
+here only because the Cut tab's row ▶ and the dock ▶ are where it is felt.
+

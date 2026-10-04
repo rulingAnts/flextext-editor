@@ -1444,6 +1444,9 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v702', date: '2026-10-04', items: [
+    { k: 'panel.rel.fix.keylessButtons' },
+  ] },
   /* ⚠ #6 IS LISTED NOW, AND THIS IS THE RELEASE THAT EARNED IT. The note that stood here said it
    * was deliberately absent because CREATE_RETRY_SAFE was false — the worker replayed, the client
    * never retried, so nothing about duplicate device creation actually behaved differently. That
@@ -4790,9 +4793,22 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
    * settings-modal-plus-banner pile (Seth, 2026-08-27: "don't give them a UI path that gives them
    * an error"). A desired_rev-based "configured" bit was tried and REVERTED the same day: renames
    * bump the rev, so it vouched for devices nobody had configured. */
-  const mManage = (!memberCtx || !!mCaps.manageDevices) && !mKeyless;
+  /* ⚠ THE CAPABILITY AND THE KEY ARE TWO DIFFERENT ABSENCES (Seth, 2026-10-04: "sometimes settings
+   * and new text buttons disappear in research panel for certain devices … they need to
+   * consistently be there … a 'not loaded yet' or spinning animation over grayed out buttons").
+   * A seat that was never granted the capability has no button, as before. A seat that HAS the
+   * capability but whose key has not arrived yet — getKi() failed this poll: the owner's panel has
+   * not swept the grant yet, or the fetch hiccupped — keeps the button on screen, greyed, with a
+   * spinner and the reason in its tooltip, so nobody asks "where did my buttons go?". The poll
+   * repaints it live the moment hasKey flips (it is in viewSig). */
+  const capManage = !memberCtx || !!mCaps.manageDevices;
+  const capAssign = !memberCtx || !!mCaps.assignTexts;
+  const mManage = capManage && !mKeyless;
   const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless;
-  const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless;   // texts: assign, done, delete
+  const mAssign = capAssign && !mKeyless;   // texts: assign, done, delete
+  // The greyed twin of a quick-row icon while the key is on its way: disabled, so nothing to click
+  // through to a refusal, and the spinner (CSS) says it is a wait, not a loss.
+  const waitingBtn = (icon, label) => `<button type="button" class="rp-iconbtn is-waiting" disabled aria-disabled="true" title="${esc(label)} — ${esc(t('panel.joined.keyWaitShort'))}" aria-label="${esc(label)}: ${esc(t('panel.joined.keyWaitShort'))}">${icon}</button>`;
   const mDrive = (!memberCtx || mCaps.drive === 'read' || mCaps.drive === 'manage') && !mKeyless;   // Files… menu
   const installs = it.installs || [];
   /* A lameta project held by a panel (lameta-agent.js): the badge comes from what the install
@@ -5193,8 +5209,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
            The count going back INSIDE the toggle also restores the collapse hit target it had
            before, so the phone-tap behaviour comes back with the layout fix. */''}
       ${collapsed ? '' : `<div class="rp-inst-quick">
-        ${mAssign && !isLameta ? `<button class="rp-iconbtn" data-iact="assign" data-i="${esc(it.instance_id)}" title="${esc(t('panel.inst.assign'))}" aria-label="${esc(t('panel.inst.assign'))}">${ICON_NEWTEXT}</button>` : ''}
-        ${mManage ? `<button class="rp-iconbtn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.settings'))}" aria-label="${esc(t('panel.inst.settings'))}">${ICON_GEAR}</button>` : ''}
+        ${capAssign && !isLameta ? (mAssign ? `<button class="rp-iconbtn" data-iact="assign" data-i="${esc(it.instance_id)}" title="${esc(t('panel.inst.assign'))}" aria-label="${esc(t('panel.inst.assign'))}">${ICON_NEWTEXT}</button>` : waitingBtn(ICON_NEWTEXT, t('panel.inst.assign'))) : ''}
+        ${capManage ? (mManage ? `<button class="rp-iconbtn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.settings'))}" aria-label="${esc(t('panel.inst.settings'))}">${ICON_GEAR}</button>` : waitingBtn(ICON_GEAR, t('panel.inst.settings'))) : ''}
         ${memberCtx ? '' : projectMoveIconBtn(it)}
       </div>`}
     </div>
@@ -5203,7 +5219,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       ${isLameta ? lametaBlockHtml(it.instance_id, mManage) : ''}
-      ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
+      ${mKeyless ? `<p class="note rp-keywait">${esc(t('panel.joined.keyPending'))}</p>` : ''}
       <div class="rp-inst-actions">
         ${/* The everyday actions moved to the header as icons; what is left on this row is the
              device's LIFECYCLE, in order: connect it, disconnect it, remove it, destroy it. */''}

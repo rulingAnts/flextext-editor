@@ -1459,6 +1459,12 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
   min-width: 30px; min-height: 30px;
 }
 .rp-iconbtn:hover { background: #e8ecf2; }
+/* A quick-row icon whose key is still on its way (Seth, 2026-10-04): greyed, not gone, with a thin
+   ring spinning over it — the suite's "an inert control is greyed and says why, never removed". */
+.rp-iconbtn.is-waiting { position: relative; opacity: .55; cursor: progress; }
+.rp-iconbtn.is-waiting:hover { background: transparent; }
+.rp-iconbtn.is-waiting::after { content: ''; position: absolute; inset: 2px; border: 2px solid transparent; border-top-color: var(--blue); border-radius: 50%; animation: rp-spin .9s linear infinite; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .rp-iconbtn.is-waiting::after { animation: none; border-top-color: var(--muted); } }
 .rp-iconbtn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .rp-iconbtn .rp-ico { width: 17px; height: 17px; opacity: .8; }
 /* ⚠ THE TOGGLE MUST NOT GROW. At `flex: 1 1 auto` it expanded to fill the row and pushed the icon

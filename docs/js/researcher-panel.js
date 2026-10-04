@@ -1446,6 +1446,14 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v694', date: '2026-10-04', items: [
+    { k: 'panel.rel.fix.moveTextNoAudio', issue: 89 },
+    { k: 'panel.rel.fix.deleteOpenText', issue: 90 },
+    { k: 'panel.rel.fix.settingsScroll', issue: 87 },
+    { k: 'panel.rel.new.baselineGhost', issue: 91 },
+    { k: 'panel.rel.fix.locationOnlyConsent', issue: 88 },
+    { k: 'panel.rel.fix.projectCancelled', issue: 85 },
+    { k: 'panel.rel.new.deviceSettingsAsDefaults', issue: 86 },
   { v: 'v693', date: '2026-09-27', items: [
     { k: 'panel.rel.new.lametaAdopt' },
   ] },
@@ -1894,12 +1902,18 @@ let projDefCache = null;
 /* Keys saved into the template but not yet pushed to every device — see applyTemplateModal. Same
  * prefs blob, same round trip; a list of field keys per project, never any values. */
 let projPendCache = null;
-async function loadProjectDefaults() {
+/* `strict` RETHROWS a failed read (after the same reset), for a caller about to WRITE: the
+ * forgiving default turns "could not read" into "there are none", which is fine for a prefill and
+ * wrong right before saveProjectDefaults rewrites the whole map from this cache (#85/#86). */
+async function loadProjectDefaults({ strict = false } = {}) {
   try {
     const p = (await Researcher.getPrefs()) || {};
     projDefCache = p.projectDefaults || {};
     projPendCache = p.projectDefaultsPending || {};
-  } catch { projDefCache = {}; projPendCache = {}; }
+  } catch (err) {
+    projDefCache = {}; projPendCache = {};
+    if (strict) throw err;
+  }
   return projDefCache;
 }
 function projectPending(folderId) {
@@ -1920,6 +1934,32 @@ async function saveProjectDefaults(folderId, settings) {
   if (settings && Object.keys(settings).length) next[folderId] = settings; else delete next[folderId];
   await Researcher.setPref('projectDefaults', next);
   projDefCache = next;
+}
+/* A DEVICE'S PUSHED SETTINGS, AS ITS PROJECT'S FIRST TEMPLATE — the device form's "also use these
+ * as the defaults for new devices" offer (#85/#86, Brian Plimley, 2026-09-30; Seth, 2026-10-02:
+ * "maybe it would be good to ask them if they want to make those settings default for other new
+ * devices"). Input is the exact patch changeSettings just shipped; output is what is stored.
+ *
+ * WHAT IS LEFT OUT, AND WHY ONLY THIS. The device form and the template form are ONE form —
+ * both render SET_TABS from the same GROUPS and both read it back through readForm — so the patch
+ * already has the template's shape, derived keys (autoDelUploaded, toolbarButtons, consentAudio)
+ * included. The device's NAME is the one field the template form lacks, and it never enters the
+ * patch (renameInstance carries it separately). What remains is a key that should never be a
+ * default:
+ *   • appLang — a one-shot "switch this device's language" COMMAND, not a setting (see readForm
+ *     and the merge in applyTemplateModal: the device re-runs applyDeviceLang whenever the key is
+ *     merely present). Stored in a template it would be dead weight on the seed path, which always
+ *     opens at 'follow' (toFormValues), and live ammunition on "push the whole template", which
+ *     would flip the language of every device in the project, including the ones whose coworkers
+ *     chose their own. The language a researcher pushes is for THIS device's user.
+ * The consent prompt stays: its URL is minted unscoped and plays on any device, which is exactly
+ * why the template form can upload one (see the SCOPE note above GROUPS). A copy, never the
+ * caller's object — the patch is still the record of what was pushed. */
+const NEVER_A_PROJECT_DEFAULT = ['appLang'];
+function deviceSettingsAsTemplate(pushed) {
+  const tpl = { ...(pushed || {}) };
+  for (const k of NEVER_A_PROJECT_DEFAULT) delete tpl[k];
+  return tpl;
 }
 
 /* COWORKER NICKNAMES — the owner's own label for a person the server deliberately no longer names.
@@ -7060,8 +7100,13 @@ async function moveSources(fromId, docId, title) {
       if (body && typeof body === 'object' && Array.isArray(body.files)) manifest = body;
     } catch { manifest = null; }
   }
+  /* ⚠ THE EXTENSION FALLBACK IS FOR LEGACY *UNTAGGED* FILES ONLY (#89, Brian Plimley, 2026-10-01).
+   * It once matched ANY audio-shaped name, so a folder whose recording had not arrived yet but whose
+   * consent clip had (consent-response.mp3, role `consent-clip`) resolved `audio` to the CONSENT CLIP
+   * — which passed the gate below and would have been assigned as the recording. A tagged file has
+   * already said what it is; only a file with no role at all is left for the name to guess about. */
   const audio = picks.audio ||
-    all.find((f) => /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
+    all.find((f) => !f.role && /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
   /* ⚠ A FLEXTEXT IS REQUIRED ONLY IF ONE IS SUPPOSED TO EXIST (Seth, 2026-08-19: "I want to be able
    * to move any text anywhere, except to a crowd recorder").
    *
@@ -7076,8 +7121,33 @@ async function moveSources(fromId, docId, title) {
    * manifest is for: declared-but-missing refuses, never-declared moves as the recording it is. */
   const declaresFlextext = Array.isArray(manifest && manifest.files) && manifest.files.some((f) =>
     isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES));
-  return { all, picks, manifest, audio, declaresFlextext,
-           ok: !!(manifest && audio && (picks.flextext || !declaresFlextext)) };
+  /* ⚠ AND A RECORDING IS REQUIRED ONLY IF ONE IS DECLARED — the same rule, the other half
+   * (#89, Brian Plimley, 2026-10-01).
+   *
+   * The flextext half above was relaxed in v416 and this half was not: `audio` stayed an
+   * unconditional term of `ok`. So a .flextext-only text — a project upload with no recording, whose
+   * manifest says `audio: null` and lists only a `source-flextext` row — could never move anywhere,
+   * which is the opposite of "move any text anywhere". Brian saw it as "My device … too old to
+   * receive a move" on a current device: the TEXT was refused and the DEVICE was blamed (see
+   * groupedDestinations' `subOf`).
+   *
+   * Nothing downstream needs a recording. Both commit paths send `audioFileId: null`, the worker
+   * mints an audio URL only when given a file id (mintTextfileUrl returns null otherwise), and the
+   * device opens a flextext-only assign as an ordinary text.
+   *
+   * "Declared" means what every manifest writer does when a recording exists — the device, the crowd
+   * page and the panel's own upload lane each set a non-null `audio` and/or list a SOURCE_AUDIO_ROLES
+   * row — so either counts. So, exactly as for the flextext:
+   *   - declared and present → moves;
+   *   - declared and ABSENT  → refuses (a recording still uploading must not be dropped by a move);
+   *   - never declared       → moves without one.
+   * And at least one deliverable must exist: a manifest that declares neither and a folder holding
+   * neither has nothing for the destination to open. `declaredMissing` tells the two refusals apart,
+   * so the note says "a named file has not arrived" only when that is what happened. */
+  const declaresAudio = !!manifest && (!!manifest.audio || manifest.files.some((f) => hasRole(f, SOURCE_AUDIO_ROLES)));
+  const declaredMissing = (declaresAudio && !audio) || (declaresFlextext && !picks.flextext);
+  return { all, picks, manifest, audio, declaresAudio, declaresFlextext, declaredMissing,
+           ok: !!(manifest && (audio || !declaresAudio) && (picks.flextext || !declaresFlextext) && (audio || picks.flextext)) };
 }
 
 /* ── DESTINATIONS, GROUPED BY PROJECT ─────────────────────────────────────────────────────────────
@@ -7148,9 +7218,10 @@ const ICON_MOVE = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fi
 const ICON_LINK = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 7H7a5 5 0 0 0 0 10h2.5"/><path d="M14.5 7H17a5 5 0 0 1 0 10h-2.5"/><path d="M8 12h8"/></svg>';
 
 /* ⚠ MODULE SCOPE, NOT INSIDE moveTextModal. groupedDestinations() is a separate function defined
- * ABOVE it and calls tooOldLabel twice; declared as a const inside the modal these were a
- * ReferenceError the moment a move dialog rendered a device that could not receive. The static
- * tests pass either way, which is exactly why this is worth a comment rather than a quiet fix. */
+ * ABOVE it and uses tooOldLabel (since #89, as its default `subOf`); declared as a const inside
+ * the modal these were a ReferenceError the moment a move dialog rendered a device that could not
+ * receive. The static tests pass either way, which is exactly why this is worth a comment rather
+ * than a quiet fix. */
 const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
 /* ⚠ SAY WHAT WE KNOW AND WHEN WE LEARNED IT (issue #16). The gate reads the version the DEVICE
  * LAST REPORTED, which the panel cannot refresh on its own — the device has to check in. So
@@ -7169,7 +7240,15 @@ const tooOldLabel = (x) => {
     : t('panel.move.tooOldUnknown');
 };
 
-function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
+/* ⚠ `subOf(x)` SAYS WHY A TILE IS DISABLED, AND ONLY THE CALLER KNOWS (#89, Brian Plimley,
+ * 2026-10-01). Both tile sites used to hard-code tooOldLabel(x), so EVERY disabled device read
+ * "reported v689 as of just now — too old to receive a move" — including a current device that was
+ * disabled because the TEXT could not be sent (no manifest, a declared file missing, a listing that
+ * failed). The version shown was right and the conclusion was false; closed issue #16 was the same
+ * mislabel by another route. canPick folds two reasons into one boolean, so the caller that knows
+ * which one applied supplies the words. Default tooOldLabel: a caller that passes nothing keeps the
+ * old behaviour exactly. */
+function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned, subOf = tooOldLabel) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (!projects.length) return '';
   const order = [...projects].sort((a, b) => (b.folderId === homeProject) - (a.folderId === homeProject));
@@ -7187,7 +7266,7 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
     out.push(`<div class="rp-move-group${away ? ' rp-move-away' : ''}">
       <div class="rp-move-group-h">${esc(p.name || t('panel.proj.defaultName'))}${away ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.move.otherProject'))}</span>` : ''}</div>
       ${mine.map((x) => { const ok = canPick(x); const checked = ok && first && !away; if (checked) first = false;
-                          return opt(x.instance_id, x.nickname || '?', ok ? '' : tooOldLabel(x), !ok, checked); }).join('')}
+                          return opt(x.instance_id, x.nickname || '?', ok ? '' : subOf(x), !ok, checked); }).join('')}
       ${withUnassigned ? opt('__unassigned:' + p.folderId,
           t('panel.move.unassignedOf', { project: p.name || t('panel.proj.defaultName') }),
           away ? t('panel.move.unassignedAway') : t('panel.move.unassignedHere'), false, false) : ''}
@@ -7197,7 +7276,7 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const loose = insts.filter((x) => !projects.some((p) => projectOfInstance(x.instance_id) === p.folderId));
   if (loose.length) {
     out.push(`<div class="rp-move-group"><div class="rp-move-group-h">${esc(t('panel.proj.outside'))}</div>
-      ${loose.map((x) => { const ok = canPick(x); return opt(x.instance_id, x.nickname || '?', ok ? '' : tooOldLabel(x), !ok, false); }).join('')}</div>`);
+      ${loose.map((x) => { const ok = canPick(x); return opt(x.instance_id, x.nickname || '?', ok ? '' : subOf(x), !ok, false); }).join('')}</div>`);
   }
   return out.join('');
 }
@@ -7252,19 +7331,28 @@ async function moveTextModal(fromId, docId, title) {
     try { src = await moveSources(fromId, docId, title); }
     catch { src = null; }
     if (!src) why = 'panel.dl.zipFailed';
-    else if (!src.ok) why = src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest';
+    /* Three causes, three notes (#89): no manifest; a file the manifest NAMES has not arrived; or
+     * nothing declared and nothing deliverable in the folder — "incomplete" would be false there. */
+    else if (!src.ok) why = !src.manifest ? 'panel.move.noManifest'
+      : src.declaredMissing ? 'panel.move.manifestIncomplete' : 'panel.move.nothingToMove';
   }
   const deviceOk = !why;
   const firstOk = deviceOk ? insts.find((y) => y._canReceive) : null;
 
   const opt = (value, label, sub, disabled, checked) => tileOpt('rp-move-to', value, label, sub, disabled, checked);
   const homeProject = projectOfInstance(fromId);
-  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive, true);
+  /* ⚠ A DISABLED TILE NAMES ITS OWN REASON (#89, Brian Plimley, 2026-10-01). canPick below is
+   * `deviceOk && x._canReceive` — two different refusals in one boolean — and the tile used to
+   * print tooOldLabel for both, so a current device read "too old" whenever the TEXT was the
+   * problem. The version label belongs to the version gate alone; a text refusal points at the
+   * note above, which carries the actual cause (`why`). Used by the flat fallback too. */
+  const blockedSub = (x) => (!x._canReceive ? tooOldLabel(x) : t('panel.move.textBlocked'));
+  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive, true, blockedSub);
 
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
-    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : tooOldLabel(x),
+    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', deviceOk && x._canReceive ? '' : blockedSub(x),
                            !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
     ${grouped ? '' : opt('__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
     ${grouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
@@ -7781,18 +7869,31 @@ async function projectNewModal() {
       }
       currentProject = r.folderId;                     // open the thing that was just made
       m.close();
-      deps.toast(t('panel.proj.created', { name }), 5000);
+      /* ⚠ PROJECT DEFAULTS ARE OPTIONAL — creating a project ends HERE (#85/#86, Brian Plimley,
+       * 2026-09-30; Seth, 2026-10-02).
+       *
+       * They used to be required: a new project went straight into its Default settings (Seth,
+       * 2026-08-31: "let's require the user to fill in project defaults for any new projects they
+       * create from now on"), on the reasoning that every device the project ever gets is born from
+       * what is put there. Reversed on 2026-10-02, for the two problems Brian reported:
+       *   • #85 — the dialog opened AFTER the project and its Drive folder already existed, so its
+       *     Cancel read as "don't create the project" and did nothing of the kind: the project
+       *     turned up in the list anyway. The name dialog's Cancel, above, is the only one that
+       *     comes before anything is made, and now it is the only one in this flow.
+       *   • #86 — a page of "default device settings" is overwhelming when you are only starting,
+       *     and confusing when no device is being made yet.
+       * Seth's ruling: "the user doesn't have to set defaults for the project, but they DO have to
+       * fill in required device settings (which we have set up with validation rules already) for
+       * a new device". That is what makes skipping safe — nothing a field worker holds depends on a
+       * template. Every device is validated on its OWN form (validateDeviceSettings: the
+       * writing-system codes, a way to send work out, at least one editor tab), and the invite gate
+       * re-validates before any link is minted, so no device can be invited without its codes,
+       * template or not. The other half of his ruling — "maybe it would be good to ask them if they
+       * want to make those settings default for other new devices" — lives on the device form
+       * (openSettingsModal's asDefault offer), at the moment there are real settings to keep.
+       * The toast says the defaults are optional and names the control, so they stay findable. */
+      deps.toast(t('panel.proj.created', { name }), 8000);
       renderFromSettledEstate();
-      /* A new project goes straight into its Default settings (Seth, 2026-08-31: "let's require
-       * the user to fill in project defaults for any new projects they create from now on") — the
-       * same move newDeviceModal makes for a new device, for the same reason: the one moment the
-       * researcher is already thinking about this project is now, and every device it ever gets
-       * is born from what they put here. Save is gated by the usual validation; closing without
-       * saving leaves the project template-less, which the device flow still survives (blank form
-       * + the invite gate), so the requirement guides rather than traps. */
-      deps.toast(t('panel.proj.nowDefaults', { name }), 6000);
-      await loadProjectDefaults();
-      openSettingsModal({ kind: 'project', project: { folderId: r.folderId, name } });
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
@@ -8212,7 +8313,9 @@ async function adoptTextModal(docId, title, opts = {}) {
     try { src = await moveSources(insts[0].instance_id, docId, title); }
     catch { src = null; }
     if (!src) why = 'panel.dl.zipFailed';
-    else if (!src.ok) why = src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest';
+    // Same three causes as moveTextModal (#89): only a NAMED file that has not arrived is "incomplete".
+    else if (!src.ok) why = !src.manifest ? 'panel.move.noManifest'
+      : src.declaredMissing ? 'panel.move.manifestIncomplete' : 'panel.move.nothingToMove';
   }
   if (why && !opts.unassign) { deps.toast(t(why), 10000); return; }
   const deviceOk = !why;
@@ -8226,11 +8329,17 @@ async function adoptTextModal(docId, title, opts = {}) {
     return (dev && dev.projectId) || tx.projectId || '';
   })();
   const adoptOpt = (value, label, sub, disabled, checked) => tileOpt('rp-adopt-to', value, label, sub, disabled, checked);
-  const adoptGrouped = groupedDestinations(insts, homeProject, adoptOpt, () => deviceOk, !!opts.unassign);
+  /* ⚠ THE ONLY REFUSAL HERE IS ABOUT THE TEXT, so a disabled tile must never wear the device's
+   * version (#89, Brian Plimley, 2026-10-01 — "My device … too old to receive a move" on a current
+   * device, from this very modal). canPick is `() => deviceOk`: adopt has no version gate, and adding
+   * one is a separate behaviour change, not part of this fix. The neutral label points at the note,
+   * which names the real cause — and stays true when that cause was a failed listing, not the text. */
+  const textBlocked = () => t('panel.move.textBlocked');
+  const adoptGrouped = groupedDestinations(insts, homeProject, adoptOpt, () => deviceOk, !!opts.unassign, textBlocked);
 
   const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.unassigned.moveIntro' : why))}</p>
-    ${adoptGrouped || insts.map((x, i) => tileOpt('rp-adopt-to', x.instance_id, x.nickname || '?', '', !deviceOk, deviceOk && i === 0)).join('')}
+    ${adoptGrouped || insts.map((x, i) => tileOpt('rp-adopt-to', x.instance_id, x.nickname || '?', deviceOk ? '' : textBlocked(), !deviceOk, deviceOk && i === 0)).join('')}
     ${opts.unassign && !adoptGrouped ? tileOpt('rp-adopt-to', '__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyCrowd'), false, !deviceOk) : ''}
     ${opts.unassign && adoptGrouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
     <div class="rp-adm-say" hidden></div>
@@ -10154,8 +10263,15 @@ function groupHtml(g, open) {
     + `<div class="rp-group rp-secbody">${notice}${outside}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${help}${wsWarn}${inside}</fieldset></div></details>`;
 }
 
-/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. Both surfaces wire this identically (app.js has the
- * same pair), so keep them in step.
+/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. The one-open-at-a-time rule is wired the same way on
+ * both surfaces (app.js wireSetupTabs / showSetupTab), so keep THAT in step.
+ * ⚠ BUT NOT THE SCROLLING (#87, Brian Plimley, 2026-10-01). This dialog deliberately (a) starts a
+ * newly chosen tab at the top (showSettingsTab) and (b) brings an opened section's top into view
+ * (revealSectionTop) — without them, opening a section after scrolling to the bottom of another
+ * left the reader in the middle of the new one, and a new tab kept the old tab's scroll offset.
+ * The Editor's own surfaces do NOT do this, on purpose: its text tabs keep their place for
+ * low-skilled users (Seth), and its Settings tab scrolls with the page. A later "bring the two back
+ * in step" change must not copy the scroll handling into app.js, nor drop it from here.
  *
  * ONE SECTION OPEN AT A TIME, per Seth 2026-09-09: "we want only one expanded at a time. If another
  * is expanded, then others collapse." Enforced on the `toggle` event rather than by hijacking the
@@ -10163,10 +10279,34 @@ function groupHtml(g, open) {
  * ⚠ `toggle` DOES NOT BUBBLE — the listener goes on each <details>, not on a container. */
 function wireSettingsTabs(box) {
   box.querySelectorAll(".rp-sec").forEach((d) => d.addEventListener("toggle", () => {
-    if (!d.open || !d.parentNode) return;
+    if (!d.open || !d.parentNode) return;               // a CLOSING section never moves the view
     d.parentNode.querySelectorAll(".rp-sec[open]").forEach((o) => { if (o !== d) o.open = false; });
+    revealSectionTop(d);                                 // #87: after the siblings collapsed, not before
   }));
   box.querySelectorAll(".rp-tab").forEach((b) => b.addEventListener("click", () => showSettingsTab(box, b.dataset.tab)));
+}
+
+/* BRING A JUST-OPENED SECTION'S TOP INTO VIEW (#87, Brian Plimley, 2026-10-01). The scroll box is
+ * the dialog's `.rp-groups`; closing a long sibling above shrinks the content and the browser
+ * leaves the reader wherever the clamp lands — often the middle or bottom of the new section.
+ * Only moves when the section's top is above the box or within 48px of its bottom (a summary
+ * sitting at the very foot with its body out of sight); a top already in view is left alone.
+ * ⚠ GUARDS, each a real case:
+ *   - inside a hidden tab panel: no layout, so every rect is 0 — and the markup's `open` on each
+ *     tab's first section fires `toggle` once the dialog is built, hidden tabs included;
+ *   - focus already INSIDE the section (not on its own summary): a validation jump (flagProblems)
+ *     opened it and focused the bad field, and that field owns the view — snapping to the section
+ *     top could push it off the bottom.
+ * ⚠ scrollTop, NEVER scrollIntoView: scrollIntoView scrolls every scrollable ancestor, including
+ * the page behind the fixed modal. Instant, not smooth — the jump IS the fix. */
+function revealSectionTop(d) {
+  const sc = d.closest(".rp-groups");
+  if (!sc || d.closest("[hidden]")) return;
+  const a = document.activeElement;
+  const sum = d.querySelector(":scope > summary");
+  if (a && a !== d && d.contains(a) && !(sum && sum.contains(a))) return;
+  const top = d.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+  if (top < 0 || top > sc.clientHeight - 48) sc.scrollTop += top;
 }
 
 function showSettingsTab(box, tabId) {
@@ -10181,14 +10321,29 @@ function showSettingsTab(box, tabId) {
   const panel = box.querySelector(`.rp-tabpanel[data-tab="${tabId}"]`);
   const first = panel && !panel.querySelector(".rp-sec[open]") && panel.querySelector(".rp-sec");
   if (first) first.open = true;
+  /* ⚠ A NEW TAB STARTS AT THE TOP (#87, Brian Plimley, 2026-10-01). The tab panels share one
+   * scroll box, so without this a tab opened where the last one had been scrolled to — often past
+   * its end. Only `.rp-groups`, never the card: the tab bar (and the device name above it) live in
+   * the card, outside this box. Re-clicking the tab you are on also returns to the top; that is
+   * fine. Panel only — the Editor's tabs keep their place on purpose (see wireSettingsTabs). */
+  const sc = box.querySelector(".rp-groups");
+  if (sc) sc.scrollTop = 0;
 }
 
-// Reveal one SECTION: its macro-tab, then the section itself, closing whatever else was open.
+/* Reveal one SECTION: its macro-tab, then the section itself, closing whatever else was open.
+ * ⚠ THE SIBLINGS CLOSE HERE, SYNCHRONOUSLY (#87, 2026-10-01) — not left to the toggle listener.
+ * showSettingsTab may have just re-opened the tab's FIRST section, and toggle events are queued:
+ * that first section's toggle, queued ahead of ours, ran first and closed the very section a
+ * validation jump had opened (reproduced). Closing it now means its toggle finds it shut and
+ * does nothing. */
 function showSettingsSection(box, secId, tabOf) {
   const map = tabOf || TAB_OF_SEC;
   showSettingsTab(box, map.get(secId) || secId);
   const sec = box.querySelector(`.rp-sec[data-group="${secId}"]`);
-  if (sec && !sec.open) sec.open = true;                 // the toggle listener closes its siblings
+  if (sec && !sec.open) {
+    sec.open = true;
+    if (sec.parentNode) sec.parentNode.querySelectorAll(".rp-sec[open]").forEach((o) => { if (o !== sec) o.open = false; });
+  }
   return sec;
 }
 
@@ -10508,25 +10663,41 @@ async function openSettingsModal(target, opts = {}) {
   source = (target.project && projectDefaults(target.project.folderId))
     || (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
+  /* THE DEVICE'S OWN PROJECT — the Drive folder id its template is keyed by, resolved ONCE for the
+   * whole modal: the seed below reads it, and so does the "also use these as the project's
+   * defaults" offer by the Push button (#85/#86). The create flow hands the folder id straight in
+   * (opts.projectFolderId — the estate cannot know a device created seconds ago); every other way
+   * in (a card's Settings button, the invite gate's flagOnOpen) resolves it from the estate the
+   * same way projectScope does.
+   * ⚠ OWNED projects only, by construction rather than by a check: estateCache is the caller's OWN
+   * Drive, and newDeviceModal passes no folder for a shared tab (its id is a D1 uuid). A device in
+   * someone else's project therefore resolves nothing — which is right, because templates live in
+   * the owner's prefs under the owner's Kr, and a member could neither read nor write one.
+   * Device mode only: a template form has no project to look up, it IS one. */
+  let ownedFolder = '';
+  if (target.instance && !target.project) {
+    ownedFolder = opts.projectFolderId || '';
+    if (!ownedFolder) {
+      const dev = ((estateCache && estateCache.devices) || []).find((d) =>
+        (d.instanceId && d.instanceId === target.instance.instance_id)
+        || (d.folderId && d.folderId === target.instance.oauth_folder_id));
+      ownedFolder = dev ? (dev.projectId || '') : '';
+    }
+  }
+  /* ⚠ loadProjectDefaults() BEFORE either reader — projectDefaults() is synchronous over a cache
+   * that may be cold (the projDefCache rule; see the Default settings button). Cheap when warm:
+   * getPrefs decrypts only when the settings blob's ciphertext has changed. */
+  if (ownedFolder) await loadProjectDefaults();
   /* THE TEMPLATE'S COPY SITE (v519): a device with no settings at all seeds its form from the
    * project's default settings — this is the "new devices are born with the template" half of the
    * v505 feature, which until now only STORED templates. Never over real settings: the pushed
    * snapshot and the device's own report both outrank it, so an already-configured device can
-   * never have its truth papered over by a template. The create flow hands the folder id straight
-   * in (opts.projectFolderId — the estate cannot know a device created seconds ago); the retry
-   * path (a card's Settings button after a failed first delivery) resolves it from the estate the
-   * same way projectScope does. Prefill only — the PUSH stays the researcher's explicit act. */
+   * never have its truth papered over by a template. Prefill only — the PUSH stays the
+   * researcher's explicit act. */
   let seededFromTemplate = false;
   let unreadable = false;
   if (target.instance && !target.project && !Object.keys(source || {}).length) {
-    let folder = opts.projectFolderId || '';
-    if (!folder) {
-      const dev = ((estateCache && estateCache.devices) || []).find((d) =>
-        (d.instanceId && d.instanceId === target.instance.instance_id)
-        || (d.folderId && d.folderId === target.instance.oauth_folder_id));
-      folder = dev ? (dev.projectId || '') : '';
-    }
-    if (folder) {
+    if (ownedFolder) {
       /* ⚠ "HAS NO SETTINGS" AND "ITS SETTINGS COULD NOT BE READ" ARE DIFFERENT FACTS, and
        * getInstanceSettings answers null to BOTH: its lane read swallows its own failures, and the
        * snapshot fallback is empty for a device somebody ELSE configured. Seeding on the second
@@ -10545,8 +10716,7 @@ async function openSettingsModal(target, opts = {}) {
         } catch { unreadable = true; }
       }
       if (empty) {
-        await loadProjectDefaults();
-        const tpl = projectDefaults(folder);
+        const tpl = projectDefaults(ownedFolder);     // loaded just above
         if (tpl && Object.keys(tpl).length) { source = tpl; seededFromTemplate = true; }
       }
     }
@@ -10567,6 +10737,36 @@ async function openSettingsModal(target, opts = {}) {
   }
   fillForm(box, toFormValues(source));
   wireIconPicks(box);
+  /* "ALSO USE THESE AS THE PROJECT'S DEFAULTS" (#85/#86, Brian Plimley, 2026-09-30; Seth,
+   * 2026-10-02: "the user doesn't have to set defaults for the project, but they DO have to fill in
+   * required device settings… and maybe it would be good to ask them if they want to make those
+   * settings default for other new devices").
+   *
+   * Project defaults stopped being demanded at project creation (projectNewModal), so this is where
+   * a template can be born instead: from settings the researcher has just filled in for a real
+   * device and that have just passed the device's own validation — which is stricter than the
+   * template form's (templateMode relaxes the consent-audio rule), so whatever it stores would pass
+   * there too. UNTICKED by default: it is an offer, and the push is the act.
+   *
+   * Shown ONLY when all three hold:
+   *   • device mode — a template form is already the place for defaults;
+   *   • an OWNED project resolved (ownedFolder above) — a member's device resolves none, and the
+   *     owner's prefs are not theirs to write;
+   *   • that project has NO template yet. Changing an existing one is the Projects card's
+   *     Default settings, whose save captures the previous template for applyTemplateModal's
+   *     "only what changed" delta and its pending-apply bookkeeping. Overwriting it from here
+   *     would skip both, silently.
+   * ⚠ No data-f on the checkbox: collectRaw reads every [data-f], and this is not a setting. */
+  const ownedTpl = ownedFolder ? projectDefaults(ownedFolder) : null;
+  const offerAsDefault = !!ownedFolder && !(ownedTpl && Object.keys(ownedTpl).length);
+  const ownedName = ownedFolder
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === ownedFolder) || {}).name || t('panel.proj.defaultName'))
+    : '';
+  if (offerAsDefault) {
+    const enc = box.querySelector('.rp-enc');
+    if (enc) enc.insertAdjacentHTML('beforebegin', `<label class="check-label rp-set-asdefault"><input type="checkbox" id="rp-set-asdefault"> ${esc(t('panel.set.asProjectDefault', { name: ownedName }))}</label>
+      <p class="note">${esc(t('panel.set.asProjectDefaultNote'))}</p>`);
+  }
   /* THE CONSENT PROMPT IN A PROJECT TEMPLATE (Seth, 2026-09-09: "I'd like to be able to upload a
    * recording as either default or override (just like any other setting on the project default
    * device settings) consent prompt").
@@ -10737,6 +10937,9 @@ async function openSettingsModal(target, opts = {}) {
         if (!targets.length) { deps.toast(t('panel.set.projSaved'), 4000); return; }
         applyTemplateModal(target.project, patch, prevTpl, targets);
       } else {
+        // Read now, while the form is certainly in the DOM; acted on only after the push below.
+        const asDefaultBox = offerAsDefault ? box.querySelector('#rp-set-asdefault') : null;
+        const asDefault = !!(asDefaultBox && asDefaultBox.checked);
         /* Rename FIRST, and only when actually changed — a rename bumps desired_rev, and doing it
          * needlessly would wake every install's poll for nothing. A failed rename aborts before the
          * settings push so the toast can never claim more than happened. Blank = keep the old name
@@ -10755,7 +10958,38 @@ async function openSettingsModal(target, opts = {}) {
           if (cachedRow) cachedRow.nickname = newNick;
         }
         await Researcher.changeSettings(target.instance.instance_id, patch);
-        m.close(); deps.toast(t('panel.set.pushed'), 4000);
+        /* THE PUSH HAS LANDED; THE TEMPLATE IS A SECOND, SEPARATE FACT (#85/#86). Only now, only
+         * when ticked, and in its OWN try: a failed prefs write must never turn a successful push
+         * into an error — the device has its settings either way, and letting it reach the outer
+         * catch would say they failed. Each outcome gets one toast naming both facts.
+         * What is stored is what the next "+ New device" in this project is seeded from — through
+         * the copy site above, unchanged — and what the Projects card's Default settings opens on.
+         * Deliberately NOT applyTemplateModal and NOT the pending-apply list: nothing is offered
+         * to the project's other devices. This one already has these settings, and nobody asked
+         * about the rest.
+         * ⚠ RE-READ, STRICTLY, BEFORE WRITING. saveProjectDefaults writes the WHOLE per-project map
+         * from the cache, so a cache that silently fell back to {} would erase every other
+         * project's template; strict makes a failed read land in the catch instead. And the offer
+         * was judged when the form opened: a template that appeared since (another tab, another
+         * panel) is KEPT, and the toast says so — this path starts a template, never replaces one. */
+        let doneKey = 'panel.set.pushed';
+        if (asDefault) {
+          try {
+            await loadProjectDefaults({ strict: true });
+            const nowTpl = projectDefaults(ownedFolder);
+            if (nowTpl && Object.keys(nowTpl).length) doneKey = 'panel.set.asDefaultExists';
+            else {
+              await saveProjectDefaults(ownedFolder, deviceSettingsAsTemplate(patch));
+              doneKey = 'panel.set.pushedAsDefault';
+            }
+          } catch (err) {
+            console.warn('[panel] settings pushed, but saving them as the project defaults failed:', err);
+            doneKey = 'panel.set.asDefaultFailed';
+          }
+        }
+        m.close();
+        deps.toast(t(doneKey, { name: ownedName }),
+          doneKey === 'panel.set.pushed' ? 4000 : doneKey === 'panel.set.pushedAsDefault' ? 6000 : 10000);
         renderDashboard(lastData || undefined);   // the card shows the new name now, not at the next poll
       }
     } catch (err) { errToast(err); }

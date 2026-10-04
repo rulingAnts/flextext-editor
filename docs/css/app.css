@@ -339,6 +339,16 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
    (Enter, let it play through the pause, Enter again). Visually quieter, never hidden. */
 .seg-strip.seg-empty .seg-wave { opacity: .55; }
 .seg-text:focus { outline: 2px solid var(--blue); border-radius: 4px; }
+/* ⚠ THE GHOST TEXT IN AN EMPTY LINE (#91, Brian Plimley, 2026-10-02: the baseline box "is invisible
+   until you click on it and type in it"). Set in segment-strips.js renderStrips; styled here so it
+   can never be mistaken for typed vernacular: grey and italic, where real text is --vern blue.
+   NOT var(--muted) — that is the colour a glossed (locked) line's REAL text takes (.seg-locked
+   below), so a ghost in it would look like words. opacity: 1 because Firefox dims placeholders on
+   its own, which would push this hint below legibility. The box border is left as it is. */
+.seg-text::placeholder { color: #8b939e; font-style: italic; opacity: 1; }
+/* A line armed for ✂ is read-only (lockFieldsForCut): it takes a caret but no typing, so it must
+   not say "type here". The ghost goes transparent rather than away, so the box keeps its size. */
+.seg-text:read-only::placeholder { color: transparent; }
 /* Gloss-tab per-line bar: the same transport, skinnier clothes — a small ▶/⏸ and a thin waveform
    above each interlinear line-group. */
 /* ⚠ THE GUTTER GEOMETRY LIVES ON .segment, not on the bar, because the interlinear rows BELOW the

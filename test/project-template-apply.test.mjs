@@ -105,7 +105,9 @@ console.log('\nthe template is seeded onto a device only when the device is prov
   ok(/await Researcher\.readSettingsLane\(target\.instance\.instance_id\)/.test(seed),
      'the lane is re-read DIRECTLY, where a failure throws instead of vanishing');
   ok(/catch \{ unreadable = true; \}/.test(seed), 'a failed read is recorded as its own state');
-  ok(/if \(empty\) \{[\s\S]{0,200}?projectDefaults\(folder\)/.test(seed),
+  /* `ownedFolder` since #85/#86: the folder is resolved once, above the seed, because the
+   * "also use these as the project's defaults" offer reads it too. Same resolution, same gate. */
+  ok(/if \(empty\) \{[\s\S]{0,200}?projectDefaults\(ownedFolder\)/.test(seed),
      'the template is applied only on a positive "there is nothing there"');
   ok(/if \(lane && Object\.keys\(lane\)\.length\) source = lane;/.test(seed),
      'and settings the first read missed are SHOWN, not overwritten by the template');
@@ -117,15 +119,35 @@ console.log('\nthe template is seeded onto a device only when the device is prov
      'a template-seeded form says the values are NOT on the device yet');
 }
 
-console.log('\na new project goes straight into its Default settings');
+console.log('\na new project does NOT go into its Default settings — they are optional (#85/#86)');
 {
-  /* Seth: "require the user to fill in project defaults for any new projects they create from now
-   * on." Same move newDeviceModal makes for a new device: the modal opens as part of creation. */
+  /* This block once pinned the opposite. Seth, 2026-08-31: "require the user to fill in project
+   * defaults for any new projects they create from now on", so creation opened the template form.
+   * Reversed 2026-10-02 (Brian Plimley's #85/#86): that form opened AFTER the project and its Drive
+   * folder existed, so its Cancel looked like "don't create it" and was not; and a page of device
+   * defaults with no device in sight overwhelmed a new user. Seth: "the user doesn't have to set
+   * defaults for the project, but they DO have to fill in required device settings". So creation
+   * ends at the toast, and the toast says where the optional defaults live. */
   const newAt = panel.indexOf('async function projectNewModal');
   const body = panel.slice(newAt, panel.indexOf('\nasync function ', newAt + 10));
-  ok(/await loadProjectDefaults\(\);\s*\n\s*openSettingsModal\(\{ kind: 'project'/.test(body),
-     'project creation opens the template form (defaults loaded first, the projDefCache rule)');
-  ok(/'panel\.proj\.nowDefaults'/.test(body), 'and says why it opened');
+  ok(newAt > 0 && body.length > 200, 'projectNewModal is findable');
+  ok(!/openSettingsModal\(/.test(body), 'project creation no longer opens the template form');
+  ok(!/loadProjectDefaults\(/.test(body), '...nor loads defaults it no longer needs');
+  ok(!/'panel\.proj\.nowDefaults'/.test(body) && !/'panel\.proj\.nowDefaults':/.test(i18n),
+     'the "now set its defaults" toast is retired, from the code AND both dictionaries');
+  ok(/deps\.toast\(t\('panel\.proj\.created', \{ name \}\)/.test(body), 'one toast says the project was created');
+  ok(/Researcher\.projectCreate\(name\)/.test(body) && /currentProject = r\.folderId;/.test(body)
+     && /renderFromSettledEstate\(\);/.test(body),
+     'and the rest of creation is unchanged: create, wait for the estate, open the new project');
+  const en = (i18n.match(/'panel\.proj\.created': '([^']*)'/) || [])[1] || '';
+  ok(/optional/i.test(en) && /Default settings/.test(en),
+     'the created toast says defaults are optional and names the control by its real label');
+  const label = (i18n.match(/'panel\.proj\.defaults': '([^']*)'/) || [])[1] || '';
+  ok(label === 'Default settings' && en.includes(label), '...the same words the Projects card button shows');
+  const ids = [...i18n.matchAll(/'panel\.proj\.created': '([^']*)'/g)].map((x) => x[1]);
+  const idLabel = [...i18n.matchAll(/'panel\.proj\.defaults': '([^']*)'/g)].map((x) => x[1])[1] || '';
+  ok(ids.length === 2 && /opsional/i.test(ids[1]) && idLabel && ids[1].includes(idLabel),
+     '...and so does the Indonesian, with the Indonesian button label');
 }
 
 console.log('\nthe template carries the consent prompt too');

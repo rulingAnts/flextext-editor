@@ -1446,6 +1446,11 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v696', date: '2026-10-04', items: [
+    { k: 'panel.rel.fix.settingsDialogRoom', issue: 86 },
+    { k: 'panel.rel.fix.newDeviceNeedsSettings', issue: 85 },
+    { k: 'panel.rel.fix.helpFollowsSettings', issue: 92 },
+  ] },
   { v: 'v695', date: '2026-10-04', items: [
     { k: 'panel.rel.fix.moveTextNoAudio', issue: 89 },
     { k: 'panel.rel.fix.deleteOpenText', issue: 90 },
@@ -5485,9 +5490,18 @@ function newDeviceModal() {
     // creation stays blocked until the required fields are filled in, so this isn't skippable.
     // projectFolderId seeds the form from the project's default settings (v519): the estate cache
     // cannot know a device created seconds ago, so the folder rides along explicitly.
+    /* ⚠ firstTime: CLOSING THIS BOX WITHOUT A PUSH MUST NOT LEAVE A BLANK DEVICE (Seth, 2026-10-04,
+     * testing #85/#86 on staging: "if I create a new device and then cancel the settings, it's
+     * possible to have no settings… writing systems settings left blank, etc. The user should not be
+     * able to create a new device without the minimum required/validated settings. If they cancel the
+     * first-time settings box AND there are no default settings, then the device should undo creation
+     * rather than have a blank device with no settings. They need to EITHER have defaults OR set the
+     * minimum settings for new devices."). The flag is what makes the dismiss act: the project's
+     * valid defaults are pushed, or the device just made is removed again. Only THIS open gets it —
+     * Settings on an existing device keeps its plain cancel. */
     deps.toast(t('panel.new.configure'), 5000);
     try {
-      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } }, { projectFolderId: intoProject });
+      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } }, { projectFolderId: intoProject, firstTime: true });
     } catch (err) {
       deps.toast(t('panel.new.createdNotConfigured'), 9000);
     }
@@ -10632,6 +10646,16 @@ function flagProblems(box, problems, showGroup) {
 }
 
 async function openSettingsModal(target, opts = {}) {
+  /* THE FIRST-TIME BOX OF A JUST-CREATED DEVICE (opts.firstTime, newDeviceModal only) may not end
+   * in "a device with no settings". modal()'s onClose fires on EVERY close path — Cancel, the
+   * backdrop, Escape — so it is the one place the dismiss is decided, and `firstTimeArmed` is what
+   * the save handler lowers before a push so that a successful push closing the box never counts as
+   * a dismissal. The handler itself (firstTimeDismiss) is assigned once the project's defaults are
+   * known, further down; until then a close does nothing, which is right, because nothing could have
+   * been pushed yet. `modalOpen` lets a push that FAILS after an Escape mid-flight tell the truth. */
+  let firstTimeArmed = !!(opts.firstTime && target.instance && !target.project);
+  let firstTimeDismiss = null;
+  let modalOpen = true;
   const m = modal(`
     <div class="rp-set-head"><h3>${esc(target.project
       ? t('panel.set.projTitle', { name: target.project.name || '' })
@@ -10647,9 +10671,15 @@ async function openSettingsModal(target, opts = {}) {
     <div class="rp-groups">${SET_TABS.map(tabPanelHtml).join('')}</div>
     <p class="note rp-enc">${esc(t('panel.set.encNote'))}</p>
     <button class="primary-btn" data-m="save">${esc(target.project ? t('panel.set.projSave') : t('panel.set.push'))}</button>
-    <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true);
+    <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true,
+  () => { modalOpen = false; if (firstTimeArmed && firstTimeDismiss) firstTimeDismiss(); });
 
   const box = m.el;
+  // Sized for a form, not a message: see .rp-settings in app.css (the fields area keeps a floor;
+  // on a phone the dialog takes the whole screen).
+  box.classList.add('rp-settings-wrap');
+  const card = box.classList.contains('modal-card') ? box : box.querySelector('.modal-card');
+  if (card) card.classList.add('rp-settings');
   wireSettingsTabs(box);
   wireLanguageNames(box, 'data-f', wsLangLabel);   // the name under each code box follows the typing
   /* showGroup takes a SECTION id, not a tab id — every caller (the validation banner and its jump
@@ -10732,9 +10762,63 @@ async function openSettingsModal(target, opts = {}) {
   const noteKey = unreadable ? 'panel.set.readFailed'
     : (target.instance && !target.project && !Object.keys(source || {}).length) ? 'panel.set.unconfigured'
     : seededFromTemplate ? 'panel.set.fromTemplate' : '';
-  if (noteKey) {
+  /* WHAT CANCEL DOES TO A JUST-CREATED DEVICE (Seth, 2026-10-04 — the rule is quoted in
+   * newDeviceModal). Decided HERE, once, from the project's defaults as loaded above, so the note
+   * below and the dismiss handler cannot disagree:
+   *   • the project has defaults AND they pass the DEVICE validation → Cancel pushes them, exactly
+   *     as a Push from the seeded form would (the same changeSettings, the same shape);
+   *   • otherwise → Cancel removes the device again, through the same revoke the card's Delete uses.
+   * ⚠ VALIDATED AS A PUSH, NOT AS A TEMPLATE: templateMode relaxes the consent-audio rule because a
+   * template may lack a prompt that only a device can carry — a template that ticks audio consent
+   * with no prompt is a fine template and an unusable device, and the one thing this exists to
+   * prevent is a device that does not work. applyTemplateModal holds its merged pushes to the same
+   * rule. A member's device in a shared project resolves no owned folder, so it always takes the
+   * second branch: the owner's defaults are not readable from this seat, and a device nobody
+   * configured is not better for having been made by a member.
+   * ⚠ appLang IS DROPPED from what is pushed, because the seeded form would not have sent it either:
+   * toFormValues opens the language at 'follow' and readForm then deletes it — a one-shot command,
+   * not a setting (NEVER_A_PROJECT_DEFAULT says the same thing from the other side). */
+  let firstTimeDefaults = null;
+  if (firstTimeArmed) {
+    const tpl = ownedFolder ? projectDefaults(ownedFolder) : null;
+    if (tpl && Object.keys(tpl).length
+        && !validateDeviceSettings(settingsToRaw(tpl), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true }).length) {
+      firstTimeDefaults = { ...tpl };
+      for (const k of NEVER_A_PROJECT_DEFAULT) delete firstTimeDefaults[k];
+    }
+    /* Runs from onClose, which is synchronous and swallows throws — so every outcome ends in a toast
+     * of its own here, and nothing is left to a caller. Each toast names the TRUE state: a removal
+     * that failed is reported as a device that exists without settings, never as removed. */
+    firstTimeDismiss = async () => {
+      const name = target.instance.nickname || '';
+      if (firstTimeDefaults) {
+        try {
+          await Researcher.changeSettings(target.instance.instance_id, firstTimeDefaults);
+          deps.toast(t('panel.set.firstDefaultsSent', { name }), 8000);
+        } catch (err) {
+          console.warn('[panel] first-time cancel: pushing the project defaults failed:', err);
+          deps.toast(t('panel.new.createdNotConfigured'), 9000);
+        }
+      } else {
+        try {
+          await Researcher.revokeInstance(target.instance.instance_id);
+          deps.toast(t('panel.set.firstUndone', { name }), 9000);
+        } catch (err) {
+          console.warn('[panel] first-time cancel: removing the new device failed:', err);
+          deps.toast(t('panel.set.firstUndoFailed', { name }), 10000);
+        }
+      }
+      renderDashboard();
+    };
+  }
+  /* The first-time box SAYS what Cancel will do, in the same note, so nobody meets either outcome as
+   * a surprise. Normally one of the two device notes is present to carry the sentence; should neither
+   * be (a brand-new device whose read somehow returned settings), the sentence stands alone. */
+  const cancelKey = firstTimeArmed ? (firstTimeDefaults ? 'panel.set.firstCancelDefaults' : 'panel.set.firstCancelUndo') : '';
+  if (noteKey || cancelKey) {
     const h = box.querySelector('h3');
-    if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(t(noteKey))}</p>`);
+    const text = [noteKey && t(noteKey), cancelKey && t(cancelKey)].filter(Boolean).join(' ');
+    if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(text)}</p>`);
   }
   fillForm(box, toFormValues(source));
   wireIconPicks(box);
@@ -10920,6 +11004,13 @@ async function openSettingsModal(target, opts = {}) {
     const problems = validateDeviceSettings(collectRaw(box), vopts);
     if (problems.length) { flagProblems(box, problems, showGroup); return; }
     const patch = readForm(box);
+    /* ⚠ DISARMED BEFORE THE PUSH, NOT AFTER IT. The box can still be closed (Escape, the backdrop)
+     * while changeSettings is in flight; were the first-time dismiss still armed, that close would
+     * push the defaults over — or revoke — a device whose own settings are landing. A push that then
+     * FAILS re-arms below, so a later Cancel still does its job; and if the box is already gone by
+     * then, the toast says what is true: the device exists and its settings were not delivered. */
+    const wasArmed = firstTimeArmed;
+    firstTimeArmed = false;
     try {
       if (target.project) {
         /* ⚠ STORED FIRST, PUSHED ONLY BY CHOICE. Saving a template must not touch a single
@@ -10993,7 +11084,13 @@ async function openSettingsModal(target, opts = {}) {
           doneKey === 'panel.set.pushed' ? 4000 : doneKey === 'panel.set.pushedAsDefault' ? 6000 : 10000);
         renderDashboard(lastData || undefined);   // the card shows the new name now, not at the next poll
       }
-    } catch (err) { errToast(err); }
+    } catch (err) {
+      errToast(err);
+      if (wasArmed) {
+        firstTimeArmed = true;
+        if (!modalOpen) deps.toast(t('panel.new.createdNotConfigured'), 9000);
+      }
+    }
   });
 
 }

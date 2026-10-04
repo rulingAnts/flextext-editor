@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v695';
+export const ENGINE_VERSION = 'v696';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -299,15 +299,22 @@ en: {
 
   'baseline.hint': 'Type or paste the text. Press <b>Enter</b> for a new paragraph. Sentences are split automatically at <code>. ! ?</code>',
   /* SEGMENTATION MODE has a different Enter, so it needs a different sentence — the classic hint
-   * above says "a new paragraph", which here also moves a boundary in the recording. */
-  'baseline.hintSeg': 'Type the words for each line. <b>Enter</b> inside a box breaks the line at the cursor; '
+   * above says "a new paragraph", which here also moves a boundary in the recording.
+   *
+   * ⚠ IN PIECES, ONE PER CAPABILITY (#92, Brian Plimley, 2026-10-02: "even if splitting/joining is
+   * disabled, the instructions still explain how to split/join"). applyBaselineHint in app.js
+   * assembles them from the live settings: the lead always; then EITHER the Enter-splits sentence (a
+   * device still set to `split`, where Enter does divide a line) OR the Enter-moves-on sentence (the
+   * default for new devices — the Enter-splits sentence became false there in v635); and the
+   * sentences that explain how to SPLIT a line (Enter splitting, the ✂ at the left edge) only while
+   * joinSplitBaseline allows one. With every capability on, the assembled text is word for word what
+   * the two single paragraphs (hintSeg / hintSegMove) used to say. */
+  'baseline.hintSegLead': 'Type the words for each line. ',
+  'baseline.hintSegEnterSplit': '<b>Enter</b> inside a box breaks the line at the cursor; '
     + '<b>Enter</b> with no box selected breaks it at the playhead and keeps the words together \u2014 so you can '
     + 'listen and cut without typing.',
-  /* ⚠ THE "MOVE TO NEXT" TWIN. hintSeg above stays exactly right for a device still set to `split`,
-   * where Enter does divide a line. Where Enter moves on instead (the default for new devices) that
-   * sentence became false in v635, and this is the instruction a coworker actually reads. */
-  'baseline.hintSegMove': 'Type the words for each line. <b>Enter</b> moves on to the next line. '
-    + 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
+  'baseline.hintSegEnterMove': '<b>Enter</b> moves on to the next line. ',
+  'baseline.hintSegScissors': 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
     + 'every place you can cut. Tap it again to put them away.',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
   /* ⚠ THE GHOST IN EACH EMPTY SEGMENT BOX (#91, Brian Plimley, 2026-10-02: "the text box where an
@@ -318,6 +325,9 @@ en: {
   'baseline.linePh': 'Type what you hear…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
+  /* The same note for a device whose researcher hid the Baseline tab (#92): it must not send the
+   * glosser to a tab they do not have. applyGlossEmptyHint in app.js picks one or the other. */
+  'gloss.emptyNoBaseline': 'Nothing to gloss yet \u2014 the words of this text have not been typed.',
   'gloss.blankLine': '(blank line — nothing to gloss)',
   'gloss.wordLabel': 'Word',
   'gloss.glossLabel': 'Gloss',
@@ -1606,6 +1616,9 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.settingsDialogRoom': 'The device-settings dialog keeps room for its fields. With the new "use these as the project’s defaults" offer, a brand-new device’s form had shrunk to a one-line slit; the fields area now keeps a minimum height (the dialog scrolls as a whole if the screen is short), and on a phone the dialog takes the whole screen.'
+    ,'panel.rel.fix.newDeviceNeedsSettings': 'A new device can no longer be left without settings. On its first settings box, Cancel either sends the project’s default settings to it (when the project has them) or undoes the creation (when it does not); the box says which beforehand. Push with valid required settings works as before. Opening Settings later on an existing device keeps its plain Cancel.'
+    ,'panel.rel.fix.helpFollowsSettings': 'The Editor’s instructions now follow the device’s settings: the Baseline tab’s hint no longer explains splitting and joining lines when that is switched off, the Cut tab’s "split it on the Baseline tab instead" and the "do that on the Gloss tab" refusals appear only when that tab and that permission exist, and the Gloss tab’s empty note no longer sends people to a hidden Baseline tab. They update when the researcher pushes new settings. (Brian Plimley)'
     ,'panel.rel.fix.moveTextNoAudio': 'A text that has no recording — a .flextext uploaded on its own — can now be moved to a device. Move used to insist on a recording for every text, and then labelled every device "too old to receive a move", which blamed the device for a refusal that was about the text. The Move dialog now says what is actually missing: no manifest, a declared file that has not arrived yet, or nothing to move. (Brian Plimley)'
     ,'panel.rel.fix.deleteOpenText': 'When the panel removes a text that is open on a device, the device now closes it fully. Before, the Editor went back to its texts list but the audio player for the deleted text stayed on screen and kept playing; the Audio Segmenter did the same with an open matcher. (Brian Plimley)'
     ,'panel.rel.fix.settingsScroll': 'The device-settings dialog now starts every tab at the top, and opening a section scrolls so that the section’s top is in view. Before, switching tabs kept the previous tab’s scroll position, and a section opened from the bottom of the list came up in the middle. (Brian Plimley)'
@@ -1923,6 +1936,14 @@ internet after the first time.</p>
   'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in \u201c{name}\u201d.',
   'panel.set.asDefaultFailed': 'Settings sent to the device \u2014 but saving them as the defaults for \u201c{name}\u201d failed. Open this device\u2019s Settings again to retry.',
   'panel.set.asDefaultExists': 'Settings sent to the device. \u201c{name}\u201d was given default settings while this form was open, so those were kept \u2014 change them with \u201cDefault settings\u201d on the Projects card.',
+  /* The first-time settings box of a just-created device (Seth, 2026-10-04): closing it without a push
+   * either sends the project's defaults or removes the device again — never a device with no settings.
+   * The two firstCancel sentences are appended to the intro note so Cancel's effect is said up front. */
+  'panel.set.firstCancelDefaults': 'If you cancel instead, the project\u2019s default settings are sent to it as they are.',
+  'panel.set.firstCancelUndo': 'If you cancel instead, the device is removed again \u2014 a device cannot be left without settings.',
+  'panel.set.firstDefaultsSent': 'Settings for \u201c{name}\u201d are the project\u2019s defaults \u2014 change them any time with Settings.',
+  'panel.set.firstUndone': '\u201c{name}\u201d was not created: a new device needs its settings, or the project needs default settings.',
+  'panel.set.firstUndoFailed': '\u201c{name}\u201d could not be removed, so it exists without settings \u2014 open its Settings to set it up, or use Delete on its card.',
   'panel.set.readFailed': 'This device\u2019s current settings could not be read just now \u2014 probably the connection. The fields are left blank rather than guessing: close this and reopen it when you are back online, so a push cannot overwrite settings you could not see.',
   'panel.set.promptProject': 'Saved for the whole project. New devices are created with it, and saving offers to send it to the devices already here. A device can still be given its own recording in its own settings, which is played instead of this one.',
   'panel.set.promptNeedsDevice': 'This project has no devices yet, and the recording is uploaded through one of them. Create a device in this project first, then add the recording here \u2014 it will belong to every device in the project, not just that one.',
@@ -2350,12 +2371,18 @@ internet after the first time.</p>
   'cut.arm': 'Cut this line \u2014 tap again to put the scissors away',
   'split.here': 'Split here',
   'split.cancel': 'Cancel the split',
-  'split.no.glossed': 'This line already has glosses or a translation, so it cannot be split or joined here. Do that on the Gloss tab.',
+  /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Gloss tab's split/join, so segment-strips
+   * (stripsRefuse) adds it only when that device has one — Gloss tab shown AND joinSplitGloss on. */
+  'split.no.glossed': 'This line already has glosses or a translation, so it cannot be split or joined here.',
+  'split.no.glossedGloss': 'Do that on the Gloss tab.',
   'gloss.editWordTip': 'Tap to correct this word; its gloss stays with it',
   'cut.join': 'Join with previous',
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
   'cut.no.outside': 'Move the playhead into a line first \u2014 press play, then cut where you want the line to end.',
-  'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here. Split it on the Baseline tab instead, where you can choose where the words divide.',
+  /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Baseline tab's split, so segment-strips
+   * (cutRefusal) adds it only when that device has one — Baseline tab shown AND joinSplitBaseline on. */
+  'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here.',
+  'cut.no.hasTextBaseline': 'Split it on the Baseline tab instead, where you can choose where the words divide.',
   'cut.no.tooShort': 'Too close to the edge of the line \u2014 move the playhead a little further in.',
   'cut.no.first': 'This is the first line, so there is nothing before it to join to.',
   /* "Guess the lines" — silence detection over the peaks the waveforms are drawn from. The wording
@@ -3074,16 +3101,19 @@ id: {
   'banner.unset': 'Sistem tulisan belum diatur — teks baru akan memakai kode sementara. Minta tautan pengaturan dari peneliti, atau buka tab <b>Pengaturan</b>.',
 
   'baseline.hint': 'Ketik atau tempel teks di sini. Tekan <b>Enter</b> untuk paragraf baru. Kalimat dipisah otomatis pada <code>. ! ?</code>',
-  'baseline.hintSeg': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> di dalam kotak memotong baris di posisi kursor; '
+  // Potongan-potongan petunjuk tab Ketik (#92) — dirangkai app.js menurut pengaturan perangkat; lihat blok en.
+  'baseline.hintSegLead': 'Ketik kata-kata untuk tiap baris. ',
+  'baseline.hintSegEnterSplit': '<b>Enter</b> di dalam kotak memotong baris di posisi kursor; '
     + '<b>Enter</b> tanpa kotak yang dipilih memotongnya di posisi pemutar dan kata-katanya tetap utuh \u2014 jadi Anda '
     + 'bisa mendengarkan sambil memotong tanpa mengetik.',
-  'baseline.hintSegMove': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> berpindah ke baris berikutnya. '
-    + 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
+  'baseline.hintSegEnterMove': '<b>Enter</b> berpindah ke baris berikutnya. ',
+  'baseline.hintSegScissors': 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
     + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
   'baseline.linePh': 'Ketik yang Anda dengar…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
+  'gloss.emptyNoBaseline': 'Belum ada yang bisa dikerjakan \u2014 kata-kata teks ini belum diketik.',
   'gloss.blankLine': '(baris kosong — tidak ada yang digloss)',
   'gloss.wordLabel': 'Asli',
   'gloss.glossLabel': 'Harfiah',
@@ -4183,6 +4213,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.settingsDialogRoom': 'Dialog pengaturan perangkat kini menyisakan ruang untuk kolom-kolomnya. Dengan tawaran baru "pakai juga sebagai pengaturan baku proyek", formulir perangkat baru sempat menyusut menjadi satu baris saja; area kolom kini punya tinggi minimum (seluruh dialog menggulir jika layarnya pendek), dan di HP dialog ini memenuhi seluruh layar.'
+    ,'panel.rel.fix.newDeviceNeedsSettings': 'Perangkat baru tidak lagi bisa dibiarkan tanpa pengaturan. Pada kotak pengaturan pertamanya, Batal akan mengirimkan pengaturan baku proyek ke perangkat itu (jika proyek punya) atau membatalkan pembuatannya (jika tidak); kotak itu memberi tahu lebih dulu yang mana. Kirim dengan pengaturan wajib yang valid bekerja seperti sebelumnya. Membuka Pengaturan di kemudian hari pada perangkat yang sudah ada tetap memakai Batal biasa.'
+    ,'panel.rel.fix.helpFollowsSettings': 'Petunjuk di Editor kini mengikuti pengaturan perangkat: petunjuk tab Ketik tidak lagi menjelaskan cara memisah dan menggabung baris ketika fitur itu dimatikan, pesan "pisahkan di tab Ketik" di tab Potong dan "lakukan itu di tab Terjemahan Balik" hanya muncul jika tab dan izinnya ada, dan catatan kosong di tab Terjemahan Balik tidak lagi mengarahkan ke tab Ketik yang disembunyikan. Semuanya diperbarui saat peneliti mengirim pengaturan baru. (Brian Plimley)'
     ,'panel.rel.fix.moveTextNoAudio': 'Teks tanpa rekaman — file .flextext yang diunggah sendiri — kini bisa dipindahkan ke perangkat. Sebelumnya, Pindahkan selalu menuntut rekaman untuk setiap teks, lalu menandai setiap perangkat "terlalu lama untuk menerima pemindahan", seakan-akan perangkatnya yang salah padahal masalahnya ada pada teks. Dialog Pindahkan kini menyebutkan apa yang sebenarnya kurang: tidak ada manifes, ada file yang dinyatakan tetapi belum tiba, atau tidak ada yang bisa dipindahkan. (Brian Plimley)'
     ,'panel.rel.fix.deleteOpenText': 'Saat panel menghapus teks yang sedang terbuka di perangkat, perangkat kini menutupnya sepenuhnya. Sebelumnya, Editor kembali ke daftar teks, tetapi pemutar audio untuk teks yang dihapus itu tetap tampil dan terus berbunyi; Pemotong Audio berbuat sama dengan pencocok yang sedang terbuka. (Brian Plimley)'
     ,'panel.rel.fix.settingsScroll': 'Dialog pengaturan perangkat kini selalu memulai setiap tab dari atas, dan membuka sebuah bagian akan menggulir sampai bagian atasnya terlihat. Sebelumnya, berpindah tab mempertahankan posisi gulir tab sebelumnya, dan bagian yang dibuka dari bawah daftar muncul di tengah. (Brian Plimley)'
@@ -4472,6 +4505,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di “{name}”.',
   'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk “{name}”. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
   'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. “{name}” sudah diberi pengaturan bawaan selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
+  'panel.set.firstCancelDefaults': 'Jika Anda membatalkan, pengaturan bawaan proyek dikirim ke perangkat ini apa adanya.',
+  'panel.set.firstCancelUndo': 'Jika Anda membatalkan, perangkat ini dihapus kembali — perangkat tidak boleh dibiarkan tanpa pengaturan.',
+  'panel.set.firstDefaultsSent': 'Pengaturan “{name}” mengikuti bawaan proyek — ubah kapan saja lewat Pengaturan.',
+  'panel.set.firstUndone': '“{name}” tidak dibuat: perangkat baru memerlukan pengaturannya, atau proyek memerlukan pengaturan bawaan.',
+  'panel.set.firstUndoFailed': '“{name}” tidak dapat dihapus, jadi perangkat ini ada tanpa pengaturan — buka Pengaturan untuk menyiapkannya, atau tekan Cabut pada kartunya.',
   'panel.set.readFailed': 'Pengaturan perangkat ini tidak dapat dibaca saat ini — kemungkinan koneksi. Kolom dibiarkan kosong daripada menebak: tutup dan buka lagi setelah Anda kembali daring, agar pengiriman tidak menimpa pengaturan yang tidak dapat Anda lihat.',
   'panel.set.promptProject': 'Disimpan untuk seluruh proyek. Perangkat baru dibuat dengan rekaman ini, dan saat menyimpan Anda akan ditawari untuk mengirimkannya ke perangkat yang sudah ada di sini. Sebuah perangkat tetap dapat diberi rekamannya sendiri di pengaturannya, dan rekaman itulah yang diputar.',
   'panel.set.promptNeedsDevice': 'Proyek ini belum punya perangkat, sedangkan rekaman diunggah melalui salah satunya. Buat dulu satu perangkat di proyek ini, lalu tambahkan rekamannya di sini \u2014 rekaman itu akan menjadi milik semua perangkat dalam proyek, bukan hanya perangkat tersebut.',
@@ -4841,12 +4879,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.arm': 'Potong baris ini \u2014 ketuk lagi untuk menyembunyikan gunting',
   'split.here': 'Bagi di sini',
   'split.cancel': 'Batalkan pembagian',
-  'split.no.glossed': 'Baris ini sudah punya glos atau terjemahan, jadi tidak bisa dibagi atau digabung di sini. Lakukan itu di tab Terjemahan Balik.',
+  'split.no.glossed': 'Baris ini sudah punya glos atau terjemahan, jadi tidak bisa dibagi atau digabung di sini.',
+  'split.no.glossedGloss': 'Lakukan itu di tab Terjemahan Balik.',
   'gloss.editWordTip': 'Ketuk untuk memperbaiki kata ini; glosnya tetap ikut',
   'cut.join': 'Gabung dengan sebelumnya',
   'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',
   'cut.no.outside': 'Pindahkan posisi putar ke dalam sebuah baris dulu \u2014 tekan putar, lalu potong di tempat baris itu ingin diakhiri.',
-  'cut.no.hasText': 'Baris ini sudah ada kata-katanya, jadi tidak bisa dipotong di sini. Pisahkan di tab Ketik saja, di mana Anda bisa memilih di mana kata-katanya dibagi.',
+  'cut.no.hasText': 'Baris ini sudah ada kata-katanya, jadi tidak bisa dipotong di sini.',
+  'cut.no.hasTextBaseline': 'Pisahkan di tab Ketik saja, di mana Anda bisa memilih di mana kata-katanya dibagi.',
   'cut.no.tooShort': 'Terlalu dekat dengan tepi baris \u2014 geser posisi putar sedikit lagi ke tengah.',
   'cut.no.first': 'Ini baris pertama, jadi tidak ada yang mendahuluinya untuk digabung.',
   'cut.guess': 'Tebak barisnya',

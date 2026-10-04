@@ -34,9 +34,20 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ RESUMED 2026-10-04 — v694 is on staging; the review notes are still open
+## ▶ RESUMED 2026-10-04 — v695 is on staging; the review notes are still open
 
-- `satellite-apps-v566` @ b722239a = **v694**: RELEASES entry + EN/ID notes for #89, #90, #87,
+**v695 supersedes v694 the same day.** The v694 merge into `lameta-device` lost the `] },` that
+closes the new RELEASES entry (my conflict resolution; the brace sat in the hunk's shared tail), so
+`researcher-panel.js` did not parse and every staging app was blank. `node --check` returns 0 on
+that file and the suite only reads source, so neither caught it. Fixed as v695 (release branch
+87f5a1fd, lameta-device 98c979ba, staging 33c27dd7; all seven apps deployed, run 37177490094; every
+host serves v695 and every served module parses). Gates to use from now on, before any push:
+`node --experimental-vm-modules <scratch>/esm-parse-check.mjs docs/js` (parses each module as a
+browser would), evaluate the RELEASES array, run the suite, and check the fail count with
+`grep -E '^# fail [0-9]+$'` (a test prints "# fail closed…" too).
+
+
+- `satellite-apps-v566` @ b722239a = v694, then 87f5a1fd = **v695** (same entry, renumbered): RELEASES entry + EN/ID notes for #89, #90, #87,
   #91, #88, #85, #86 (one item each; `issue:` links). Suite 659/659.
 - Merged into `lameta-device` (5ecc0567, suite 698/698) and `staging` (8fc6c0a9); all seven apps
   deployed to staging from 8fc6c0a9 (run 37176452172). Production is still v689.
@@ -45,8 +56,8 @@ The item itself is tracked privately.
   which resolved only the conflict hunks. Lesson: never `checkout --theirs` a whole file for a
   one-line version conflict.
 - #92 (Baseline-tab help still describes split/join when the setting is off) is being built on
-  `fix/92-baseline-help-follows-settings` off this branch; goes out as v695 with the review notes.
-- The review notes below are NOT applied yet (none blocking). Apply them, bump v695, merge the same
+  `fix/92-baseline-help-follows-settings` off this branch; goes out as v696 with the review notes (built and reviewed on 2026-10-04; one should-fix from review: split.no.glossed also names the Gloss tab).
+- The review notes below are NOT applied yet (none blocking). Apply them, bump v696, merge the same
   way (lameta-device, then staging — staging's branch name is held by Seth's
   `/Users/Seth/GIT/flextext-staging-test` worktree, so merge on a detached checkout and push
   `HEAD:refs/heads/staging`).

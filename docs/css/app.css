@@ -1978,7 +1978,23 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
    shrunk to nothing (the tab row's overflow-x:auto otherwise lets flexbox collapse it to ~1px when a
    group is taller than the card); scroll the fields area instead so every tab stays reachable. */
 .rp-set-head, .rp-enc { flex: 0 0 auto; }
-.rp-groups { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* The fields area is the ONE part allowed to shrink, so everything added around it (the device
+   name, the "use as the project's defaults" offer, the encrypted note, the buttons) came straight
+   out of its height — on Seth's screen a brand-new device's form was a one-line slit (#85/#86
+   follow-up, 2026-10-04). A floor keeps it usable; when the card is still too tall for the screen
+   the card scrolls as a whole (it has overflow-y: auto), which beats a form nobody can read. */
+.rp-groups { flex: 1 1 auto; min-height: min(16rem, 38vh); overflow-y: auto; }
+/* The "also use these as the defaults" offer sits between the fields and the Push button:
+   compact, so it costs the form as little height as possible. */
+.rp-set-asdefault { margin: 2px 0 0; }
+.rp-set-asdefault + .note { margin: 0 0 0 26px; font-size: 12.5px; }
+/* Phones: the settings dialog takes the whole screen — four tabs of fields plus the chrome do not
+   fit in an 88vh card with 16px of backdrop around it. */
+@media (max-width: 560px), (max-height: 560px) {
+  .modal.rp-settings-wrap { padding: 0; }
+  .modal-card.rp-settings { width: 100%; max-width: none; max-height: 100dvh; max-height: 100vh; border-radius: 0; padding: 14px 14px 16px; }
+  @supports (height: 100dvh) { .modal-card.rp-settings { max-height: 100dvh; } }
+}
 .rp-tab { appearance: none; border: none; background: none; padding: 8px 12px; font-size: 14px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .rp-tab.on { color: var(--blue-dark); border-bottom-color: var(--blue); font-weight: 600; }
 

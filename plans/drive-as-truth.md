@@ -2420,6 +2420,8 @@ ok: !!(manifest && audio && (picks.flextext || !declaresFlextext))
 
 Declared-but-missing refuses. Never-declared moves as the recording it is.
 
+*(v695, #89: the recording half now follows the same rule — `audio` is required only when the manifest declares one, so a .flextext-only text moves too; the `ok` line above is the v416 shape.)*
+
 ⚠ **And crowd→device reaches a device through `/adopt`, NOT `/move`** — a decision that predates all
 of this and was nearly overturned by accident. `/move` requires `toId !== instanceId` because it is a
 transfer BETWEEN devices; relaxing that to carry a source-less flow would make one endpoint mean two

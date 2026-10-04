@@ -34,7 +34,7 @@ The item itself is tracked privately.
 
 ---
 
-## ✅ RELEASED 2026-10-04 — v696 is in production (main = productionWeb = 9d645f80)
+## ▶ v697 — assembled 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v696 (9d645f80)
 
 All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
 shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
@@ -42,11 +42,30 @@ the settings-dialog room fix, and "a new device cannot be left without settings"
 users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
 too, still behind `?lameta=1`.
 
-**Open next:** the reviewers' remaining notes on #85–#91 (listed below; branch
+**Open next (v697):** the reviewers' remaining notes on #85–#91 (listed below; branch
 `fix/v697-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
 2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
 
-## (history) ▶ RESUMED 2026-10-04 — v695 is on staging; the review notes are still open
+**Already on this branch for v697 (2026-10-04, after the v696 release):**
+- The researcher app's boot screen: inline in `satellites/flextext-researcher/index.html`, paints
+  from the parse, replaced by the panel's first render; "still loading" / "you appear to be
+  offline" at 20 s. The worker's inline offline page is untouched (pinned by
+  `test/researcher-boot-screen.test.mjs`).
+- About this version: the hand-kept Known-issues list is gone; it links to the GitHub issues page
+  (Seth: "ongoing known issues are on the GitHub issues page only").
+- About this version and Help: a sticky ✕ at the top of the modal (Seth: a bottom-only Close
+  "may alarm some users").
+
+## (history) ▶ 2026-10-04 — v696 on staging; the review notes are still open (→ v697)
+
+**v696** (release branch 31f8f4f9, lameta-device 1a76de9e): Seth's two findings from testing v695 —
+the device-settings dialog's fields area shrunk to a slit by the "use as project defaults" offer
+(now a floor + full screen on phones, `fix/85-86-settings-dialog-room`) and a cancelled first-time
+settings box leaving a device with no settings (now: Cancel sends the project defaults if valid,
+else undoes the creation; `fix/new-device-needs-settings`, Seth's rule quoted in the code) — plus
+#92 (`fix/92-baseline-help-follows-settings`). The reviewers' notes on #85–#91 below are STILL
+open: v697. Seth also wants the Researcher Panel checked for mobile friendliness generally.
+
 
 **v695 supersedes v694 the same day.** The v694 merge into `lameta-device` lost the `] },` that
 closes the new RELEASES entry (my conflict resolution; the brace sat in the hunk's shared tail), so
@@ -102,31 +121,31 @@ Seth paused mid-release. (Superseded above for the release mechanics; the notes 
 - **#88**
   - saveRecording race: cancel, re-consent and a new take during the location wait could store the
     OLD file with the NEW receipt. Capture the take and its receipt before each await; bail if
-    `rec !== take`.
-  - Show "waiting for the location answer" in the record modal during that wait.
-  - Re-check that the dialog is open right before `getCurrentPosition`.
-  - Make the `consent.note` wording not promise "only once".
-  - De-flake the 25 ms timing bound in `consent-location-scope.test.mjs`.
-  - Guard the Consent Collector's ask button during the wait.
+    `rec !== take`. ✓ (v697)
+  - Show "waiting for the location answer" in the record modal during that wait. ✓ (v697)
+  - Re-check that the dialog is open right before `getCurrentPosition`. ✓ (v697)
+  - Make the `consent.note` wording not promise "only once". ✓ (v697)
+  - De-flake the 25 ms timing bound in `consent-location-scope.test.mjs`. ✓ (v697)
+  - Guard the Consent Collector's ask button during the wait. ✓ (v697)
 - **#85/#86**
-  - The checkbox and toasts fall back to "Default Project" as the name; use a neutral fallback.
-  - Pin that the Default settings button loads defaults before it opens the form.
-  - Scope down the `strict` comments.
+  - The checkbox and toasts fall back to "Default Project" as the name; use a neutral fallback. ✓ (v697)
+  - Pin that the Default settings button loads defaults before it opens the form. ✓ (v697)
+  - Scope down the `strict` comments. ✓ (v697)
 - **#87**
-  - The reveal threshold must allow for the section header's height (60 px on a phone).
-  - Make the two "kept in step" comments true; the Editor's `showGroup` race is a known follow-up.
+  - The reveal threshold must allow for the section header's height (60 px on a phone). ✓ (v697)
+  - Make the two "kept in step" comments true; the Editor's `showGroup` race is a known follow-up. ✓ (v697)
 - **#89**
-  - `manifestIncomplete`: "…not in its Drive folder yet. If it does not arrive, download…".
-  - Guard `declaresAudio` like `declaresFlextext`.
-  - Make the consent-clip comment exact.
-  - A neutral `nothingToMove` for adopt.
-  - A one-line note in drive-as-truth.md.
+  - `manifestIncomplete`: "…not in its Drive folder yet. If it does not arrive, download…". ✓ (v697)
+  - Guard `declaresAudio` like `declaresFlextext`. ✓ (v697)
+  - Make the consent-clip comment exact. ✓ (v697)
+  - A neutral `nothingToMove` for adopt. ✓ (v697)
+  - A one-line note in drive-as-truth.md. ✓ (v697)
 - **#91**
-  - Fix a test assertion that cannot fail.
-  - Placeholder contrast must reach 4.5:1 on white and `--panel`.
-  - ID string: "Ketik apa yang Anda dengar…", with an honest length guard.
-  - Fix the "no border" comment.
-  - Acknowledge in the code that silence lines also get the ghost.
+  - Fix a test assertion that cannot fail. ✓ (v697)
+  - Placeholder contrast must reach 4.5:1 on white and `--panel`. ✓ (v697)
+  - ID string: "Ketik apa yang Anda dengar…", with an honest length guard. ✓ (v697)
+  - Fix the "no border" comment. ✓ (v697)
+  - Acknowledge in the code that silence lines also get the ghost. ✓ (v697)
 
 **Then**
 1. `./bump-version.sh v694`.

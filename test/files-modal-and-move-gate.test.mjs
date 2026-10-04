@@ -181,8 +181,8 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
    * test/move-text-without-audio.test.mjs runs the real function over each case. */
   ok(/ok: !!\(manifest && \(audio \|\| !declaresAudio\) && \(picks\.flextext \|\| !declaresFlextext\) && \(audio \|\| picks\.flextext\)\)/.test(fn),
      'eligibility needs the manifest; a recording and a flextext each only if declared; and at least one of them');
-  ok(/const declaresAudio = !!manifest && \(!!manifest\.audio \|\| manifest\.files\.some\(\(f\) => hasRole\(f, SOURCE_AUDIO_ROLES\)\)\)/.test(fn),
-     '...where a recording is "declared" by a non-null `audio` OR a source-audio row — every writer sets one');
+  ok(/const declaresAudio = !!manifest && \(!!manifest\.audio \|\|\s*\(Array\.isArray\(manifest\.files\) && manifest\.files\.some\(\(f\) => hasRole\(f, SOURCE_AUDIO_ROLES\)\)\)\)/.test(fn),
+     '...where a recording is "declared" by a non-null `audio` OR a source-audio row — every writer sets one (the files array guarded like declaresFlextext, #89 review)');
 
   /* ⚠ ORDER IS THE FIX. The old code listed the folder only after the researcher had chosen a
    * device and pressed Move, then failed with nothingToMove — a refusal AFTER the commitment, which

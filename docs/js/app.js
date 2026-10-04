@@ -933,19 +933,63 @@ function rememberTab(tab) {
  * would otherwise keep reading "press Backspace to join" for as long as they stayed there, after
  * Backspace had stopped joining. Same class as applyCutTabVisibility below. */
 /* The Baseline tab's hint depends on the MODE, because its Enter does. Classic textarea: "a new
- * paragraph". Segmentation strips: a line break AND a boundary in the recording, by two routes (see
- * the keydown handler and segment-strips' onKey). Applied on every entry, so a live researcher push
- * that flips segmentation swaps the sentence without a reload. */
-function applyBaselineHint() {
-  const hint = document.querySelector('#view-baseline .tab-hint [data-i18n-html]');
+ * paragraph". Segmentation strips: assembled sentence by sentence from the LIVE settings (the
+ * baseline.hintSeg* keys in i18n.js), because a coworker reads this and it must not describe a key
+ * behaving the way it used to, nor a control they do not have:
+ *   - what Enter does at the end of a line is a setting (enterAtEnd, v635) — one sentence or the other;
+ *   - how to SPLIT a line (Enter splitting on a `split` device, the ✂ at the left edge on an
+ *     `advance` one) is said only while joinSplitBaseline allows it (#92, Brian Plimley, 2026-10-02:
+ *     "even if splitting/joining is disabled, the instructions still explain how to split/join").
+ *     With splitting off on a `split` device Enter does nothing at all (segment-strips onKey), so
+ *     there is no sentence to put in its place.
+ * Applied on every entry AND from applyLiveSettings, so a researcher push re-words it in place.
+ * `classic` is whether the hint sits over the classic textarea: that is the case with segmentation
+ * off, but ALSO in strip mode when the text has no recording and none is coming — the Baseline entry
+ * falls back to the textarea there, where Enter inserts a paragraph break and there is no ✂, so the
+ * strip hint would describe controls the user does not have. The entry passes it explicitly; the
+ * repaint paths read it from DOM truth (baselineShowsTextarea), the same truth applyBaseline reads. */
+function baselineHintHtml(classic) {
+  if (classic) return t('baseline.hint');
+  const split = joinSplitAllowed('baseline');
+  const parts = [t('baseline.hintSegLead')];
+  if (enterAtEndAdvances()) {
+    parts.push(t('baseline.hintSegEnterMove'));
+    if (split) parts.push(t('baseline.hintSegScissors'));
+  } else if (split) {
+    parts.push(t('baseline.hintSegEnterSplit'));
+  }
+  return parts.join('').trim();
+}
+function applyBaselineHint({ classic = !segmentationEnabled() } = {}) {
+  const hint = $('#baseline-hint');
   if (!hint) return;
-  /* ⚠ THREE VARIANTS, because the hint states what the Enter key does and that is now a setting.
-   * hintSeg stays right for a device on `split`; hintSegMove is the truth where Enter moves on
-   * (v635, and the default for new devices). A coworker reads this — it must not describe a key
-   * behaving the way it used to. */
-  hint.dataset.i18nHtml = !segmentationEnabled() ? 'baseline.hint'
-    : enterAtEndAdvances() ? 'baseline.hintSegMove' : 'baseline.hintSeg';
-  hint.innerHTML = t(hint.dataset.i18nHtml);
+  /* ⚠ The assembled text is not ONE key, so applyI18n — which repaints every [data-i18n-html] from a
+   * single key — must leave this span alone in strip mode: drop the attribute there, and put it back
+   * for the classic hint, which is one key. The language-change paths (the local toggle, and a
+   * pushed appLang via applyLiveSettings) call this after applyI18n, so a switch mid-text repaints
+   * the assembled hint too. */
+  if (classic) hint.dataset.i18nHtml = 'baseline.hint'; else delete hint.dataset.i18nHtml;
+  hint.innerHTML = baselineHintHtml(classic);
+}
+/* Whether the Baseline tab is currently the classic textarea (segmentation off, or strip mode's
+ * no-recording fallback). Only meaningful once the tab's entry has settled the DOM — the entry itself
+ * decides from the settings and passes `classic` explicitly. The satellites without a Baseline tab
+ * (recorder, consent collector) share this file and its language toggle, so a missing textarea is a
+ * normal answer, not an error. */
+function baselineShowsTextarea() {
+  const ta = $('#baseline-text');
+  return !segmentationEnabled() || !!(ta && !ta.hidden);
+}
+
+/* "Nothing to gloss yet" names the Baseline tab as the place to type the words — unless this device
+ * has no Baseline tab (#92), in which case it must not send the glosser to a tab they cannot reach.
+ * One key or the other, so applyI18n keeps repainting it on a language change; called from
+ * renderGloss and from applyLiveSettings, so a pushed baselineTab toggle re-words it in place. */
+function applyGlossEmptyHint() {
+  const el = $('#gloss-empty');
+  if (!el) return;
+  el.dataset.i18nHtml = baselineTabEnabled() ? 'gloss.empty' : 'gloss.emptyNoBaseline';
+  el.innerHTML = t(el.dataset.i18nHtml);
 }
 
 function applyCutHint() {
@@ -2009,6 +2053,9 @@ function switchTab(tab, landing) {
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
       allowAdjust: () => adjustBoundariesAllowed(),
+      // Whether "split it on the Baseline tab instead" is advice this device can follow (#92): the
+      // tab must be shown AND allowed to split. The refusal message drops the sentence otherwise.
+      splitOnBaseline: () => baselineTabEnabled() && joinSplitAllowed('baseline'),
       // Guessing replaces every cut in the text, so hand-made work is confirmed before it goes.
       confirmReplace: () => confirmDialog(t('cut.guessConfirm')),   // async now; cutGuessSplits awaits it
       t,
@@ -2042,6 +2089,9 @@ function switchTab(tab, landing) {
         joinKeys: () => joinKeysEnabled(),
         enterAdvances: () => enterAtEndAdvances(),
         joinSplit: () => joinSplitAllowed('baseline'),
+        // Whether "do that on the Gloss tab" is advice this device can follow (#92): the tab must be
+        // shown AND allowed to split/join. The glossed-line refusal drops the sentence otherwise.
+        splitOnGloss: () => glossTabEnabled() && joinSplitAllowed('gloss'),
         singleSpace: () => singleSpaceEnabled(),
         allowAdjust: () => adjustBoundariesAllowed(),
         // Rule A (plans/split-tiers.md): a line with glosses or a translation is the Gloss tab's.
@@ -2107,7 +2157,9 @@ function switchTab(tab, landing) {
           $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
           if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
           $('#baseline-text').hidden = false;   // ⚠ LAST: applyBaseline reads DOM truth, so the
-          return;                               //    value must be in place before it is visible.
+                                                //    value must be in place before it is visible.
+          applyBaselineHint({ classic: true });  // the strip hint painted on entry describes a ✂ this textarea has not (#92)
+          return;
         }
         await ensurePeaks(stripsFor, media.blob, (playerReadyFor === stripsFor && player && player.decodedBuffer) ? player.decodedBuffer() : null, prog);
         if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;
@@ -4126,6 +4178,7 @@ function renderGloss() {
       body.appendChild(renderSegment(seg, segnum, vernFont, analFont));
     }
   }
+  applyGlossEmptyHint();   // which tab (if any) it points at follows the device's settings (#92)
   $('#gloss-empty').hidden = any;
 }
 
@@ -4877,6 +4930,8 @@ function applyLiveSettings() {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
     applyCutHint();            // …and a pushed backspaceJoin re-words the hint it gates, in place
+    applyBaselineHint({ classic: baselineShowsTextarea() });   // …a pushed joinSplitBaseline / enterAtEnd re-words the Baseline hint (#92)
+    applyGlossEmptyHint();     // …and a pushed baselineTab re-words where the Gloss tab says to type the words
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
@@ -12435,6 +12490,7 @@ function setup() {
     langSel.addEventListener('change', () => {
       setLang(langSel.value);
       applyI18n();
+      applyBaselineHint({ classic: baselineShowsTextarea() });   // in strip mode the hint is assembled from several keys, which applyI18n cannot repaint (#92)
       if (RECORD_MODE) { renderRecordView(); renderRecordList(); return; }
       if (CONSENT_MODE) { ccRenderList(); return; }   // a text arriving by assignment joins the list
       if (SEGMENTER_MODE) { sgRenderList(); return; }

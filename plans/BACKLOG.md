@@ -5398,3 +5398,34 @@ is built. Treat everything in this entry as provisional until then.
 - For a segment over 10 minutes, offer to split it at its longest pause first (the automatic #93
   step), or just refuse?
 - Should the Audio Segmenter's matcher get it too?
+
+## A "done" flag per tab, beside the whole-text Done (Seth, 2026-10-04) — NEAR FUTURE, not scheduled
+
+> *"give 'done' flags for each tab as well as for the whole text."*
+
+**Not to be built yet.** Saved here as Seth wrote it, with where it touches today's code.
+
+Today there is ONE flag per text: the optional Done toggle (`settings.doneEnabled`,
+`doneFeatureOn()` in `docs/js/app.js` ~4675; `setDocDone` and the `setDone` command ~4693/4971),
+reported to the panel as `done` in the inventory and cleared when a text moves to another device.
+
+What Seth wants, in his three parts:
+
+1. **Done marks every tab the session can reach.** When the user checks "done/send", every tab this
+   device's settings give them is marked done (and unchecking clears the same set). A coworker with
+   only the Cut and Baseline tabs marks those two; Gloss and Free translation stay as they were.
+2. **Per-tab "finished" toggles, enabled by device settings.** Each tab can carry its own finished
+   toggle in the UI, switched on or off per device like the other tab permissions. When the user
+   has checked finished on every tab they have, the app asks whether they are finished with ALL
+   their work on this text: yes → the text is marked done (and finished); no → whatever they last
+   checked as finished is unchecked again.
+3. **The per-tab marks travel with the text and show in the Researcher Panel.** They go from one
+   device to the next with the text. The whole-text Done is cleared on a move (as today), but the
+   tabs already marked finished stay checked unless the researcher unchecks them in the panel.
+
+Where it lands when built: the editor's tab bar and the Done row (`app.js`), the device-settings
+form and the text rows/cards in the panel (`researcher-panel.js`, `panel.f.*` permissions), the
+inventory report and `setDone` command (`sync.js`, worker `v1.js`), the source manifest or a
+sidecar so the marks survive a move (`plans/drive-as-truth.md`), and the lameta progress fields
+(`plans/lameta-progress-spec.md`: the per-tab marks map naturally onto Stage_Segment,
+Stage_Transcribe, Stage_Gloss_*, Stage_Ft_*, which the corpus checklist already reads).

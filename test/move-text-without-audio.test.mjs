@@ -81,6 +81,26 @@ test('a .flextext-only text — no recording declared — moves (Brian\'s text, 
   assert.equal(r.ok, true, 'so the text is movable — the recording is not required when none was declared');
 });
 
+test('declaresAudio is guarded like declaresFlextext: a manifest with no files array cannot throw (#89 review)', () => {
+  // moveSources only keeps a manifest whose `files` is an array, so this is belt-and-braces — but the
+  // two sibling expressions should fail the same way, and a future reader of a raw body must not throw.
+  assert.match(movSrc, /const declaresFlextext = Array\.isArray\(manifest && manifest\.files\) && manifest\.files\.some\(/);
+  assert.match(movSrc, /const declaresAudio = !!manifest && \(!!manifest\.audio \|\|\s*\(Array\.isArray\(manifest\.files\) && manifest\.files\.some\(/);
+  const tail = movSrc.slice(movSrc.indexOf('const declaresAudio'));
+  const probe = new Function('manifest', 'hasRole', 'SOURCE_AUDIO_ROLES', 'audio', 'picks', 'declaresFlextext',
+    `${tail.slice(0, tail.indexOf('return {'))} return { declaresAudio, declaredMissing };`);
+  assert.deepEqual(probe({ audio: null }, () => false, [], null, {}, false), { declaresAudio: false, declaredMissing: false },
+    'no files array, no audio: declares none, throws nothing');
+  assert.equal(probe({ audio: { name: 'x.mp3' } }, () => false, [], null, {}, false).declaresAudio, true, 'a non-null audio still declares');
+});
+
+test('the consent-clip comment says exactly what each commit path would have done', () => {
+  assert.match(movSrc, /a device-to-device move sends\s*\* `idOf\(src\.audio\)` and would have assigned the clip AS the recording/);
+  assert.match(movSrc, /adopt sends the role-tagged\s*\* `picks\.audio` and would have assigned the text with NO recording/);
+  assert.match(panel, /audioFileId: idOf\(src\.audio\)/, 'and that is what the move commit really sends');
+  assert.match(panel, /audioFileId: \(picks\.audio \|\| \{\}\)\.id \|\| null,/, 'and what adopt really sends');
+});
+
 test('a recording that is declared but absent still refuses', async () => {
   // A recording still uploading must not be silently dropped by a move.
   const r = await gate([file('Kisah Rusa.flextext', 'source-flextext')],
@@ -252,6 +272,13 @@ test('the new and reworded strings are in BOTH languages', () => {
   const mi = val('en', 'panel.move.manifestIncomplete');
   assert.match(mi, /names a file/, 'manifestIncomplete now says a named file is missing');
   assert.doesNotMatch(mi, /both/, '...not that both a .flextext and a recording are required');
-  assert.match(mi, /download/i);
+  assert.match(mi, /not in its Drive folder yet\. If it does not arrive, download/i,
+    'the remedy is for a file that does NOT arrive — a recording still uploading is left to land (#89 review)');
   assert.match(mi, /re-upload/i);
+  assert.match(val('id', 'panel.move.manifestIncomplete'), /Jika tidak juga muncul, unduh/);
+  // Neutral for adopt as well as move: an unassigned or crowd text has no "other" device to speak of.
+  const ntm = val('en', 'panel.move.nothingToMove');
+  assert.doesNotMatch(ntm, /other device/, 'nothingToMove names no "other" device');
+  assert.match(ntm, /a device could receive/);
+  assert.doesNotMatch(val('id', 'panel.move.nothingToMove'), /perangkat lain/);
 });

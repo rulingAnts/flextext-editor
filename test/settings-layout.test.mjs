@@ -254,8 +254,11 @@ test('#87: revealSectionTop moves only when the opened section\'s top is out of 
   const at = (rel, scrollTop = 500) => { sc.scrollTop = scrollTop; d.top = sc.top + rel; revealSectionTop(d); return sc.scrollTop; };
   assert.equal(at(-1085, 1137), 52, 'above the box (Brian\'s case): its top lands at the top of the box');
   assert.equal(at(350), 850, 'below the box: brought up to the top');
-  assert.equal(at(300), 800, 'a summary in the last 48px, its body out of sight, counts as out of view');
-  assert.equal(at(294), 500, 'exactly at the 48px line: in view, left alone');
+  /* 60px, not 48: on a phone the summary wraps to two lines (name over note, ≈60px with padding),
+   * so a header that fits in the last 48px could still have NOTHING of its body in view. */
+  assert.equal(at(300), 800, 'a summary in the last 60px, its body out of sight, counts as out of view');
+  assert.equal(at(290), 790, 'in view by a one-line (48px) threshold, but a two-line phone header there shows no body: revealed');
+  assert.equal(at(282), 500, 'exactly at the 60px line: in view, left alone');
   assert.equal(at(0), 500, 'already at the top: left alone');
   assert.equal(at(120), 500, 'anywhere in view: left alone — no needless jump');
   panel.hidden = true;
@@ -312,6 +315,29 @@ test('#87 scope: the Editor\'s own settings form does NOT reset or reveal — it
       `${header.slice(9, header.indexOf('('))}: the panel's #87 handling is deliberately not mirrored here`);
   }
   assert.doesNotMatch(APP, /function revealSectionTop/, 'and the helper lives in the panel alone');
+});
+
+/* ⚠ THE "KEPT IN STEP" COMMENTS MUST BE TRUE (#87 review). The two surfaces share the one-open rule
+ * and the tab strip, and differ in two things: the scrolling (deliberate) and the synchronous
+ * sibling-close in showSettingsSection, which the Editor's showGroup does not have yet. Both
+ * comments name both, and this test keeps them honest in either direction: fix the Editor's race
+ * and the comments (and the assertion below) must change with it. */
+test('#87: both accordion comments name the Editor\'s showGroup race as a known follow-up — and it is still there', () => {
+  const panelNote = PANEL.slice(PANEL.indexOf('/* THE ACCORDION, AND THE TAB STRIP ABOVE IT.'), PANEL.indexOf('function wireSettingsTabs(box) {'));
+  const appNote = APP.slice(APP.lastIndexOf('/*', APP.indexOf('const SETUP_TAB_OF_SEC = new Map(')), APP.indexOf('const SETUP_TAB_OF_SEC = new Map('));
+  for (const [note, where] of [[panelNote, 'panel'], [appNote, 'Editor']]) {
+    assert.match(note, /in step/, `${where}: the comment still talks about keeping the two in step`);
+    assert.match(note, /NOT (YET )?the (panel's )?(scrolling|showSettingsSection)|NOT THE SCROLLING|NOT YET/i, `${where}: and names what is not`);
+    assert.match(note, /known follow-up/, `${where}: the showGroup race is called a follow-up, not a fact of life`);
+    assert.match(note, /showGroup/, `${where}: by name`);
+  }
+  // The claim is true today: the Editor's showGroup opens the section and leaves the siblings to the toggle.
+  const setupAt = APP.indexOf('const showGroup = (id) => {', APP.indexOf('function renderDeviceSetup'));
+  assert.ok(setupAt > 0, 'the Editor\'s showGroup is findable');
+  const showGroup = APP.slice(setupAt, APP.indexOf('\n  };', setupAt));
+  assert.match(showGroup, /if \(sec && !sec\.open\) sec\.open = true;/);
+  assert.doesNotMatch(showGroup, /querySelectorAll\("\.rp-sec\[open\]"\)/,
+    'no synchronous sibling-close yet — when this is added, update both comments and this test');
 });
 
 test('showGroup takes a SECTION id and finds the tab holding it', () => {

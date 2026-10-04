@@ -121,31 +121,31 @@ Seth paused mid-release. (Superseded above for the release mechanics; the notes 
 - **#88**
   - saveRecording race: cancel, re-consent and a new take during the location wait could store the
     OLD file with the NEW receipt. Capture the take and its receipt before each await; bail if
-    `rec !== take`.
-  - Show "waiting for the location answer" in the record modal during that wait.
-  - Re-check that the dialog is open right before `getCurrentPosition`.
-  - Make the `consent.note` wording not promise "only once".
-  - De-flake the 25 ms timing bound in `consent-location-scope.test.mjs`.
-  - Guard the Consent Collector's ask button during the wait.
+    `rec !== take`. ✓ (v697)
+  - Show "waiting for the location answer" in the record modal during that wait. ✓ (v697)
+  - Re-check that the dialog is open right before `getCurrentPosition`. ✓ (v697)
+  - Make the `consent.note` wording not promise "only once". ✓ (v697)
+  - De-flake the 25 ms timing bound in `consent-location-scope.test.mjs`. ✓ (v697)
+  - Guard the Consent Collector's ask button during the wait. ✓ (v697)
 - **#85/#86**
-  - The checkbox and toasts fall back to "Default Project" as the name; use a neutral fallback.
-  - Pin that the Default settings button loads defaults before it opens the form.
-  - Scope down the `strict` comments.
+  - The checkbox and toasts fall back to "Default Project" as the name; use a neutral fallback. ✓ (v697)
+  - Pin that the Default settings button loads defaults before it opens the form. ✓ (v697)
+  - Scope down the `strict` comments. ✓ (v697)
 - **#87**
-  - The reveal threshold must allow for the section header's height (60 px on a phone).
-  - Make the two "kept in step" comments true; the Editor's `showGroup` race is a known follow-up.
+  - The reveal threshold must allow for the section header's height (60 px on a phone). ✓ (v697)
+  - Make the two "kept in step" comments true; the Editor's `showGroup` race is a known follow-up. ✓ (v697)
 - **#89**
-  - `manifestIncomplete`: "…not in its Drive folder yet. If it does not arrive, download…".
-  - Guard `declaresAudio` like `declaresFlextext`.
-  - Make the consent-clip comment exact.
-  - A neutral `nothingToMove` for adopt.
-  - A one-line note in drive-as-truth.md.
+  - `manifestIncomplete`: "…not in its Drive folder yet. If it does not arrive, download…". ✓ (v697)
+  - Guard `declaresAudio` like `declaresFlextext`. ✓ (v697)
+  - Make the consent-clip comment exact. ✓ (v697)
+  - A neutral `nothingToMove` for adopt. ✓ (v697)
+  - A one-line note in drive-as-truth.md. ✓ (v697)
 - **#91**
-  - Fix a test assertion that cannot fail.
-  - Placeholder contrast must reach 4.5:1 on white and `--panel`.
-  - ID string: "Ketik apa yang Anda dengar…", with an honest length guard.
-  - Fix the "no border" comment.
-  - Acknowledge in the code that silence lines also get the ghost.
+  - Fix a test assertion that cannot fail. ✓ (v697)
+  - Placeholder contrast must reach 4.5:1 on white and `--panel`. ✓ (v697)
+  - ID string: "Ketik apa yang Anda dengar…", with an honest length guard. ✓ (v697)
+  - Fix the "no border" comment. ✓ (v697)
+  - Acknowledge in the code that silence lines also get the ghost. ✓ (v697)
 
 **Then**
 1. `./bump-version.sh v694`.

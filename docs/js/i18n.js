@@ -78,6 +78,7 @@ en: {
   'record.recording': 'Recording… {time}',
   'record.review': 'Listen to check the recording, then Save — or Re-record and try again.',
   'record.converting': 'Saving recording… {pct}%',
+  'record.waitingLocation': 'Saving recording — waiting a few more seconds for the location answer…',
   'record.micError': 'Could not use the microphone: {msg}',
   // Both subsystems failed. Naming only the browser one sends people after the wrong cause.
   'record.micErrorBoth': 'Could not use the microphone. Direct recording: {native}. Browser recording: {browser}.',
@@ -266,7 +267,7 @@ en: {
   'consent.signLabel': 'Type your name to give permission',
   'consent.signBtn': 'Sign & continue',
   'consent.needName': 'Please type your name first.',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked on the device the first time consent is collected there, and only while the consent dialog is open) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — requested only while the consent dialog is open; the browser may remember that answer or ask again next time) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.give': 'Give permission',
@@ -1252,7 +1253,7 @@ internet after the first time.</p>
   'panel.move.unassignedWhyDevice': 'the device uploads a final copy, then removes its own — the text stays in Drive, filed under Unassigned, ready to assign later',
   'panel.move.unassignedWhyCrowd': 'the text leaves this recorder and joins your queue of texts waiting to be assigned. Nothing is deleted.',
   'panel.move.filed': 'Filed under Unassigned.',
-  'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
+  'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content a device could receive.',
   /* v347 \u2014 a move builds the new assignment from the folder's manifest. Without one there is no
    * dependable answer to "which flextext is current" or "which file is the original audio", and a
    * guess is exactly what the manifest exists to replace. Both strings say the REMEDY, because
@@ -1260,7 +1261,7 @@ internet after the first time.</p>
   'panel.move.noManifest': 'This text cannot be moved automatically: its Drive folder has no manifest, so there is no dependable record of which file is the current text and which is the original recording. Download the folder and re-upload it to the device you want it on.',
   /* #89: fires only when the manifest NAMES a file that is not in the folder. A text that never had a
    * recording (or a transcription) is not incomplete and now moves without it. */
-  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest names a file (the current .flextext or the original recording) that is not in its Drive folder yet. Download the folder and re-upload it to the device you want it on.',
+  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest names a file (the current .flextext or the original recording) that is not in its Drive folder yet. If it does not arrive, download the folder and re-upload it to the device you want it on.',
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
   'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
   'panel.move.removingSrc': 'moving \u2014 removing from this device',
@@ -1932,11 +1933,12 @@ internet after the first time.</p>
   'panel.set.fromTemplate': 'Prefilled from this project\u2019s default settings. Nothing is on the device yet \u2014 press \u201cPush to device\u201d to apply them.',
   /* The device form's offer to start a project's defaults from a device's settings (#85/#86) —
    * shown only while the project has none. Each toast names BOTH facts: the push and the template. */
-  'panel.set.asProjectDefault': 'Also use these settings as the defaults for new devices in \u201c{name}\u201d',
+  'panel.set.asProjectDefault': 'Also use these settings as the defaults for new devices in {name}',
   'panel.set.asProjectDefaultNote': 'Optional \u2014 this project has no default settings yet. Devices you create in it later will start from these; no other device is changed.',
-  'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in \u201c{name}\u201d.',
-  'panel.set.asDefaultFailed': 'Settings sent to the device \u2014 but saving them as the defaults for \u201c{name}\u201d failed. Open this device\u2019s Settings again to retry.',
-  'panel.set.asDefaultExists': 'Settings sent to the device. \u201c{name}\u201d was given default settings while this form was open, so those were kept \u2014 change them with \u201cDefault settings\u201d on the Projects card.',
+  'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in {name}.',
+  'panel.set.asDefaultFailed': 'Settings sent to the device — but saving them as the defaults for {name} failed. Open this device’s Settings again to retry.',
+  'panel.set.asDefaultExists': 'Settings sent to the device. Default settings for {name} appeared while this form was open, so those were kept — change them with “Default settings” on the Projects card.',
+  'panel.set.thisProject': 'this project',
   /* The first-time settings box of a just-created device (Seth, 2026-10-04): closing it without a push
    * either sends the project's defaults or removes the device again — never a device with no settings.
    * The two firstCancel sentences are appended to the intro note so Cancel's effect is said up front. */
@@ -2887,6 +2889,7 @@ id: {
   'record.recording': 'Merekam… {time}',
   'record.review': 'Dengarkan dulu rekamannya, lalu Simpan — atau Rekam ulang kalau belum pas.',
   'record.converting': 'Menyimpan rekaman… {pct}%',
+  'record.waitingLocation': 'Menyimpan rekaman — menunggu jawaban lokasi beberapa detik lagi…',
   'record.micError': 'Mikrofon tidak bisa dipakai: {msg}',
   'record.micErrorBoth': 'Mikrofon tidak bisa dipakai. Perekaman langsung: {native}. Perekaman peramban: {browser}.',
   'record.noAudio': 'Tidak ada suara yang terekam — silakan coba lagi.',
@@ -3068,7 +3071,7 @@ id: {
   'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
   'consent.signBtn': 'Tanda tangan & lanjutkan',
   'consent.needName': 'Silakan ketik nama Anda dulu.',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan di perangkat saat persetujuan pertama kali dikumpulkan di sana, dan hanya selama dialog persetujuan terbuka) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — hanya diminta selama dialog persetujuan terbuka; peramban bisa mengingat jawaban itu atau bertanya lagi lain kali) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.give': 'Beri izin',
@@ -3109,7 +3112,7 @@ id: {
   'baseline.hintSegScissors': 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
     + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
-  'baseline.linePh': 'Ketik yang Anda dengar…',
+  'baseline.linePh': 'Ketik apa yang Anda dengar…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
   'gloss.emptyNoBaseline': 'Belum ada yang bisa dikerjakan \u2014 kata-kata teks ini belum diketik.',
@@ -3919,10 +3922,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.unassignedWhyDevice': 'perangkat mengunggah salinan terakhir, lalu menghapus miliknya sendiri — teksnya tetap di Drive, masuk ke Tidak Tertugas, siap ditugaskan nanti',
   'panel.move.unassignedWhyCrowd': 'teks keluar dari perekam ini dan masuk ke antrean teks yang menunggu ditugaskan. Tidak ada yang dihapus.',
   'panel.move.filed': 'Masuk ke Tidak Tertugas.',
-  'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
+  'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat.',
   /* v347 \u2014 lihat catatan pada blok en. */
   'panel.move.noManifest': 'Teks ini tidak bisa dipindahkan secara otomatis: folder Drive-nya tidak punya manifes, jadi tidak ada catatan yang bisa diandalkan tentang berkas mana yang merupakan teks terkini dan mana rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
-  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya menyebutkan sebuah berkas (.flextext terkini atau rekaman aslinya) yang belum ada di folder Drive-nya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
+  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya menyebutkan sebuah berkas (.flextext terkini atau rekaman aslinya) yang belum ada di folder Drive-nya. Jika tidak juga muncul, unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
   'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
   'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',
@@ -4500,11 +4503,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.keyPending': 'Kunci perangkat ini belum sampai ke akun Anda. Kunci dikirim otomatis — tekan Segarkan sebentar lagi; perangkat ini baik-baik saja.',
   'panel.set.unconfigured': 'Belum ada pengaturan pada perangkat ini — kolom kosong berarti belum dikonfigurasi siapa pun, bukan ada yang gagal. Isi lalu kirim untuk menyiapkannya.',
   'panel.set.fromTemplate': 'Terisi otomatis dari pengaturan bawaan proyek ini. Belum ada yang terpasang di perangkat — tekan “Kirim ke perangkat” untuk menerapkannya.',
-  'panel.set.asProjectDefault': 'Gunakan juga pengaturan ini sebagai bawaan untuk perangkat baru di “{name}”',
+  'panel.set.asProjectDefault': 'Gunakan juga pengaturan ini sebagai bawaan untuk perangkat baru di {name}',
   'panel.set.asProjectDefaultNote': 'Opsional — proyek ini belum memiliki pengaturan bawaan. Perangkat yang nanti Anda buat di dalamnya akan mulai dari pengaturan ini; tidak ada perangkat lain yang diubah.',
-  'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di “{name}”.',
-  'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk “{name}”. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
-  'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. “{name}” sudah diberi pengaturan bawaan selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
+  'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di {name}.',
+  'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk {name}. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
+  'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. Pengaturan bawaan untuk {name} sudah dibuat selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
+  'panel.set.thisProject': 'proyek ini',
   'panel.set.firstCancelDefaults': 'Jika Anda membatalkan, pengaturan bawaan proyek dikirim ke perangkat ini apa adanya.',
   'panel.set.firstCancelUndo': 'Jika Anda membatalkan, perangkat ini dihapus kembali — perangkat tidak boleh dibiarkan tanpa pengaturan.',
   'panel.set.firstDefaultsSent': 'Pengaturan “{name}” mengikuti bawaan proyek — ubah kapan saja lewat Pengaturan.',

@@ -55,8 +55,18 @@ test('every segment line gets the ghost, from i18n, tagged so a language switch 
   assert.ok(SEG.indexOf('input.value = text;') < SEG.indexOf("input.placeholder = deps.t('baseline.linePh')"),
     'set after the value');
   assert.match(SEG, /input\.className = 'seg-text';\n\s*input\.rows = 1;/, 'className/rows adjacency kept');
-  assert.doesNotMatch(SEG.slice(0, SEG.indexOf('input.placeholder')), /if \([^)]*text[^)]*\)\s*input\.placeholder/,
-    'not gated on the line being the first or the only empty one');
+  /* ⚠ Not gated on the line being the first or the only empty one. (The assertion this replaces
+   * sliced the block to BEFORE 'input.placeholder' and then searched that slice for
+   * 'input.placeholder' — it could never fail.) The write must be a statement of its own, and the
+   * statement before it must not be an unbraced `if`/`else` that would govern it. */
+  const lines = SEG.split('\n');
+  const phAt = lines.findIndex((l) => l.includes("input.placeholder = deps.t('baseline.linePh')"));
+  assert.ok(phAt > 0, 'the placeholder write is on a line of its own');
+  assert.match(lines[phAt], /^\s*input\.placeholder = /, 'and begins that line — not the tail of an if');
+  const prev = lines.slice(0, phAt).map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*')).pop();
+  assert.doesNotMatch(prev, /^(if|else)\b/, `the statement before it ("${prev}") does not govern it`);
+  assert.equal(prev, "input.dataset.i18nPh = 'baseline.linePh';", 'it follows the data attribute, unconditionally');
 });
 
 test('applyI18n repaints [data-i18n-ph] document-wide, and the language switch calls it', () => {
@@ -74,12 +84,51 @@ test("'baseline.linePh' exists in both en and id, short enough to stay on one ph
   assert.ok(en, 'en has it');
   assert.ok(id, 'id has it');
   assert.notEqual(en, id, 'and id is a translation, not a copy');
-  /* ⚠ THE LENGTH IS THE DESIGN. field-sizing: content grows an empty box to fit its placeholder; at
-   * 18px italic a ~260px phone column holds about 26 characters. A friendlier, longer sentence here
-   * would quietly double the height of every empty line in the editor and the segmenter. */
+  /* ⚠ THE LENGTH IS THE DESIGN — and this guard is honest about what it knows. field-sizing:
+   * content grows an empty box to fit its placeholder; the strip's text column on a 360px phone is
+   * about 260px (the ▶ button and the gutters take the rest), and at 18px italic the Latin glyphs
+   * these strings use average roughly 9px, so about 28 characters fit on one line. That is an
+   * estimate, not a measurement — no test here renders text — so the bound is the estimate, and the
+   * Indonesian ghost ("Ketik apa yang Anda dengar…", 27) is the longest it admits. A friendlier,
+   * longer sentence would quietly double the height of every empty line in the editor and the
+   * segmenter; if one is ever wanted, measure it on a phone first and move this bound with it. */
   for (const [lang, s] of [['en', en], ['id', id]]) {
-    assert.ok(s.length <= 26, `${lang} ghost is ${s.length} chars — keep it ≤ 26 so it fits one line on a phone`);
+    const n = [...s].length;
+    assert.ok(n <= 28, `${lang} ghost is ${n} chars — keep it ≤ 28 (estimated one phone line at 18px italic)`);
   }
+  assert.equal(id, 'Ketik apa yang Anda dengar…', 'the Indonesian ghost says what you hear, in full (#91 review)');
+});
+
+/* ⚠ CONTRAST, COMPUTED (#91 review). The ghost sits on white (the editor page) and on --panel (the
+ * strips inside a panel); WCAG AA for text is 4.5:1 on each. The first grey, #8b939e, managed 3.10:1
+ * and 2.87:1. Computed from the stylesheet with the WCAG relative-luminance formula, so a lighter
+ * "nicer" grey cannot come back unnoticed. */
+test('the ghost reaches 4.5:1 on white and on --panel', () => {
+  const ph = CSS.indexOf('.seg-text::placeholder {');
+  const rule = CSS.slice(ph, CSS.indexOf('}', ph));
+  const fg = (rule.match(/color: (#[0-9a-f]{6})\b/i) || [])[1];
+  assert.ok(fg, 'the ghost colour is a six-digit hex, so the ratio can be computed here');
+  const panel = (CSS.match(/--panel: (#[0-9a-f]{6});/i) || [])[1];
+  assert.ok(panel, '--panel is a six-digit hex');
+  const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const L = (hex) => { const n = parseInt(hex.slice(1), 16); return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255); };
+  const ratio = (a, b) => { const [x, y] = [L(a), L(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  assert.ok(ratio(fg, '#ffffff') >= 4.5, `${fg} on white is ${ratio(fg, '#ffffff').toFixed(2)}:1`);
+  assert.ok(ratio(fg, panel) >= 4.5, `${fg} on --panel ${panel} is ${ratio(fg, panel).toFixed(2)}:1`);
+  assert.ok(ratio('#8b939e', '#ffffff') < 4.5 && ratio('#8b939e', panel) < 4.5, 'the formula agrees the old grey failed both');
+  const muted = (CSS.match(/--muted: (#[0-9a-f]{6});/i) || [])[1];
+  assert.ok(L(fg) > L(muted), `lighter than --muted (${muted}), so it still reads as a hint beside a locked line's real text`);
+});
+
+test('the comments are exact: a hairline above (not "no border"), and silence lines get the ghost too', () => {
+  const note = SEG.slice(0, SEG.indexOf('input.placeholder'));
+  assert.match(note, /border of its own beyond the hairline above it \(border-top/,
+    '.seg-text has a border-top, so "no border of its own" alone was false');
+  assert.doesNotMatch(note, /border of its own \(see/, 'the old, unqualified wording is gone');
+  assert.match(note, /kept empty on purpose to mark silence \(\.seg-empty\)[\s\S]*shows the ghost too/,
+    'a silence strip shows "Type what you hear…" as well, and the code says so where the ghost is set');
+  const main = CSS.slice(CSS.indexOf('.seg-text {'), CSS.indexOf('}', CSS.indexOf('.seg-text {')));
+  assert.match(main, /border: none; border-top: 1px solid var\(--border\)/, 'and that is still what the rule does');
 });
 
 test('the ghost is styled as a hint, and hidden on a line armed for ✂', () => {

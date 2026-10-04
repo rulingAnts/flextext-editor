@@ -344,8 +344,11 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
    can never be mistaken for typed vernacular: grey and italic, where real text is --vern blue.
    NOT var(--muted) — that is the colour a glossed (locked) line's REAL text takes (.seg-locked
    below), so a ghost in it would look like words. opacity: 1 because Firefox dims placeholders on
-   its own, which would push this hint below legibility. The box border is left as it is. */
-.seg-text::placeholder { color: #8b939e; font-style: italic; opacity: 1; }
+   its own, which would push this hint below legibility. The box border is left as it is.
+   #666e7a reaches WCAG AA for text on BOTH backgrounds a strip sits on: 5.15:1 on white and 4.76:1
+   on --panel (#f4f6f9); the first pick, #8b939e, was 3.10:1 and 2.87:1 — a hint nobody could read in
+   sunlight (#91 review). Lighter than --muted (#5b6470) still, so it keeps reading as a hint. */
+.seg-text::placeholder { color: #666e7a; font-style: italic; opacity: 1; }
 /* A line armed for ✂ is read-only (lockFieldsForCut): it takes a caret but no typing, so it must
    not say "type here". The ghost goes transparent rather than away, so the box keeps its size. */
 .seg-text:read-only::placeholder { color: transparent; }

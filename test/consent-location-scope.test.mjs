@@ -120,17 +120,58 @@ test('the Consent Collector and the recorder settle the location before copying 
   assert.ok(pay > 0 && settle > pay && attach > settle, 'payload taken, then settled, then cloned onto the texts');
   assert.match(cc, /toast\(t\('cc\.waitingLocation'\), CONSENT_GEO_WAIT_MS\)/, 'a long wait says why');
   assert.ok(!/setTimeout\(r, 5000\)/.test(cc), 'no bare 5 s cap left in the collector');
-  const save = fnSrc('saveRecording');
-  const s = save.indexOf('await settleConsentCapture(consentCapture)');
+  const save = code(fnSrc('saveRecording'));
+  const s = save.indexOf('await settleConsentCapture(capture,');
   assert.ok(s > 0 && s < save.indexOf('await newDocFromAudio(file, title)'), 'saveRecording settles before the doc is written');
-  assert.match(save.slice(s, s + 200), /if \(!rec\) return;/, 'and honors a Cancel pressed while waiting');
+  assert.match(save.slice(s, s + 300), /if \(rec !== take\) return;/, 'and honors a Cancel pressed while waiting');
+  assert.match(save.slice(s, s + 200), /\$\('#record-status'\)\.textContent = t\('record\.waitingLocation'\)/,
+    'and the modal says why it is still saving once the wait is for the location');
+});
+
+/* ⚠ THE OLD FILE UNDER THE NEW RECEIPT (#88 review). Cancel during the encode or the location wait,
+ * consent again, record again: the first saveRecording resumes with `rec` non-null (the NEW take) and
+ * the pending globals refilled (the NEW receipt), and would have stored the OLD file under them. So the
+ * take and its consent are read into locals before the first await, and the function bails whenever
+ * `rec` is no longer that take. */
+test('saveRecording reads the take and its consent before its first await, and bails when the take changed', () => {
+  const save = code(fnSrc('saveRecording'));
+  const firstAwait = save.indexOf('await ');
+  const head = save.slice(0, firstAwait);
+  for (const line of ['const take = rec;', 'const assent = pendingAssent;', 'const receipt = pendingReceipt;',
+    'const promptAudio = pendingPromptAudio;',
+    'const capture = receipt && consentCapture && consentCapture.receipt === receipt ? consentCapture : null;']) {
+    assert.ok(head.includes(line), `${line} comes before the first await`);
+  }
+  const tail = save.slice(firstAwait);
+  assert.equal((tail.match(/if \(rec !== take\) return;/g) || []).length, 2,
+    'bails after the encode AND after the location wait');
+  assert.ok(tail.indexOf('if (rec !== take) return;') < tail.indexOf('await settleConsentCapture(capture,'),
+    'the first bail sits between the encode and the settle');
+  assert.doesNotMatch(tail, /pendingReceipt(?! = receipt;)|pendingAssent(?! = assent;)|pendingPromptAudio(?! = promptAudio;)/,
+    'after the first await the pending globals are only ever written back from the locals, never read');
+  assert.doesNotMatch(tail, /settleConsentCapture\(consentCapture\)/, 'the module-global capture is never settled directly');
+  assert.doesNotMatch(tail, /\brec\.(mode|blob|nativeMeta|fmt|channels|url)\b/, 'the take\'s fields are read through the local');
+});
+
+test("the Consent Collector's ask button sleeps from the approval until the copies are made", () => {
+  const cc = code(fnSrc('ccCollectFor'));
+  assert.match(cc, /if \(!ids\.length \|\| ccSaving\) return;/, 'a second call during the wait is refused outright');
+  const off = cc.indexOf('go.disabled = true;');
+  const settle = cc.indexOf('await settleConsentCapture(capture,');
+  const attach = cc.indexOf('await ccAttachConsent(ids, payload)');
+  const fin = cc.indexOf('} finally {');
+  const on = cc.indexOf('go.disabled = false;');
+  assert.ok(off > 0 && off < settle && settle < attach && attach < fin && fin < on,
+    'disabled before the wait, re-enabled in a finally after the attach');
+  assert.ok(cc.indexOf('ccSaving = true;') < settle && cc.indexOf('ccSaving = false;') > fin, 'the flag brackets the same span');
+  assert.match(APP, /\nlet ccSaving = false;/, 'module-level, so a re-rendered button cannot forget it');
 });
 
 /* ---- run the real code ---- */
 
 const GEO_RECORD = fnSrc('geoRecord');
-const makeRequester = (navigator, CROWD_MODE = false) =>
-  new Function('navigator', 'CROWD_MODE', `${GEO_RECORD}\n${REQUESTER}\nreturn requestConsentGeo;`)(navigator, CROWD_MODE);
+const makeRequester = (navigator, CROWD_MODE = false, consentDialogOpen = () => true) =>
+  new Function('navigator', 'CROWD_MODE', 'consentDialogOpen', `${GEO_RECORD}\n${REQUESTER}\nreturn requestConsentGeo;`)(navigator, CROWD_MODE, consentDialogOpen);
 
 const POS = { coords: { latitude: -2.5, longitude: 140.7, accuracy: 812.4 }, timestamp: Date.UTC(2026, 9, 2) };
 function fakeNav({ state, queryThrows = false, noPermissions = false, fail = false } = {}) {
@@ -178,6 +219,21 @@ test("requester: 'prompt' asks, with the calm options, and resolves to the recei
 test('requester: a refusal or no fix resolves to null, never throws', async () => {
   const { nav } = fakeNav({ state: 'prompt', fail: true });
   assert.equal(await makeRequester(nav)(), null);
+});
+
+test('requester: a dialog cancelled during the permission query is never asked (#88 review)', async () => {
+  // The query is awaited; Cancel can land in that gap. The re-check sits right before getCurrentPosition.
+  const { nav, calls } = fakeNav({ state: 'prompt' });
+  let open = true;
+  nav.permissions.query = async () => { calls.query++; open = false; return { state: 'prompt' }; };
+  assert.equal(await makeRequester(nav, false, () => open)(), null);
+  assert.equal(calls.query, 1, 'the query ran');
+  assert.equal(calls.get, 0, 'but the browser prompt was never reached');
+  const body = code(REQUESTER);
+  assert.ok(body.indexOf('permissions.query(') < body.indexOf('consentDialogOpen()') &&
+            body.indexOf('consentDialogOpen()') < body.indexOf('getCurrentPosition('),
+    'in the source: after the query, before the prompt');
+  assert.match(fnSrc('consentDialogOpen'), /return !!m && !m\.hidden;/, 'and the check reads the dialog\'s hidden flag');
 });
 
 test('requester: the crowd page and a browser without geolocation are never asked', async () => {
@@ -232,12 +288,22 @@ test('settle: a slow IP lookup alone still gets only the short wait', async () =
 });
 
 test('settle: an already-finished capture returns at once and says nothing', async () => {
+  /* Deterministic, not a wall-clock bound (a `< 25 ms` check here flaked under load): this settle is
+   * built with a setTimeout that NEVER fires, so it can only resolve if the finished promise wins the
+   * race on its own; the tripwire is a setImmediate, which runs after every microtask the settle
+   * could need and does not go through the stubbed timer. */
   let said = 0;
-  const t0 = Date.now();
-  await settle({ geo: { pending: true }, promise: Promise.resolve() }, () => { said++; });
-  assert.ok(Date.now() - t0 < 25);
+  const armed = [];
+  const noTimers = new Function('setTimeout', `${SETTLE}\nreturn settleConsentCapture;`)((fn, ms) => { armed.push(ms); });
+  const outcome = await Promise.race([
+    noTimers({ geo: { pending: true }, promise: Promise.resolve() }, () => { said++; }).then(() => 'settled'),
+    new Promise((r) => setImmediate(() => r('needed a timer to resolve'))),
+  ]);
+  assert.equal(outcome, 'settled');
   assert.equal(said, 0, 'a pending flag past the cap is not a reason to announce a wait');
-  await settle(null);   // no capture at all is fine
+  assert.deepEqual(armed, [5000], 'the one short-wait timer was armed and left unfired');
+  await noTimers(null);   // no capture at all is fine, and arms nothing
+  assert.deepEqual(armed, [5000]);
 });
 
 /* ---- copy ---- */
@@ -256,15 +322,16 @@ const str = (lang, key) => {
   return b.slice(i, b.indexOf('\n', i));
 };
 
-test('the consent note no longer promises "asked once at first use" — in either language', () => {
+test('the consent note promises neither "asked once at first use" nor "the first time" — in either language', () => {
   const en = str('en', 'consent.note');
   const id = str('id', 'consent.note');
-  assert.ok(!/first use/.test(en) && !/just once/.test(en));
-  assert.ok(!/saat pertama dipakai/.test(id) && !/sekali saja/.test(id));
-  assert.match(en, /first time consent is collected/);
+  assert.ok(!/first use/.test(en) && !/just once/.test(en) && !/only once/.test(en) && !/first time/.test(en),
+    'whether the browser asks again is the browser\'s call, so the note promises no "once"');
+  assert.ok(!/saat pertama dipakai/.test(id) && !/sekali saja/.test(id) && !/hanya sekali/.test(id) && !/pertama kali/.test(id));
   assert.match(en, /only while the consent dialog is open/);
-  assert.match(id, /persetujuan pertama kali dikumpulkan/);
-  assert.match(id, /hanya selama dialog persetujuan terbuka/);
+  assert.match(en, /the browser may remember that answer or ask again/);
+  assert.match(id, /hanya diminta selama dialog persetujuan terbuka/);
+  assert.match(id, /peramban bisa mengingat jawaban itu atau bertanya lagi/);
 });
 
 test('the help page says location is asked only when consent is collected — in either language', () => {
@@ -274,7 +341,9 @@ test('the help page says location is asked only when consent is collected — in
   assert.match(block('id'), /\(ditanyakan hanya saat persetujuan dikumpulkan\)/);
 });
 
-test("the collector's waiting message exists in both languages", () => {
+test("the collector's and the recorder's waiting messages exist in both languages", () => {
   assert.match(str('en', 'cc.waitingLocation'), /location/);
   assert.match(str('id', 'cc.waitingLocation'), /lokasi/);
+  assert.match(str('en', 'record.waitingLocation'), /location/);
+  assert.match(str('id', 'record.waitingLocation'), /lokasi/);
 });

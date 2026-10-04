@@ -20,7 +20,7 @@ test('the header offers Feedback where Release notes was', () => {
   assert.match(header, /\$\{feedbackLink\(\)\}\s*\n\s*<button class="icon-btn rp-helpbtn" data-act="help"/, 'just before the help ?');
   assert.doesNotMatch(header, /releaseNotesLink\(\)/, 'the notes are no longer a header link');
   assert.match(fn('function feedbackLink() {'), /data-act="feedback">\$\{esc\(t\('panel\.feedback\.btn'\)\)\}/);
-  assert.doesNotMatch(fn('function feedbackLink() {'), /RELEASES|KNOWN_ISSUES/, 'always shown: reporting never depends on there being notes');
+  assert.doesNotMatch(fn('function feedbackLink() {'), /RELEASES/, 'always shown: reporting never depends on there being notes');
   assert.match(PANEL, /if \(!fn && el\.dataset\.act === 'feedback'\) fn = feedbackModal;/, 'wired in every view the header renders in');
   assert.doesNotMatch(PANEL, /el\.dataset\.act === 'known'/, 'the old header act is gone');
 });
@@ -40,14 +40,25 @@ test('the Feedback window leads to all four, and never stacks a window on itself
 test('Help leads with About this version, and the notes are called that everywhere', () => {
   const help = fn('function showPanelHelp() {');
   assert.match(help, /const notes = releaseNotesLink\(\);/);
-  assert.ok(help.indexOf('rp-help-notes') < help.indexOf("t('panel.help.html')"), 'above the long guide, not after it');
+  assert.ok(help.indexOf('rp-help-notes') < help.indexOf('data-more'), 'above "More help…", which opens the long guide');
+  assert.match(fn('function showPanelGuide() {'), /t\('panel\.help\.html'\)/, 'the written guide lives in its own modal now');
   assert.match(help, /m\.close\(\);\s*\n\s*releaseNotesModal\(\);/, 'hands over rather than stacking');
   const link = fn('function releaseNotesLink() {');
-  assert.match(link, /if \(!RELEASES\.length && !KNOWN_ISSUES\.length\) return '';/, 'nothing to say, no entry');
+  assert.match(link, /if \(!RELEASES\.length\) return '';/, 'nothing to say, no entry');
   assert.match(link, /data-notes>\$\{esc\(t\('panel\.rel\.btn'\)\)\}/);
   assert.match(I18N, /\n {2}'panel\.rel\.btn': 'About this version…',/);
   assert.match(I18N, /\n {2}'panel\.rel\.title': 'About this version',/);
   for (const k of ['panel.feedback.btn', 'panel.feedback.title', 'panel.feedback.intro', 'panel.feedback.known', 'panel.feedback.knownTip']) {
     assert.equal((I18N.match(new RegExp(`\\n {2}'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
   }
+});
+
+test('the long modals have a ✕ at the top, not only a Close at the bottom (Seth, 2026-10-04)', () => {
+  const head = fn('function modalHead(title) {');
+  assert.match(head, /class="rp-modal-x" data-m="close" aria-label="\$\{esc\(t\('panel\.help\.close'\)\)\}"/, 'the ✕ closes through modal()\'s own data-m="close" wiring, with a spoken name');
+  assert.match(fn('function releaseNotesModal() {'), /modal\(`\$\{modalHead\(t\('panel\.rel\.title'\)\)\}/, 'About this version starts with it');
+  assert.match(fn('function showPanelHelp() {'), /modal\(`\$\{modalHead\(t\('panel\.help\.title'\)\)\}/, 'so does Help');
+  for (const k of ['panel.help.title']) assert.equal(I18N.split(`'${k}':`).length - 1, 2, `${k} in both languages`);
+  const css = rd('../docs/css/app.css');
+  assert.match(css, /\.rp-modal-head \{ position: sticky; top: -20px;/, 'the row stays in view while the modal scrolls');
 });

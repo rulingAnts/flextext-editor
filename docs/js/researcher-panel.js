@@ -1421,12 +1421,14 @@ function header(titleKey, withLock) {
  * are additions, fixes AND known issues, so the name promises exactly what is inside. "What's new"
  * promises only the first and would make the second half read as a surprise.
  *
- * ⚠ BOTH LISTS EMPTY ⇒ NO LINK. A permanent entry opening onto nothing teaches people it is
+ * ⚠ NO RELEASES ⇒ NO LINK. A permanent entry opening onto nothing teaches people it is
  * decoration, and the next time it has content they will not look.
  *
- * ⚠ KEEP BOTH CURRENT. A stale known-issue sends someone hunting for a bug that is fixed and makes
- * the rest look untrustworthy; a stale what's-new claims credit for something that is not there. When
- * a release fixes one of these, delete the key in the SAME commit that fixes it.
+ * ⚠ KNOWN ISSUES ARE NOT LISTED HERE ANY MORE (Seth, 2026-10-04: "The release notes show fixed
+ * issues, but ongoing known issues are on the GitHub issues page only"). A hand-kept list went stale
+ * within weeks and sent people hunting for bugs already fixed; the open issues on GitHub are the one
+ * current list, so the modal links there instead. KEEP THE RELEASES CURRENT: a stale what's-new
+ * claims credit for something that is not there.
  *
  * ⚠ PER-RELEASE SECTIONS, GitHub-style (Seth, 2026-08-31: "specific to each release, and a new
  * section with each new release"). Each production release is one entry, newest first — a version
@@ -1446,6 +1448,13 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v697', date: '2026-10-04', items: [
+    { k: 'panel.rel.new.bootScreen' },
+    { k: 'panel.rel.new.helpTutorials' },
+    { k: 'panel.rel.new.modalClose' },
+    { k: 'panel.rel.fix.knownIssuesLink' },
+    { k: 'panel.rel.fix.reviewPolish' },
+  ] },
   { v: 'v696', date: '2026-10-04', items: [
     { k: 'panel.rel.fix.settingsDialogRoom', issue: 86 },
     { k: 'panel.rel.fix.newDeviceNeedsSettings', issue: 85 },
@@ -1860,11 +1869,6 @@ const RELEASES = [
     { k: 'panel.rel.new.oneVersion' },
   ] },
 ];
-const KNOWN_ISSUES = [
-  'panel.known.addColleague',
-  'panel.known.crowdMembers',
-  'panel.known.inviteOnce',
-];
 
 /* The same rule the staging ribbon uses, deliberately duplicated rather than imported: the ribbon
  * lives inline in five shells precisely so it does not depend on the engine, so there is nothing to
@@ -1908,9 +1912,12 @@ let projDefCache = null;
 /* Keys saved into the template but not yet pushed to every device — see applyTemplateModal. Same
  * prefs blob, same round trip; a list of field keys per project, never any values. */
 let projPendCache = null;
-/* `strict` RETHROWS a failed read (after the same reset), for a caller about to WRITE: the
- * forgiving default turns "could not read" into "there are none", which is fine for a prefill and
- * wrong right before saveProjectDefaults rewrites the whole map from this cache (#85/#86). */
+/* `strict` RETHROWS a read that THROWS (after the same reset) — and guards nothing else: a read
+ * that succeeds is trusted as it comes. One caller uses it: the device form's "also use as the
+ * project defaults" save (#85/#86), which may run minutes after the form opened, where the
+ * forgiving default would turn "could not read" into "there are none" right before
+ * saveProjectDefaults rewrites the whole map from this cache. The template form's own save
+ * (the Projects card's Default settings button) loads in view first and does not need it. */
 async function loadProjectDefaults({ strict = false } = {}) {
   try {
     const p = (await Researcher.getPrefs()) || {};
@@ -1999,7 +2006,7 @@ function feedbackLink() {
  * in the help menu", and the Feedback window "can include its own link to the Release Notes". So it is
  * an entry inside those two windows (data-notes, wired by each of them), no longer a header link. */
 function releaseNotesLink() {
-  if (!RELEASES.length && !KNOWN_ISSUES.length) return '';
+  if (!RELEASES.length) return '';
   return `<button type="button" class="link-btn" data-notes>${esc(t('panel.rel.btn'))}</button>`;
 }
 /* "Report a problem" and "Suggest a feature" (#69) — copied from PAT's issueUrl rather than invented
@@ -2079,6 +2086,14 @@ function reportModal(kind) {
   });
 }
 
+/* The written guide — what Help was before the videos (Seth, 2026-10-04). Reached from Help's
+ * "More help…". */
+function showPanelGuide() {
+  const m = modal(`${modalHead(t('panel.help.title'))}<div class="rp-help">${t('panel.help.html')}</div>
+    <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+}
+
 function releaseNotesModal() {
   // One section per release, newest first — a version heading with its date, then its changes.
   // An item resolving a submitted GitHub issue links to it (repo is public); target=_blank so the
@@ -2093,13 +2108,13 @@ function releaseNotesModal() {
       ? ` <span class="rp-badge rp-badge-ok">${esc(t('panel.rel.latest'))}</span>` : ''}
       <span class="note rp-rel-date">${esc(relDate(r.date))}</span></h4>
     <ul class="rp-known-list">${r.items.map(item).join('')}</ul>`;
-  const m = modal(`<h3>${esc(t('panel.rel.title'))}</h3>
+  const m = modal(`${modalHead(t('panel.rel.title'))}
     <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
     <p class="note rp-report-links"><button type="button" class="link-btn" data-report="bug">${esc(t('panel.reportBug'))}</button> · <button type="button" class="link-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button></p>
-    ${KNOWN_ISSUES.length ? `<h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
-      <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
-      <p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}
+    <h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
+    <p class="note rp-known-github">${esc(t('panel.rel.knownOnGitHub'))}
+      <a href="${ISSUES_URL}" target="_blank" rel="noopener">${esc(t('panel.rel.knownLink'))}</a></p>
     ${RELEASES.map(rel).join('')}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
   /* The report modal REPLACES the notes rather than stacking on them: each modal listens for Escape on
@@ -2181,13 +2196,73 @@ function wireActs(handlers) {
 
 // Researcher documentation (incl. the honest Security section) — lives HERE in the panel,
 // not in the field app's help. The help.html string is trusted static i18n markup.
+/* A modal's title row with a ✕ at the top right (Seth, 2026-10-04: the About-this-version modal
+ * "needs a close button (maybe an x) at the top, not only all the way down at the bottom after
+ * scrolling… not seeing an obvious close button may alarm some users"). Sticky, so it stays in view
+ * while the long modals scroll. data-m="close": modal() wires it, like the bottom button. */
+function modalHead(title) {
+  return `<div class="rp-modal-head"><h3>${esc(title)}</h3>
+    <button type="button" class="rp-modal-x" data-m="close" aria-label="${esc(t('panel.help.close'))}" title="${esc(t('panel.help.close'))}">✕</button></div>`;
+}
+
+/* THE TUTORIAL VIDEOS, IN THE RESEARCHER'S HELP (Seth, 2026-10-04): "the help menu shows the video
+ * overlay plus a 'more help...' below that loads the modal with the text-based help/documentation."
+ * They are Brian Plimley's three videos on Cloudflare Stream — the same ones flextext.app plays —
+ * shown here because the panel is the researcher's online console. ⚠ NOT in the Editor or any
+ * coworker app (Seth, same day): "it's a loophole for managed devices", and the videos are in
+ * English, "really more for the researcher to learn so they can train the editor users."
+ *
+ * Nothing is fetched until Help opens; the player loads only for the video chosen. Subtitles
+ * follow the panel's language (Indonesian on when the panel is Indonesian). The credit line is
+ * part of the agreement under which the videos are shown. Another video is one more entry here
+ * and its two name strings. */
+const TUTORIAL_STREAM = 'https://customer-rp8etyzqpwxmeib1.cloudflarestream.com';
+const TUTORIALS = [
+  { n: 1, uid: '4bf225e2fb29794632e14568a550624f', seconds: 207, thumb: 70 },
+  { n: 2, uid: 'a1a096a41efe4386dd60a9581395de86', seconds: 658, thumb: 540 },
+  { n: 3, uid: 'cdaae47f731c68ecaaea71d60e5614b6', seconds: 858, thumb: 600 },
+];
+const tutorialName = (v) => t(`panel.tut.${v.n}.name`);
+const tutorialClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function tutorialIframeSrc(v, lang) {
+  const q = new URLSearchParams();
+  q.set('poster', `${TUTORIAL_STREAM}/${v.uid}/thumbnails/thumbnail.jpg?time=${v.thumb}s&height=720`);
+  if (lang === 'id') q.set('defaultTextTrack', 'id');
+  return `${TUTORIAL_STREAM}/${v.uid}/iframe?${q}`;
+}
+
 function showPanelHelp() {
-  // "About this version…" leads the help (Seth: it "can go in the help menu"), above the long guide.
+  // The videos first, then "About this version…" (Seth: it "can go in the help menu"), then
+  // "More help…" for the written guide (showPanelGuide), which replaces this modal rather than
+  // stacking on it — the Escape reason given at feedbackModal.
   const notes = releaseNotesLink();
-  const m = modal(`${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}<div class="rp-help">${t('panel.help.html')}</div>
+  const tiles = TUTORIALS.map((v, i) => `<button type="button" class="rp-tut-tile" data-tut="${i}" aria-pressed="${i === 0}">
+      <span class="rp-tut-n">${esc(t('panel.tut.n', { n: v.n }))}</span> ${esc(tutorialName(v))}
+      <span class="note rp-tut-len">${tutorialClock(v.seconds)}</span></button>`).join('');
+  const m = modal(`${modalHead(t('panel.help.title'))}
+    <h4 class="rp-rel-h">${esc(t('panel.tut.title'))}</h4>
+    <div class="rp-tut-frame" id="rp-tut-frame"></div>
+    <div class="rp-tut-tiles">${tiles}</div>
+    <p class="note rp-tut-credit">${esc(t('panel.tut.credit'))}</p>
+    ${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}
+    <button type="button" class="secondary-btn" data-more>${esc(t('panel.help.more'))}</button>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
-  // Hands over rather than stacking, for the Escape reason given at feedbackModal.
+  const frame = m.el.querySelector('#rp-tut-frame');
+  const mount = (i) => {
+    const v = TUTORIALS[i];
+    frame.textContent = '';
+    const f = document.createElement('iframe');
+    f.src = tutorialIframeSrc(v, getLang());
+    f.title = `${t('panel.tut.n', { n: v.n })}: ${tutorialName(v)}`;
+    f.allow = 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen';
+    f.setAttribute('allowfullscreen', '');
+    frame.appendChild(f);
+    m.el.querySelectorAll('.rp-tut-tile').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tut) === i)));
+  };
+  mount(0);
+  m.el.querySelectorAll('.rp-tut-tile').forEach((b) => b.addEventListener('click', () => mount(Number(b.dataset.tut))));
+  m.el.querySelector('[data-more]').addEventListener('click', () => { m.close(); showPanelGuide(); });
   m.el.querySelectorAll('[data-notes]').forEach((b) => b.addEventListener('click', () => {
     m.close();
     releaseNotesModal();
@@ -7117,9 +7192,12 @@ async function moveSources(fromId, docId, title) {
   }
   /* ⚠ THE EXTENSION FALLBACK IS FOR LEGACY *UNTAGGED* FILES ONLY (#89, Brian Plimley, 2026-10-01).
    * It once matched ANY audio-shaped name, so a folder whose recording had not arrived yet but whose
-   * consent clip had (consent-response.mp3, role `consent-clip`) resolved `audio` to the CONSENT CLIP
-   * — which passed the gate below and would have been assigned as the recording. A tagged file has
-   * already said what it is; only a file with no role at all is left for the name to guess about. */
+   * consent clip had (consent-response.mp3, role `consent-clip`) resolved `audio` to the CONSENT CLIP,
+   * and the gate below passed on it. What followed differed by path: a device-to-device move sends
+   * `idOf(src.audio)` and would have assigned the clip AS the recording; adopt sends the role-tagged
+   * `picks.audio` and would have assigned the text with NO recording while one was still on its way.
+   * A tagged file has already said what it is; only a file with no role at all is left for the name
+   * to guess about. */
   const audio = picks.audio ||
     all.find((f) => !f.role && /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
   /* ⚠ A FLEXTEXT IS REQUIRED ONLY IF ONE IS SUPPOSED TO EXIST (Seth, 2026-08-19: "I want to be able
@@ -7159,7 +7237,8 @@ async function moveSources(fromId, docId, title) {
    * And at least one deliverable must exist: a manifest that declares neither and a folder holding
    * neither has nothing for the destination to open. `declaredMissing` tells the two refusals apart,
    * so the note says "a named file has not arrived" only when that is what happened. */
-  const declaresAudio = !!manifest && (!!manifest.audio || manifest.files.some((f) => hasRole(f, SOURCE_AUDIO_ROLES)));
+  const declaresAudio = !!manifest && (!!manifest.audio ||
+    (Array.isArray(manifest.files) && manifest.files.some((f) => hasRole(f, SOURCE_AUDIO_ROLES))));
   const declaredMissing = (declaresAudio && !audio) || (declaresFlextext && !picks.flextext);
   return { all, picks, manifest, audio, declaresAudio, declaresFlextext, declaredMissing,
            ok: !!(manifest && (audio || !declaresAudio) && (picks.flextext || !declaresFlextext) && (audio || picks.flextext)) };
@@ -10278,15 +10357,21 @@ function groupHtml(g, open) {
     + `<div class="rp-group rp-secbody">${notice}${outside}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${help}${wsWarn}${inside}</fieldset></div></details>`;
 }
 
-/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. The one-open-at-a-time rule is wired the same way on
- * both surfaces (app.js wireSetupTabs / showSetupTab), so keep THAT in step.
- * ⚠ BUT NOT THE SCROLLING (#87, Brian Plimley, 2026-10-01). This dialog deliberately (a) starts a
+/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. The one-open-at-a-time rule and the tab strip are wired
+ * the same way on both surfaces (app.js wireSetupTabs / showSetupTab), so keep THAT in step. Two
+ * things are NOT in step, and the comments on both sides say so:
+ * ⚠ NOT THE SCROLLING (#87, Brian Plimley, 2026-10-01). This dialog deliberately (a) starts a
  * newly chosen tab at the top (showSettingsTab) and (b) brings an opened section's top into view
  * (revealSectionTop) — without them, opening a section after scrolling to the bottom of another
  * left the reader in the middle of the new one, and a new tab kept the old tab's scroll offset.
  * The Editor's own surfaces do NOT do this, on purpose: its text tabs keep their place for
  * low-skilled users (Seth), and its Settings tab scrolls with the page. A later "bring the two back
  * in step" change must not copy the scroll handling into app.js, nor drop it from here.
+ * ⚠ NOT YET showSettingsSection's SYNCHRONOUS SIBLING-CLOSE (below). The Editor's showGroup
+ * (app.js renderDeviceSetup) still sets `sec.open = true` and leaves the siblings to the queued
+ * toggle, so the race fixed here on 2026-10-01 — a tab's re-opened first section shutting the
+ * section a validation jump just opened — is still possible there. A known follow-up, not a
+ * difference to preserve: when it is fixed, app.js gets the same synchronous close.
  *
  * ONE SECTION OPEN AT A TIME, per Seth 2026-09-09: "we want only one expanded at a time. If another
  * is expanded, then others collapse." Enforced on the `toggle` event rather than by hijacking the
@@ -10304,8 +10389,11 @@ function wireSettingsTabs(box) {
 /* BRING A JUST-OPENED SECTION'S TOP INTO VIEW (#87, Brian Plimley, 2026-10-01). The scroll box is
  * the dialog's `.rp-groups`; closing a long sibling above shrinks the content and the browser
  * leaves the reader wherever the clamp lands — often the middle or bottom of the new section.
- * Only moves when the section's top is above the box or within 48px of its bottom (a summary
- * sitting at the very foot with its body out of sight); a top already in view is left alone.
+ * Only moves when the section's top is above the box or within 60px of its bottom — the height of
+ * a summary on a phone, where the name and its note wrap onto two lines (10px padding, 15px name,
+ * 13px note, 10px padding): a header that fits with nothing under it counts as out of view, so a
+ * threshold of one line (48px) left a two-line header sitting at the foot with its body unseen.
+ * A top already in view is left alone.
  * ⚠ GUARDS, each a real case:
  *   - inside a hidden tab panel: no layout, so every rect is 0 — and the markup's `open` on each
  *     tab's first section fires `toggle` once the dialog is built, hidden tabs included;
@@ -10321,7 +10409,7 @@ function revealSectionTop(d) {
   const sum = d.querySelector(":scope > summary");
   if (a && a !== d && d.contains(a) && !(sum && sum.contains(a))) return;
   const top = d.getBoundingClientRect().top - sc.getBoundingClientRect().top;
-  if (top < 0 || top > sc.clientHeight - 48) sc.scrollTop += top;
+  if (top < 0 || top > sc.clientHeight - 60) sc.scrollTop += top;   // 60 = a two-line summary (phone)
 }
 
 function showSettingsTab(box, tabId) {
@@ -10844,9 +10932,11 @@ async function openSettingsModal(target, opts = {}) {
    * ⚠ No data-f on the checkbox: collectRaw reads every [data-f], and this is not a setting. */
   const ownedTpl = ownedFolder ? projectDefaults(ownedFolder) : null;
   const offerAsDefault = !!ownedFolder && !(ownedTpl && Object.keys(ownedTpl).length);
-  const ownedName = ownedFolder
-    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === ownedFolder) || {}).name || t('panel.proj.defaultName'))
-    : '';
+  /* The name the offer and its toasts print: quoted when the estate knows it, else the neutral
+   * "this project" — never 'Default Project', which is a REAL project's name (the migration default)
+   * and would point the researcher at the wrong one (#85/#86 review). */
+  const ownedProj = ownedFolder ? ((estateCache && estateCache.projects) || []).find((p) => p.folderId === ownedFolder) : null;
+  const ownedName = ownedFolder ? (ownedProj && ownedProj.name ? `\u201c${ownedProj.name}\u201d` : t('panel.set.thisProject')) : '';
   if (offerAsDefault) {
     const enc = box.querySelector('.rp-enc');
     if (enc) enc.insertAdjacentHTML('beforebegin', `<label class="check-label rp-set-asdefault"><input type="checkbox" id="rp-set-asdefault"> ${esc(t('panel.set.asProjectDefault', { name: ownedName }))}</label>
@@ -11061,7 +11151,8 @@ async function openSettingsModal(target, opts = {}) {
          * about the rest.
          * ⚠ RE-READ, STRICTLY, BEFORE WRITING. saveProjectDefaults writes the WHOLE per-project map
          * from the cache, so a cache that silently fell back to {} would erase every other
-         * project's template; strict makes a failed read land in the catch instead. And the offer
+         * project's template; strict makes a read that THROWS land in the catch instead (that is
+         * all it does — a read that succeeds is written over as usual). And the offer
          * was judged when the form opened: a template that appeared since (another tab, another
          * panel) is KEPT, and the toast says so — this path starts a template, never replaces one. */
         let doneKey = 'panel.set.pushed';

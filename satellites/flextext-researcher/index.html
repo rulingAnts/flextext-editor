@@ -78,8 +78,76 @@
 </div>
 
 <!-- The researcher panel takes over this view with its own full-screen header.
-     Rendered by the shared js/app.js (setupResearcherMode → initResearcherPanel). -->
-<section id="view-researcher" class="view"></section>
+     Rendered by the shared js/app.js (setupResearcherMode → initResearcherPanel).
+
+     ⚠ THE BOOT SCREEN INSIDE IT IS WHAT A RESEARCHER SEES FIRST (Seth, 2026-10-04: "researcher PWA
+     shows a blank screen until the app code is at least partially loaded"). The engine is ~2.5 MB of
+     modules (app.js, i18n.js, researcher-panel.js and their imports), and until all of it has
+     downloaded and run nothing else draws — on a slow link that is a long white page. This block is
+     inline markup with its own inline style and a few lines of ES5, so it paints from the parse,
+     before app.css or any module has arrived, and it still shows when the engine never loads.
+     It needs no removal code: the panel's first render assigns root.innerHTML (sign-in, dashboard,
+     every state), which replaces it. In the chosen language (the apps' saved choice, else the
+     browser's, else English). After 20 s without the panel it says so and offers a reload. -->
+<section id="view-researcher" class="view">
+  <div id="fx-boot" role="status" aria-live="polite" style="box-sizing:border-box;min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:32px 20px;text-align:center;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans',sans-serif;color:#1a1d21">
+    <svg width="64" height="64" viewBox="0 0 512 512" aria-hidden="true" style="border-radius:14px;flex:none"><rect width="512" height="512" rx="96" fill="#0f766e"/><g fill="#fff"><rect x="88" y="116" width="120" height="34" rx="10"/><rect x="232" y="116" width="76" height="34" rx="10"/><rect x="332" y="116" width="98" height="34" rx="10"/><g opacity=".62"><rect x="88" y="162" width="96" height="20" rx="8"/><rect x="232" y="162" width="60" height="20" rx="8"/><rect x="332" y="162" width="76" height="20" rx="8"/></g><rect x="88" y="244" width="84" height="34" rx="10"/><rect x="196" y="244" width="130" height="34" rx="10"/><rect x="350" y="244" width="74" height="34" rx="10"/><g opacity=".62"><rect x="88" y="290" width="64" height="20" rx="8"/><rect x="196" y="290" width="104" height="20" rx="8"/><rect x="350" y="290" width="58" height="20" rx="8"/></g><rect x="88" y="372" width="336" height="22" rx="9" opacity=".85"/></g></svg>
+    <div style="font-size:19px;font-weight:600">Flextext Researcher</div>
+    <div style="width:min(240px,70vw);height:4px;border-radius:2px;background:#dfe3e8;overflow:hidden" aria-hidden="true"><div id="fx-boot-bar" style="width:40%;height:100%;border-radius:2px;background:#0f766e"></div></div>
+    <div id="fx-boot-text" style="color:#5b6470"><span lang="en">Loading the app…</span> <span lang="id">Memuat aplikasi…</span></div>
+    <div id="fx-boot-slow" hidden style="max-width:30em;color:#5b6470;font-size:14px"></div>
+  </div>
+  <style>
+    @keyframes fx-boot-slide { from { transform: translateX(-250%); } to { transform: translateX(350%); } }
+    #fx-boot-bar { animation: fx-boot-slide 1.4s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { #fx-boot-bar { animation: none; width: 100%; opacity: .5; } }
+    @media (prefers-color-scheme: dark) { #fx-boot { color: #e6e8eb; } #fx-boot-text, #fx-boot-slow { color: #a3a9b1; } }
+  </style>
+  <script>
+    /* One language, the way the apps pick theirs: the choice saved under "flextext-lang", else the
+       browser's preferred languages ("in" is the old code some Android versions report for
+       Indonesian), else English. Plain ES5: this must run in a browser too old for the engine. */
+    (function () {
+      var LANGS = ['en', 'id'], lang = null, i, prefs, b;
+      try { lang = localStorage.getItem('flextext-lang'); } catch (e) { lang = null; }
+      if (LANGS.indexOf(lang) === -1) {
+        lang = 'en';
+        prefs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+        for (i = 0; i < prefs.length; i++) {
+          b = String(prefs[i]).toLowerCase().split(/[-_]/)[0]; if (b === 'in') b = 'id';
+          if (LANGS.indexOf(b) !== -1) { lang = b; break; }
+        }
+      }
+      var text = document.getElementById('fx-boot-text'), spans = text.getElementsByTagName('span');
+      for (i = 0; i < spans.length; i++) if (spans[i].getAttribute('lang') !== lang) spans[i].style.display = 'none';
+      document.getElementById('fx-boot').setAttribute('lang', lang);
+      /* Still here after 20 s: the engine has not rendered (slow link, or it failed). Say so, and
+         offer a reload; if the panel has replaced this block meanwhile, the element is gone. */
+      setTimeout(function () {
+        var slow = document.getElementById('fx-boot-slow');
+        if (!slow) return;
+        /* Offline at this point means the connection dropped AFTER this page arrived: sw.js serves its
+           own offline page only when the page itself cannot be fetched (navigations, network first,
+           no cache), so that page and this screen never show for the same situation. */
+        var offline = (typeof navigator.onLine === 'boolean') && !navigator.onLine;
+        slow.textContent = offline
+          ? (lang === 'id'
+            ? 'Anda tampaknya sedang offline. Panel peneliti memerlukan koneksi internet. Periksa koneksi Anda, lalu muat ulang.'
+            : 'You appear to be offline. The researcher panel needs an internet connection. Check your connection, then reload.')
+          : (lang === 'id'
+            ? 'Masih memuat. Pada koneksi lambat ini bisa memakan waktu. Jika tidak ada yang muncul, periksa koneksi Anda lalu muat ulang.'
+            : 'Still loading. On a slow connection this can take a while. If nothing appears, check your connection and reload.');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = lang === 'id' ? 'Muat ulang' : 'Reload';
+        btn.style.cssText = 'display:block;margin:10px auto 0;padding:8px 18px;font:inherit;border:1px solid #0f766e;border-radius:8px;background:#fff;color:#0f766e;cursor:pointer';
+        btn.onclick = function () { location.reload(); };
+        slow.appendChild(btn);
+        slow.hidden = false;
+      }, 20000);
+    })();
+  </script>
+</section>
 
 </main>
 

@@ -203,7 +203,9 @@
 </section>
 
 <section id="view-baseline" class="view" hidden>
-  <p class="tab-hint"><span data-i18n-html="baseline.hint"></span>
+  <!-- ⚠ The id is what applyBaselineHint (app.js) repaints: in strip mode the hint is ASSEMBLED
+       from several i18n keys by the device's settings (#92), so it is not one data-i18n-html key. -->
+  <p class="tab-hint"><span id="baseline-hint" data-i18n-html="baseline.hint"></span>
     <button id="btn-attach-audio" class="link-btn" data-i18n="player.attach">Attach audio&hellip;</button>
     <input type="file" id="attach-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
   </p>

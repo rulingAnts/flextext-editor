@@ -216,15 +216,20 @@ ok(!!allowedFn, 'one function owns the visibility rule');
 ok(/segs\.length <= 1/.test(allowedFn) && /doc\.guessSig/.test(allowedFn) && /sg\.end === sig\[i\]/.test(allowedFn),
    'visible in exactly two states: the untouched seed, or segments matching the guess signature end for end');
 ok(/docHasWork\(doc\)/.test(allowedFn), 'typed text or glosses hide it too — Seth named "text entry" explicitly');
-ok(/guess\.hidden = !allowed;/.test(render) && /guessAllowedHere\(segs, paras, doc\)/.test(render),
-   'renderCut hides — not greys — through that rule');
+/* v699 (Seth, 2026-10-04): over manual work the button is no longer GONE — it stays as the guess for
+ * the piece under the playhead, which touches one empty piece and nothing anyone made. The rule now
+ * picks the MODE; the whole-file guess is offered in exactly the two states it always was. */
+ok(/const mode = guessMode\(segs, paras, doc\);/.test(render) && /guess\.hidden = false;/.test(render),
+   'renderCut keeps the button and picks its mode through that rule');
+ok(/function guessMode\(segs, paras, doc\) \{ return guessAllowedHere\(segs, paras, doc\) \? 'all' : 'piece'; \}/.test(strips),
+   'whole-file in the two safe states, the piece under the playhead otherwise');
 ok(/doc\.guessSig = r\.segments\.map\(\(sg\) => sg\.end\);/.test(guessFn),
    'the guess stamps its boundary ends on the doc as the signature');
 ok(guessFn.indexOf('cutDeps.capture()') < guessFn.indexOf('doc.guessSig ='),
    '…after capture, so the pre-guess snapshot stays signature-free');
-ok(/cut\.no\.guessManual/.test(guessFn) && /guessAllowedHere\(cutSegs\(\), paras, doc\)/.test(guessFn),
-   'and the function refuses on its own — the backstop for keyboards, scripts and older docs');
-ok(/'cut\.no\.guessManual'/.test(i18n), 'with its sentence in the string table (parity test covers id)');
+ok(/if \(guessMode\(cutSegs\(\), paras, doc\) === 'piece'\) return cutGuessPiece\(\);/.test(guessFn),
+   'and the function routes itself on the model — over manual work a press is the piece guess, never a whole-file replace');
+ok(!/'cut\.no\.guessManual'/.test(i18n), 'the old "guessing again is turned off" sentence went with the rule');
 ok(/clearSpan\?\.\(\)/.test(guessFn),
    'it drops a live span watcher too — the spans it described are about to stop existing');
 ok(/cutDeps\.capture\(\)/.test(guessFn), 'and the whole guess is ONE undo step');

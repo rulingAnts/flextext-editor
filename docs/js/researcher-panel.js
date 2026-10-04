@@ -813,6 +813,8 @@ const GROUPS = [
     // Where that walk goes from the END of a free translation on the Gloss tab (#78): the next line's first gloss by default.
     { k: 'freeEnterNext', type: 'select', opts: ['gloss', 'free'], optPrefix: 'panel.opt.freeEnterNext.', note: 'panel.f.freeEnterNextNote' },
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
+    // 🔁 Repeat's starting state on the device (Seth, 2026-10-04). Default off.
+    { k: 'loopPlay', type: 'checkbox', note: 'panel.f.loopPlayNote' },
     { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
   ] },
@@ -1448,6 +1450,10 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v699', date: '2026-10-04', items: [
+    { k: 'panel.rel.new.guessPiece', issue: 93 },
+    { k: 'panel.rel.new.loopPlay' },
+  ] },
   { v: 'v698', date: '2026-10-04', items: [
     { k: 'panel.rel.new.bootScreen' },
     { k: 'panel.rel.new.helpTutorials' },

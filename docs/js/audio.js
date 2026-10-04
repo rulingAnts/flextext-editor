@@ -677,6 +677,9 @@ function overviewHeight(el) {
   return 72;
 }
 
+/* 🔁 The shortest lap Repeat will run (seconds). Below this a loop is a seek per timeupdate tick. */
+export const LOOP_MIN_LAP_S = 0.3;
+
 export class Player {
   /**
    * @param {HTMLElement} root - container with the expected sub-elements
@@ -702,6 +705,8 @@ export class Player {
       time: root.querySelector('.player-time'),
       status: root.querySelector('.player-status'),
       remove: root.querySelector('.player-remove'),
+      // Optional, like `cut`: 🔁 Repeat. A shell without the button simply has no repeat.
+      loop: root.querySelector('.player-loop'),
       // Optional: only the segmenter's shell carries it. The host shows it and wires it; the
       // Player itself never cuts anything.
       cut: root.querySelector('.player-cut'),
@@ -716,6 +721,14 @@ export class Player {
     this.el.back.addEventListener('click', () => {
       if (this.ws) this.ws.setTime(Math.max(0, this.ws.getCurrentTime() - 3));
     });
+    /* 🔁 REPEAT (Seth, 2026-10-04: "a way for a segment to play on loop … when it's on, it applies to
+     * ALL play buttons, looping within the scope of that button"). ONE state on the Player, read by
+     * every transport it owns: a line's ▶ (playSpan) repeats the line, the dock's own ▶ and Space
+     * repeat the whole recording — and the segmenter, which shares this dock, gets it with no code
+     * of its own. The host sets the starting state from the device setting (loopPlay) when a text
+     * opens; the button flips it for the session. Never the default: off until someone turns it on. */
+    this._loop = false;
+    if (this.el.loop) this.el.loop.addEventListener('click', () => this.setLoop(!this._loop));
     this.el.speed.addEventListener('change', () => {
       this.ws?.setPlaybackRate(parseFloat(this.el.speed.value), true);
     });
@@ -892,6 +905,14 @@ export class Player {
      * would slam the playhead to 0. `_rewound` (reset on every 'play') says "already handled". */
     this.ws.on('finish', () => {
       this.el.play.textContent = '▶';
+      /* 🔁 The whole recording again — or the span that ends with it. wavesurfer has paused itself
+       * here, so this is the one place Repeat has to call play(); the media already played on a
+       * user gesture, so resuming it is allowed. */
+      if (this._loop && this.loopableDuration()) {
+        const again = Number.isFinite(this._spanHome) ? this._spanHome : 0;
+        try { this.ws.setTime(again); const pr = this.ws.play(); if (pr && pr.catch) pr.catch(() => {}); } catch { /* not ready */ }
+        return;
+      }
       if (this._rewound) return;
       const home = this._spanHome;
       this.clearSpan();
@@ -1345,6 +1366,16 @@ export class Player {
   /** Is audio actually rolling right now? The strip buttons render play/pause from this. */
   playing() { try { return !!(this.ws && this.ws.isPlaying()); } catch { return false; } }
 
+  /** 🔁 Repeat: a span's end (or the file's) rewinds and keeps playing instead of pausing. */
+  // The whole-recording lap must be a real length: an empty or broken file finishing at once would
+  // otherwise be a finish → play → finish spin. Same floor as a line's lap.
+  loopableDuration() { try { return Number(this.ws && this.ws.getDuration()) >= LOOP_MIN_LAP_S; } catch { return false; } }
+  setLoop(on) {
+    this._loop = !!on;
+    if (this.el.loop) this.el.loop.setAttribute('aria-pressed', String(this._loop));
+  }
+  loop() { return !!this._loop; }
+
   /* Play CONTINUOUSLY from `ms` (or from wherever the playhead is), with NO span watcher — so
    * playback runs straight through every boundary.
    *
@@ -1397,6 +1428,16 @@ export class Player {
       const onTick = () => {
         if (!this.ws) return this.clearSpan();
         if (this.ws.getCurrentTime() >= stopAt) {
+          /* 🔁 The line again: back to `home` (the LINE's start, not the resume point) with the
+           * watcher kept for the next lap. Pausing it is the user's job — the same ▶, or Space.
+           * ⚠ BOUNDED BY CONSTRUCTION (Seth: "make sure a loop doesn't have unintended consequences
+           * for performance, stability, crash"): one seek per lap, on wavesurfer's own timeupdate
+           * cadence, no allocation, the one listener this watcher already is. A lap shorter than
+           * LOOP_MIN_LAP_S would mean a seek on every tick — a sliver falls back to stop-and-park. */
+          if (this._loop && stopAt - home >= LOOP_MIN_LAP_S) {
+            try { this.ws.setTime(home); } catch { /* noop */ }
+            return;
+          }
           try { this.ws.pause(); } catch { /* noop */ }
           /* v326 (Seth): a finished SPAN rewinds to ITS OWN start — a playhead parked on the
            * boundary reads as "on the next segment", and the natural next action is "play this

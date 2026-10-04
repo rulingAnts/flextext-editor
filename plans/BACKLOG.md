@@ -5335,6 +5335,13 @@ the speaker's own answer (§3.6: the companion must not show other people's deci
 
 ## Auto-segment ONE segment: cut a long recording into a few big pieces by hand, then Guess each piece (Seth, 2026-10-03)
 
+**Built in v699 (2026-10-04)** as the shape below describes — the same ✨ button, acting on the piece under the
+playhead once anything has been cut by hand (`guessMode`, `cutGuessPiece` in `docs/js/segment-strips.js`;
+`guessSplitsWithin` / `applyGuessedSplitsWithin` in `segments.js`). Of the open questions: the action lives on
+the existing ✨ (no per-strip control); a piece over ten minutes is refused with "cut it in two first" (the
+automatic halving is not built); the Audio Segmenter's matcher did not get it. The rest of this entry is the
+record of the design.
+
 > *"add the ability to auto-segment a SEGMENT, so that the user can manually break an audio file that
 > is too large into a few big segments and then autosegment the pieces."*
 

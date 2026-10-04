@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v698';
+export const ENGINE_VERSION = 'v699';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -736,6 +736,7 @@ en: {
   'player.speedNormal': 'Normal',
   'player.zoom': 'Zoom',
   'player.remove': 'Remove audio from this text',
+  'player.loop': 'Repeat \u2014 play the line, or the whole recording, again and again',
   'player.cut': 'Cut the piece here, at the playhead (Enter)',
   'player.attach': 'Attach audio…',
   'player.preparing': 'Preparing waveform…',
@@ -1628,6 +1629,8 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording.'
+    ,'panel.rel.new.loopPlay': 'Repeat playback: a \ud83d\udd01 button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
     ,'panel.rel.new.bootScreen': 'The Researcher app shows a loading screen the moment it opens, instead of a blank page until all of its code has downloaded. On a slow connection it says so after 20 seconds and offers a reload; if the connection dropped, it says that.'
     ,'panel.rel.new.helpTutorials': 'Help now opens on the three tutorial videos (Brian Plimley’s, in English, with Indonesian subtitles in the player), with "More help…" below for the written guide.'
     ,'panel.rel.new.modalClose': '"About this version" and Help have a ✕ at the top that stays in reach while you scroll, not only a Close button at the bottom.'
@@ -2333,6 +2336,8 @@ internet after the first time.</p>
   'panel.opt.scale.1.5': 'Largest',
   'panel.f.spacePlays': 'The Space bar plays / pauses the audio',
   'panel.f.spacePlaysNote': 'Automatic = off on a mobile device (an Android phone or tablet), where Space is for typing; on a laptop, touch screen or not, Space plays. Shift+Space always plays or pauses, even inside a text box; so does the \u25b6 button.',
+  'panel.f.loopPlay': 'Start with Repeat (\ud83d\udd01) on',
+  'panel.f.loopPlayNote': 'Off by default. With Repeat on, a line\u2019s \u25b6 plays that line again and again until it is paused, and the big player\u2019s \u25b6 repeats the whole recording. The \ud83d\udd01 button on the player turns it on or off at any time; this only sets what it starts as when a text is opened.',
   // ── The three typing dials: analysis language only. plans/typing-policy.md has the reasoning.
   // Each tooltip has to state a platform caveat, because each dial can do less on Android than a
   // researcher would reasonably assume from its name.
@@ -2377,12 +2382,12 @@ internet after the first time.</p>
   /* The Cut ("Potong") tab family (Seth, 2026-08-13). ALL DEFAULT ON — these add or preserve
    * capability, unlike backspaceJoin which removes a shortcut and therefore defaults off. */
   'tabs.cut': 'Cut',
-  'cut.hint': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \ud83d\udd17 button, joins a line to the one above. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later.',
+  'cut.hint': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \ud83d\udd17 button, joins a line to the one above. \u2728 guesses the lines from the pauses in the recording \u2014 all of them at once or, once you have cut by hand, only the piece under the playhead. No typing on this tab \u2014 the words come later.',
   /* Shown INSTEAD when the researcher has switched Backspace-to-join off: same tab, one fewer key,
      and the button named in its place so the screen never promises a key that does nothing. */
-  'cut.hintNoJoinKey': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \ud83d\udd17 button between two lines joins them. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later.',
-  'cut.hintDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \ud83d\udd17 button, joins a line to the one above. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later. Drag the grip at either end of a line\u2019s waveform to move a boundary; it can never pass its neighbours, and the player at the top zooms in on it while you drag.',
-  'cut.hintNoJoinKeyDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \ud83d\udd17 button between two lines joins them. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later. Drag the grip at either end of a line\u2019s waveform to move a boundary; it can never pass its neighbours, and the player at the top zooms in on it while you drag.',
+  'cut.hintNoJoinKey': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \ud83d\udd17 button between two lines joins them. \u2728 guesses the lines from the pauses in the recording \u2014 all of them at once or, once you have cut by hand, only the piece under the playhead. No typing on this tab \u2014 the words come later.',
+  'cut.hintDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \ud83d\udd17 button, joins a line to the one above. \u2728 guesses the lines from the pauses in the recording \u2014 all of them at once or, once you have cut by hand, only the piece under the playhead. No typing on this tab \u2014 the words come later. Drag the grip at either end of a line\u2019s waveform to move a boundary; it can never pass its neighbours, and the player at the top zooms in on it while you drag.',
+  'cut.hintNoJoinKeyDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \ud83d\udd17 button between two lines joins them. \u2728 guesses the lines from the pauses in the recording \u2014 all of them at once or, once you have cut by hand, only the piece under the playhead. No typing on this tab \u2014 the words come later. Drag the grip at either end of a line\u2019s waveform to move a boundary; it can never pass its neighbours, and the player at the top zooms in on it while you drag.',
   'cut.cut': 'Cut here',
   'cut.arm': 'Cut this line \u2014 tap again to put the scissors away',
   'split.here': 'Split here',
@@ -2408,13 +2413,19 @@ internet after the first time.</p>
   'cut.hintHide': 'Hide the instructions',
   'cut.guessShort': 'Guess',
   'cut.guessTip': 'Cut the recording at its pauses, as a starting point you can correct.',
-  'cut.no.guessManual': 'The lines have been adjusted by hand, so guessing again is turned off \u2014 it would replace that work.',
   'cut.guessConfirm': 'This recording has already been cut into lines. Replace all of those cuts with new guesses?',
   'cut.guessDone': 'Guessed {n} lines from the pauses. Check them — Undo puts it all back if it went wrong.',
   'cut.no.guessText': 'This text already has words in it, so its lines cannot be guessed again. Cut it by hand instead.',
   'cut.no.guessNone': 'No clear pauses found in this recording, so nothing was changed. Cut it by hand.',
   'cut.no.guessAudio': 'The recording is still loading, so there is nothing to guess from yet.',
-  'cut.no.guessLong': 'This recording is {mins} minutes long, and the lines can only be guessed for recordings up to {max} minutes. Cut this one by hand \u2014 or record in shorter pieces.',
+  'cut.no.guessLong': 'This recording is {mins} minutes long, and the lines can be guessed for up to {max} minutes at a time. First cut it into a few pieces (play, then Enter where a piece should end), then press \u2728 inside each piece.',
+  'cut.guessPiece': 'Guess the lines inside this piece',
+  'cut.guessPieceTip': 'Cut the piece under the playhead at its pauses. Only that piece changes \u2014 Undo puts it back.',
+  'cut.guessPieceDone': 'Guessed {n} lines inside this piece. Check them \u2014 Undo puts it back if it went wrong.',
+  'cut.no.guessPiecePick': 'Put the playhead inside the piece you want to guess, then press \u2728.',
+  'cut.no.guessPieceText': 'This piece already has words in it, so its lines cannot be guessed. Put the playhead in a piece with no words.',
+  'cut.no.guessPieceLong': 'This piece is {mins} minutes long, and lines can be guessed for pieces up to {max} minutes. Cut it in two first (Enter at the playhead), then guess each half.',
+  'cut.no.guessPieceNone': 'No clear pauses found in this piece, so nothing was changed. Cut it by hand.',
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.baselineTab': 'Show the Baseline tab',
   'panel.f.glossTab': 'Show the Gloss tab',
@@ -3504,6 +3515,7 @@ id: {
   'player.speedNormal': 'Biasa',
   'player.zoom': 'Perbesar',
   'player.remove': 'Hapus audio dari teks ini',
+  'player.loop': 'Ulangi \u2014 putar baris ini, atau seluruh rekaman, terus-menerus',
   'player.cut': 'Potong potongan di sini, pada posisi putar (Enter)',
   'player.attach': 'Lampirkan audio…',
   'player.preparing': 'Menyiapkan gambar gelombang…',
@@ -4241,6 +4253,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya.'
+    ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol \ud83d\udd01 di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
     ,'panel.rel.new.bootScreen': 'Aplikasi Peneliti kini menampilkan layar pemuatan begitu dibuka, bukan halaman kosong sampai seluruh kodenya selesai diunduh. Pada koneksi lambat, setelah 20 detik aplikasi memberi tahu dan menawarkan muat ulang; jika koneksi terputus, itu pun disebutkan.'
     ,'panel.rel.new.helpTutorials': 'Bantuan kini dibuka dengan tiga video tutorial (buatan Brian Plimley, berbahasa Inggris, dengan subtitel bahasa Indonesia di pemutar video), dan "Bantuan lainnya…" di bawahnya untuk panduan tertulis.'
     ,'panel.rel.new.modalClose': '"Tentang versi ini" dan Bantuan punya tanda ✕ di bagian atas yang tetap terjangkau saat Anda menggulir, bukan hanya tombol Tutup di bagian bawah.'
@@ -4863,6 +4877,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.scale.1.5': 'Paling besar',
   'panel.f.spacePlays': 'Tombol Spasi memutar / menjeda audio',
   'panel.f.spacePlaysNote': 'Otomatis = mati di perangkat seluler (ponsel atau tablet Android), tempat Spasi dipakai untuk mengetik; di laptop, dengan atau tanpa layar sentuh, Spasi memutar. Shift+Spasi selalu memutar atau menjeda, bahkan di dalam kotak teks; begitu pula tombol \u25b6.',
+  'panel.f.loopPlay': 'Mulai dengan Ulangi (\ud83d\udd01) menyala',
+  'panel.f.loopPlayNote': 'Mati secara bawaan. Dengan Ulangi menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus sampai dijeda, dan \u25b6 pada pemutar besar mengulang seluruh rekaman. Tombol \ud83d\udd01 di pemutar bisa menyalakan atau mematikannya kapan saja; pengaturan ini hanya menentukan keadaan awalnya saat sebuah teks dibuka.',
   // ── Tiga tombol pengetikan: hanya bahasa analisis. Lihat plans/typing-policy.md.
   'panel.sub.analTyping': 'Ejaan, saran kata, dan koreksi otomatis',
   'panel.f.analSpellcheck': 'Periksa ejaan bahasa analisis',
@@ -4903,10 +4919,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah \u2014 di tab Ketik dan Gloss, dan juga di tab Potong, di mana Backspace menggabungkan baris yang sedang aktif dengan baris di atasnya. Tombol gabung \ud83d\udd17 tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
   /* Lihat catatan pada blok en \u2014 semuanya AKTIF secara bawaan. */
   'tabs.cut': 'Potong',
-  'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \ud83d\udd17, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
-  'cut.hintNoJoinKey': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \ud83d\udd17 di antara dua baris menggabungkan keduanya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
-  'cut.hintDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \ud83d\udd17, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di salah satu ujung gelombang sebuah baris untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya, dan pemutar di atas memperbesar tempat itu selama Anda menyeret.',
-  'cut.hintNoJoinKeyDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \ud83d\udd17 di antara dua baris menggabungkan keduanya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di salah satu ujung gelombang sebuah baris untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya, dan pemutar di atas memperbesar tempat itu selama Anda menyeret.',
+  'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \ud83d\udd17, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak baris dari jeda-jeda dalam rekaman \u2014 semuanya sekaligus, atau, kalau Anda sudah memotong sendiri, hanya bagian tempat posisi putar berada. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hintNoJoinKey': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \ud83d\udd17 di antara dua baris menggabungkan keduanya. \u2728 menebak baris dari jeda-jeda dalam rekaman \u2014 semuanya sekaligus, atau, kalau Anda sudah memotong sendiri, hanya bagian tempat posisi putar berada. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hintDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \ud83d\udd17, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak baris dari jeda-jeda dalam rekaman \u2014 semuanya sekaligus, atau, kalau Anda sudah memotong sendiri, hanya bagian tempat posisi putar berada. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di salah satu ujung gelombang sebuah baris untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya, dan pemutar di atas memperbesar tempat itu selama Anda menyeret.',
+  'cut.hintNoJoinKeyDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \ud83d\udd17 di antara dua baris menggabungkan keduanya. \u2728 menebak baris dari jeda-jeda dalam rekaman \u2014 semuanya sekaligus, atau, kalau Anda sudah memotong sendiri, hanya bagian tempat posisi putar berada. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di salah satu ujung gelombang sebuah baris untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya, dan pemutar di atas memperbesar tempat itu selama Anda menyeret.',
   'cut.cut': 'Potong di sini',
   'cut.arm': 'Potong baris ini \u2014 ketuk lagi untuk menyembunyikan gunting',
   'split.here': 'Bagi di sini',
@@ -4926,13 +4942,19 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.hintHide': 'Sembunyikan petunjuk',
   'cut.guessShort': 'Tebak',
   'cut.guessTip': 'Potong rekaman di jeda-jedanya, sebagai titik awal yang bisa Anda perbaiki.',
-  'cut.no.guessManual': 'Baris-barisnya sudah disesuaikan secara manual, jadi menebak ulang dimatikan \u2014 itu akan mengganti hasil kerja tersebut.',
   'cut.guessConfirm': 'Rekaman ini sudah dipotong menjadi baris. Ganti semua potongan itu dengan tebakan baru?',
   'cut.guessDone': 'Ditebak {n} baris dari jeda-jedanya. Periksalah \u2014 Urungkan mengembalikan semuanya kalau salah.',
   'cut.no.guessText': 'Teks ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak lagi. Potonglah sendiri.',
   'cut.no.guessNone': 'Tidak ditemukan jeda yang jelas di rekaman ini, jadi tidak ada yang diubah. Potonglah sendiri.',
   'cut.no.guessAudio': 'Rekaman masih dimuat, jadi belum ada yang bisa ditebak.',
-  'cut.no.guessLong': 'Rekaman ini panjangnya {mins} menit, sedangkan barisnya hanya bisa ditebak untuk rekaman sampai {max} menit. Potonglah yang ini sendiri \u2014 atau rekamlah dalam bagian-bagian yang lebih pendek.',
+  'cut.no.guessLong': 'Rekaman ini panjangnya {mins} menit, sedangkan baris hanya bisa ditebak untuk paling banyak {max} menit sekaligus. Potong dulu menjadi beberapa bagian (putar, lalu tekan Enter di tempat bagian itu harus berakhir), lalu tekan \u2728 di dalam setiap bagian.',
+  'cut.guessPiece': 'Tebak baris di dalam bagian ini',
+  'cut.guessPieceTip': 'Potong bagian tempat posisi putar berada, di jeda-jedanya. Hanya bagian itu yang berubah \u2014 Urungkan mengembalikannya.',
+  'cut.guessPieceDone': 'Ditebak {n} baris di dalam bagian ini. Periksalah \u2014 Urungkan mengembalikannya kalau salah.',
+  'cut.no.guessPiecePick': 'Taruh posisi putar di dalam bagian yang mau ditebak, lalu tekan \u2728.',
+  'cut.no.guessPieceText': 'Bagian ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak. Taruh posisi putar di bagian yang belum ada kata-katanya.',
+  'cut.no.guessPieceLong': 'Bagian ini panjangnya {mins} menit, sedangkan baris hanya bisa ditebak untuk bagian sampai {max} menit. Potong dulu menjadi dua (Enter di posisi putar), lalu tebak masing-masing.',
+  'cut.no.guessPieceNone': 'Tidak ada jeda yang jelas di bagian ini, jadi tidak ada yang diubah. Potonglah sendiri.',
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.baselineTab': 'Tampilkan tab Dasar',
   'panel.f.glossTab': 'Tampilkan tab Glos',

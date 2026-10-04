@@ -119,6 +119,11 @@
       <button class="player-play icon-btn2" data-i18n-title="player.play">▶</button>
       <button class="player-home icon-btn2" data-i18n-title="player.home">⏮</button>
       <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
+      <!-- 🔁 REPEAT (Seth, 2026-10-04). One toggle for every ▶ on the page: on, a line's ▶ repeats that
+           line and this ▶ repeats the whole recording. The Player owns the state (audio.js setLoop);
+           its starting state is the device setting loopPlay. 🔁 is Emoji 0.6 (2010), safe everywhere. -->
+      <button class="player-loop icon-btn2" data-i18n-title="player.loop" data-i18n-aria="player.loop"
+              aria-label="Repeat" aria-pressed="false">🔁</button>
       <!-- ✂ at the playhead (Seth, 2026-09-04): cuts whichever piece the big player is inside.
            Hidden until the matcher owns the dock; the engine's Player only looks it up. -->
       <button class="player-cut icon-btn2" data-i18n-title="player.cut" hidden>✂</button>

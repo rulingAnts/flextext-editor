@@ -103,9 +103,11 @@ ok(/catch \{ \/\* fall through to the unstamped take \*\/ \}/.test(pcm),
    '⚠ a stamping failure keeps the recording — honesty must never cost someone their take');
 ok(/return \{ blob, ext: f\.ext, mime: f\.mime \};/.test(pcm), 'and a caller passing none still works (backward compatible)');
 ok(/function recordingProvenance\(r\)/.test(app), 'app.js collects it');
-ok(/encodeRecording\(chans, rec\.sampleRate, rec\.fmt,\s*\n?\s*\(f\) => recordUI\('saving', \{ pct: Math\.round\(f \* 100\) \}\), recordingProvenance\(rec\)\)/.test(app),
+/* `take`, not `rec`: saveRecording reads the take into a local before its first await (#88 review —
+ * a Cancel + new take during the encode must not store the old file), and stamps THAT take. */
+ok(/encodeRecording\(chans, take\.sampleRate, take\.fmt,\s*\n?\s*\(f\) => recordUI\('saving', \{ pct: Math\.round\(f \* 100\) \}\), recordingProvenance\(take\)\)/.test(app),
    'and passes it on the browser save path');
-ok(/wavWithBext\(await rec\.blob\.arrayBuffer\(\), captureBext\(recordingProvenance\(rec\)\)\)/.test(app),
+ok(/wavWithBext\(await take\.blob\.arrayBuffer\(\), captureBext\(recordingProvenance\(take\)\)\)/.test(app),
    'the NATIVE master is stamped too — it has the richest provenance of any take');
 ok(/micLabel = pcmRec\.stream\?\.getAudioTracks\?\.\(\)\[0\]\?\.label/.test(app),
    'the mic name is captured from the live track, before the stream is stopped');

@@ -2521,8 +2521,9 @@ let crec = null;          // consent-assent recorder state
  * requestConsentGeo() the moment the dialog becomes visible — after the consent-off return, so a
  * device whose settings ask for no consent is never asked — and keeps the promise PER FLOW (on the
  * consentCapture of the approval it belongs to), never in a module global: a fix from a dialog that
- * was cancelled can never land on a later receipt. The browser remembers the answer, so the prompt
- * itself appears the first time consent is collected on a device and later readings are silent.
+ * was cancelled can never land on a later receipt. Most browsers remember the answer, so the prompt
+ * usually appears only the first time consent is collected on a device; some ask again, which is
+ * why the researcher-facing copy (consent.note) promises no "once".
  *
  * Never re-asks a device that said no ('denied'). If permissions.query is missing or throws (older
  * Safari does not know the 'geolocation' name) it still asks: getCurrentPosition is the request, the
@@ -2537,12 +2538,22 @@ async function requestConsentGeo() {
       if (st && st.state === 'denied') return null;
     }
   } catch { /* query unsupported for geolocation — ask anyway */ }
+  // The permission query was awaited: a Cancel in that gap closed the dialog, and the only thing
+  // that justified asking has gone with it (#88 review). Checked right before the browser's prompt.
+  if (!consentDialogOpen()) return null;
   try {
     const pos = await new Promise((res, rej) =>
       navigator.geolocation.getCurrentPosition(res, rej,
         { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false }));
     return geoRecord(pos);
   } catch { return null; } // refused, no fix, insecure context
+}
+
+// Is the consent dialog on screen? requestConsentGeo asks this again right before getCurrentPosition,
+// because its permission query is awaited first and a Cancel can land in that gap (#88 review).
+function consentDialogOpen() {
+  const m = $('#consent-modal');
+  return !!m && !m.hidden;
 }
 
 function geoRecord(pos) {
@@ -3607,12 +3618,22 @@ async function saveRecording() {
   let title = $('#record-title').value.trim();
   if (CROWD_MODE) title = title || 'recording';   // anonymous visitor: server names the file
   else if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
+  /* ⚠ THIS TAKE AND THIS CONSENT, READ BEFORE THE FIRST AWAIT (#88 review). Cancel during the encode
+   * or the location wait below empties `rec` and the pending consent globals, and a second consent
+   * plus a new take can refill them before this call resumes — so re-reading the globals after an
+   * await could store the OLD file under the NEW receipt. Everything below works from these locals
+   * and bails the moment `rec` is no longer this take. */
+  const take = rec;
+  const assent = pendingAssent;
+  const receipt = pendingReceipt;
+  const promptAudio = pendingPromptAudio;
+  const capture = receipt && consentCapture && consentCapture.receipt === receipt ? consentCapture : null;
   recordUI('saving', { pct: 0 });
   savingRecording = true;   // block any auto-update reload until the take is safely written to IndexedDB
   try {
     const stamp = fileStamp();
     let file;
-    if (rec.mode === 'native') {
+    if (take.mode === 'native') {
       // Already a finished WAV at the exact format the device really captured — no re-encode.
       // (Auto-normalize is deliberately NOT applied: it would edit an archival master, and the
       // whole reason for the native path is an unmodified capture.)
@@ -3622,13 +3643,13 @@ async function saveRecording() {
        * available anywhere in the suite (real mic, routing, whether the OS processors were off,
        * whether the depth was verified), so it is the one most worth recording. On any failure the
        * untouched capture is used. */
-      let natBytes = rec.blob;
+      let natBytes = take.blob;
       try {
-        natBytes = new Blob([wavWithBext(await rec.blob.arrayBuffer(), captureBext(recordingProvenance(rec)))],
+        natBytes = new Blob([wavWithBext(await take.blob.arrayBuffer(), captureBext(recordingProvenance(take)))],
                             { type: 'audio/wav' });
-      } catch { natBytes = rec.blob; }
+      } catch { natBytes = take.blob; }
       file = new File([natBytes], `recording-${stamp}.wav`, { type: 'audio/wav' });
-    } else if (rec.mode === 'pcm') {
+    } else if (take.mode === 'pcm') {
       // The preview blob has done its job (the review listen) and is a whole extra copy of the
       // take. Release it BEFORE allocating the encode buffer — holding both at once is a large
       // enough peak on a long take to be the thing that kills the tab, and the tab dying here
@@ -3638,47 +3659,47 @@ async function saveRecording() {
       try { pv.pause(); } catch { /* noop */ }
       pv.removeAttribute('src');
       try { pv.load(); } catch { /* noop */ }
-      if (rec.url) { URL.revokeObjectURL(rec.url); rec.url = null; }
-      rec.blob = null;
+      if (take.url) { URL.revokeObjectURL(take.url); take.url = null; }
+      take.blob = null;
       // Decide mono-vs-stereo (drop a dead channel; keep real stereo) — never
       // averaging a live channel with an empty one. Then optional normalize.
-      const chans = reduceChannels(rec.channels);
+      const chans = reduceChannels(take.channels);
       if (settings.norm) normalizePeak(chans);
-      const { blob, ext, mime } = await encodeRecording(chans, rec.sampleRate, rec.fmt,
-        (f) => recordUI('saving', { pct: Math.round(f * 100) }), recordingProvenance(rec));
+      const { blob, ext, mime } = await encodeRecording(chans, take.sampleRate, take.fmt,
+        (f) => recordUI('saving', { pct: Math.round(f * 100) }), recordingProvenance(take));
       file = new File([blob], `recording-${stamp}.${ext}`, { type: mime });
-    } else if (REC_FORMATS[rec.fmt] && REC_FORMATS[rec.fmt].save === 'direct') {
+    } else if (REC_FORMATS[take.fmt] && REC_FORMATS[take.fmt].save === 'direct') {
       // WebM/Opus or WebM/PCM: keep the captured blob as-is, no transcode. (Auto-
       // normalize can't apply without a decode + re-encode, which defeats the point.)
-      const f = REC_FORMATS[rec.fmt];
-      file = new File([rec.blob], `recording-${stamp}.${f.ext}`, { type: rec.blob.type || f.mime });
+      const f = REC_FORMATS[take.fmt];
+      file = new File([take.blob], `recording-${stamp}.${f.ext}`, { type: take.blob.type || f.mime });
     } else {
       // MediaRecorder take → compressed MP3 (explicit mp3 format, or fallback).
       const conv = settings.convert || {};
-      const res = await convertToMp3(rec.blob,
+      const res = await convertToMp3(take.blob,
         { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false, normalize: !!settings.norm },
         (f) => recordUI('saving', { pct: Math.round(f * 100) }));
       file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
     }
+    if (rec !== take) return;   // cancelled (perhaps re-taken) during the encode: this file is nobody's
     /* ⚠ SETTLE THE RECEIPT'S LOCATION BEFORE THE TEXT IS WRITTEN (#88). The doc is stored once
      * below, and in record mode `current` is cleared straight after, so captureConsentContext's late
      * persist can never reach it; Lane A then packages the STORED copy. A short take made the first
      * time consent is collected — prompt just answered, first fix still coming — would otherwise
      * keep "unavailable" for good. Usually instant: a real take outlasts CONSENT_GEO_WAIT_MS. The
-     * modal still says it is saving meanwhile, so Cancel stays possible and must be honored. */
-    if (pendingReceipt && consentCapture && consentCapture.receipt === pendingReceipt) {
-      await settleConsentCapture(consentCapture);
-      if (!rec) return;   // cancelled while waiting: closeRecordModal already discarded the take
+     * modal says WHY it is still saving once the wait is for the location answer, and Cancel stays
+     * possible and must be honored — for THIS take: a new take started meanwhile must never get
+     * this file (hence `rec !== take`, not `!rec`). */
+    if (capture) {
+      await settleConsentCapture(capture, () => { if (rec === take) $('#record-status').textContent = t('record.waitingLocation'); });
+      if (rec !== take) return;   // cancelled while waiting: closeRecordModal already discarded the take
     }
-    const assent = pendingAssent;     // closeRecordModal clears these; preserve
-    const receipt = pendingReceipt;   // them for the new doc
-    const promptAudio = pendingPromptAudio;
     // ABSORB-THEN-DELETE: grab the on-device capture path BEFORE closeRecordModal() clears `rec`.
     // The native file is released only after the bytes are safely stored below — never before,
     // because until then those bytes exist ONLY on disk and losing them loses field data.
-    const nativePath = (rec.mode === 'native' && rec.nativeMeta) ? rec.nativeMeta.path : null;
+    const nativePath = (take.mode === 'native' && take.nativeMeta) ? take.nativeMeta.path : null;
     // Same reason as nativePath: grab it BEFORE closeRecordModal() clears `rec`.
-    pendingCapture = (rec.mode === 'native') ? describeCapture(rec.nativeMeta) : null;
+    pendingCapture = (take.mode === 'native') ? describeCapture(take.nativeMeta) : null;
     closeRecordModal();
     if (CROWD_MODE) {
       // Crowd divert: nothing enters the shared corpus. Bundle + persist to the
@@ -8595,8 +8616,9 @@ async function ccAttachConsent(ids, { assent, receipt, promptAudio }) {
 }
 
 // Run the shared consent flow, then fan the result out over the selection.
+let ccSaving = false;   // an approval's wait-and-attach is in progress (#88 review)
 async function ccCollectFor(ids) {
-  if (!ids.length) return;
+  if (!ids.length || ccSaving) return;
   await requestConsentThen(async () => {
     // Consent is configured OFF: requestConsentThen calls back with no receipt built. Retrofitting
     // nothing onto a text would be worse than refusing, so say why.
@@ -8614,12 +8636,23 @@ async function ccCollectFor(ids) {
      * fix after it, can still be in progress when the speaker says yes — and these copies are made
      * once and never revisited. settleConsentCapture keeps waiting past 5s ONLY while this
      * dialog's location request is pending, never past CONSENT_GEO_WAIT_MS from approval, and the
-     * toast says why the table is waiting. A slow IP lookup still gets 5s, as before. */
-    await settleConsentCapture(capture, () => toast(t('cc.waitingLocation'), CONSENT_GEO_WAIT_MS));
-    const done = await ccAttachConsent(ids, payload);
-    if (pendingReceipt === payload.receipt) { pendingAssent = null; pendingReceipt = null; pendingPromptAudio = null; }
-    ccSelected.clear();
-    toast(done.length === 1 ? t('cc.savedOne') : t('cc.savedMany').replace('{n}', done.length));
+     * toast says why the table is waiting. A slow IP lookup still gets 5s, as before.
+     * ⚠ And "Ask for permission" sleeps for the duration (#88 review): the dialog is gone, so the
+     * button is reachable again, and a second tap would open a new dialog over this unfinished
+     * save. ccSaving backs the disabled attribute in case the list re-renders meanwhile. */
+    const go = $('#cc-collect');
+    ccSaving = true;
+    if (go) go.disabled = true;
+    try {
+      await settleConsentCapture(capture, () => toast(t('cc.waitingLocation'), CONSENT_GEO_WAIT_MS));
+      const done = await ccAttachConsent(ids, payload);
+      if (pendingReceipt === payload.receipt) { pendingAssent = null; pendingReceipt = null; pendingPromptAudio = null; }
+      ccSelected.clear();
+      toast(done.length === 1 ? t('cc.savedOne') : t('cc.savedMany').replace('{n}', done.length));
+    } finally {
+      ccSaving = false;
+      if (go) go.disabled = false;
+    }
     renderConsentView();
   });
 }

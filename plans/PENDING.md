@@ -34,7 +34,19 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ 2026-10-04 — v696 on staging; the review notes are still open (→ v697)
+## ✅ RELEASED 2026-10-04 — v696 is in production (main = productionWeb = 9d645f80)
+
+All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
+shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
+the settings-dialog room fix, and "a new device cannot be left without settings". Nothing from other
+users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
+too, still behind `?lameta=1`.
+
+**Open next:** the reviewers' remaining notes on #85–#91 (listed below; branch
+`fix/v697-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
+2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
+
+## (history) ▶ 2026-10-04 — v696 on staging; the review notes are still open (→ v697)
 
 **v696** (release branch 31f8f4f9, lameta-device 1a76de9e): Seth's two findings from testing v695 —
 the device-settings dialog's fields area shrunk to a slit by the "use as project defaults" offer
@@ -59,7 +71,7 @@ browser would), evaluate the RELEASES array, run the suite, and check the fail c
 - `satellite-apps-v566` @ b722239a = v694, then 87f5a1fd = **v695** (same entry, renumbered): RELEASES entry + EN/ID notes for #89, #90, #87,
   #91, #88, #85, #86 (one item each; `issue:` links). Suite 659/659.
 - Merged into `lameta-device` (5ecc0567, suite 698/698) and `staging` (8fc6c0a9); all seven apps
-  deployed to staging from 8fc6c0a9 (run 37176452172). Production is still v689.
+  deployed to staging from 8fc6c0a9 (run 37176452172). (Production was v689 until v696 went out later that day.)
 - A first merge (de4c6a9f) resolved the version conflicts by taking whole files from the release
   branch and dropped lameta-device's i18n/sw.js additions (4 failures); replaced by 5ecc0567,
   which resolved only the conflict hunks. Lesson: never `checkout --theirs` a whole file for a

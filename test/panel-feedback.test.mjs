@@ -20,7 +20,7 @@ test('the header offers Feedback where Release notes was', () => {
   assert.match(header, /\$\{feedbackLink\(\)\}\s*\n\s*<button class="icon-btn rp-helpbtn" data-act="help"/, 'just before the help ?');
   assert.doesNotMatch(header, /releaseNotesLink\(\)/, 'the notes are no longer a header link');
   assert.match(fn('function feedbackLink() {'), /data-act="feedback">\$\{esc\(t\('panel\.feedback\.btn'\)\)\}/);
-  assert.doesNotMatch(fn('function feedbackLink() {'), /RELEASES|KNOWN_ISSUES/, 'always shown: reporting never depends on there being notes');
+  assert.doesNotMatch(fn('function feedbackLink() {'), /RELEASES/, 'always shown: reporting never depends on there being notes');
   assert.match(PANEL, /if \(!fn && el\.dataset\.act === 'feedback'\) fn = feedbackModal;/, 'wired in every view the header renders in');
   assert.doesNotMatch(PANEL, /el\.dataset\.act === 'known'/, 'the old header act is gone');
 });
@@ -43,7 +43,7 @@ test('Help leads with About this version, and the notes are called that everywhe
   assert.ok(help.indexOf('rp-help-notes') < help.indexOf("t('panel.help.html')"), 'above the long guide, not after it');
   assert.match(help, /m\.close\(\);\s*\n\s*releaseNotesModal\(\);/, 'hands over rather than stacking');
   const link = fn('function releaseNotesLink() {');
-  assert.match(link, /if \(!RELEASES\.length && !KNOWN_ISSUES\.length\) return '';/, 'nothing to say, no entry');
+  assert.match(link, /if \(!RELEASES\.length\) return '';/, 'nothing to say, no entry');
   assert.match(link, /data-notes>\$\{esc\(t\('panel\.rel\.btn'\)\)\}/);
   assert.match(I18N, /\n {2}'panel\.rel\.btn': 'About this version…',/);
   assert.match(I18N, /\n {2}'panel\.rel\.title': 'About this version',/);

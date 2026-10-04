@@ -2004,11 +2004,12 @@ internet after the first time.</p>
   'panel.rel.isTestBuild': 'This is a test site, not production.',
   'panel.rel.newTitle': 'What’s new',
   'panel.rel.knownTitle': 'Known issues',
+  'panel.rel.knownOnGitHub': 'Ongoing known issues and planned fixes are tracked on GitHub, where you can also add your own:',
+  'panel.rel.knownLink': 'open issues',
   /* ⚠ NOT "these are known, no need to report them" (Seth: "that last sentence is unnecessary. My
    * coworker isn't stupid"). Telling a tester what not to bother saying spends the sentence on the
    * least useful thing it could do. The list already establishes what is known; what is NOT known is
    * which of them is costing them the most, and only they can say. */
-  'panel.rel.prioritise': 'Which of these gets in your way most? That is what decides the order they are fixed in — say so, and it moves up.',
   'panel.reportBug': 'Report a problem',
   'panel.reportFeature': 'Suggest a feature',
   'panel.feedback.btn': 'Feedback',
@@ -2067,9 +2068,6 @@ internet after the first time.</p>
   'panel.rel.new.uploadChip': 'Fixed: a text could keep saying “edited on device — not yet uploaded” after a successful upload, and “still arriving” after a finished download.',
   'panel.rel.new.freshPanel': 'The panel now always loads fresh from the internet — no more surprise “app updated” reloads mid-use — with a proper loading indicator, and a clear offline page when there is no connection.',
   'panel.rel.new.dialogs': 'Confirmation questions are now proper in-app dialogs instead of browser pop-ups.',
-  'panel.known.addColleague': 'Adding another researcher is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
-  'panel.known.crowdMembers': 'Crowd recorders are invisible to added researchers — only the project owner sees them.',
-  'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
    * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
    * browser unencrypted. */
@@ -4556,7 +4554,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.isTestBuild': 'Ini situs uji, bukan produksi.',
   'panel.rel.newTitle': 'Yang baru',
   'panel.rel.knownTitle': 'Masalah yang diketahui',
-  'panel.rel.prioritise': 'Mana di antara ini yang paling menghambat pekerjaan Anda? Itulah yang menentukan urutan perbaikannya — sampaikan saja, dan prioritasnya naik.',
+  'panel.rel.knownOnGitHub': 'Masalah yang masih ada dan perbaikan yang direncanakan dicatat di GitHub; Anda juga bisa menambahkan laporan sendiri di sana:',
+  'panel.rel.knownLink': 'daftar isu terbuka',
   'panel.reportBug': 'Laporkan masalah',
   'panel.reportFeature': 'Usulkan fitur',
   'panel.feedback.btn': 'Masukan',
@@ -4613,9 +4612,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.uploadChip': 'Diperbaiki: sebuah teks bisa terus berkata “diedit di perangkat — belum diunggah” setelah unggahan berhasil, dan “masih dalam perjalanan” setelah unduhan selesai.',
   'panel.rel.new.freshPanel': 'Panel kini selalu dimuat langsung dari internet — tidak ada lagi muat-ulang “aplikasi diperbarui” mendadak di tengah pekerjaan — dengan indikator pemuatan yang jelas, dan halaman luring yang jelas saat tidak ada koneksi.',
   'panel.rel.new.dialogs': 'Pertanyaan konfirmasi kini berupa dialog dalam aplikasi, bukan jendela sembul peramban.',
-  'panel.known.addColleague': 'Menambahkan peneliti lain masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
-  'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh peneliti yang ditambahkan — hanya pemilik proyek yang melihatnya.',
-  'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
   'panel.share.nickPh': 'mis. Yani — tim Kulumi',
   'panel.share.nickNote': 'Wajib diisi. Karena tidak ada lagi yang menandai peneliti di sini, inilah cara Anda membedakan dua orang nanti. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim kepada mereka atau siapa pun.',

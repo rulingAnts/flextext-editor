@@ -1421,12 +1421,14 @@ function header(titleKey, withLock) {
  * are additions, fixes AND known issues, so the name promises exactly what is inside. "What's new"
  * promises only the first and would make the second half read as a surprise.
  *
- * ⚠ BOTH LISTS EMPTY ⇒ NO LINK. A permanent entry opening onto nothing teaches people it is
+ * ⚠ NO RELEASES ⇒ NO LINK. A permanent entry opening onto nothing teaches people it is
  * decoration, and the next time it has content they will not look.
  *
- * ⚠ KEEP BOTH CURRENT. A stale known-issue sends someone hunting for a bug that is fixed and makes
- * the rest look untrustworthy; a stale what's-new claims credit for something that is not there. When
- * a release fixes one of these, delete the key in the SAME commit that fixes it.
+ * ⚠ KNOWN ISSUES ARE NOT LISTED HERE ANY MORE (Seth, 2026-10-04: "The release notes show fixed
+ * issues, but ongoing known issues are on the GitHub issues page only"). A hand-kept list went stale
+ * within weeks and sent people hunting for bugs already fixed; the open issues on GitHub are the one
+ * current list, so the modal links there instead. KEEP THE RELEASES CURRENT: a stale what's-new
+ * claims credit for something that is not there.
  *
  * ⚠ PER-RELEASE SECTIONS, GitHub-style (Seth, 2026-08-31: "specific to each release, and a new
  * section with each new release"). Each production release is one entry, newest first — a version
@@ -1860,11 +1862,6 @@ const RELEASES = [
     { k: 'panel.rel.new.oneVersion' },
   ] },
 ];
-const KNOWN_ISSUES = [
-  'panel.known.addColleague',
-  'panel.known.crowdMembers',
-  'panel.known.inviteOnce',
-];
 
 /* The same rule the staging ribbon uses, deliberately duplicated rather than imported: the ribbon
  * lives inline in five shells precisely so it does not depend on the engine, so there is nothing to
@@ -1999,7 +1996,7 @@ function feedbackLink() {
  * in the help menu", and the Feedback window "can include its own link to the Release Notes". So it is
  * an entry inside those two windows (data-notes, wired by each of them), no longer a header link. */
 function releaseNotesLink() {
-  if (!RELEASES.length && !KNOWN_ISSUES.length) return '';
+  if (!RELEASES.length) return '';
   return `<button type="button" class="link-btn" data-notes>${esc(t('panel.rel.btn'))}</button>`;
 }
 /* "Report a problem" and "Suggest a feature" (#69) — copied from PAT's issueUrl rather than invented
@@ -2097,9 +2094,9 @@ function releaseNotesModal() {
     <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
     <p class="note rp-report-links"><button type="button" class="link-btn" data-report="bug">${esc(t('panel.reportBug'))}</button> · <button type="button" class="link-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button></p>
-    ${KNOWN_ISSUES.length ? `<h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
-      <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
-      <p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}
+    <h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
+    <p class="note rp-known-github">${esc(t('panel.rel.knownOnGitHub'))}
+      <a href="${ISSUES_URL}" target="_blank" rel="noopener">${esc(t('panel.rel.knownLink'))}</a></p>
     ${RELEASES.map(rel).join('')}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
   /* The report modal REPLACES the notes rather than stacking on them: each modal listens for Escape on

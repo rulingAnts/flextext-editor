@@ -105,10 +105,10 @@ console.log('\nRelease notes: available everywhere, gone when there is nothing t
    * service-worker activation. Recorded because the old rule reads perfectly sensibly and someone will
    * otherwise "restore" it.
    *
-   * ⚠ WHAT SURVIVED THE INVERSION: both lists empty ⇒ NO link. A permanent entry opening onto nothing
+   * ⚠ WHAT SURVIVED THE INVERSION: no releases ⇒ NO link. A permanent entry opening onto nothing
    * teaches people it is decoration. */
   const panel = read('../docs/js/researcher-panel.js');
-  ok(/if \(!RELEASES\.length && !KNOWN_ISSUES\.length\) return '';/.test(panel),
+  ok(/if \(!RELEASES\.length\) return '';/.test(panel),
      '⚠ nothing to say ⇒ no link at all');
   const link = (panel.match(/function releaseNotesLink\(\) \{[\s\S]*?\n\}/) || [''])[0];
   ok(!/onStagingEstate\(\)/.test(link),
@@ -121,12 +121,16 @@ console.log('\nRelease notes: available everywhere, gone when there is nothing t
     return m ? [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [];
   };
   const i18n = read('../docs/js/i18n.js');
+  /* Known issues are NOT a list in the app any more (Seth, 2026-10-04): the open issues on GitHub are
+   * the one current list, and the modal links there. A hand-kept list went stale within weeks. */
   {
-    const keys = grabList('KNOWN_ISSUES');
-    ok(keys.length > 0, `KNOWN_ISSUES has entries (${keys.length})`);
-    for (const k of keys) {
-      ok(i18n.split(`'${k}':`).length - 1 >= 2,
-         `${k} is a real string in BOTH languages — a missing one renders a raw key to a user`);
+    ok(!/const KNOWN_ISSUES = \[/.test(panel), 'no hand-kept KNOWN_ISSUES list in the panel');
+    ok(!/'panel\.known\./.test(i18n), '...and no orphaned panel.known.* strings');
+    const notes = (panel.match(/function releaseNotesModal\(\) \{[\s\S]*?\n\}/) || [''])[0];
+    ok(/rp-known-github[\s\S]*href="\$\{ISSUES_URL\}" target="_blank" rel="noopener"/.test(notes),
+       'the About-this-version modal links known issues to the GitHub issues page, in a new tab');
+    for (const k of ['panel.rel.knownTitle', 'panel.rel.knownOnGitHub', 'panel.rel.knownLink']) {
+      ok(i18n.split(`'${k}':`).length - 1 >= 2, `${k} exists in BOTH languages`);
     }
   }
   /* RELEASES replaced the flat WHATS_NEW (2026-08-31): one entry per production release, newest

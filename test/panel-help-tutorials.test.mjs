@@ -24,7 +24,8 @@ test('three videos on Cloudflare Stream, played in Help, subtitles following the
 });
 
 test('every tutorial string exists in both languages, and the credit names the author', () => {
-  for (const k of ['panel.help.more', 'panel.tut.title', 'panel.tut.n', 'panel.tut.1.name', 'panel.tut.2.name', 'panel.tut.3.name', 'panel.tut.credit']) {
+  for (const k of ['panel.help.more', 'panel.tut.title', 'panel.tut.n', 'panel.tut.1.name', 'panel.tut.2.name', 'panel.tut.3.name',
+                   'panel.tut.1.desc', 'panel.tut.2.desc', 'panel.tut.3.desc', 'panel.tut.credit']) {
     assert.equal(i18n.split(`'${k}':`).length - 1, 2, `${k} in EN and ID`);
   }
   assert.equal((i18n.match(/Brian Plimley\. (Used by permission|Digunakan dengan izin)\./g) || []).length, 2);
@@ -36,4 +37,15 @@ test('the Editor and the coworker apps carry none of it — no off-site video, n
   assert.doesNotMatch(rd('../docs/index.html'), /cloudflarestream\.com|#tutorial/);
   const helpHtml = (i18n.match(/'help\.html': `([\s\S]*?)`,/g) || []).join('');
   assert.doesNotMatch(helpHtml, /tutorial|cloudflarestream|flextext\.app\//i, 'the Editor help text names no video and no site');
+});
+
+test('it looks like flextext.app\'s: thumbnails with the length, title and blurb, a frame that cannot be squeezed', () => {
+  const help = fn('function showPanelHelp() {');
+  assert.match(help, /class="rp-tut-thumb"><img src="\$\{esc\(tutorialThumb\(v, 144\)\)\}"/, 'a Stream thumbnail on every tile');
+  assert.match(help, /class="rp-tut-dur">\$\{tutorialClock\(v\.seconds\)\}/, 'the length sits on the thumbnail');
+  assert.match(help, /rp-tut-blurb">\$\{esc\(tutorialBlurb\(v\)\)\}/, 'the first sentence of the description on the tile');
+  assert.match(help, /#rp-tut-desc'\)\.textContent = tutorialDesc\(v\)/, 'the whole description under the player');
+  const css = rd('../docs/css/app.css');
+  assert.match(css, /\.rp-tut-frame \{ position: relative; flex: none; padding-top: 56\.25%;/, 'the 16:9 frame is a flex item that cannot shrink (it once collapsed to a band)');
+  assert.match(css, /\.modal-card\.rp-tutorials \{ width: min\(94vw, 960px/, 'a wider card for the player');
 });

@@ -34,7 +34,7 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v697 — assembled 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v696 (9d645f80)
+## ▶ v698 — assembled 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v696 (9d645f80)
 
 All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
 shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
@@ -42,11 +42,11 @@ the settings-dialog room fix, and "a new device cannot be left without settings"
 users is open. Production carries v690–v696, so the lameta-device milestones M1–M4 are in production
 too, still behind `?lameta=1`.
 
-**Open next (v697):** the reviewers' remaining notes on #85–#91 (listed below; branch
-`fix/v697-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
+**Open next (v698):** the reviewers' remaining notes on #85–#91 (listed below; branch
+`fix/v698-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
 2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
 
-**Already on this branch for v697 (2026-10-04, after the v696 release):**
+**Already on this branch for v698 (2026-10-04, after the v696 release):**
 - The researcher app's boot screen: inline in `satellites/flextext-researcher/index.html`, paints
   from the parse, replaced by the panel's first render; "still loading" / "you appear to be
   offline" at 20 s. The worker's inline offline page is untouched (pinned by

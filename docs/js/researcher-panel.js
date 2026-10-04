@@ -1448,7 +1448,7 @@ const RELEASES = [
    * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
    * Left as a comment rather than deleted: the rule it records (a note describing something the
    * shipped code does not do is worse than silence) is the one this file exists to enforce. */
-  { v: 'v697', date: '2026-10-04', items: [
+  { v: 'v698', date: '2026-10-04', items: [
     { k: 'panel.rel.new.bootScreen' },
     { k: 'panel.rel.new.helpTutorials' },
     { k: 'panel.rel.new.modalClose' },
@@ -2223,10 +2223,13 @@ const TUTORIALS = [
   { n: 3, uid: 'cdaae47f731c68ecaaea71d60e5614b6', seconds: 858, thumb: 600 },
 ];
 const tutorialName = (v) => t(`panel.tut.${v.n}.name`);
+const tutorialDesc = (v) => t(`panel.tut.${v.n}.desc`);
+const tutorialBlurb = (v) => { const m = /^.*?\.(?=\s|$)/.exec(tutorialDesc(v)); return m ? m[0] : tutorialDesc(v); };
 const tutorialClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const tutorialThumb = (v, height) => `${TUTORIAL_STREAM}/${v.uid}/thumbnails/thumbnail.jpg?time=${v.thumb}s&height=${height}`;
 function tutorialIframeSrc(v, lang) {
   const q = new URLSearchParams();
-  q.set('poster', `${TUTORIAL_STREAM}/${v.uid}/thumbnails/thumbnail.jpg?time=${v.thumb}s&height=720`);
+  q.set('poster', tutorialThumb(v, 720));
   if (lang === 'id') q.set('defaultTextTrack', 'id');
   return `${TUTORIAL_STREAM}/${v.uid}/iframe?${q}`;
 }
@@ -2236,18 +2239,26 @@ function showPanelHelp() {
   // "More help…" for the written guide (showPanelGuide), which replaces this modal rather than
   // stacking on it — the Escape reason given at feedbackModal.
   const notes = releaseNotesLink();
+  // The same tile as flextext.app's tutorials menu: thumbnail with the length on it, the label,
+  // the title, the first sentence of the author's description.
   const tiles = TUTORIALS.map((v, i) => `<button type="button" class="rp-tut-tile" data-tut="${i}" aria-pressed="${i === 0}">
-      <span class="rp-tut-n">${esc(t('panel.tut.n', { n: v.n }))}</span> ${esc(tutorialName(v))}
-      <span class="note rp-tut-len">${tutorialClock(v.seconds)}</span></button>`).join('');
+      <span class="rp-tut-thumb"><img src="${esc(tutorialThumb(v, 144))}" alt="" width="128" height="72" loading="lazy"><span class="rp-tut-dur">${tutorialClock(v.seconds)}</span></span>
+      <span class="rp-tut-text"><span class="rp-tut-n">${esc(t('panel.tut.n', { n: v.n }))}</span>
+        <span class="rp-tut-name">${esc(tutorialName(v))}</span>
+        <span class="rp-tut-blurb">${esc(tutorialBlurb(v))}</span></span></button>`).join('');
   const m = modal(`${modalHead(t('panel.help.title'))}
     <h4 class="rp-rel-h">${esc(t('panel.tut.title'))}</h4>
     <div class="rp-tut-frame" id="rp-tut-frame"></div>
+    <p class="note rp-tut-desc" id="rp-tut-desc"></p>
     <div class="rp-tut-tiles">${tiles}</div>
     <p class="note rp-tut-credit">${esc(t('panel.tut.credit'))}</p>
     ${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}
     <button type="button" class="secondary-btn" data-more>${esc(t('panel.help.more'))}</button>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+  // Sized for a video, not a message (see .rp-tutorials in app.css).
+  const card = m.el.querySelector('.modal-card');
+  if (card) card.classList.add('rp-tutorials');
   const frame = m.el.querySelector('#rp-tut-frame');
   const mount = (i) => {
     const v = TUTORIALS[i];
@@ -2258,6 +2269,7 @@ function showPanelHelp() {
     f.allow = 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen';
     f.setAttribute('allowfullscreen', '');
     frame.appendChild(f);
+    m.el.querySelector('#rp-tut-desc').textContent = tutorialDesc(v);
     m.el.querySelectorAll('.rp-tut-tile').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tut) === i)));
   };
   mount(0);

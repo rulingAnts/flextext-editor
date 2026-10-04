@@ -1162,6 +1162,8 @@ function joinSplitAllowed(tab) {
  * separate setting … independently of whether joining/splitting lines that already have text on the
  * cut tab is enabled"). Default on, like its four siblings above; nothing in classic mode. */
 function adjustBoundariesAllowed() { return segmentationEnabled() && settings.adjustBoundaries !== false; }
+// 🔁 What Repeat STARTS as when a text opens (Seth, 2026-10-04); the dock's button flips it after that.
+function loopPlayDefault() { return settings.loopPlay === true; }
 /* May the CUT tab join two spans that already carry baseline text?
  *
  * ⚠ DEFAULT OFF — `=== true`, unlike its four siblings. Seth, 2026-08-13: "I would like to be able
@@ -2386,6 +2388,7 @@ async function refreshPlayer() {
        * empty player until a refresh cleared the module state. */
       p.loadedFor = null;
       playerReadyFor = null;
+      p.setLoop?.(loopPlayDefault());   // 🔁 a text opens with the device's starting state
       try { await p.load(media); }
       catch (err) { p.showPending(t('player.error')); return; }
       if (current && current.id === loadId && playerDocId === loadId) { p.loadedFor = loadId; playerReadyFor = loadId; }
@@ -5279,7 +5282,7 @@ async function syncGatherInventory() {
                     * its form fell through to defaults and showed the researcher a value the device
                     * might not hold. That is the same class of lie as the v663 bug where the form
                     * read "Automatic" while the engine treated unset as off. */
-                   'analSpellcheck', 'analAutocomplete', 'analAutocorrect', 'singleSpace', 'glossBreak']) {
+                   'analSpellcheck', 'analAutocomplete', 'analAutocorrect', 'singleSpace', 'glossBreak', 'loopPlay']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -6893,6 +6896,8 @@ const SETUP_GROUPS = [
     { k: 'freeEnterNext', type: 'select', opts: ['gloss', 'free'], optPrefix: 'panel.opt.freeEnterNext.', note: 'panel.f.freeEnterNextNote' },
     // Whether the plain Space bar plays (automatic = off on a touch screen, where Space is typing).
     { k: 'spacePlays', type: 'select', opts: ['auto', 'on', 'off'], optPrefix: 'panel.opt.space.', note: 'panel.f.spacePlaysNote' },
+    // 🔁 Repeat's starting state (Seth, 2026-10-04). Default off; the generic checkbox rule reads it.
+    { k: 'loopPlay', type: 'checkbox', note: 'panel.f.loopPlayNote' },
     { k: 'glossLanding', type: 'select', opts: ['free', 'gloss'], optPrefix: 'panel.opt.glossLanding.', note: 'panel.f.glossLandingNote' },
     { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
   ] },

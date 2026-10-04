@@ -22,7 +22,7 @@
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
-         guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
+         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 import { tidyField } from './typing.js';
 
@@ -2129,15 +2129,23 @@ export function renderCut(anchorIdx) {
   const guess = document.getElementById('btn-guess-splits');
   const guessLabel = document.getElementById('cut-tools-label');
   if (guess) {
-    // GONE, not greyed, over manual work — see guessAllowedHere for the whole rule.
-    const allowed = guessAllowedHere(segs, paras, doc);
-    guess.hidden = !allowed;
-    if (guessLabel) guessLabel.hidden = !allowed;
-    if (allowed) {
+    /* TWO MODES, ONE BUTTON (v699). While nothing has been cut by hand — the seed, or a guess nobody
+     * has touched (guessAllowedHere) — ✨ is the whole-file guess with every rule it had. Over manual
+     * work it used to be GONE; now it stays, as the guess for the piece under the playhead, which
+     * touches that one empty piece and nothing anyone made. See guessMode. */
+    const mode = guessMode(segs, paras, doc);
+    guess.hidden = false;
+    if (guessLabel) guessLabel.hidden = false;
+    guess.dataset.mode = mode;
+    if (mode === 'all') {
       const why = guessBlockedBecause(paras, doc);
       guess.disabled = !!why;
       if (guessLabel) guessLabel.classList.toggle('is-off', guess.disabled);
       guess.title = why || cutDeps.t('cut.guessTip');
+      guess.setAttribute('aria-label', cutDeps.t('cut.guess'));
+      guessPieceIdx = -2;
+    } else {
+      syncGuessPiece(true);
     }
   }
 
@@ -2176,6 +2184,8 @@ function startCutTicker() {
         const want = cutBoundaryTimes();
         if (p.boundaryCount() !== want.filter(Number.isFinite).length) p.setBoundaries(want);
       }
+
+      syncGuessPiece(false);   // ✨ is about the piece under the playhead; the playhead moves without a render
 
       host.querySelectorAll('.cut-row').forEach((row) => {
         const idx = +row.dataset.i;
@@ -2297,6 +2307,15 @@ function docHasWork(doc) {
   }
   return false;
 }
+// The same question for ONE line (segments[i] IS paragraph i) — the piece a scoped guess replaces.
+function paraHasWork(doc, i) {
+  const p = doc && doc.paragraphs && doc.paragraphs[i];
+  for (const s of (p && p.segments) || []) {
+    if (String(s.baseline || '').trim() || String(s.free || '').trim()) return true;
+    for (const w of s.words || []) if (String(w.txt || '').trim() || String(w.gls || '').trim()) return true;
+  }
+  return false;
+}
 
 /* ✨ IS VISIBLE ONLY WHILE THERE IS NOTHING TO LOSE (Seth, 2026-08-14: "having that button still
  * active after manual adjustments have been made is WAY too easy for a native speaker who isn't tech
@@ -2374,6 +2393,70 @@ function guessCuts(dur) {
                      { durationMs: dur });
 }
 
+/* ✨ ON ONE PIECE (Seth, 2026-10-04: "the ability to 'guess' split a single segment … one way to
+ * work around the ten-minute limit. So either the whole audio file if it hasn't been segmented, or
+ * a selected segment"). The whole-file guess keeps every rule it has. This is what the SAME button
+ * does once that is no longer on offer: as soon as anything has been cut by hand or has words, ✨
+ * acts on THE PIECE UNDER THE PLAYHEAD — the tab's selection ("the playhead IS the selection on this
+ * tab") — and on nothing else. The ten-minute cap is the same cap applied to the piece: detection is
+ * cheap at any length, the rows it produces are not, and a piece of at most ten minutes yields at
+ * most what one press already allows. So a 30-minute recording is cut by hand into three or four
+ * pieces (Enter), then guessed piece by piece.
+ *
+ * It never touches a line that has words — the piece itself must be empty — which is exactly why it
+ * is allowed while OTHER lines are transcribed: a coworker transcribes piece 1 and guesses piece 2.
+ * One undo step. No confirm: nothing anyone made is replaced. And the 2026-08-14 rule that hid ✨
+ * over manual work (a confirm is no protection for a non-tech-savvy speaker) is honoured by scope
+ * rather than by absence: the worst an accidental press can do is cut one empty piece into lines,
+ * which one Undo puts back. */
+function guessMode(segs, paras, doc) { return guessAllowedHere(segs, paras, doc) ? 'all' : 'piece'; }
+
+// The piece probe, cached per (document, peaks generation, piece) — the ticker asks on every
+// change of the piece under the playhead, and the detector over ten minutes of buckets is not free.
+let pieceProbe = { docId: null, gen: -1, i: -1, start: 0, end: 0, cuts: [] };
+function pieceCuts(seg, i) {
+  const dur = peaksDurationFor(cutDeps);
+  if (!peaksCache.peaks || !dur || !seg) return [];
+  if (pieceProbe.docId !== peaksCache.docId || pieceProbe.gen !== peaksGen || pieceProbe.i !== i
+      || pieceProbe.start !== seg.start || pieceProbe.end !== seg.end) {
+    const cuts = guessSplitsWithin(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length), seg.start, seg.end);
+    pieceProbe = { docId: peaksCache.docId, gen: peaksGen, i, start: seg.start, end: seg.end, cuts };
+  }
+  return pieceProbe.cuts;
+}
+/* Why is ✨ grey for THIS piece (the one under the playhead)? '' when it would work. */
+function pieceBlockedBecause(segs, paras, doc, i) {
+  const T = cutDeps.t;
+  const dur = peaksDurationFor(cutDeps);
+  if (!peaksCache.peaks || !dur) return T('cut.no.guessAudio');
+  const seg = segs[i];
+  if (!seg || !isAligned(seg)) return T('cut.no.guessPiecePick');
+  if (String(paras[i] || '').trim() || paraHasWork(doc, i)) return T('cut.no.guessPieceText');
+  if (seg.end - seg.start > GUESS_MAX_MS) {
+    return T('cut.no.guessPieceLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil((seg.end - seg.start) / 60000) });
+  }
+  return pieceCuts(seg, i).length ? '' : T('cut.no.guessPieceNone');
+}
+/* The button's state for the piece under the playhead. renderCut calls it (force) when the tab is
+ * in piece mode, and the ticker calls it every frame — the playhead moves without a render, and the
+ * piece under it is what the button is about — but it only does work when that piece changes. */
+let guessPieceIdx = -2;
+function syncGuessPiece(force) {
+  const guess = document.getElementById('btn-guess-splits');
+  if (!guess || !cutDeps || guess.dataset.mode !== 'piece') return;
+  const doc = cutDeps.getDoc();
+  if (!doc) return;
+  const i = cutCurrentIndex();
+  if (!force && i === guessPieceIdx) return;
+  guessPieceIdx = i;
+  const why = pieceBlockedBecause(cutSegs(), cutDeps.getParagraphs(doc), doc, i);
+  guess.disabled = !!why;
+  const label = document.getElementById('cut-tools-label');
+  if (label) label.classList.toggle('is-off', guess.disabled);
+  guess.title = why || cutDeps.t('cut.guessPieceTip');
+  guess.setAttribute('aria-label', cutDeps.t('cut.guessPiece'));
+}
+
 /* "GUESS THE LINES" — cut the whole recording at its pauses, in one step, for a text nobody has
  * started yet (Seth: "make default segment breaks for a new text … based on where the audio appears
  * to have pauses in speech").
@@ -2399,10 +2482,10 @@ export async function cutGuessSplits() {
   const doc = cutDeps && cutDeps.getDoc();
   if (!doc) return;
   const paras = cutDeps.getParagraphs(doc);
+  // Over manual work (or any words) the press IS the piece guess — never a whole-file replace. This
+  // routes on the model, not the button, so the keyboard, scripts and older docs get the same rule.
+  if (guessMode(cutSegs(), paras, doc) === 'piece') return cutGuessPiece();
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) { cutSay(cutDeps.t('cut.no.guessText')); return; }
-  // The backstop for the visibility rule above — the button is hidden over manual work, but this
-  // function must refuse on its own for the keyboard, for scripts, and for docs from older builds.
-  if (!guessAllowedHere(cutSegs(), paras, doc)) { cutSay(cutDeps.t('cut.no.guessManual')); return; }
   const dur = peaksDurationFor(cutDeps);   // 0 unless the peaks really are THIS recording's
   if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
   /* ⚠ LONG RECORDINGS ARE CUT BY HAND. The detection itself is cheap at any length; what is not is
@@ -2441,6 +2524,29 @@ export async function cutGuessSplits() {
   cutDeps.persist();
   cutSay(cutDeps.t('cut.guessDone', { n: r.segments.length }));
   renderCut();
+}
+
+/* ✨ FOR THE PIECE UNDER THE PLAYHEAD — see guessMode. Only segments[i] and paragraphs[i] change. */
+function cutGuessPiece(idx) {
+  const doc = cutDeps && cutDeps.getDoc();
+  if (!doc) return;
+  const segs = cutSegs(), paras = cutDeps.getParagraphs(doc);
+  const i = Number.isInteger(idx) ? idx : cutCurrentIndex();
+  const why = pieceBlockedBecause(segs, paras, doc, i);
+  if (why) { cutSay(why); return; }
+  const dur = peaksDurationFor(cutDeps);
+  const r = applyGuessedSplitsWithin(segs, paras, i, pieceCuts(segs[i], i), { duration: dur || null });
+  if (!r.ok) {
+    cutSay(cutDeps.t(r.reason === 'hasText' ? 'cut.no.guessPieceText' : r.reason === 'none' ? 'cut.no.guessPieceNone' : 'cut.no.guessAudio'));
+    return;
+  }
+  cutDeps.getPlayer()?.clearSpan?.();        // same reason as cutHere: the span it described is gone
+  if (cutDeps.capture) cutDeps.capture();    // ONE undo step for the whole piece
+  doc.segments = r.segments;                 // ⚠ BOTH, from the one result
+  cutDeps.setParagraphs(doc, r.paragraphs);
+  cutDeps.persist();
+  cutSay(cutDeps.t('cut.guessPieceDone', { n: r.added + 1 }));
+  renderCut(i);
 }
 
 /* BACKSPACE / ⤙⤚ — join segment i with the one before it, then put the playhead where they joined,

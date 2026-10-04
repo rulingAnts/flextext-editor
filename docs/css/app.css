@@ -527,6 +527,9 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 .icon-btn2:hover { background: #eef2f7; }
 
 .player-play { font-size: 17px; }
+/* 🔁 Repeat, on: the suite's "pressed" look (.seg-arm, .rp-tut-tile) — colour and a ring only, so the
+   compact rules keep finding the controls' sizes untouched (test/player-compact). */
+.player-loop[aria-pressed="true"] { background: #e8f0fb; border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
 
 .player-speed {
   border: 1px solid var(--border);

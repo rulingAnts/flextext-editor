@@ -140,6 +140,11 @@
       <button class="player-play icon-btn2" data-i18n-title="player.play">▶</button>
       <button class="player-home icon-btn2" data-i18n-title="player.home">⏮</button>
       <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
+      <!-- 🔁 REPEAT (Seth, 2026-10-04). One toggle for every ▶ on the page: on, a line's ▶ repeats that
+           line and this ▶ repeats the whole recording. The Player owns the state (audio.js setLoop);
+           its starting state is the device setting loopPlay. 🔁 is Emoji 0.6 (2010), safe everywhere. -->
+      <button class="player-loop icon-btn2" data-i18n-title="player.loop" data-i18n-aria="player.loop"
+              aria-label="Repeat" aria-pressed="false">🔁</button>
       <select id="player-speed" name="player-speed" class="player-speed" data-i18n-title="player.speed" aria-label="Playback speed">
         <!-- Word labels, not decimals (Seth, 2026-08-17): a transcriber without decimal
              notation should not need math to slow the audio down. Values stay numeric — they ARE

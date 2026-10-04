@@ -40,7 +40,8 @@ test('the Feedback window leads to all four, and never stacks a window on itself
 test('Help leads with About this version, and the notes are called that everywhere', () => {
   const help = fn('function showPanelHelp() {');
   assert.match(help, /const notes = releaseNotesLink\(\);/);
-  assert.ok(help.indexOf('rp-help-notes') < help.indexOf("t('panel.help.html')"), 'above the long guide, not after it');
+  assert.ok(help.indexOf('rp-help-notes') < help.indexOf('data-more'), 'above "More help…", which opens the long guide');
+  assert.match(fn('function showPanelGuide() {'), /t\('panel\.help\.html'\)/, 'the written guide lives in its own modal now');
   assert.match(help, /m\.close\(\);\s*\n\s*releaseNotesModal\(\);/, 'hands over rather than stacking');
   const link = fn('function releaseNotesLink() {');
   assert.match(link, /if \(!RELEASES\.length\) return '';/, 'nothing to say, no entry');

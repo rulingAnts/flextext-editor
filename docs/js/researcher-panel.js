@@ -2079,6 +2079,14 @@ function reportModal(kind) {
   });
 }
 
+/* The written guide — what Help was before the videos (Seth, 2026-10-04). Reached from Help's
+ * "More help…". */
+function showPanelGuide() {
+  const m = modal(`${modalHead(t('panel.help.title'))}<div class="rp-help">${t('panel.help.html')}</div>
+    <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+}
+
 function releaseNotesModal() {
   // One section per release, newest first — a version heading with its date, then its changes.
   // An item resolving a submitted GitHub issue links to it (repo is public); target=_blank so the
@@ -2190,13 +2198,64 @@ function modalHead(title) {
     <button type="button" class="rp-modal-x" data-m="close" aria-label="${esc(t('panel.help.close'))}" title="${esc(t('panel.help.close'))}">✕</button></div>`;
 }
 
+/* THE TUTORIAL VIDEOS, IN THE RESEARCHER'S HELP (Seth, 2026-10-04): "the help menu shows the video
+ * overlay plus a 'more help...' below that loads the modal with the text-based help/documentation."
+ * They are Brian Plimley's three videos on Cloudflare Stream — the same ones flextext.app plays —
+ * shown here because the panel is the researcher's online console. ⚠ NOT in the Editor or any
+ * coworker app (Seth, same day): "it's a loophole for managed devices", and the videos are in
+ * English, "really more for the researcher to learn so they can train the editor users."
+ *
+ * Nothing is fetched until Help opens; the player loads only for the video chosen. Subtitles
+ * follow the panel's language (Indonesian on when the panel is Indonesian). The credit line is
+ * part of the agreement under which the videos are shown. Another video is one more entry here
+ * and its two name strings. */
+const TUTORIAL_STREAM = 'https://customer-rp8etyzqpwxmeib1.cloudflarestream.com';
+const TUTORIALS = [
+  { n: 1, uid: '4bf225e2fb29794632e14568a550624f', seconds: 207, thumb: 70 },
+  { n: 2, uid: 'a1a096a41efe4386dd60a9581395de86', seconds: 658, thumb: 540 },
+  { n: 3, uid: 'cdaae47f731c68ecaaea71d60e5614b6', seconds: 858, thumb: 600 },
+];
+const tutorialName = (v) => t(`panel.tut.${v.n}.name`);
+const tutorialClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function tutorialIframeSrc(v, lang) {
+  const q = new URLSearchParams();
+  q.set('poster', `${TUTORIAL_STREAM}/${v.uid}/thumbnails/thumbnail.jpg?time=${v.thumb}s&height=720`);
+  if (lang === 'id') q.set('defaultTextTrack', 'id');
+  return `${TUTORIAL_STREAM}/${v.uid}/iframe?${q}`;
+}
+
 function showPanelHelp() {
-  // "About this version…" leads the help (Seth: it "can go in the help menu"), above the long guide.
+  // The videos first, then "About this version…" (Seth: it "can go in the help menu"), then
+  // "More help…" for the written guide (showPanelGuide), which replaces this modal rather than
+  // stacking on it — the Escape reason given at feedbackModal.
   const notes = releaseNotesLink();
-  const m = modal(`${modalHead(t('panel.help.title'))}${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}<div class="rp-help">${t('panel.help.html')}</div>
+  const tiles = TUTORIALS.map((v, i) => `<button type="button" class="rp-tut-tile" data-tut="${i}" aria-pressed="${i === 0}">
+      <span class="rp-tut-n">${esc(t('panel.tut.n', { n: v.n }))}</span> ${esc(tutorialName(v))}
+      <span class="note rp-tut-len">${tutorialClock(v.seconds)}</span></button>`).join('');
+  const m = modal(`${modalHead(t('panel.help.title'))}
+    <h4 class="rp-rel-h">${esc(t('panel.tut.title'))}</h4>
+    <div class="rp-tut-frame" id="rp-tut-frame"></div>
+    <div class="rp-tut-tiles">${tiles}</div>
+    <p class="note rp-tut-credit">${esc(t('panel.tut.credit'))}</p>
+    ${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}
+    <button type="button" class="secondary-btn" data-more>${esc(t('panel.help.more'))}</button>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
-  // Hands over rather than stacking, for the Escape reason given at feedbackModal.
+  const frame = m.el.querySelector('#rp-tut-frame');
+  const mount = (i) => {
+    const v = TUTORIALS[i];
+    frame.textContent = '';
+    const f = document.createElement('iframe');
+    f.src = tutorialIframeSrc(v, getLang());
+    f.title = `${t('panel.tut.n', { n: v.n })}: ${tutorialName(v)}`;
+    f.allow = 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen';
+    f.setAttribute('allowfullscreen', '');
+    frame.appendChild(f);
+    m.el.querySelectorAll('.rp-tut-tile').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tut) === i)));
+  };
+  mount(0);
+  m.el.querySelectorAll('.rp-tut-tile').forEach((b) => b.addEventListener('click', () => mount(Number(b.dataset.tut))));
+  m.el.querySelector('[data-more]').addEventListener('click', () => { m.close(); showPanelGuide(); });
   m.el.querySelectorAll('[data-notes]').forEach((b) => b.addEventListener('click', () => {
     m.close();
     releaseNotesModal();

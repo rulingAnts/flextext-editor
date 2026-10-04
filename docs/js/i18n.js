@@ -1037,6 +1037,7 @@ internet after the first time.</p>
   'panel.who.title': 'Signed in as {who}',
   'panel.help.btn': 'Help',
   'panel.help.close': 'Close',
+  'panel.help.title': 'Help',
   'panel.err': 'Something went wrong: {msg}',
   'panel.help.html': `
 <h3>The Researcher panel</h3>
@@ -3723,6 +3724,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.who.title': 'Masuk sebagai {who}',
   'panel.help.btn': 'Bantuan',
   'panel.help.close': 'Tutup',
+  'panel.help.title': 'Bantuan',
   'panel.err': 'Terjadi kesalahan: {msg}',
   'panel.help.html': `
 <h3>Panel peneliti</h3>

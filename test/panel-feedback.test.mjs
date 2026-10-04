@@ -51,3 +51,13 @@ test('Help leads with About this version, and the notes are called that everywhe
     assert.equal((I18N.match(new RegExp(`\\n {2}'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
   }
 });
+
+test('the long modals have a ✕ at the top, not only a Close at the bottom (Seth, 2026-10-04)', () => {
+  const head = fn('function modalHead(title) {');
+  assert.match(head, /class="rp-modal-x" data-m="close" aria-label="\$\{esc\(t\('panel\.help\.close'\)\)\}"/, 'the ✕ closes through modal()\'s own data-m="close" wiring, with a spoken name');
+  assert.match(fn('function releaseNotesModal() {'), /modal\(`\$\{modalHead\(t\('panel\.rel\.title'\)\)\}/, 'About this version starts with it');
+  assert.match(fn('function showPanelHelp() {'), /modal\(`\$\{modalHead\(t\('panel\.help\.title'\)\)\}/, 'so does Help');
+  for (const k of ['panel.help.title']) assert.equal(I18N.split(`'${k}':`).length - 1, 2, `${k} in both languages`);
+  const css = rd('../docs/css/app.css');
+  assert.match(css, /\.rp-modal-head \{ position: sticky; top: -20px;/, 'the row stays in view while the modal scrolls');
+});

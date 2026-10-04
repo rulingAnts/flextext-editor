@@ -2090,7 +2090,7 @@ function releaseNotesModal() {
       ? ` <span class="rp-badge rp-badge-ok">${esc(t('panel.rel.latest'))}</span>` : ''}
       <span class="note rp-rel-date">${esc(relDate(r.date))}</span></h4>
     <ul class="rp-known-list">${r.items.map(item).join('')}</ul>`;
-  const m = modal(`<h3>${esc(t('panel.rel.title'))}</h3>
+  const m = modal(`${modalHead(t('panel.rel.title'))}
     <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
     <p class="note rp-report-links"><button type="button" class="link-btn" data-report="bug">${esc(t('panel.reportBug'))}</button> · <button type="button" class="link-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button></p>
@@ -2178,10 +2178,19 @@ function wireActs(handlers) {
 
 // Researcher documentation (incl. the honest Security section) — lives HERE in the panel,
 // not in the field app's help. The help.html string is trusted static i18n markup.
+/* A modal's title row with a ✕ at the top right (Seth, 2026-10-04: the About-this-version modal
+ * "needs a close button (maybe an x) at the top, not only all the way down at the bottom after
+ * scrolling… not seeing an obvious close button may alarm some users"). Sticky, so it stays in view
+ * while the long modals scroll. data-m="close": modal() wires it, like the bottom button. */
+function modalHead(title) {
+  return `<div class="rp-modal-head"><h3>${esc(title)}</h3>
+    <button type="button" class="rp-modal-x" data-m="close" aria-label="${esc(t('panel.help.close'))}" title="${esc(t('panel.help.close'))}">✕</button></div>`;
+}
+
 function showPanelHelp() {
   // "About this version…" leads the help (Seth: it "can go in the help menu"), above the long guide.
   const notes = releaseNotesLink();
-  const m = modal(`${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}<div class="rp-help">${t('panel.help.html')}</div>
+  const m = modal(`${modalHead(t('panel.help.title'))}${notes ? `<p class="note rp-help-notes">${notes}</p>` : ''}<div class="rp-help">${t('panel.help.html')}</div>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   // Hands over rather than stacking, for the Escape reason given at feedbackModal.

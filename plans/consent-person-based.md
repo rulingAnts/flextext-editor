@@ -543,6 +543,15 @@ Seth's second proposal, and it changes what the Consent Collector *is*:
 
 **Two faces of one app, decided by who is signed in — the suite already works this way.**
 
+> ⚠ **Refined, 2026-09-28 (Seth): two APPS rather than two faces.** The researcher's side becomes
+> its own app — the Consent Collector rebranded **Consent Manager**, signed in with Google like the
+> Researcher Panel and linked from it — and the coworker's side is a paired **companion app** that
+> receives consent-collecting *requests* from the researcher. Per speaker, not per text; integrated
+> with lameta; and the manager keeps room for the researcher's notes and for links to the texts a
+> speaker did and did not permit, at different levels. Recorded in `plans/BACKLOG.md` ("Consent
+> Manager + a companion collector, per speaker"); **distant future**, not scheduled. The two faces
+> below are still the right description of what each app shows.
+
 **Face 1 — the researcher's manager.** Its main view is *an inbox of receipts with no person yet*,
 because that is the daily reality: consent arrives from devices attached to texts, and someone has to
 say who gave it. Association is one click, reversible, and logged. Beside it: a person's card showing

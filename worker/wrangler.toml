@@ -7,6 +7,19 @@ compatibility_date = "2026-06-01"
 # every client has cut over to connect.flextext.app.
 workers_dev = true
 
+# ⚠ KEEP THE VARIABLES SET IN THE DASHBOARD (Seth, 2026-10-02). ALLOWED_RESEARCHERS — the operator
+# allowlist, comma-separated e-mail addresses (isOperator, src/v1.js) — is now a plain-text
+# variable set in the Cloudflare dashboard, so the list can be read and edited there. It is
+# deliberately NOT in [vars] below: this repository is public, and that list is people's e-mail
+# addresses. Without this line, `wrangler deploy` (worker-deploy.yml) REPLACES the Worker's
+# variables with the [vars] in this file and deletes every dashboard-only one — the allowlist would
+# vanish on the next deploy, and with it every operator-only route (approving researchers, the
+# admin endpoints answer `not_owner`). Variables that ARE in [vars] still win on deploy, exactly as
+# before. Top-level only (it cannot be set per [env.*]). The dashboard's "update your Wrangler
+# configuration" banner suggests copying the list in here; with this line, ignore it. Secrets are
+# never touched by a deploy either way.
+keep_vars = true
+
 # --- Workers Logs (observability) -------------------------------------------------
 # WITHOUT THIS THE SECURITY LOG IS INVISIBLE. src/seclog.js writes structured events with
 # console.log; console output is only RETAINED and searchable in the dashboard when

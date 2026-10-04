@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v693';
+export const ENGINE_VERSION = 'v694';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -109,6 +109,7 @@ en: {
   'cc.savedOne': 'Permission saved for 1 text.',
   'cc.savedMany': 'Permission saved for {n} texts.',
   'cc.consentOff': 'No permission questions are set up yet, so there is nothing to record. Ask your researcher to turn them on.',
+  'cc.waitingLocation': 'Saving permission — waiting a few more seconds for the device location…',
   // Bringing texts in — shared by both satellites (see satImportFiles).
   'sat.open': 'Open .flextext file\u2026',
   'sat.openPair': 'Open text + recording together\u2026',
@@ -265,7 +266,7 @@ en: {
   'consent.signLabel': 'Type your name to give permission',
   'consent.signBtn': 'Sign & continue',
   'consent.needName': 'Please type your name first.',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked just once at first use) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked on the device the first time consent is collected there, and only while the consent dialog is open) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.give': 'Give permission',
@@ -309,6 +310,12 @@ en: {
     + 'To cut a line in two, first tap the <b>\u2702</b> at its left edge \u2014 the scissors then show you '
     + 'every place you can cut. Tap it again to put them away.',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
+  /* ⚠ THE GHOST IN EACH EMPTY SEGMENT BOX (#91, Brian Plimley, 2026-10-02: "the text box where an
+   * Editor user types the baseline is invisible until you click on it"). The classic box above has
+   * always had one; the per-line strips never did. KEEP IT SHORT: `field-sizing: content` sizes an
+   * empty box to its placeholder, and a phone strip column is ~260px — a ghost that wraps makes
+   * every empty line two lines tall. */
+  'baseline.linePh': 'Type what you hear…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
   'gloss.blankLine': '(blank line — nothing to gloss)',
@@ -1042,7 +1049,7 @@ internet after the first time.</p>
 <h3>Files &amp; FLEx</h3>
 <p>The editor reads and writes FLEx <code>.flextext</code> files; analyses it doesn't edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline you changed — same behaviour as FLEx. Files containing several texts import as separate texts. Back into FieldWorks: <i>Texts &amp; Words → Import → FLExText interlinear document</i>. A file shared through a messaging app arrives as <code>….flextext.txt</code> (messengers only accept certain types) — FLEx's import opens it as-is, or just drop the <code>.txt</code>; this app opens it directly too.</p>
 <h3>Speaker permission (consent)</h3>
-<p>Per device you can require a consent step before a coworker records: a written and/or spoken prompt, and they confirm by tapping <b>Yes/No</b>, by <b>recording the speaker saying yes</b>, or by <b>typing the speaker's name</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable <code>.txt</code>) into the upload — the exact prompt shown, date/time, the signature or recording, and best-effort device IP (when online) plus an approximate location if the speaker allows (asked once). When the prompt is audio, the exact clip the speaker heard is bundled too, so question and answer stay paired even if you refine the prompt later. A spoken prompt is cached on the device, so it plays offline.</p>
+<p>Per device you can require a consent step before a coworker records: a written and/or spoken prompt, and they confirm by tapping <b>Yes/No</b>, by <b>recording the speaker saying yes</b>, or by <b>typing the speaker's name</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable <code>.txt</code>) into the upload — the exact prompt shown, date/time, the signature or recording, and best-effort device IP (when online) plus an approximate location if the speaker allows (asked only when consent is collected). When the prompt is audio, the exact clip the speaker heard is bundled too, so question and answer stay paired even if you refine the prompt later. A spoken prompt is cached on the device, so it plays offline.</p>
 <h3>Other tools (the in-app Settings tab)</h3>
 <p>A few setup tools live in the editor's own <b>Settings</b> tab — reveal it with <b>7 taps on ?</b> or <b>Ctrl+Alt+R</b> — separate from this panel:</p>
 <ul>
@@ -1211,6 +1218,10 @@ internet after the first time.</p>
   'panel.move.slow': 'Still working — on a slow connection this step can take a minute.',
   'panel.move.tooOldAt': 'reported {ver} as of {when} — too old to receive a move',
   'panel.move.tooOldUnknown': 'has not reported its version yet — open the app on that device',
+  /* #89 (Brian Plimley, 2026-10-01): the label on a device tile disabled because the TEXT could not be
+   * sent — never the version, which said "too old" about a current device. Neutral on purpose: the
+   * refusal can also come from a folder listing that failed, so it points at the note, which names it. */
+  'panel.move.textBlocked': 'cannot receive this text — see the note above',
   'panel.move.allTooOld': 'No destination device has reported a new enough app yet. The panel shows the last version each device reported, so a device that has just updated will still look old until it next connects.',
   'panel.move.noOther': 'There is no other device to move to.',
   /* Unassigned as a MOVE TARGET (Seth, 2026-08-19). Not tidiness: §16.25 requires that a text enter
@@ -1236,7 +1247,9 @@ internet after the first time.</p>
    * guess is exactly what the manifest exists to replace. Both strings say the REMEDY, because
    * "can't" with no next step reads as a broken app. */
   'panel.move.noManifest': 'This text cannot be moved automatically: its Drive folder has no manifest, so there is no dependable record of which file is the current text and which is the original recording. Download the folder and re-upload it to the device you want it on.',
-  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest does not identify both a current .flextext and an original recording. Download the folder and re-upload it to the device you want it on.',
+  /* #89: fires only when the manifest NAMES a file that is not in the folder. A text that never had a
+   * recording (or a transcription) is not incomplete and now moves without it. */
+  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest names a file (the current .flextext or the original recording) that is not in its Drive folder yet. Download the folder and re-upload it to the device you want it on.',
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
   'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
   'panel.move.removingSrc': 'moving \u2014 removing from this device',
@@ -1593,6 +1606,13 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.moveTextNoAudio': 'A text that has no recording — a .flextext uploaded on its own — can now be moved to a device. Move used to insist on a recording for every text, and then labelled every device "too old to receive a move", which blamed the device for a refusal that was about the text. The Move dialog now says what is actually missing: no manifest, a declared file that has not arrived yet, or nothing to move. (Brian Plimley)'
+    ,'panel.rel.fix.deleteOpenText': 'When the panel removes a text that is open on a device, the device now closes it fully. Before, the Editor went back to its texts list but the audio player for the deleted text stayed on screen and kept playing; the Audio Segmenter did the same with an open matcher. (Brian Plimley)'
+    ,'panel.rel.fix.settingsScroll': 'The device-settings dialog now starts every tab at the top, and opening a section scrolls so that the section’s top is in view. Before, switching tabs kept the previous tab’s scroll position, and a section opened from the bottom of the list came up in the middle. (Brian Plimley)'
+    ,'panel.rel.new.baselineGhost': 'Every empty baseline line on the Editor’s Baseline tab now shows the ghost text "Type what you hear…", so the box to type in is visible before it is tapped. The same applies in the Audio Segmenter. (Brian Plimley)'
+    ,'panel.rel.fix.locationOnlyConsent': 'The app no longer asks for your location on the first tap. It asks only while the consent dialog is open, because the location is recorded on the consent receipt and nowhere else. A device whose settings ask for no consent is never asked. (Brian Plimley)'
+    ,'panel.rel.fix.projectCancelled': 'A new project no longer opens the default-settings dialog, so there is nothing to cancel after the project is made: cancelling that dialog used to look like cancelling the project, which still appeared in the list. Project defaults are optional; set them any time with "Default settings" on the Projects card. (Brian Plimley)'
+    ,'panel.rel.new.deviceSettingsAsDefaults': 'When you set up a device in a project that has no default settings yet, the settings form offers "Also use these settings as the defaults for new devices". The device itself still has to pass its own checks (writing-system codes and the rest) before it can be invited. (Brian Plimley)'
     ,'panel.rel.fix.stuckMoves': 'Texts that could not be moved can be moved again. When a text is moved between devices, the panel waits for the old device to confirm it let go of its copy — and a device that has since been erased, deleted or unlinked can never confirm anything, so that wait never ended and the Move button stayed hidden on every device, with nothing on screen to say why. Those moves now close themselves, and while a move is genuinely waiting, the text says which device has not released its copy and offers a Clear. Nothing is deleted either way: the text stays where it is.'
     ,'panel.rel.fix.glossBreakLabel': 'The setting that picks what a space becomes inside a gloss box is now called “Morpheme-break character in glosses”. It was called a word break, which is backwards: a gloss labels one word, and the character marks a break between the morphemes inside it.'
     ,'panel.rel.fix.moveProgress': 'Moving a text now shows what it is doing. On a slow connection the Move button used to sit grey and silent while three or four requests went back and forth, which looked exactly like a frozen app; it now spins, names the step it is on, and says so when a step is taking a while.'
@@ -1840,7 +1860,7 @@ internet after the first time.</p>
   'panel.proj.newIntro': 'A new project starts empty. Move a device or a crowd recorder into it, or create one while the project is open \u2014 anything created here is born inside it.',
   'panel.proj.newPlaceholder': 'e.g. Dani Dictionary',
   'panel.proj.newGo': 'Create project',
-  'panel.proj.created': '\u201c{name}\u201d created.',
+  'panel.proj.created': '\u201c{name}\u201d created. Default settings for its devices are optional \u2014 set them any time with \u201cDefault settings\u201d beside it on the Projects card.',
   'panel.proj.moveBtn': 'Move to project\u2026',
   'panel.proj.moveTitle': 'Move \u201c{name}\u201d to another project',
   'panel.proj.moveIntro': 'The device keeps its texts, its history and its pairing \u2014 only which project it sits in changes. Nothing on the device itself is affected.',
@@ -1896,10 +1916,16 @@ internet after the first time.</p>
   'panel.joined.keyPending': 'This device\u2019s key has not reached your account yet. Keys are delivered automatically \u2014 press Refresh in a moment; nothing is wrong with the device.',
   'panel.set.unconfigured': 'Nothing is set on this device yet \u2014 the blank fields mean nobody has configured it, not that anything failed. Fill them in and push to set it up.',
   'panel.set.fromTemplate': 'Prefilled from this project\u2019s default settings. Nothing is on the device yet \u2014 press \u201cPush to device\u201d to apply them.',
+  /* The device form's offer to start a project's defaults from a device's settings (#85/#86) —
+   * shown only while the project has none. Each toast names BOTH facts: the push and the template. */
+  'panel.set.asProjectDefault': 'Also use these settings as the defaults for new devices in \u201c{name}\u201d',
+  'panel.set.asProjectDefaultNote': 'Optional \u2014 this project has no default settings yet. Devices you create in it later will start from these; no other device is changed.',
+  'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in \u201c{name}\u201d.',
+  'panel.set.asDefaultFailed': 'Settings sent to the device \u2014 but saving them as the defaults for \u201c{name}\u201d failed. Open this device\u2019s Settings again to retry.',
+  'panel.set.asDefaultExists': 'Settings sent to the device. \u201c{name}\u201d was given default settings while this form was open, so those were kept \u2014 change them with \u201cDefault settings\u201d on the Projects card.',
   'panel.set.readFailed': 'This device\u2019s current settings could not be read just now \u2014 probably the connection. The fields are left blank rather than guessing: close this and reopen it when you are back online, so a push cannot overwrite settings you could not see.',
   'panel.set.promptProject': 'Saved for the whole project. New devices are created with it, and saving offers to send it to the devices already here. A device can still be given its own recording in its own settings, which is played instead of this one.',
   'panel.set.promptNeedsDevice': 'This project has no devices yet, and the recording is uploaded through one of them. Create a device in this project first, then add the recording here \u2014 it will belong to every device in the project, not just that one.',
-  'panel.proj.nowDefaults': 'Now set \u201c{name}\u201d\u2019s default settings \u2014 every new device in it will start from these.',
   'panel.joined.needsSetup': 'This device is not set up yet \u2014 open Settings and fill in the required fields first. Then invite links and text assignment will work.',
   'panel.joined.empty': 'No devices in this project yet.',
   'panel.share.awaitingKey': 'has not signed in yet — device keys will be delivered automatically once they do',
@@ -2865,6 +2891,7 @@ id: {
   'cc.savedOne': 'Izin tersimpan untuk 1 teks.',
   'cc.savedMany': 'Izin tersimpan untuk {n} teks.',
   'cc.consentOff': 'Belum ada pertanyaan izin yang disiapkan, jadi tidak ada yang bisa direkam. Minta peneliti Anda menyalakannya.',
+  'cc.waitingLocation': 'Menyimpan izin — menunggu lokasi perangkat beberapa detik lagi…',
   'sat.open': 'Buka berkas .flextext\u2026',
   'sat.openPair': 'Buka teks + rekaman sekaligus\u2026',
   'sat.openAny': 'Buka teks dan/atau rekaman\u2026',
@@ -3015,7 +3042,7 @@ id: {
   'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
   'consent.signBtn': 'Tanda tangan & lanjutkan',
   'consent.needName': 'Silakan ketik nama Anda dulu.',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan sekali saja saat pertama dipakai) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan di perangkat saat persetujuan pertama kali dikumpulkan di sana, dan hanya selama dialog persetujuan terbuka) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.give': 'Beri izin',
@@ -3054,6 +3081,7 @@ id: {
     + 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
     + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
+  'baseline.linePh': 'Ketik yang Anda dengar…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
   'gloss.blankLine': '(baris kosong — tidak ada yang digloss)',
@@ -3689,7 +3717,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <h3>File &amp; FLEx</h3>
 <p>Editor membaca dan menulis file FLEx <code>.flextext</code>; analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya Anda ubah — sama seperti FLEx. File berisi beberapa teks diimpor sebagai teks terpisah. Kembali ke FieldWorks: <i>Texts &amp; Words → Import → FLExText interlinear document</i>. File yang dibagikan lewat aplikasi pesan tiba sebagai <code>….flextext.txt</code> (aplikasi pesan hanya menerima jenis tertentu) — impor FLEx membukanya apa adanya, atau hapus saja <code>.txt</code>; aplikasi ini juga membukanya langsung.</p>
 <h3>Izin penutur (consent)</h3>
-<p>Per perangkat Anda bisa mewajibkan langkah izin sebelum rekan kerja merekam: pengingat tertulis dan/atau suara, lalu mereka mengonfirmasi dengan <b>Ya/Tidak</b>, dengan <b>merekam penutur mengatakan ya</b>, atau dengan <b>mengetik nama penutur</b>. Setiap persetujuan menulis <code>consent-receipt.json</code> (+ <code>.txt</code> yang mudah dibaca) ke dalam unggahan — pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, serta sebisanya IP perangkat (saat online) dan lokasi perkiraan bila penutur mengizinkan (ditanya sekali). Bila pengingatnya audio, salinan persis klip yang didengar penutur ikut dibungkus, sehingga pertanyaan dan jawaban tetap berpasangan walau pengingat diperbaiki nanti. Pengingat suara disimpan di perangkat sehingga bisa diputar tanpa internet.</p>
+<p>Per perangkat Anda bisa mewajibkan langkah izin sebelum rekan kerja merekam: pengingat tertulis dan/atau suara, lalu mereka mengonfirmasi dengan <b>Ya/Tidak</b>, dengan <b>merekam penutur mengatakan ya</b>, atau dengan <b>mengetik nama penutur</b>. Setiap persetujuan menulis <code>consent-receipt.json</code> (+ <code>.txt</code> yang mudah dibaca) ke dalam unggahan — pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, serta sebisanya IP perangkat (saat online) dan lokasi perkiraan bila penutur mengizinkan (ditanyakan hanya saat persetujuan dikumpulkan). Bila pengingatnya audio, salinan persis klip yang didengar penutur ikut dibungkus, sehingga pertanyaan dan jawaban tetap berpasangan walau pengingat diperbaiki nanti. Pengingat suara disimpan di perangkat sehingga bisa diputar tanpa internet.</p>
 <h3>Alat lain (tab Pengaturan di aplikasi)</h3>
 <p>Beberapa alat penyiapan ada di tab <b>Pengaturan</b> editor — tampilkan dengan <b>7 ketukan pada ?</b> atau <b>Ctrl+Alt+R</b> — terpisah dari panel ini:</p>
 <ul>
@@ -3846,6 +3874,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.slow': 'Masih berjalan — pada koneksi lambat, langkah ini bisa memakan waktu satu menit.',
   'panel.move.tooOldAt': 'melaporkan {ver} pada {when} — terlalu lama untuk menerima pemindahan',
   'panel.move.tooOldUnknown': 'belum melaporkan versinya — buka aplikasi di perangkat itu',
+  /* #89 — lihat catatan pada blok en. */
+  'panel.move.textBlocked': 'tidak dapat menerima teks ini — lihat catatan di atas',
   'panel.move.allTooOld': 'Belum ada perangkat tujuan yang melaporkan aplikasi yang cukup baru. Panel menampilkan versi terakhir yang dilaporkan setiap perangkat, jadi perangkat yang baru saja diperbarui akan tetap terlihat lama sampai ia terhubung lagi.',
   'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
   'panel.move.unassignedOpt': 'Google Drive (tidak tertugas)',
@@ -3862,7 +3892,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
   /* v347 \u2014 lihat catatan pada blok en. */
   'panel.move.noManifest': 'Teks ini tidak bisa dipindahkan secara otomatis: folder Drive-nya tidak punya manifes, jadi tidak ada catatan yang bisa diandalkan tentang berkas mana yang merupakan teks terkini dan mana rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
-  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya tidak menyebutkan sekaligus .flextext terkini dan rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
+  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya menyebutkan sebuah berkas (.flextext terkini atau rekaman aslinya) yang belum ada di folder Drive-nya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
   'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
   'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',
@@ -4153,6 +4183,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.moveTextNoAudio': 'Teks tanpa rekaman — file .flextext yang diunggah sendiri — kini bisa dipindahkan ke perangkat. Sebelumnya, Pindahkan selalu menuntut rekaman untuk setiap teks, lalu menandai setiap perangkat "terlalu lama untuk menerima pemindahan", seakan-akan perangkatnya yang salah padahal masalahnya ada pada teks. Dialog Pindahkan kini menyebutkan apa yang sebenarnya kurang: tidak ada manifes, ada file yang dinyatakan tetapi belum tiba, atau tidak ada yang bisa dipindahkan. (Brian Plimley)'
+    ,'panel.rel.fix.deleteOpenText': 'Saat panel menghapus teks yang sedang terbuka di perangkat, perangkat kini menutupnya sepenuhnya. Sebelumnya, Editor kembali ke daftar teks, tetapi pemutar audio untuk teks yang dihapus itu tetap tampil dan terus berbunyi; Pemotong Audio berbuat sama dengan pencocok yang sedang terbuka. (Brian Plimley)'
+    ,'panel.rel.fix.settingsScroll': 'Dialog pengaturan perangkat kini selalu memulai setiap tab dari atas, dan membuka sebuah bagian akan menggulir sampai bagian atasnya terlihat. Sebelumnya, berpindah tab mempertahankan posisi gulir tab sebelumnya, dan bagian yang dibuka dari bawah daftar muncul di tengah. (Brian Plimley)'
+    ,'panel.rel.new.baselineGhost': 'Setiap baris dasar yang masih kosong di tab Ketik pada Editor kini menampilkan teks bayangan "Ketik yang Anda dengar…", sehingga kotak untuk mengetik terlihat sebelum disentuh. Hal yang sama berlaku di Pemotong Audio. (Brian Plimley)'
+    ,'panel.rel.fix.locationOnlyConsent': 'Aplikasi tidak lagi meminta lokasi Anda pada sentuhan pertama. Lokasi hanya diminta selama dialog izin terbuka, karena lokasi dicatat pada bukti izin dan tidak di tempat lain. Perangkat yang pengaturannya tidak meminta izin tidak akan pernah ditanya. (Brian Plimley)'
+    ,'panel.rel.fix.projectCancelled': 'Proyek baru tidak lagi membuka dialog pengaturan baku, sehingga tidak ada yang perlu dibatalkan setelah proyek dibuat: membatalkan dialog itu dulu terlihat seperti membatalkan proyek, padahal proyeknya tetap muncul di daftar. Pengaturan baku proyek bersifat pilihan; atur kapan saja lewat "Pengaturan baku" di kartu Proyek. (Brian Plimley)'
+    ,'panel.rel.new.deviceSettingsAsDefaults': 'Saat Anda menyiapkan perangkat di proyek yang belum punya pengaturan baku, formulir pengaturan menawarkan "Pakai juga pengaturan ini sebagai pengaturan baku untuk perangkat baru". Perangkat itu sendiri tetap harus lolos pemeriksaannya (kode sistem penulisan dan lainnya) sebelum bisa diundang. (Brian Plimley)'
     ,'panel.rel.fix.stuckMoves': 'Teks yang tadinya tidak bisa dipindahkan kini dapat dipindahkan lagi. Saat teks dipindahkan antar perangkat, panel menunggu perangkat lama memastikan salinannya sudah dilepas — dan perangkat yang sudah dihapus, dihilangkan, atau diputus tidak akan pernah bisa memastikan apa pun, sehingga penantian itu tidak pernah berakhir dan tombol Pindahkan tetap tersembunyi di semua perangkat, tanpa penjelasan apa pun di layar. Pemindahan seperti itu kini menutup dirinya sendiri, dan selama pemindahan memang masih menunggu, teksnya menyebutkan perangkat mana yang belum melepas salinannya dan menyediakan tombol Bersihkan. Tidak ada yang dihapus: teksnya tetap di tempatnya.'
     ,'panel.rel.fix.glossBreakLabel': 'Setelan yang memilih karakter pengganti spasi di dalam kotak gloss kini bernama “Karakter pemisah morfem di gloss”. Sebelumnya disebut pemisah kata, dan itu terbalik: gloss memberi label untuk satu kata, dan karakter itu menandai batas antar morfem di dalamnya.'
     ,'panel.rel.fix.moveProgress': 'Memindahkan teks kini menunjukkan apa yang sedang dikerjakan. Pada koneksi lambat, tombol Pindahkan dulu hanya diam dan kelabu sementara tiga atau empat permintaan berjalan bolak-balik, persis seperti aplikasi yang membeku; kini tombol itu berputar, menyebutkan langkah yang sedang berjalan, dan memberi tahu bila sebuah langkah memakan waktu.'
@@ -4381,7 +4418,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.newIntro': 'Proyek baru dimulai kosong. Pindahkan perangkat atau perekam publik ke dalamnya, atau buat yang baru selagi proyek ini terbuka \u2014 apa pun yang dibuat di sini lahir di dalamnya.',
   'panel.proj.newPlaceholder': 'mis. Kamus Dani',
   'panel.proj.newGo': 'Buat proyek',
-  'panel.proj.created': '\u201c{name}\u201d dibuat.',
+  'panel.proj.created': '\u201c{name}\u201d dibuat. Pengaturan bawaan untuk perangkatnya bersifat opsional \u2014 atur kapan saja lewat \u201cPengaturan bawaan\u201d di sampingnya pada kartu Proyek.',
   'panel.proj.moveBtn': 'Pindahkan ke proyek\u2026',
   'panel.proj.moveTitle': 'Pindahkan \u201c{name}\u201d ke proyek lain',
   'panel.proj.moveIntro': 'Perangkat tetap membawa teks, riwayat, dan pemasangannya \u2014 hanya proyek tempatnya berada yang berubah. Tidak ada yang berubah pada perangkat itu sendiri.',
@@ -4430,10 +4467,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.keyPending': 'Kunci perangkat ini belum sampai ke akun Anda. Kunci dikirim otomatis — tekan Segarkan sebentar lagi; perangkat ini baik-baik saja.',
   'panel.set.unconfigured': 'Belum ada pengaturan pada perangkat ini — kolom kosong berarti belum dikonfigurasi siapa pun, bukan ada yang gagal. Isi lalu kirim untuk menyiapkannya.',
   'panel.set.fromTemplate': 'Terisi otomatis dari pengaturan bawaan proyek ini. Belum ada yang terpasang di perangkat — tekan “Kirim ke perangkat” untuk menerapkannya.',
+  'panel.set.asProjectDefault': 'Gunakan juga pengaturan ini sebagai bawaan untuk perangkat baru di “{name}”',
+  'panel.set.asProjectDefaultNote': 'Opsional — proyek ini belum memiliki pengaturan bawaan. Perangkat yang nanti Anda buat di dalamnya akan mulai dari pengaturan ini; tidak ada perangkat lain yang diubah.',
+  'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di “{name}”.',
+  'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk “{name}”. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
+  'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. “{name}” sudah diberi pengaturan bawaan selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
   'panel.set.readFailed': 'Pengaturan perangkat ini tidak dapat dibaca saat ini — kemungkinan koneksi. Kolom dibiarkan kosong daripada menebak: tutup dan buka lagi setelah Anda kembali daring, agar pengiriman tidak menimpa pengaturan yang tidak dapat Anda lihat.',
   'panel.set.promptProject': 'Disimpan untuk seluruh proyek. Perangkat baru dibuat dengan rekaman ini, dan saat menyimpan Anda akan ditawari untuk mengirimkannya ke perangkat yang sudah ada di sini. Sebuah perangkat tetap dapat diberi rekamannya sendiri di pengaturannya, dan rekaman itulah yang diputar.',
   'panel.set.promptNeedsDevice': 'Proyek ini belum punya perangkat, sedangkan rekaman diunggah melalui salah satunya. Buat dulu satu perangkat di proyek ini, lalu tambahkan rekamannya di sini \u2014 rekaman itu akan menjadi milik semua perangkat dalam proyek, bukan hanya perangkat tersebut.',
-  'panel.proj.nowDefaults': 'Sekarang atur pengaturan bawaan “{name}” — setiap perangkat baru di dalamnya akan mulai dari sini.',
   'panel.joined.needsSetup': 'Perangkat ini belum disiapkan — buka Pengaturan dan isi kolom wajib dulu. Setelah itu tautan undangan dan penugasan teks akan berfungsi.',
   'panel.joined.empty': 'Belum ada perangkat di proyek ini.',
   'panel.share.awaitingKey': 'belum pernah masuk — kunci perangkat akan terkirim otomatis setelah mereka masuk',

@@ -487,10 +487,13 @@ console.log('\nDone points `current` at the committed record — or the next upd
   /* persist() writes `current`; mgOpen set it to the PRE-session record and mgCommit wrote a fresh
    * copy. persist()'s "skip on the list" guard reads #view-texts, which this shell does not have,
    * so applyUpdateIfSafe() → persist() put the old record back over the commit — after the draft
-   * was already cleared — and stamped it modified, queueing the reverted text for upload. */
+   * was already cleared — and stamped it modified, queueing the reverted text for upload.
+   *
+   * The one thing allowed between the write and the assignment is the #90 review's still-open
+   * check: a matcher closed mid-write (a remote delete) must NOT get `current` pointed back at it. */
   const commit = asyncFn(app, 'mgCommit');
-  ok(/await db\.putDoc\(rec\);\s*(\/\*[\s\S]*?\*\/\s*)?current = rec;/.test(commit),
-     'mgCommit assigns current = rec right after the write');
+  ok(/await db\.putDoc\(rec\);\s*(if \(!MG \|\| MG\.docId !== id\) return;[^\n]*\n\s*)?(\/\*[\s\S]*?\*\/\s*)?current = rec;/.test(commit),
+     'mgCommit assigns current = rec right after the write (only a still-open check between)');
   ok(!/#view-texts|view-texts/.test(shell), '(the shell really has no #view-texts, so the guard cannot be relied on)');
 }
 

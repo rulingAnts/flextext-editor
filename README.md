@@ -440,7 +440,7 @@ migration — a fresh deployment should reduce `ESTATES` to a single estate and 
 |---|---|
 | `ALLOWED_ORIGINS` | **Exact-match**, comma-separated list of every origin allowed to call the Worker. No trailing slashes. Also gates the OAuth return origin |
 | `MAX_FILE_BYTES` / `MAX_TOTAL_BYTES` | Upload caps. The defaults stop below Cloudflare's free-tier limits |
-| `ALLOWED_RESEARCHERS` | Optional allowlist of researcher e-mails / domains |
+| `ALLOWED_RESEARCHERS` | Optional operator allowlist: comma-separated researcher e-mail addresses, auto-approved and able to approve others. **Set it in the Cloudflare dashboard (plain text or secret), not in this file** — a public repo should not carry e-mail addresses. `keep_vars = true` in `wrangler.toml` keeps a dashboard variable across deploys |
 | `ALERT_EMAIL`, `RESET_FROM` | Addresses for operational mail |
 
 Also yours to change: the Worker `name`, `[[routes]]`, the D1 `database_name` + `database_id`, the

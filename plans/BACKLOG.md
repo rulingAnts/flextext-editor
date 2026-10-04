@@ -725,6 +725,8 @@ symptom.
 
 ### Location: asked once, app-wide, at first tap — and that is DELIBERATE
 
+> **RESOLVED by #88 (Seth, 2026-10-02):** the prompt now fires only while the consent dialog is up — `requestConsentThen` calls `requestConsentGeo()` right after showing `#consent-modal`; the notes below are history. The microphone half stays open.
+
 `primeGeolocationOnce()` runs from app setup (`app.js`) and attaches a one-shot `pointerdown`
 listener, so the browser's location prompt fires on the **first tap anywhere in the app**, whether or
 not a consent recording will ever be taken. `readGeoIfGranted()` then reads silently during consent,
@@ -5282,3 +5284,117 @@ enrollment path, the same area as the invite-exfil work already recorded in memo
 
 ⚠ Do this deliberately, not at the end of a session. It touches enrollment, and the failure mode is
 one researcher's corpus appearing under another's account.
+
+## Consent Manager + a companion collector, per speaker (Seth, 2026-09-28) — DISTANT FUTURE
+
+> *"…set up Consent Collector as a researcher-facing app (with Google Drive/Oauth login and a link
+> from Researcher Panel, and rebranded as "Consent Manager") and build a coworker/native-speaker
+> facing companion app that the researcher can send consent collecting requests to. These should be
+> per-speaker, rather than per-text, and integrated with lameta but also have room in the consent
+> manager panel for the researcher to make notes or link with texts in the corpus that specifically
+> do and do not have permissions (or different levels of permissions) from the speaker. That's for
+> later though. Distant future feature."*
+
+**Recorded, not scheduled.** Nothing here is started. `plans/consent-person-based.md` (the
+person-based consent plan, itself not started) is the design this builds on, and its §3.6 already
+holds the core of the idea as "two faces of one app". What today's note changes, and what it settles:
+
+- **Two apps, not two faces.** The researcher's side becomes its own app, **Consent Manager** — the
+  Consent Collector rebranded, signed in with Google like the Researcher Panel (OAuth, Drive), reached
+  from a link in the panel's Utilities. The coworker's side is a separate **companion app** in the
+  family of the paired satellites (recorder, segmenter): it pairs to a device instance and receives
+  consent-collecting *requests* from the researcher — §3.6's "assigned worklist", now with a wire
+  shape: a request is a command to the device, like `assign` (these people, optionally these texts,
+  this script), done when the receipts are back in the report.
+- **Per speaker, not per text.** The unit of a request and of a record is the person (§3.1); a text
+  is what a permission is *about*, and one speaker's answer can cover many texts or none. The
+  corpus-keeper plan and §3.2 took the same decision; today's note confirms it for both apps.
+- **The manager's own room.** Beside the receipts and the four states (§3.2), the manager holds what
+  no device ever sees: the researcher's notes per person, and explicit links from a person to texts
+  in the corpus that *do* and that *do not* carry that person's permission — with a level, not a
+  boolean (the three shapes §2 found — open / registered / by-request — plus the researcher's hold,
+  which may only narrow). Those links are the researcher's classification: logged, reversible,
+  never a device's to make or to see.
+- **lameta.** Receipts and the recorded consent land in lameta's shape (`People/<Name>/<Name>_Consent.*`,
+  §3.7, §5) so lameta's "consented" boolean lights; the per-text permission links have no home in
+  lameta (its consent is a per-person filename convention with no scope, §5), so they stay in the
+  manager's own record. The lameta device agent (`plans/lameta-device.md`) is the natural writer of
+  the `People/` files once it exists.
+
+**What it reuses:** the panel's sign-in and the worker's researcher routes; the device lane
+(instance, invite, encrypted commands and report) for the companion; the manifest's consent block
+(schema 3) and the receipt JSON; the question bank (§4). **What it needs that does not exist:** a
+person record in D1 that never carries a name in clear (§3.4); a `consentRequest` command and the
+report that answers it; the manager's own storage for notes and text links (E2EE under the
+researcher's key, like the settings blobs); the Utilities link.
+
+**Open, for the day this is scheduled:** whether the companion is the existing Consent Collector
+code with the manager face removed, or a new shell; how a request names a text that is not yet in
+the suite (a lameta session id, a title?); what a "level" is called to a coworker who only ever sees
+the speaker's own answer (§3.6: the companion must not show other people's decisions).
+
+## Auto-segment ONE segment: cut a long recording into a few big pieces by hand, then Guess each piece (Seth, 2026-10-03)
+
+> *"add the ability to auto-segment a SEGMENT, so that the user can manually break an audio file that
+> is too large into a few big segments and then autosegment the pieces."*
+
+**Not scheduled.** It is the manual half of issue #93 ("Auto-segmenting not available for recordings
+longer than ten minutes", Seth, 2026-10-02), where Seth suggested the automatic half: the app finds
+convenient points to split a long recording into halves or quarters first, then guesses each piece.
+Build this one first. The automatic version is this same operation, run on pieces the app chose.
+
+Seth, the same day: *"auto is fine too, but for users who have already started manually segmenting,
+being able to auto-segment by segment is useful as well."* So both are wanted, and they serve
+different people:
+- **The automatic split (#93)** is for a fresh long recording.
+- **The per-segment Guess** is for someone who has already cut part of a recording by hand, or
+  transcribed some lines. Today they have no way to hand the untouched rest to the detector: the
+  whole-file Guess only offers to replace every cut (`confirmReplace`), and it refuses outright once
+  any line has text (`cut.no.guessText`).
+
+**Why the limit exists, and why this does not break it.** `GUESS_MAX_MS` (10 minutes,
+`docs/js/segments.js` ~449, Seth 2026-08-13) caps the INPUT. Detection is cheap at any length (40
+minutes of peaks is about 45 ms). What a phone cannot afford is the OUTPUT: one press on 40 minutes is
+~650 lines, each a live `<canvas>` in the Cut tab. A Guess scoped to one segment of at most 10 minutes
+yields at most ~160 lines per press, which is what the cap already allows. The cap applies to the span
+being guessed, not to the recording.
+
+**What exists today** (`docs/js/segment-strips.js`, shared by the Editor's Cut tab and the Audio Segmenter):
+- `guessSplits(peaks, msPerBucket, opts)` finds the boundaries.
+- `applyGuessedSplits(paragraphs, boundaries, opts)` replaces the whole segmentation.
+- `guessBlockedBecause()` (~2336) refuses when any line has text or the doc has work
+  (`cut.no.guessText`), when there is no audio, or when the recording is over the cap
+  (`cut.no.guessLong`).
+- The Guess handler (~2385) asks `confirmReplace` once anything has been cut by hand.
+
+**The shape:**
+- **A per-segment action**, "✨ Guess lines inside this segment", on a strip or for the segment under
+  the playhead. It is offered when that segment has NO text and is no longer than `GUESS_MAX_MS`.
+  The whole-file ✨ keeps today's rules.
+- **Only that segment changes.** Run `guessSplits` on the peaks sliced to the segment's
+  `[start, end)` and offset the results. Add boundaries only strictly inside it. Every other
+  boundary and every other line, including lines that already have text, stays exactly as it was.
+  Text is sacred, and this never splits a line that has words. So, unlike the whole-file Guess, it
+  is allowed when OTHER lines are transcribed: a coworker can transcribe piece 1, then guess piece 2.
+- **One undo step** for the whole set of new boundaries.
+- **The same detection settings.** Today's thresholds, plus the future "split silence out as blank
+  lines / absorb it / off" device setting (the auto-segmentation entry above, Seth's three choices),
+  apply unchanged inside the range.
+- **Gated like every audio-segmenting affordance:** researcher-toggleable per device, and off where
+  auto-segmentation is off.
+- **Long recordings still end up with hundreds of lines** once every piece is guessed. Building those
+  ~650 canvases is the Cut tab's own scaling problem: #31 (waveform previews stop drawing on 10–15
+  minute files), #46 (draw strips as SVG paths), and the "render only a window of lines" idea in
+  #93. This feature makes long recordings segmentable; it does not make them cheap to display.
+
+**Bigger question, deliberately left for later** (Seth, 2026-10-03): longer recordings may need
+higher-level macro-segmenting, something like chapters that load one at a time in the editor, or
+other options like that. Seth will hold a planning conversation (with Fable) before any of this
+is built. Treat everything in this entry as provisional until then.
+
+**Open, for the day it is scheduled:**
+- Can the action live on the strip itself on a phone without crowding it, or does it belong in the
+  existing ✨ menu as "this segment / whole recording"?
+- For a segment over 10 minutes, offer to split it at its longest pause first (the automatic #93
+  step), or just refuse?
+- Should the Audio Segmenter's matcher get it too?

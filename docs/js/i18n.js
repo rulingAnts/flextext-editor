@@ -1875,11 +1875,12 @@ internet after the first time.</p>
   'panel.set.fromTemplate': 'Prefilled from this project\u2019s default settings. Nothing is on the device yet \u2014 press \u201cPush to device\u201d to apply them.',
   /* The device form's offer to start a project's defaults from a device's settings (#85/#86) —
    * shown only while the project has none. Each toast names BOTH facts: the push and the template. */
-  'panel.set.asProjectDefault': 'Also use these settings as the defaults for new devices in \u201c{name}\u201d',
+  'panel.set.asProjectDefault': 'Also use these settings as the defaults for new devices in {name}',
   'panel.set.asProjectDefaultNote': 'Optional \u2014 this project has no default settings yet. Devices you create in it later will start from these; no other device is changed.',
-  'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in \u201c{name}\u201d.',
-  'panel.set.asDefaultFailed': 'Settings sent to the device \u2014 but saving them as the defaults for \u201c{name}\u201d failed. Open this device\u2019s Settings again to retry.',
-  'panel.set.asDefaultExists': 'Settings sent to the device. \u201c{name}\u201d was given default settings while this form was open, so those were kept \u2014 change them with \u201cDefault settings\u201d on the Projects card.',
+  'panel.set.pushedAsDefault': 'Settings sent to the device, and saved as the defaults for new devices in {name}.',
+  'panel.set.asDefaultFailed': 'Settings sent to the device — but saving them as the defaults for {name} failed. Open this device’s Settings again to retry.',
+  'panel.set.asDefaultExists': 'Settings sent to the device. Default settings for {name} appeared while this form was open, so those were kept — change them with “Default settings” on the Projects card.',
+  'panel.set.thisProject': 'this project',
   /* The first-time settings box of a just-created device (Seth, 2026-10-04): closing it without a push
    * either sends the project's defaults or removes the device again — never a device with no settings.
    * The two firstCancel sentences are appended to the intro note so Cancel's effect is said up front. */
@@ -4388,11 +4389,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.keyPending': 'Kunci perangkat ini belum sampai ke akun Anda. Kunci dikirim otomatis — tekan Segarkan sebentar lagi; perangkat ini baik-baik saja.',
   'panel.set.unconfigured': 'Belum ada pengaturan pada perangkat ini — kolom kosong berarti belum dikonfigurasi siapa pun, bukan ada yang gagal. Isi lalu kirim untuk menyiapkannya.',
   'panel.set.fromTemplate': 'Terisi otomatis dari pengaturan bawaan proyek ini. Belum ada yang terpasang di perangkat — tekan “Kirim ke perangkat” untuk menerapkannya.',
-  'panel.set.asProjectDefault': 'Gunakan juga pengaturan ini sebagai bawaan untuk perangkat baru di “{name}”',
+  'panel.set.asProjectDefault': 'Gunakan juga pengaturan ini sebagai bawaan untuk perangkat baru di {name}',
   'panel.set.asProjectDefaultNote': 'Opsional — proyek ini belum memiliki pengaturan bawaan. Perangkat yang nanti Anda buat di dalamnya akan mulai dari pengaturan ini; tidak ada perangkat lain yang diubah.',
-  'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di “{name}”.',
-  'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk “{name}”. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
-  'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. “{name}” sudah diberi pengaturan bawaan selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
+  'panel.set.pushedAsDefault': 'Pengaturan dikirim ke perangkat, dan disimpan sebagai bawaan untuk perangkat baru di {name}.',
+  'panel.set.asDefaultFailed': 'Pengaturan dikirim ke perangkat — tetapi gagal disimpan sebagai bawaan untuk {name}. Buka lagi Pengaturan perangkat ini untuk mencoba lagi.',
+  'panel.set.asDefaultExists': 'Pengaturan dikirim ke perangkat. Pengaturan bawaan untuk {name} sudah dibuat selagi formulir ini terbuka, jadi pengaturan itu dipertahankan — ubah lewat “Pengaturan bawaan” pada kartu Proyek.',
+  'panel.set.thisProject': 'proyek ini',
   'panel.set.firstCancelDefaults': 'Jika Anda membatalkan, pengaturan bawaan proyek dikirim ke perangkat ini apa adanya.',
   'panel.set.firstCancelUndo': 'Jika Anda membatalkan, perangkat ini dihapus kembali — perangkat tidak boleh dibiarkan tanpa pengaturan.',
   'panel.set.firstDefaultsSent': 'Pengaturan “{name}” mengikuti bawaan proyek — ubah kapan saja lewat Pengaturan.',

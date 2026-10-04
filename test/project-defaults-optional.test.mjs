@@ -104,13 +104,15 @@ test('the offer appears only with an owned folder AND no template yet — run ag
   const pd = (f) => (f && tpls[f]) || null;
   const estate = { projects: [{ folderId: 'P-new', name: 'Fayu corpus' }, { folderId: 'P-has', name: 'Dani' }] };
   const t = (k) => `<${k}>`;
-  assert.deepEqual(offer('P-new', pd, estate, t), { offerAsDefault: true, ownedName: 'Fayu corpus' });
+  assert.deepEqual(offer('P-new', pd, estate, t), { offerAsDefault: true, ownedName: '\u201cFayu corpus\u201d' },
+    'a known project is named, in quotes the NAME carries (the strings print {name} bare)');
   assert.equal(offer('P-has', pd, estate, t).offerAsDefault, false,
     'a project WITH defaults is changed on the Projects card, never overwritten from here');
   assert.equal(offer('P-emptyobj', pd, estate, t).offerAsDefault, true, 'an empty template counts as none');
   assert.equal(offer('', pd, estate, t).offerAsDefault, false, 'no owned folder (member device, stray, template) → no offer');
-  assert.equal(offer('P-unknown', pd, null, t).ownedName, '<panel.proj.defaultName>',
-    'a project the cache has not caught up with still gets a name');
+  assert.equal(offer('P-unknown', pd, null, t).ownedName, '<panel.set.thisProject>',
+    'a project the cache has not caught up with is "this project" — never "Default Project", a REAL project\'s name');
+  assert.doesNotMatch(between(MODAL, 'const ownedTpl = ', 'if (offerAsDefault) {'), /panel\.proj\.defaultName/);
 });
 
 test('the checkbox is rendered only inside the offer, unticked, and is not a setting', () => {
@@ -123,6 +125,20 @@ test('the checkbox is rendered only inside the offer, unticked, and is not a set
   assert.match(block, /'panel\.set\.asProjectDefault', \{ name: ownedName \}/, 'it names the project');
   assert.match(block, /'panel\.set\.asProjectDefaultNote'/, 'with its one-line note');
   assert.match(block, /insertAdjacentHTML\('beforebegin'/, 'placed just above the Push button\'s encryption note');
+});
+
+/* ⚠ THE DEFAULT SETTINGS BUTTON LOADS BEFORE IT OPENS (#85/#86 review). openSettingsModal prefills a
+ * template form SYNCHRONOUSLY from projectDefaults(); opened on a cold cache it shows an empty form,
+ * and a save from that form would wipe the template the owner came to edit. */
+test("the Projects card's Default settings button awaits loadProjectDefaults() before opening the form", () => {
+  const at = PANEL.indexOf("if (act === 'defaults') {");
+  assert.ok(at > 0, 'the button\'s action is findable');
+  const blk = PANEL.slice(at, PANEL.indexOf('return;', at));
+  assert.match(blk,
+    /busy\(el, async \(\) => \{\s*await loadProjectDefaults\(\);\s*openSettingsModal\(\{ kind: 'project', project: \{ folderId: el\.dataset\.folder, name: el\.dataset\.name \|\| '' \} \}\);/,
+    'load, awaited, then open — inside busy() so a second tap during the load does nothing');
+  assert.equal((PANEL.match(/openSettingsModal\(\{ kind: 'project'/g) || []).length, 1,
+    'and that is the only way into the template form, so no other path can skip the load');
 });
 
 /* ── what the save does with it ───────────────────────────────────────────────────────────── */
@@ -222,7 +238,7 @@ test('loadProjectDefaults keeps its forgiving default and gains a strict mode fo
 test('every new string exists in English first and Indonesian second', () => {
   const idAt = I18N.indexOf('\nid: {');
   for (const k of ['panel.set.asProjectDefault', 'panel.set.asProjectDefaultNote', 'panel.set.pushedAsDefault',
-    'panel.set.asDefaultFailed', 'panel.set.asDefaultExists']) {
+    'panel.set.asDefaultFailed', 'panel.set.asDefaultExists', 'panel.set.thisProject']) {
     const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'gm');
     const at = [...I18N.matchAll(re)].map((m) => m.index);
     assert.equal(at.length, 2, `${k}: once per language`);
@@ -230,8 +246,12 @@ test('every new string exists in English first and Indonesian second', () => {
     assert.ok(PANEL.includes(`'${k}'`), `${k}: actually used by the panel`);
   }
   const en = (k) => (I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`)) || [])[1] || '';
-  assert.match(en('panel.set.asProjectDefault'),
-    /^Also use these settings as the defaults for new devices in (\\u201c|\u201c)\{name\}(\\u201d|\u201d)$/);
+  assert.match(en('panel.set.asProjectDefault'), /^Also use these settings as the defaults for new devices in \{name\}$/);
+  for (const k of ['panel.set.asProjectDefault', 'panel.set.pushedAsDefault', 'panel.set.asDefaultFailed', 'panel.set.asDefaultExists']) {
+    assert.doesNotMatch(en(k), /(\\u201c|\u201c)\{name\}(\\u201d|\u201d)/,
+      `${k}: {name} is printed bare — the quotes belong to a real name, and the neutral fallback has none`);
+  }
+  assert.equal(en('panel.set.thisProject'), 'this project');
   for (const k of ['panel.set.pushedAsDefault', 'panel.set.asDefaultFailed', 'panel.set.asDefaultExists']) {
     assert.match(en(k), /^Settings sent to the device/, `${k}: leads with the push, which DID happen`);
   }

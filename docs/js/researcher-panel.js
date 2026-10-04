@@ -1897,9 +1897,12 @@ let projDefCache = null;
 /* Keys saved into the template but not yet pushed to every device — see applyTemplateModal. Same
  * prefs blob, same round trip; a list of field keys per project, never any values. */
 let projPendCache = null;
-/* `strict` RETHROWS a failed read (after the same reset), for a caller about to WRITE: the
- * forgiving default turns "could not read" into "there are none", which is fine for a prefill and
- * wrong right before saveProjectDefaults rewrites the whole map from this cache (#85/#86). */
+/* `strict` RETHROWS a read that THROWS (after the same reset) — and guards nothing else: a read
+ * that succeeds is trusted as it comes. One caller uses it: the device form's "also use as the
+ * project defaults" save (#85/#86), which may run minutes after the form opened, where the
+ * forgiving default would turn "could not read" into "there are none" right before
+ * saveProjectDefaults rewrites the whole map from this cache. The template form's own save
+ * (the Projects card's Default settings button) loads in view first and does not need it. */
 async function loadProjectDefaults({ strict = false } = {}) {
   try {
     const p = (await Researcher.getPrefs()) || {};
@@ -10575,9 +10578,11 @@ async function openSettingsModal(target, opts = {}) {
    * ⚠ No data-f on the checkbox: collectRaw reads every [data-f], and this is not a setting. */
   const ownedTpl = ownedFolder ? projectDefaults(ownedFolder) : null;
   const offerAsDefault = !!ownedFolder && !(ownedTpl && Object.keys(ownedTpl).length);
-  const ownedName = ownedFolder
-    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === ownedFolder) || {}).name || t('panel.proj.defaultName'))
-    : '';
+  /* The name the offer and its toasts print: quoted when the estate knows it, else the neutral
+   * "this project" — never 'Default Project', which is a REAL project's name (the migration default)
+   * and would point the researcher at the wrong one (#85/#86 review). */
+  const ownedProj = ownedFolder ? ((estateCache && estateCache.projects) || []).find((p) => p.folderId === ownedFolder) : null;
+  const ownedName = ownedFolder ? (ownedProj && ownedProj.name ? `\u201c${ownedProj.name}\u201d` : t('panel.set.thisProject')) : '';
   if (offerAsDefault) {
     const enc = box.querySelector('.rp-enc');
     if (enc) enc.insertAdjacentHTML('beforebegin', `<label class="check-label rp-set-asdefault"><input type="checkbox" id="rp-set-asdefault"> ${esc(t('panel.set.asProjectDefault', { name: ownedName }))}</label>
@@ -10792,7 +10797,8 @@ async function openSettingsModal(target, opts = {}) {
          * about the rest.
          * ⚠ RE-READ, STRICTLY, BEFORE WRITING. saveProjectDefaults writes the WHOLE per-project map
          * from the cache, so a cache that silently fell back to {} would erase every other
-         * project's template; strict makes a failed read land in the catch instead. And the offer
+         * project's template; strict makes a read that THROWS land in the catch instead (that is
+         * all it does — a read that succeeds is written over as usual). And the offer
          * was judged when the form opened: a template that appeared since (another tab, another
          * panel) is KEPT, and the toast says so — this path starts a template, never replaces one. */
         let doneKey = 'panel.set.pushed';

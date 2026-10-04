@@ -34,9 +34,11 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v702 — assembled 2026-10-04 (keyless cards keep their buttons, greyed + spinner); production is v701 (7ea04591)
+## ▶ v702 — released 2026-10-04 (keyless cards keep their buttons, greyed + spinner); production is v702 (e558b93e)
 
-Branch `fix/keyless-waiting`. Seth: "sometimes settings and new text buttons disappear in research panel for certain
+All seven apps verified live at v702 (deploy run 37207969153; every endpoint fetched twice 45 s apart; research.flextext.app's
+researcher-panel.js byte-identical to the commit; main = productionWeb = staging = e558b93e). Nothing is staged beyond
+production. Seth: "sometimes settings and new text buttons disappear in research panel for certain
 devices … they come back after a long period of time … a 'not loaded yet' or spinning animation over grayed out
 buttons … so they don't just go 'where did my buttons go?'". Cause: on a device in a project shared with the seat,
 `hasKey` is `!!getKi(instance)` per poll (`researcher.js` ~1489); it is false until the OWNER's panel sweeps the

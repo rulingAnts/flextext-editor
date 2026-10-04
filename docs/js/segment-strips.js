@@ -1057,11 +1057,14 @@ export function renderStrips() {
     input.value = text;
     /* ⚠ GHOST TEXT ON AN EMPTY LINE (#91, Brian Plimley, 2026-10-02): "the text box where an Editor
      * user types the baseline is invisible until you click on it and type in it." The box has no
-     * border of its own (see .seg-text in app.css), so an empty line read as nothing at all. A
-     * placeholder says "type here" and vanishes on the first keystroke; it is never a value, so it
-     * cannot reach the doc, the .flextext or the EAF. On EVERY empty line, not just the first — any
-     * empty line is somewhere a transcriber may land. The data attribute is what lets applyI18n()
-     * repaint it on a language switch without a re-render; the direct write covers the first paint.
+     * border of its own beyond the hairline above it (border-top, see .seg-text in app.css), so an
+     * empty line read as nothing at all. A placeholder says "type here" and vanishes on the first
+     * keystroke; it is never a value, so it cannot reach the doc, the .flextext or the EAF. On EVERY
+     * empty line, not just the first — any empty line is somewhere a transcriber may land. That
+     * includes a strip kept empty on purpose to mark silence (.seg-empty): nothing in the data tells
+     * it apart from a line not yet typed, so it shows the ghost too, and its dimmed wave is the cue
+     * that the emptiness is deliberate. The data attribute is what lets applyI18n() repaint it on a
+     * language switch without a re-render; the direct write covers the first paint.
      * ⚠ No spellcheck/autocorrect attributes here — the vernacular policy is inherited (below). */
     input.dataset.i18nPh = 'baseline.linePh';
     input.placeholder = deps.t('baseline.linePh');

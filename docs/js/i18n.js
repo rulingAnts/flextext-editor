@@ -3056,7 +3056,7 @@ id: {
   'baseline.hintSegScissors': 'Untuk memotong sebuah baris menjadi dua, ketuk dahulu <b>\u2702</b> di tepi kirinya \u2014 gunting lalu '
     + 'menunjukkan setiap tempat yang bisa dipotong. Ketuk lagi untuk menyembunyikannya.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
-  'baseline.linePh': 'Ketik yang Anda dengar…',
+  'baseline.linePh': 'Ketik apa yang Anda dengar…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
   'gloss.emptyNoBaseline': 'Belum ada yang bisa dikerjakan \u2014 kata-kata teks ini belum diketik.',

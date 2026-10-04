@@ -53,6 +53,8 @@ too, still behind `?lameta=1`.
   `test/researcher-boot-screen.test.mjs`).
 - About this version: the hand-kept Known-issues list is gone; it links to the GitHub issues page
   (Seth: "ongoing known issues are on the GitHub issues page only").
+- About this version and Help: a sticky ✕ at the top of the modal (Seth: a bottom-only Close
+  "may alarm some users").
 
 ## (history) ▶ 2026-10-04 — v696 on staging; the review notes are still open (→ v697)
 

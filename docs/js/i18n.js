@@ -1045,6 +1045,9 @@ internet after the first time.</p>
   'panel.tut.1.name': 'Signing Up a New Researcher Account',
   'panel.tut.2.name': 'Using the Editor (Cutting, Transcribing, Glossing, Sending)',
   'panel.tut.3.name': 'Adding User Devices to your Project',
+  'panel.tut.1.desc': 'Signing into the FlexText Editor\u2019s Researcher panel for the first time. http://flextext.app',
+  'panel.tut.2.desc': 'Using the FlexText Editor, without being linked to a researcher account. This includes creating a text from audio, segmenting, transcribing, glossing, and translating. This video is recommended even if you plan to use the editor linked to a researcher account, because it shows the general usage of the Editor and will help you understand some of the device settings (which are covered in video #3, New Device).',
+  'panel.tut.3.desc': 'Linking a device to a researcher account, uploading a finished text to Google Drive.',
   'panel.tut.credit': 'In English, with Indonesian subtitles in the player. Copyright © 2026 Brian Plimley. Used by permission.',
   'panel.err': 'Something went wrong: {msg}',
   'panel.help.html': `
@@ -3746,6 +3749,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.tut.1.name': 'Mendaftar Akun Peneliti Baru',
   'panel.tut.2.name': 'Memakai Editor (Memotong, Menyalin, Memberi Glos, Mengirim)',
   'panel.tut.3.name': 'Menambahkan Perangkat Pengguna ke Proyek Anda',
+  'panel.tut.1.desc': 'Masuk ke Panel Peneliti FlexText Editor untuk pertama kali. http://flextext.app',
+  'panel.tut.2.desc': 'Memakai FlexText Editor tanpa terhubung ke akun peneliti. Isinya: membuat teks dari audio, memotong rekaman, menyalin, memberi glos, dan menerjemahkan. Video ini tetap disarankan walaupun Anda berencana memakai editor yang terhubung ke akun peneliti. Di sini Anda melihat cara dasar memakai Editor. Ini akan membantu Anda memahami beberapa pengaturan perangkat (yang dibahas di video #3, Perangkat baru).',
+  'panel.tut.3.desc': 'Menghubungkan perangkat ke akun peneliti, lalu mengunggah teks yang sudah selesai ke Google Drive.',
   'panel.tut.credit': 'Berbahasa Inggris, dengan subtitel bahasa Indonesia di pemutar video. Hak cipta © 2026 Brian Plimley. Digunakan dengan izin.',
   'panel.err': 'Terjadi kesalahan: {msg}',
   'panel.help.html': `

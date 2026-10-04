@@ -506,3 +506,25 @@ These are the ones a tester can see.
       row must not linger. Cancel a Download-all: the tray must say cancelled, not "done".
 - [ ] **Researcher panel, a conversion that cannot be built** (a text with no alignment): the tray
       must say it failed, not "done — check your downloads".
+
+## v701 — ✨ inside one piece (on the dock), Repeat playback (2026-10-04)
+
+- [ ] **Fresh recording, Cut tab:** ✨ sits on the top player, far right; it guesses the whole
+      recording as before (≤ 10 min). Undo puts the one piece back.
+- [ ] **Cut by hand once (Enter), then ✨:** the tooltip reads "Guess the lines inside this piece";
+      only the piece under the playhead becomes lines, the other piece stays one row, the status
+      line says how many. Put the playhead in a piece that already has lines or words: ✨ greys
+      with the reason. Switch to Baseline: ✨ is gone from the dock; back to Cut: it returns.
+- [ ] **A recording over ten minutes:** on the untouched seed ✨ is grey and says to cut into
+      pieces first; after two or three Enters each piece under ten minutes guesses on its own.
+- [ ] **Scroll a long strip list to the bottom:** the dock, and ✨ on it, are still at the top of
+      the screen; pressing ✨ there works without scrolling up.
+- [ ] **Repeat off (default):** a line's ▶ stops at the line's end and parks at its start.
+- [ ] **Repeat on (the line-drawn loop icon, not an emoji):** a line's ▶ plays the line again and
+      again; pressing that ▶ (or Space) pauses it; the top ▶ runs to the end of the recording and
+      starts over. Turning Repeat off mid-lap: the lap finishes and stops as before.
+- [ ] **Settings ▸ The coworker's job ▸ Typing & keys ▸ Start with Repeat on:** open a text —
+      Repeat is already on; turn it off, open another text — on again (it is the starting state,
+      not a lock). Same in the researcher panel's per-device settings.
+- [ ] **Phone:** the dock's controls still fit two rows with Repeat and ✨; no sideways scroll.
+

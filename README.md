@@ -226,7 +226,7 @@ tabs, two of which held 61% of everything under names that did not predict their
 |---|---|
 | **Tasks** — which steps this device does | Audio Segmentation Mode on/off; **show the Cut tab / the Baseline tab / the Gloss tab**, each separately, so one coworker cuts the audio, another transcribes and a third glosses (never all three off — the panel refuses the save, and the device brings Baseline back rather than leave anyone with nothing); **gloss word by word** — off leaves the Gloss tab showing the line's words and the free translation with no box under each word, for somebody whose job is the translation rather than the analysis (glosses already recorded are kept, just not shown) |
 | **What the coworker may change** | join/split lines on Baseline; join/split on Gloss; join lines that already have text, on the Cut tab; **allow moving line boundaries by dragging** (grips on the strips of all three tabs and movable cut marks on the Cut tab's top player — independent of the texted-lines switch); Backspace/Delete joins lines; delete individual texts ᴾ; "Delete all data" ᴾ; remove a text's recording — the ✕ on the player ᴾ; and three the **Audio Segmenter** alone reads: swap a recording for a different file ᴾ, add blank text lines ᴾ, edit words and glosses in place ᴾ |
-| **Typing & keys** | **what Enter does at the end of a line** — move to the next line, or start a split there (splitting is always available mid-line and from the ✂ on the waveform, so "move to the next line" loses nothing and stops an accidental empty line; new devices start on it, devices already in use keep what they had); **the Space bar plays / pauses** — automatic is off on a mobile device, where Space is for typing, and on for a laptop, touch screen or not; **where the cursor lands after playing, on the Gloss tab** — the free translation or the next empty word gloss, chosen by the job; open new recordings on the Cut tab |
+| **Typing & keys** | **what Enter does at the end of a line** — move to the next line, or start a split there (splitting is always available mid-line and from the ✂ on the waveform, so "move to the next line" loses nothing and stops an accidental empty line; new devices start on it, devices already in use keep what they had); **the Space bar plays / pauses** — automatic is off on a mobile device, where Space is for typing, and on for a laptop, touch screen or not; **where the cursor lands after playing, on the Gloss tab** — the free translation or the next empty word gloss, chosen by the job; open new recordings on the Cut tab; **start with Repeat on** — whether the player's Repeat button is on when a text opens (with Repeat on, a line's ▶ plays that line again and again until it is paused, and the big ▶ repeats the whole recording; the button turns it on or off at any time) |
 
 ### Recording & consent
 
@@ -282,6 +282,15 @@ consent" tab is dropped rather than shown empty.
 - **On a touch screen, a waveform strip behaves like a WhatsApp voice note:** a tap places the
   playhead; touching the playhead line and dragging scrubs; dragging anywhere else scrolls the page,
   at any slant, because the strip listens to no finger movement at all. Same on the listening page.
+- **Repeat** sits on the top player: on, a line's ▶ plays that line again and again until you
+  pause it, and the top ▶ repeats the whole recording; off, a line stops at its end as before. The
+  device setting *Start with Repeat on* only chooses what it starts as when a text opens.
+- **✨ Guess the lines** also sits on the top player, far right, while the Cut tab is open. On a
+  recording nobody has cut yet it cuts the whole recording at its pauses (up to ten minutes). Once
+  anything has been cut by hand, it guesses only the piece under the playhead — if that piece has
+  no words and is at most ten minutes — and leaves every other piece alone, so a long recording is
+  cut into a few pieces first (Enter at the playhead) and then guessed piece by piece. One Undo
+  puts a guess back.
 - **The top player is the same grammar plus zoom:** a tap places the playhead, the playhead line
   scrubs, dragging anywhere else scrolls the waveform once it is zoomed, pinching zooms (a trackpad
   pinch zooms too). Its thin cut marks show on all three tabs and follow a boundary you drag on a

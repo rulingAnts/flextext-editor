@@ -955,7 +955,7 @@ when you stop, you can listen, name the text, and re-record until you are happy,
 if it warns. The recording appears in the player above the typing area.</p>
 <p><b>Audio:</b> if your researcher sent you a link with a recording, a player appears above the
 typing area: ▶ plays and pauses, <b>↺3s</b> jumps back three seconds, and the speed menu slows
-the voice down. The picture of the sound (waveform) shows where you are — tap it to jump, and
+the voice down; the repeat button plays the line, or the whole recording, again and again until you pause it. The picture of the sound (waveform) shows where you are — tap it to jump, and
 use <b>Zoom</b> to see more detail. The recording is saved on your device, so it works without
 internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
@@ -3706,7 +3706,7 @@ lalu Simpan. <b>Meter level</b> menunjukkan seberapa keras suaranya dan memberi 
 terlalu keras, jadi mundur sedikit bila ada peringatan. Rekamannya muncul di pemutar di atas tempat mengetik.</p>
 <p><b>Audio:</b> kalau peneliti mengirim tautan dengan rekaman, pemutar audio muncul di atas
 tempat mengetik: ▶ untuk putar dan jeda, <b>↺3s</b> untuk mundur tiga detik, dan menu kecepatan
-untuk memperlambat suara. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
+untuk memperlambat suara; tombol Ulangi memutar baris itu, atau seluruh rekaman, terus-menerus sampai Anda menjeda. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
 dan pakai <b>Perbesar</b> untuk melihat lebih rinci. Rekaman tersimpan di perangkat Anda, jadi
 tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>

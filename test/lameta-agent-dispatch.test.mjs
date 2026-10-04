@@ -221,7 +221,10 @@ test('start/stop drive tickAll on a timer that widens with failure', async () =>
   const { a } = mk({ agent: { timers } });
   await linkIt(a);
   a.start();
-  await new Promise((r) => setTimeout(r, 5));
+  /* ⚠ WAIT FOR THE SCHEDULE, NOT FOR 5 ms. The first timer is armed after start()'s first await, and
+   * under the parallel suite that took longer than 5 ms once (2026-10-04, a 745/746 on an unrelated
+   * release) — a flake that reads as a failed gate. Poll up to a second; the assertion is the same. */
+  for (let i = 0; i < 200 && !scheduled.length; i++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(a.running(), true); assert.deepEqual(scheduled, [20000], 'foreground cadence');
   a.stop(); assert.equal(a.running(), false);
 });

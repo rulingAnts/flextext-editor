@@ -34,7 +34,7 @@ The item itself is tracked privately.
 
 ---
 
-## ✅ RELEASED 2026-10-04 — v696 is in production (main = productionWeb = 9d645f80)
+## ▶ v697 — assembled 2026-10-04 (boot screen, tutorials in Help, modal ✕, GitHub known-issues link, the #85–#91 review notes); production is v696 (9d645f80)
 
 All seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
 shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),

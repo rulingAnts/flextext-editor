@@ -110,5 +110,5 @@ test('the words: EN and ID, and the long-recording refusal now says how', () => 
   const hints = I18N.match(/'cut\.hint(?:NoJoinKey)?(?:Drag)?': '[^\n]*/g);
   assert.equal(hints.length, 8, 'four hint variants × two languages');
   assert.ok(hints.every((h) => /piece under the playhead|bagian tempat posisi putar/.test(h)), 'every hint describes the piece guess');
-  assert.match(PANEL, /\{ v: 'v699', date: '2026-10-04', items: \[\n    \{ k: 'panel\.rel\.new\.guessPiece', issue: 93 \},/);
+  assert.match(PANEL, /\{ v: 'v700', date: '2026-10-04', items: \[\n    \{ k: 'panel\.rel\.new\.guessPiece', issue: 93 \},/);
 });

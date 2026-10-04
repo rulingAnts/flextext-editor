@@ -44,18 +44,24 @@ tiles, Brian's descriptions; Indonesian subtitles on when the UI is Indonesian; 
 top of About this version / Help, known issues replaced by a link to GitHub issues, and the reviewers' notes on
 #85–#91. v697 was renumbered v698 before leaving staging. No issues to close. Nothing is staged beyond production.
 
-Earlier the same day, v696:
- all seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
+Earlier the same day, v696: all seven apps verified live at v696 (deploy run 37180382642; every endpoint fetched twice, the
 shipped bundles carry the changes). v696 = Brian Plimley's #85–#92 (all closed with a note each),
 the settings-dialog room fix, and "a new device cannot be left without settings". Nothing from other
 users is open. Production carries v690–v698, so the lameta-device milestones M1–M4 are in production
 too, still behind `?lameta=1`.
 
-**Open next (v698):** the reviewers' remaining notes on #85–#91 (listed below; branch
-`fix/v698-review-notes`), and a general mobile-friendliness pass over the Researcher Panel (Seth,
-2026-10-04: "We need to make sure the researcher panel especially is mobile friendly").
+**Open next:** a general mobile-friendliness pass over the Researcher Panel (Seth, 2026-10-04: "We
+need to make sure the researcher panel especially is mobile friendly"); #93 per-segment Guess; #95
+delete-without-upload (two permissions); per-tab done flags (BACKLOG.md, not to build yet).
 
-**Already on this branch for v698 (2026-10-04, after the v696 release):**
+**Shipped in v698 (2026-10-04, after the v696 release):**
+- Help (the `?` button): Brian's three tutorial videos in flextext.app's look — a 16:9 Stream player
+  (padding-top frame, `flex: none`; an aspect-ratio frame whose only child is absolute collapses in
+  the flex-column modal card), 128×72 thumbnail tiles with the length badge, title and first-sentence
+  blurb, the full description under the player, a 960px card; Indonesian UI opens the player with
+  Indonesian subtitles on (`defaultTextTrack=id`); "More help…" below opens the text help. Never in
+  the editor or any coworker app (Seth: an off-site link "is a loophole for managed devices").
+- The reviewers' remaining notes on #85–#91, 21/21 (branch `fix/v697-review-notes`, b664cfde).
 - The researcher app's boot screen: inline in `satellites/flextext-researcher/index.html`, paints
   from the parse, replaced by the panel's first render; "still loading" / "you appear to be
   offline" at 20 s. The worker's inline offline page is untouched (pinned by

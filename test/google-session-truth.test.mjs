@@ -135,7 +135,9 @@ test('the Google link names, and asks for, the account that just signed out', ()
    * multiple"). Two halves, because one is not enough: `authuser` asks Google for that account, and
    * the screen NAMES it — the parameter is Google's own convention rather than a documented API, and
    * an account silently opened wrong would tell nobody anything. */
-  assert.match(PANEL, /function signOutHere\(\) \{\s*\n\s*signedOutEmail = Researcher\.accountEmail\(\) \|\| '';\s*\n\s*Researcher\.signOut\(\);/,
+  // (v692: the lameta device agent stops between the capture and the sign-out — a line that reads
+  // nothing from the auth, so the order this pins is untouched.)
+  assert.match(PANEL, /function signOutHere\(\) \{\s*\n\s*signedOutEmail = Researcher\.accountEmail\(\) \|\| '';\s*\n(?:\s*if \(lametaAgent\) lametaAgent\.stop\(\);[^\n]*\n)?\s*Researcher\.signOut\(\);/,
     '⚠ the address is read BEFORE signOut(), which clears the stored auth it comes from');
   assert.match(PANEL, /function googleAccountUrl\(email\) \{\s*\n\s*return GOOGLE_ACCOUNT_URL \+ \(email \? '\?authuser=' \+ encodeURIComponent\(email\) : ''\);/,
     'the link carries ?authuser=<that address>, encoded, and falls back to the plain page without one');

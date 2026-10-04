@@ -41,8 +41,9 @@ session; ELAN inside lameta is **view/listen only** in v1; **owner-only** linkin
   seq-filter/ack loop and the backoff, and talks through `researcher.js`'s `api()` with
   `auth:false` plus `x-fx-install`/`x-fx-secret`. Extracting a shared device core is the job of
   the day a Kr-less shell agent is wanted.
-- Storage: IndexedDB `flextext-lameta` (stores `handles`, `links`), keyed
-  `${accountId}:${instanceId}`. Never `flextext-sync-session` or the `flextext-sync` database — the
+- Storage: files.js's own IndexedDB `flextext-files` (one store): a record per link at
+  `<accountId>:lameta:<instanceId>` holding the folder handle AND the install identity together, plus
+  an index at `<accountId>:lameta-index`. (Built v692; the plan said `flextext-lameta` with two stores.) Never `flextext-sync-session` or the `flextext-sync` database — the
   panel also runs on the editor origin (`?mode=researcher`), where those belong to the editor's own
   install. The folder handle and the install credentials live together because the folder is on
   this computer; another browser sees the card but "linked on another computer".
@@ -153,11 +154,66 @@ the first install, as any device re-pair does.
 | M | Build | Seth checks on staging (against a COPY of the lameta project — staging is the real account) |
 |---|---|---|
 | 0 | this plan, the spec, the doc corrections | — |
-| 1 | Workstream 1 release: sanitizer port, 25 roles, type table, the `done`/contributors defects, manifest schema 3 | the lameta download passes lameta's naming rule; Status and contributors right |
-| 2 | `files.js` + tests; hidden "Link…" that only picks and lists `Sessions/` | Chrome: folder picked, sessions listed, permission survives an installed-PWA relaunch; Firefox: the honest message |
-| 3 | `researcher.js` helpers; agent link + poll/report; card badge/status/gates | a "linked" lameta card with the badge and engine version, zero texts; Unlink; second-browser link revokes the first |
-| 4 | Adopt | an adopted session appears; Files ▾ builds ELAN/lameta downloads from the Drive copy; Move… offered |
+| 1 | ✅ v690 — Workstream 1 release: sanitizer port, 25 roles, type table, the `done`/contributors defects, manifest schema 3 | the lameta download passes lameta's naming rule; Status and contributors right |
+| 2 | ✅ v691 (staging) — `files.js` + tests; hidden "Link…" that only picks and lists `Sessions/` | Chrome: folder picked, sessions listed, permission survives an installed-PWA relaunch; Firefox: the honest message |
+| 3 | ✅ v692 (staging) — `researcher.js` helpers; agent link + poll/report; card badge/status/gates | a "linked" lameta card with the badge and engine version, zero texts; Unlink; second-browser link revokes the first |
+| 4 | ✅ v693 (staging) — Adopt (recording + .flextext to Drive; the ELAN file stays in the session until the worker accepts an `elan-eaf` upload) | an adopted session appears; Files ▾ builds ELAN/lameta downloads from the Drive copy; Move… offered |
 | 5 | `buildConversionSources` + `buildLametaSessionFiles`; `assign` materialize | a phone's text moved in; lameta reopened shows it; ELAN opens the EAF; media ref right; nothing of ours listed |
 | 6 | checkout + return | out: phone holds it, card stops listing it, files remain; back: annotation set refreshed, `.session` untouched |
 | 7 | setDone/changeSettings/triggerUpload/delete/wipe; pending-updates box; recovery | Done queues; Apply writes once lameta is closed; Erase absent; revoke → unlink only |
 | 8 | gates audit, i18n EN/ID, RELEASES, bump, docs; then the real project | full suite, `check-native-containment.sh` |
+
+## 10. Where the build stands, and how to continue (2026-09-27, end of session)
+
+**Built (branch `lameta-device`, on staging):** M0 docs; M1 = v690 (also fast-forwarded onto
+`satellite-apps-v566`, the production candidate); M2 = v691 (`files.js`, the hidden Link preview);
+M3 = v692 (`lameta-agent.js`: link/poll/report/held commands, the card's badge, status line and
+gates); M4 = v693 (Adopt through the assign-upload queue; `flextext/` written after the bytes land).
+Everything is behind `?lameta=1` and owner-only. `satellite-apps-v566` stays at v690 until the
+device is complete; production has not moved.
+
+**What Seth checks before M5 is worth building** (staging = the real account; use a COPY of the
+lameta project): the folder permission survives a relaunch of the INSTALLED panel; Link makes a
+device with the `lameta` badge; Adopt of one session uploads its recording + `.flextext`, the
+session gains `flextext/`, lameta still lists nothing new, Files ▾ works on the adopted text.
+
+**M5 — `assign` materialize (a phone's text moved in), the plan that fits what is built:**
+- The agent already HOLDS `assign` (`HELD`); M5 turns it into a handler. Do not use the command's
+  streaming URLs: the agent is the researcher, so `R.listTextFiles(docId)` (roles) +
+  `R.fetchDriveFile(fileId)` fetch the manifest, the recording and the `.flextext`; inject both
+  through `R` and inject `convertAudio` (Web Audio, browser-only) as a dep — the agent stays
+  node-testable with a fake converter.
+- Session id: `lametaSessionIdFor(title, docId, existing)` over the scan (`s.sessions` gives
+  `{ name, docId }`); an existing session with this docId (a return trip) is refreshed, never
+  renamed. Files: `parseFlextext` + `segmentsFromOffsets` → `assembleSegEntries({ wants: { eaf: true },
+  full: false })` for `<id>.eaf`/`.pfsx` (+ the derived WAV when the recording is not WAV),
+  `lametaFlextextMedia` for the `.flextext`, `lametaSessionEntries(session, files, suiteFiles)` for
+  the layout — strip the `Sessions/<id>/` prefix and write into the session dir; skip
+  `HOW-TO-OPEN.txt` (LAMETA_ROOT_FILES). `.session` only when the folder is new; `.meta` only for
+  files that did not exist; on a return trip replace `.flextext/.eaf/.pfsx` in place, back the old
+  `.flextext` up to `<project>/lameta-agent-backups/<date>/`, never touch the recording (a different
+  hash → `<name>.returned-<date>.<ext>`). Stages via `deriveStages` (the manifest's consent/audio, the
+  parsed doc); `docId`/`flexGuid`/`engine` into the CustomFields; `done` from the command/inventory.
+- History: `newHistory({ kind: 'assigned' })` on creation, `withHistoryEvent(h, { kind: 'returned' })`
+  on a return trip; custody `{ kind: 'lameta', id: instanceId, name: nickname }`.
+- Ack only after every file is written (the ack rule); failure keeps it held and shows on the card.
+- The panel's Move… already offers the lameta device (engineVersion ≥ v138 reported).
+
+**M6 — checkout (`uploadDelete`) and return:** upload the current `.flextext` (and `.eaf`/`.pfsx`
+once the worker's upload-start accepts kinds `elan-eaf`/`elan-pfsx` — today it accepts only
+audio/flextext/consent-prompt/manifest, so the EAF upload needs that one worker line) to the text's
+Drive folder as the INSTALL (`x-fx-install` headers on the install upload route), skip when the
+hash matches the last upload, read `R.getMoves()` for the destination, write custody
+(`checked_out`), stop listing the text (inventory) so `pendingMoves` advances, then ack.
+
+**M7:** `setDone` → local + queued `.session` Status/stage update (`mergeStages`, `lametaStatusFor`,
+the `Suite_Stamp` rule) applied on "lameta is closed"; `triggerUpload` = the checkout's upload
+alone; `delete` stays refused; recovery (Reconnect… on a lost handle).
+
+**M8:** remove the `?lameta=1` gate, EN/ID pass, RELEASES, DEVELOPERS.md, then the real project.
+
+**Deferred, not forgotten:** the worker deploy (v687's `prompt=select_account` + v690's
+`sha256Checksum` listing field + the `elan-eaf` upload kind) — prepare a rollback first
+(`wrangler deployments list` / `rollback`) and deploy next week; the corpus-keeper
+`lameta_core.py` CustomFields prerequisite (spec §7); the lameta PR (Workstream 3) — draft the #74
+design comment for Seth to post before any code.

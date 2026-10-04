@@ -34,7 +34,16 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ RESUMED 2026-10-04 — v695 is on staging; the review notes are still open
+## ▶ 2026-10-04 — v696 on staging; the review notes are still open (→ v697)
+
+**v696** (release branch 31f8f4f9, lameta-device 1a76de9e): Seth's two findings from testing v695 —
+the device-settings dialog's fields area shrunk to a slit by the "use as project defaults" offer
+(now a floor + full screen on phones, `fix/85-86-settings-dialog-room`) and a cancelled first-time
+settings box leaving a device with no settings (now: Cancel sends the project defaults if valid,
+else undoes the creation; `fix/new-device-needs-settings`, Seth's rule quoted in the code) — plus
+#92 (`fix/92-baseline-help-follows-settings`). The reviewers' notes on #85–#91 below are STILL
+open: v697. Seth also wants the Researcher Panel checked for mobile friendliness generally.
+
 
 **v695 supersedes v694 the same day.** The v694 merge into `lameta-device` lost the `] },` that
 closes the new RELEASES entry (my conflict resolution; the brace sat in the hunk's shared tail), so

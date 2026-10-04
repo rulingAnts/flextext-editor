@@ -34,9 +34,12 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v701 — assembled 2026-10-04 (✨ inside one piece — on the dock, Repeat playback); production is v698 (1d20e254)
+## ▶ v701 — released 2026-10-04 (✨ inside one piece — on the dock, Repeat playback); production is v701 (7ea04591)
 
-On branch `feat/guess-piece-loop`, for staging:
+All seven apps verified live at v701 (deploy run 37205910558; every endpoint fetched twice 45 s apart; app.flextext.app's
+segment-strips.js, audio.js and app.css byte-identical to the commit; both shells carry the dock ✨ and the SVG repeat icon,
+no emoji; main = productionWeb = staging = 7ea04591). v699 (🔁 emoji) and v700 (icon, ✨ in its own row) were renumbered
+before leaving staging. #93 stays open: this is its manual half; the automatic halving is not built. What shipped:
 - **✨ guesses the lines inside ONE piece** (Seth, 2026-10-04: "'guess' split a single segment … one way to
   work around the ten-minute limit"; the manual half of #93). Same button, two modes (`guessMode` in
   `docs/js/segment-strips.js`): the whole-file guess in the two states it was ever offered in (the seed, an

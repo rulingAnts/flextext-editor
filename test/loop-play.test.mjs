@@ -81,9 +81,13 @@ test('the whole recording repeats from the finish handler, and the button is the
   assert.match(AUDIO, /if \(this\.el\.loop\) this\.el\.loop\.addEventListener\('click', \(\) => this\.setLoop\(!this\._loop\)\);/);
   assert.match(AUDIO, /this\._loop = false;/, 'never the default');
   for (const shell of ['../docs/index.html', '../satellites/audio-segmenter/index.html']) {
-    assert.match(rd(shell), /<button class="player-loop icon-btn2" data-i18n-title="player\.loop" data-i18n-aria="player\.loop"\n\s+aria-label="Repeat" aria-pressed="false">🔁<\/button>/, `${shell} carries the toggle on the dock`);
+    const html = rd(shell);
+    assert.match(html, /<button class="player-loop icon-btn2" data-i18n-title="player\.loop" data-i18n-aria="player\.loop"\n\s+aria-label="Repeat" aria-pressed="false"><svg class="player-loop-icon"/, `${shell} carries the toggle on the dock`);
+    assert.doesNotMatch(html, /🔁<\/button>/, 'a line-drawn icon, never the emoji (Seth: the OS\'s "bubbly curved-square" picture is not ours)');
   }
   assert.match(CSS, /\.player-loop\[aria-pressed="true"\] \{/, 'on-state styling');
+  assert.match(CSS, /\.player-loop-icon \{ display: block; fill: none; stroke: currentColor;/, 'the icon takes the button\'s colour');
+  assert.doesNotMatch(I18N, /\\ud83d\\udd01/, 'no repeat emoji in any string');
 });
 
 test('the device setting is the STARTING state, on both settings surfaces, and reported to the panel', () => {

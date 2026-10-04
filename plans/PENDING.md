@@ -34,7 +34,7 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v699 — assembled 2026-10-04 (✨ inside one piece, 🔁 Repeat playback); production is v698 (1d20e254)
+## ▶ v700 — assembled 2026-10-04 (✨ inside one piece, Repeat playback); production is v698 (1d20e254)
 
 On branch `feat/guess-piece-loop`, for staging:
 - **✨ guesses the lines inside ONE piece** (Seth, 2026-10-04: "'guess' split a single segment … one way to
@@ -45,7 +45,7 @@ On branch `feat/guess-piece-loop`, for staging:
   Pure half: `guessSplitsWithin` / `applyGuessedSplitsWithin` in `segments.js` (test/guess-piece.test.mjs).
   The over-ten-minutes refusal now says how: cut into pieces, then ✨ in each. The segmenter's matcher
   (`mgGuess`) is unchanged — still whole-file only.
-- **🔁 Repeat** (Seth, 2026-10-04): state on the shared `Player` (`setLoop`/`loop`, `docs/js/audio.js`),
+- **Repeat** (Seth, 2026-10-04; a line-drawn icon, not the 🔁 emoji — "I don't want an ugly iPhone emoji"): state on the shared `Player` (`setLoop`/`loop`, `docs/js/audio.js`),
   so a line's ▶ repeats the line and the dock's ▶/Space repeat the recording, in the editor and the
   segmenter alike. Toggle on the dock in both shells; device setting `loopPlay` (Typing section, both
   settings surfaces, default off) is the STARTING state when a text opens. Bounded: one seek per lap on

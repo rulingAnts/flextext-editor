@@ -16,7 +16,8 @@ test('the card recognises a lameta device by what its install REPORTS', () => {
 
 test('never Invite, never Assign, never Erase — Settings, Unlink and Delete stay', () => {
   assert.match(card, /\(mInvite && !isLameta \? `<button class="rp-split-half" data-iact="invite"/, 'Invite is gated');
-  assert.match(card, /\$\{mAssign && !isLameta \? `<button class="rp-iconbtn" data-iact="assign"/, 'Assign is gated');
+  // v702: the live button and its greyed "key on its way" twin both sit behind !isLameta — a lameta device never gets Assign.
+  assert.match(card, /\$\{capAssign && !isLameta \? \(mAssign \? `<button class="rp-iconbtn" data-iact="assign"/, 'Assign is gated');
   assert.match(card, /const wipe = \(!memberCtx && live && !isLameta\)/, 'Erase is gated');
   // Every render of each of those three controls is gated: count the sites.
   assert.equal((card.match(/data-iact="invite"/g) || []).length, 1);

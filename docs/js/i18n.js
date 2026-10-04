@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v701';
+export const ENGINE_VERSION = 'v702';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1629,6 +1629,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.keylessButtons': 'Researcher panel: on a device in a project shared with you, Settings and Assign new text no longer vanish while the device\u2019s key is still on its way \u2014 they stay on the card, greyed with a small spinner and the reason, and come alive when the key arrives.'
     ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording. \u2728 now sits on the player, bottom right, so it stays on screen while you scroll.'
     ,'panel.rel.new.loopPlay': 'Repeat playback: a Repeat button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
     ,'panel.rel.new.bootScreen': 'The Researcher app shows a loading screen the moment it opens, instead of a blank page until all of its code has downloaded. On a slow connection it says so after 20 seconds and offers a reload; if the connection dropped, it says that.'
@@ -1946,7 +1947,8 @@ internet after the first time.</p>
   'panel.joined.tag': 'member',
   'panel.joined.note': 'You help look after this project\u2019s devices. You can: {caps}.',
   'panel.joined.noteNone': 'You can see this project\u2019s devices, but no abilities have been granted to you yet.',
-  'panel.joined.keyPending': 'This device\u2019s key has not reached your account yet. Keys are delivered automatically \u2014 press Refresh in a moment; nothing is wrong with the device.',
+  'panel.joined.keyPending': 'Waiting for this device\u2019s key to reach your account \u2014 until it does, the greyed buttons above cannot be used. The project owner\u2019s Researcher panel shares the key automatically the next time it is opened or refreshed; nothing is wrong with the device.',
+  'panel.joined.keyWaitShort': 'not ready yet \u2014 waiting for this device\u2019s key',
   'panel.set.unconfigured': 'Nothing is set on this device yet \u2014 the blank fields mean nobody has configured it, not that anything failed. Fill them in and push to set it up.',
   'panel.set.fromTemplate': 'Prefilled from this project\u2019s default settings. Nothing is on the device yet \u2014 press \u201cPush to device\u201d to apply them.',
   /* The device form's offer to start a project's defaults from a device's settings (#85/#86) —
@@ -4252,6 +4254,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.keylessButtons': 'Panel Peneliti: pada perangkat di proyek yang dibagikan kepada Anda, Pengaturan dan Tugaskan teks baru tidak lagi hilang selagi kunci perangkat masih dalam perjalanan \u2014 tombolnya tetap ada di kartu, abu-abu dengan putaran kecil dan alasannya, lalu aktif begitu kuncinya sampai.'
     ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya. \u2728 kini ada di pemutar, kanan bawah, jadi tetap terlihat saat Anda menggulir.'
     ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol Ulangi di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
     ,'panel.rel.new.bootScreen': 'Aplikasi Peneliti kini menampilkan layar pemuatan begitu dibuka, bukan halaman kosong sampai seluruh kodenya selesai diunduh. Pada koneksi lambat, setelah 20 detik aplikasi memberi tahu dan menawarkan muat ulang; jika koneksi terputus, itu pun disebutkan.'
@@ -4543,7 +4546,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.tag': 'anggota',
   'panel.joined.note': 'Anda membantu mengurus perangkat proyek ini. Anda dapat: {caps}.',
   'panel.joined.noteNone': 'Anda dapat melihat perangkat proyek ini, tetapi belum ada kemampuan yang diberikan kepada Anda.',
-  'panel.joined.keyPending': 'Kunci perangkat ini belum sampai ke akun Anda. Kunci dikirim otomatis — tekan Segarkan sebentar lagi; perangkat ini baik-baik saja.',
+  'panel.joined.keyPending': 'Menunggu kunci perangkat ini sampai ke akun Anda \u2014 sampai saat itu, tombol abu-abu di atas belum bisa dipakai. Panel Peneliti pemilik proyek membagikan kuncinya otomatis saat panel itu dibuka atau disegarkan lagi; perangkat ini baik-baik saja.',
+  'panel.joined.keyWaitShort': 'belum siap \u2014 menunggu kunci perangkat ini',
   'panel.set.unconfigured': 'Belum ada pengaturan pada perangkat ini — kolom kosong berarti belum dikonfigurasi siapa pun, bukan ada yang gagal. Isi lalu kirim untuk menyiapkannya.',
   'panel.set.fromTemplate': 'Terisi otomatis dari pengaturan bawaan proyek ini. Belum ada yang terpasang di perangkat — tekan “Kirim ke perangkat” untuk menerapkannya.',
   'panel.set.asProjectDefault': 'Gunakan juga pengaturan ini sebagai bawaan untuk perangkat baru di {name}',

@@ -34,7 +34,23 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v701 — released 2026-10-04 (✨ inside one piece — on the dock, Repeat playback); production is v701 (7ea04591)
+## ▶ v702 — assembled 2026-10-04 (keyless cards keep their buttons, greyed + spinner); production is v701 (7ea04591)
+
+Branch `fix/keyless-waiting`. Seth: "sometimes settings and new text buttons disappear in research panel for certain
+devices … they come back after a long period of time … a 'not loaded yet' or spinning animation over grayed out
+buttons … so they don't just go 'where did my buttons go?'". Cause: on a device in a project shared with the seat,
+`hasKey` is `!!getKi(instance)` per poll (`researcher.js` ~1489); it is false until the OWNER's panel sweeps the
+member grant (`memberGrantSweep`, on the owner's full renders) or when the key fetch hiccups on one poll — and the
+2026-08-27 rule rendered such a card with NO quick-row buttons ("absence-with-explanation"). Now the capability and
+the key are two different absences (`capManage`/`capAssign` vs `mManage`/`mAssign` in `renderInstanceCard`): no
+capability → no button, as before; capability but no key yet → the same icon, disabled, `.is-waiting` (greyed, a thin
+ring spinning over it, reduced-motion safe), the reason in its tooltip and in the card's note, which now says WHO
+delivers the key. The poll repaints the moment `hasKey` flips (it is in viewSig). Not changed: the lifecycle row and
+Files for a keyless card stay absent; the act-gate toast stays as the backstop for stale DOM. Not built: a
+member-triggered server-side grant sweep (the worker can derive Ki — `sweepProjectGrants` — but only an owner or a
+manageDevices seat may call it; a worker change, separate deploy).
+
+## v701 — released 2026-10-04 (✨ inside one piece — on the dock, Repeat playback)
 
 All seven apps verified live at v701 (deploy run 37205910558; every endpoint fetched twice 45 s apart; app.flextext.app's
 segment-strips.js, audio.js and app.css byte-identical to the commit; both shells carry the dock ✨ and the SVG repeat icon,

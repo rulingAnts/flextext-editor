@@ -7167,12 +7167,17 @@ function setupNoticeHtml(kind) {
 }
 
 /* SECTION → MACRO-TAB, and the accordion wiring. Mirrors the researcher panel’s TAB_OF_SEC /
- * wireSettingsTabs / showSettingsSection — see the long note beside GROUPS over there.
+ * wireSettingsTabs / showSettingsTab — see the long note beside GROUPS over there.
  * ⚠ EXCEPT THE SCROLLING, on purpose (#87, Brian Plimley, 2026-10-01). The panel's settings dialog
  * now starts a newly chosen tab at the top and brings an opened section's top into view; these
  * functions do neither. This form scrolls with the page, and the Editor keeps its place for
  * low-skilled users (Seth: the Editor's own text tabs must stay that way). Do not copy the
- * panel's scrollTop handling in here when bringing the two back in step. */
+ * panel's scrollTop handling in here when bringing the two back in step.
+ * ⚠ AND NOT YET the panel's showSettingsSection: it closes the siblings SYNCHRONOUSLY when it
+ * opens a section, because a tab's re-opened first section fires a queued toggle that can shut the
+ * section a validation jump just opened. showGroup in renderDeviceSetup still leaves that to the
+ * toggle listener, so the same race is possible here. A known follow-up (bring the synchronous
+ * close over), not a difference to keep. */
 const SETUP_TAB_OF_SEC = new Map(SETUP_TABS.flatMap((tb) => tb.secs.map((sec) => [sec, tb.id])));
 
 /* ONE COLLAPSIBLE SECTION. Summary = the section name plus a one-line blurb of what is inside; nine

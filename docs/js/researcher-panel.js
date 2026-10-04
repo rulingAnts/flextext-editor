@@ -10012,15 +10012,21 @@ function groupHtml(g, open) {
     + `<div class="rp-group rp-secbody">${notice}${outside}<fieldset class="rp-fieldset${g.legend ? "" : " rp-fs-plain"}"${labelled}>${legend}${help}${wsWarn}${inside}</fieldset></div></details>`;
 }
 
-/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. The one-open-at-a-time rule is wired the same way on
- * both surfaces (app.js wireSetupTabs / showSetupTab), so keep THAT in step.
- * ⚠ BUT NOT THE SCROLLING (#87, Brian Plimley, 2026-10-01). This dialog deliberately (a) starts a
+/* THE ACCORDION, AND THE TAB STRIP ABOVE IT. The one-open-at-a-time rule and the tab strip are wired
+ * the same way on both surfaces (app.js wireSetupTabs / showSetupTab), so keep THAT in step. Two
+ * things are NOT in step, and the comments on both sides say so:
+ * ⚠ NOT THE SCROLLING (#87, Brian Plimley, 2026-10-01). This dialog deliberately (a) starts a
  * newly chosen tab at the top (showSettingsTab) and (b) brings an opened section's top into view
  * (revealSectionTop) — without them, opening a section after scrolling to the bottom of another
  * left the reader in the middle of the new one, and a new tab kept the old tab's scroll offset.
  * The Editor's own surfaces do NOT do this, on purpose: its text tabs keep their place for
  * low-skilled users (Seth), and its Settings tab scrolls with the page. A later "bring the two back
  * in step" change must not copy the scroll handling into app.js, nor drop it from here.
+ * ⚠ NOT YET showSettingsSection's SYNCHRONOUS SIBLING-CLOSE (below). The Editor's showGroup
+ * (app.js renderDeviceSetup) still sets `sec.open = true` and leaves the siblings to the queued
+ * toggle, so the race fixed here on 2026-10-01 — a tab's re-opened first section shutting the
+ * section a validation jump just opened — is still possible there. A known follow-up, not a
+ * difference to preserve: when it is fixed, app.js gets the same synchronous close.
  *
  * ONE SECTION OPEN AT A TIME, per Seth 2026-09-09: "we want only one expanded at a time. If another
  * is expanded, then others collapse." Enforced on the `toggle` event rather than by hijacking the
@@ -10038,8 +10044,11 @@ function wireSettingsTabs(box) {
 /* BRING A JUST-OPENED SECTION'S TOP INTO VIEW (#87, Brian Plimley, 2026-10-01). The scroll box is
  * the dialog's `.rp-groups`; closing a long sibling above shrinks the content and the browser
  * leaves the reader wherever the clamp lands — often the middle or bottom of the new section.
- * Only moves when the section's top is above the box or within 48px of its bottom (a summary
- * sitting at the very foot with its body out of sight); a top already in view is left alone.
+ * Only moves when the section's top is above the box or within 60px of its bottom — the height of
+ * a summary on a phone, where the name and its note wrap onto two lines (10px padding, 15px name,
+ * 13px note, 10px padding): a header that fits with nothing under it counts as out of view, so a
+ * threshold of one line (48px) left a two-line header sitting at the foot with its body unseen.
+ * A top already in view is left alone.
  * ⚠ GUARDS, each a real case:
  *   - inside a hidden tab panel: no layout, so every rect is 0 — and the markup's `open` on each
  *     tab's first section fires `toggle` once the dialog is built, hidden tabs included;
@@ -10055,7 +10064,7 @@ function revealSectionTop(d) {
   const sum = d.querySelector(":scope > summary");
   if (a && a !== d && d.contains(a) && !(sum && sum.contains(a))) return;
   const top = d.getBoundingClientRect().top - sc.getBoundingClientRect().top;
-  if (top < 0 || top > sc.clientHeight - 48) sc.scrollTop += top;
+  if (top < 0 || top > sc.clientHeight - 60) sc.scrollTop += top;   // 60 = a two-line summary (phone)
 }
 
 function showSettingsTab(box, tabId) {

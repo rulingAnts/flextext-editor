@@ -1963,6 +1963,9 @@ export function stopCut() {
   if (cutRaf) cancelAnimationFrame(cutRaf);
   cutRaf = 0;
   cutFollowRow = null;
+  // ✨ lives on the shared dock (v701) but is this tab's: gone with the tab, back with renderCut.
+  const guess = document.getElementById('btn-guess-splits');
+  if (guess) guess.hidden = true;
   // The dock's boundary marks belong to the TEXT, on every tab (Seth, 2026-09-06: "subtle, light,
   // skinny segment boundaries visible on the overview/big player on all three tabs"), so leaving
   // this tab leaves them; the Baseline and Gloss renders push the same marks. Nothing in the editor
@@ -2127,20 +2130,18 @@ export function renderCut(anchorIdx) {
    * refusing on click — the suite's standing rule against controls that look live and do nothing.
    * (cutGuessSplits still refuses, as the backstop.) */
   const guess = document.getElementById('btn-guess-splits');
-  const guessLabel = document.getElementById('cut-tools-label');
   if (guess) {
-    /* TWO MODES, ONE BUTTON (v699). While nothing has been cut by hand — the seed, or a guess nobody
+    /* TWO MODES, ONE BUTTON (v699). On the dock since v701 (Seth: "far right-hand bottom corner of
+     * the overview player"), so it stays on screen however far the strips are scrolled. While nothing has been cut by hand — the seed, or a guess nobody
      * has touched (guessAllowedHere) — ✨ is the whole-file guess with every rule it had. Over manual
      * work it used to be GONE; now it stays, as the guess for the piece under the playhead, which
      * touches that one empty piece and nothing anyone made. See guessMode. */
     const mode = guessMode(segs, paras, doc);
     guess.hidden = false;
-    if (guessLabel) guessLabel.hidden = false;
     guess.dataset.mode = mode;
     if (mode === 'all') {
       const why = guessBlockedBecause(paras, doc);
       guess.disabled = !!why;
-      if (guessLabel) guessLabel.classList.toggle('is-off', guess.disabled);
       guess.title = why || cutDeps.t('cut.guessTip');
       guess.setAttribute('aria-label', cutDeps.t('cut.guess'));
       guessPieceIdx = -2;
@@ -2451,8 +2452,6 @@ function syncGuessPiece(force) {
   guessPieceIdx = i;
   const why = pieceBlockedBecause(cutSegs(), cutDeps.getParagraphs(doc), doc, i);
   guess.disabled = !!why;
-  const label = document.getElementById('cut-tools-label');
-  if (label) label.classList.toggle('is-off', guess.disabled);
   guess.title = why || cutDeps.t('cut.guessPieceTip');
   guess.setAttribute('aria-label', cutDeps.t('cut.guessPiece'));
 }

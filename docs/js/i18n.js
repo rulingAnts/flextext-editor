@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v700';
+export const ENGINE_VERSION = 'v701';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1629,7 +1629,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
-    ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording.'
+    ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording. \u2728 now sits on the player, bottom right, so it stays on screen while you scroll.'
     ,'panel.rel.new.loopPlay': 'Repeat playback: a Repeat button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
     ,'panel.rel.new.bootScreen': 'The Researcher app shows a loading screen the moment it opens, instead of a blank page until all of its code has downloaded. On a slow connection it says so after 20 seconds and offers a reload; if the connection dropped, it says that.'
     ,'panel.rel.new.helpTutorials': 'Help now opens on the three tutorial videos (Brian Plimley’s, in English, with Indonesian subtitles in the player), with "More help…" below for the written guide.'
@@ -2411,7 +2411,6 @@ internet after the first time.</p>
   'cut.guess': 'Guess the lines',
   'cut.hintToggle': 'How this tab works',
   'cut.hintHide': 'Hide the instructions',
-  'cut.guessShort': 'Guess',
   'cut.guessTip': 'Cut the recording at its pauses, as a starting point you can correct.',
   'cut.guessConfirm': 'This recording has already been cut into lines. Replace all of those cuts with new guesses?',
   'cut.guessDone': 'Guessed {n} lines from the pauses. Check them — Undo puts it all back if it went wrong.',
@@ -4253,7 +4252,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
-    ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya.'
+    ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya. \u2728 kini ada di pemutar, kanan bawah, jadi tetap terlihat saat Anda menggulir.'
     ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol Ulangi di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
     ,'panel.rel.new.bootScreen': 'Aplikasi Peneliti kini menampilkan layar pemuatan begitu dibuka, bukan halaman kosong sampai seluruh kodenya selesai diunduh. Pada koneksi lambat, setelah 20 detik aplikasi memberi tahu dan menawarkan muat ulang; jika koneksi terputus, itu pun disebutkan.'
     ,'panel.rel.new.helpTutorials': 'Bantuan kini dibuka dengan tiga video tutorial (buatan Brian Plimley, berbahasa Inggris, dengan subtitel bahasa Indonesia di pemutar video), dan "Bantuan lainnya…" di bawahnya untuk panduan tertulis.'
@@ -4940,7 +4939,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.guess': 'Tebak barisnya',
   'cut.hintToggle': 'Cara kerja tab ini',
   'cut.hintHide': 'Sembunyikan petunjuk',
-  'cut.guessShort': 'Tebak',
   'cut.guessTip': 'Potong rekaman di jeda-jedanya, sebagai titik awal yang bisa Anda perbaiki.',
   'cut.guessConfirm': 'Rekaman ini sudah dipotong menjadi baris. Ganti semua potongan itu dengan tebakan baru?',
   'cut.guessDone': 'Ditebak {n} baris dari jeda-jedanya. Periksalah \u2014 Urungkan mengembalikan semuanya kalau salah.',

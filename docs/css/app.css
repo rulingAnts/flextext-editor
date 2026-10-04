@@ -565,6 +565,11 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
   color: var(--muted);
   min-width: 34px;
 }
+/* ✨ Guess, on the dock's far right (after ✕, which is often hidden on a managed device). The
+   margin-left:auto is for the case where ✕ IS hidden; with both shown they sit together at the end. */
+.player-guess { margin-left: auto; }
+.player-remove:not([hidden]) + .player-guess { margin-left: 0; }
+.player-guess:disabled { opacity: .5; cursor: not-allowed; }
 
 .ws-form label.wide input { width: min(34em, 80vw); }
 
@@ -3209,14 +3214,11 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 
 /* "Guess the lines" sits at the TOP of the Cut tab (Seth), above the message line, because it is the
    first thing to try on a fresh recording — and the only control here that acts on the whole text. */
-#cut-tools { display: flex; gap: 8px; align-items: center; margin: 8px 0 2px; }
-#cut-tools .secondary-btn:disabled { opacity: .5; cursor: not-allowed; }
+#cut-tools { display: flex; gap: 8px; align-items: center; margin: 4px 0 0; }
 
 /* The ✨ Guess control: a glyph with a short word beside it, not a sentence (Seth, 2026-08-14). The
    full wording lives in the tooltip and the aria-label; the tab's hint text is where it is learnt. */
 #btn-guess-splits { font-size: 18px; line-height: 1; }
-.cut-tools-label { color: var(--muted); font-size: 14px; }
-.cut-tools-label.is-off { opacity: .5; }
 
 /* The upload tray's backend/diagnosis line (v372). Quiet by default — it only appears when uploads
    are actually failing, and it is the one place a field user can see WHICH server was unreachable. */

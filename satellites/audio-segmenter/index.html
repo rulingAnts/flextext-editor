@@ -147,6 +147,16 @@
                data-i18n-aria="player.zoom">
       </label>
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
+      <!-- ✨ GUESS THE LINES, on the dock (Seth, 2026-10-04: "put it on the overview player … far
+           right-hand bottom corner"): the dock is sticky, so ✨ stays reachable however far the Cut
+           tab's strips are scrolled — and in piece mode it is about the piece under the playhead,
+           which this player shows. Shown by renderCut, hidden by stopCut: it is the Cut tab's, not
+           the dock's (audio.js never touches it). ⚠ ICON, NOT A SENTENCE (Seth, 2026-08-14: "more
+           iconic and less wordy... like a magic wand"): a glyph with its words in the tooltip and the
+           aria-label; the tab's hint explains it. ✨ is Emoji 1.0 (2015), safe on every Android in the
+           field; 🪄 is Emoji 13 and would be tofu on older ones. -->
+      <button id="btn-guess-splits" class="player-guess icon-btn2" data-i18n-title="cut.guess"
+              data-i18n-aria="cut.guess" aria-label="Guess the lines" hidden>✨</button>
     </div>
   </div>
 
@@ -196,14 +206,9 @@
          what it cuts on is what the user can see. At the top, per Seth. Disabled once the text has
          words in it: guessed spans cannot carry existing text (segments[i] IS paragraph i). -->
     <div id="cut-tools">
-      <!-- ⚠ ICON, NOT A SENTENCE (Seth, 2026-08-14: "make the Guess cut button more iconic and less
-           wordy... like a magic wand"). Same rule as ✂ and ⤙⤚: the coworker users this suite is for
-           may be barely literate, so a control is a glyph with its words in the tooltip and the
-           aria-label, and the tab's hint text is where it is explained. ✨ is Emoji 1.0 (2015), so it
-           renders on every Android in the field; 🪄 is Emoji 13 and would be tofu on older ones. -->
-      <button id="btn-guess-splits" class="secondary-btn icon-btn2" data-i18n-title="cut.guess"
-              data-i18n-aria="cut.guess" aria-label="Guess the lines">✨</button>
-      <span id="cut-tools-label" class="cut-tools-label" data-i18n="cut.guessShort">Guess</span>
+      <!-- ✨ Guess moved onto the player dock (v701, Seth: "put it on the overview player … far
+           right-hand bottom corner") so it is on screen however far the strips are scrolled — the
+           dock is sticky; this row is not. Only the phone-only ℹ remains here. -->
       <!-- ⚠ THE INSTRUCTIONS FOLD AWAY ON A PHONE, AND ONLY THERE (Seth, 2026-09-01). Measured at
            375px the hint paragraph is 162px tall — as tall as the whole sticky player above it — so
            between them they filled the screen before one waveform strip was visible. On a wide

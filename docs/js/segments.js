@@ -646,6 +646,27 @@ export function applyGuessedSplitsWithin(segments, paragraphs, i, boundaries, op
   return { ok: true, reason: '', index: i, segments: out, paragraphs: paras, added: cuts.length };
 }
 
+/* WHICH LINE TRAVELS WITH YOU TO THE NEXT TAB (Seth, 2026-10-05, #39: "if I'm halfway through on
+ * the baseline tab, when I switch to the gloss tab, then whichever segment I had active should be
+ * active and scrolled-to on the gloss tab. And same for cut tab").
+ *
+ * Three candidates, in order: the line whose field you last focused or whose row you last pressed
+ * (`touched`, with where the playhead was at that moment), the playhead's own line, and the topmost
+ * line on screen. The touched line wins — that is the line you were WORKING on — unless the playhead
+ * has moved since you touched it (a drag on the overview, a play-through on the Cut tab), in which
+ * case where you are LISTENING wins. `seek` says whether the playhead must be moved into the chosen
+ * line so every tab's highlight, Space and ▶ agree with it. Pure, so the rule is testable.
+ *
+ * @returns {{i:number, seek:boolean}|null} */
+export function pickActiveLine({ touched, playheadIdx, playheadMs, fallback } = {}) {
+  const t = touched && Number.isInteger(touched.i) && touched.i >= 0 ? touched : null;
+  const p = Number.isInteger(playheadIdx) && playheadIdx >= 0 ? playheadIdx : -1;
+  const moved = isNum(playheadMs) && isNum(t && t.playheadMs) && playheadMs !== t.playheadMs;
+  if (t && (p < 0 || p === t.i || !moved)) return { i: t.i, seek: p !== t.i };
+  if (p >= 0) return { i: p, seek: false };
+  return Number.isInteger(fallback) && fallback >= 0 ? { i: fallback, seek: false } : null;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * ONE SPLITTING RULE ACROSS THE TABS (Seth, 2026-09-06; plans/split-tiers.md).
  *

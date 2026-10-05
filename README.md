@@ -282,6 +282,11 @@ consent" tab is dropped rather than shown empty.
 - **On a touch screen, a waveform strip behaves like a WhatsApp voice note:** a tap places the
   playhead; touching the playhead line and dragging scrubs; dragging anywhere else scrolls the page,
   at any slant, because the strip listens to no finger movement at all. Same on the listening page.
+- **The line you are on travels with you between the Cut, Baseline and Gloss tabs:** the line
+  whose box you were typing in (or whose row you last pressed) — or, if the playhead has moved
+  since, the playhead's line — is scrolled to the top of the new tab, with the playhead on it. (The
+  researcher panel's settings dialog deliberately does the opposite: every tab there starts at the
+  top.)
 - **Repeat** sits on the top player: on, a line's ▶ plays that line again and again until you
   pause it, and the top ▶ repeats the whole recording; off, a line stops at its end as before. The
   device setting *Start with Repeat on* only chooses what it starts as when a text opens.

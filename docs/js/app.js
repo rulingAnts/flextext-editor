@@ -2063,14 +2063,32 @@ function landOnLine(tab, pick, tries = 0) {
     const at = player?.playheadMs?.();
     if (!(typeof at === 'number' && at >= seg.start && at < seg.end)) player?.seekMs?.(seg.start);
   }
-  /* Under the sticky dock, with a little room. Two passes, measured: the first scroll uses the dock's
-   * height as the headroom; once the dock is STUCK its bottom edge sits a few px lower than that (its
-   * own margin), so the second pass reads the real edge and nudges the row clear of it. */
+  placeRowUnderDock(row);
+  /* ⚠ THE GLOSS GROUPS GROW AFTER THEY ARE DECORATED — their waveform bars arrive a moment after the
+   * groups themselves — so a row placed on first sight is pushed down by every group above it
+   * (measured: 204 px for three groups). Settle it a few times, unless the user has scrolled since. */
+  const landedAt = Date.now();
+  for (const ms of [150, 400, 900]) {
+    setTimeout(() => {
+      if (activeTab !== tab || userScrolledAt > landedAt) return;
+      const again = rowForLine(tab, pick.i);
+      if (!again || !again.offsetParent) return;
+      const dock = $('#audio-player');
+      const edge = dock && !dock.hidden ? dock.getBoundingClientRect().bottom : scrollerOf(again).getBoundingClientRect().top;
+      if (Math.abs(again.getBoundingClientRect().top - edge - 10) > 4) placeRowUnderDock(again);
+    }, ms);
+  }
+}
+/* Under the sticky dock, with a little room. Two passes, measured: the first scroll uses the dock's
+ * height as the headroom; once the dock is STUCK its bottom edge sits a few px lower than that (its
+ * own margin), so the second pass reads the real edge and nudges the row clear of it. */
+function placeRowUnderDock(row) {
   const sc = scrollerOf(row);
   sc.scrollTop += row.getBoundingClientRect().top - sc.getBoundingClientRect().top - dockHeadroom() - 10;
   const dock = $('#audio-player');
   if (dock && !dock.hidden) sc.scrollTop += row.getBoundingClientRect().top - dock.getBoundingClientRect().bottom - 10;
 }
+let userScrolledAt = 0;   // the settle loop above yields to a person who has started scrolling
 
 function switchTab(tab, landing) {
   splitCancel();   // a split half-placed on another tab is dropped, with nothing written
@@ -12777,6 +12795,7 @@ function setup() {
   // row's own handlers cannot stop it; passive, so scrolling is never delayed by it.
   document.addEventListener('focusin', (e) => noteTouchedLine(e.target));
   document.addEventListener('pointerdown', (e) => noteTouchedLine(e.target), { passive: true, capture: true });
+  for (const ev of ['wheel', 'touchmove']) document.addEventListener(ev, () => { userScrolledAt = Date.now(); }, { passive: true });
   /* ℹ folds the Cut tab's instructions away on a phone. The button is display:none above 560px, so
    * this listener is inert there and the hint is simply visible — the CSS decides who needs it, not
    * a width read in JS that would then be wrong after a rotation. `is-open` is likewise harmless on

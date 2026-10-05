@@ -34,9 +34,12 @@ test('switchTab measures on the tab being left and lands the new tab on the line
   assert.match(land, /if \(!row \|\| !row\.offsetParent\) \{ if \(tries < 40\) setTimeout\(\(\) => landOnLine\(tab, pick, tries \+ 1\), 100\); return; \}/, 'retries while the tab is still preparing its rows');
   assert.match(land, /activeTab !== tab/, 'a quicker second switch cancels the landing');
   assert.match(land, /if \(pick\.seek && seg && isAligned\(seg\)\) \{\n\s+const at = player\?\.playheadMs\?\.\(\);\n\s+if \(!\(typeof at === 'number' && at >= seg\.start && at < seg\.end\)\) player\?\.seekMs\?\.\(seg\.start\);/, 'the playhead is moved into the line only when the choice came from typing and it is not already there');
-  assert.match(land, /sc\.scrollTop \+= row\.getBoundingClientRect\(\)\.top - sc\.getBoundingClientRect\(\)\.top - dockHeadroom\(\) - 10;/, 'scrollTop on the one scroller, under the sticky dock');
-  assert.match(land, /if \(dock && !dock\.hidden\) sc\.scrollTop \+= row\.getBoundingClientRect\(\)\.top - dock\.getBoundingClientRect\(\)\.bottom - 10;/, 'second pass against the dock\'s REAL stuck edge (measured 2 px under it on the first cut)');
-  assert.doesNotMatch(land, /scrollIntoView/, 'never scrollIntoView (it scrolls every ancestor)');
+  const place = fn(APP, 'placeRowUnderDock');
+  assert.match(place, /sc\.scrollTop \+= row\.getBoundingClientRect\(\)\.top - sc\.getBoundingClientRect\(\)\.top - dockHeadroom\(\) - 10;/, 'scrollTop on the one scroller, under the sticky dock');
+  assert.match(place, /if \(dock && !dock\.hidden\) sc\.scrollTop \+= row\.getBoundingClientRect\(\)\.top - dock\.getBoundingClientRect\(\)\.bottom - 10;/, 'second pass against the dock\'s REAL stuck edge (measured 2 px under it on the first cut)');
+  assert.match(land, /for \(const ms of \[150, 400, 900\]\) \{\n\s+setTimeout\(\(\) => \{\n\s+if \(activeTab !== tab \|\| userScrolledAt > landedAt\) return;/, 'settles the row as the Gloss groups grow (measured 204 px of drift), yielding to a person who scrolls');
+  assert.match(APP, /for \(const ev of \['wheel', 'touchmove'\]\) document\.addEventListener\(ev, \(\) => \{ userScrolledAt = Date\.now\(\); \}, \{ passive: true \}\);/);
+  assert.doesNotMatch(land + place, /scrollIntoView/, 'never scrollIntoView (it scrolls every ancestor)');
   assert.match(APP, /document\.addEventListener\('focusin', \(e\) => noteTouchedLine\(e\.target\)\);\n\s+document\.addEventListener\('pointerdown', \(e\) => noteTouchedLine\(e\.target\), \{ passive: true, capture: true \}\);/);
   assert.match(fn(APP, 'noteTouchedLine'), /closest\('#segment-strips \.seg-strip, #cut-strips \.cut-row, #gloss-body \.segment'\)/, 'rows of all three tabs');
   assert.match(fn(APP, 'rowForLine'), /tab === 'gloss'\) return \(\$\('#gloss-body'\) \? \$\('#gloss-body'\)\.querySelectorAll\('\.segment'\) : \[\]\)\[i\]/, 'Gloss groups are addressed by order (1:1 with lines)');

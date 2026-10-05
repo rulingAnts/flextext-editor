@@ -33,7 +33,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
 import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
-import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords } from './flextext.js';
+import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
@@ -9419,9 +9419,58 @@ const mgFmt = (ms) => {
 function mgLineText(line) {
   const words = line.phrases.flatMap((p) => p.words || []);
   return {
-    words: words.filter((w) => !w.punct).map((w) => ({ txt: w.txt || '', gls: w.gls || '' })),
+    // `src` is the doc's own word, kept so the text column can show its OTHER languages (mgWordStack).
+    words: words.filter((w) => !w.punct).map((w) => ({ txt: w.txt || '', gls: w.gls || '', src: w })),
     free: line.phrases.map((p) => p.free || '').filter(Boolean).join(' '),
   };
+}
+
+/* ── WHICH ANALYSIS LANGUAGE THE TEXT COLUMN SHOWS (Seth, 2026-10-05: "ability to show more than one
+ * analysis writing system (or at least switch between them)") ─────────────────────────────────────
+ * Display only. This device edits ONE gloss per word and ONE free translation per line, in its own
+ * analysis language (the primary); every other analysis language a text carries rides along
+ * verbatim (flextext.js: wordGlosses / phraseFrees read it back) and is shown here AS IT IS — a
+ * read-only row under the word or the line, tagged with its code. 'all' stacks every language,
+ * primary first. The choice is this device's, remembered across texts; the picker only appears
+ * when the open text actually carries more than the primary. Editing a second language is #41 —
+ * see plans/second-analysis-language.md. */
+const MG_LANG_KEY = 'flextext-mg-lang';
+let mgLangPref = (() => { try { return localStorage.getItem(MG_LANG_KEY) || 'primary'; } catch { return 'primary'; } })();
+function mgPrimaryLang() { return (current && current.doc && current.doc.analLang) || settings.analLang || 'en'; }
+function mgLangsPresent() {
+  const prim = mgPrimaryLang();
+  const { gloss, free } = analysisLangs(current && current.doc, prim);
+  const out = [prim];
+  for (const l of [...gloss, ...free]) if (!out.includes(l)) out.push(l);
+  return out;
+}
+function mgLangMode() {
+  const langs = mgLangsPresent();
+  if (mgLangPref === 'all') return langs.length > 1 ? 'all' : 'primary';
+  return mgLangPref !== 'primary' && langs.includes(mgLangPref) ? mgLangPref : 'primary';
+}
+function mgLangPickerHtml() {
+  const langs = mgLangsPresent();
+  if (langs.length < 2) return '';
+  const prim = langs[0], mode = mgLangMode();
+  const opt = (v, label) => `<option value="${esc(v)}"${(v === mode || (v === 'primary' && mode === prim)) ? ' selected' : ''}>${esc(label)}</option>`;
+  return `<select id="mg-lang" class="mg-lang" title="${esc(t('mg.langPick', { lang: prim }))}" aria-label="${esc(t('mg.langPick', { lang: prim }))}">`
+    + opt('primary', prim) + langs.slice(1).map((l) => opt(l, l)).join('') + opt('all', t('mg.langAll')) + '</select>';
+}
+// A read-only row for a language this device does not edit, tagged with its code.
+function mgAltRow(tag, cls, row) {
+  const el = document.createElement(tag);
+  el.className = cls;
+  el.dataset.lang = row.lang;
+  el.title = t('mg.langAlt', { lang: row.lang, prim: mgPrimaryLang() });
+  el.textContent = row.text;
+  return el;
+}
+// Every free translation of a line, by language, phrases joined in order.
+function mgLineFrees(line) {
+  const by = new Map();
+  for (const p of line.phrases) for (const f of freesOfPhrase(p)) { const k = f.lang || ''; by.set(k, [by.get(k), f.text].filter(Boolean).join(' ')); }
+  return [...by].map(([lang, text]) => ({ lang, text }));
 }
 
 function mgLoad(rec) {
@@ -9849,8 +9898,13 @@ function mgWordStack(ln, w, wi, editable) {
   stack.innerHTML = '<span class="mg-w"></span><span class="mg-g"></span>';
   const we = stack.querySelector('.mg-w'), ge = stack.querySelector('.mg-g');
   we.textContent = w.txt;
-  ge.textContent = w.gls;
-  if (editable) { mgWireEditable(we, ln, wi, 'txt'); mgWireEditable(ge, ln, wi, 'gls'); }
+  // The gloss rows for the language(s) chosen (see mgLangPickerHtml): the primary stays editable,
+  // any other language is shown as it is.
+  const rows = analysisRows(w.src ? glossesOfWord(w.src) : [{ lang: '', text: w.gls }], mgLangMode(), mgPrimaryLang());
+  ge.textContent = rows[0].text;
+  if (!rows[0].primary) { ge.classList.add('mg-g-alt'); ge.dataset.lang = rows[0].lang; ge.title = t('mg.langAlt', { lang: rows[0].lang, prim: mgPrimaryLang() }); }
+  for (const r of rows.slice(1)) stack.appendChild(mgAltRow('span', 'mg-g mg-g-alt', r));
+  if (editable) { mgWireEditable(we, ln, wi, 'txt'); if (rows[0].primary) mgWireEditable(ge, ln, wi, 'gls'); }
   return stack;
 }
 
@@ -10140,9 +10194,11 @@ function mgDraw() {
 
   box.innerHTML = `
     ${MG.resumed ? `<p class="mg-resumed"><span></span><button id="mg-fresh" class="link-btn"></button></p>` : ''}
-    <div class="mg-rowhead"><h3 data-i18n="mg.audio">Audio</h3><h3 data-i18n="mg.text">Text</h3></div>
+    <div class="mg-rowhead"><h3 data-i18n="mg.audio">Audio</h3><div class="mg-rowhead-text"><h3 data-i18n="mg.text">Text</h3>${mgLangPickerHtml()}</div></div>
     <ul class="mg-rows" id="mg-rows"></ul>`;
   applyI18n(box);
+  const langSel = box.querySelector('#mg-lang');
+  if (langSel) langSel.onchange = () => { mgLangPref = langSel.value; try { localStorage.setItem(MG_LANG_KEY, mgLangPref); } catch { /* a private window forgets; the choice still applies now */ } mgDraw(); };
   if (MG.resumed) {
     box.querySelector('.mg-resumed span').textContent = t('mg.resumed');
     const fresh = box.querySelector('#mg-fresh');
@@ -10306,8 +10362,12 @@ function mgDraw() {
         last += piece.length;
       });
     } else {
-      ftbox.textContent = txt.free;
-      if (editable) mgWireEditable(ftbox, ln, -1, 'free');
+      // The free translation(s) for the language(s) chosen — same rule as the gloss rows.
+      const frows = analysisRows(mgLineFrees(ln), mgLangMode(), mgPrimaryLang());
+      ftbox.textContent = frows[0].text;
+      if (!frows[0].primary) { ftbox.classList.add('mg-ft-alt'); ftbox.dataset.lang = frows[0].lang; ftbox.title = t('mg.langAlt', { lang: frows[0].lang, prim: mgPrimaryLang() }); }
+      if (editable && frows[0].primary) mgWireEditable(ftbox, ln, -1, 'free');
+      for (const r of frows.slice(1)) ftbox.parentElement.appendChild(mgAltRow('div', 'mg-ft mg-ft-alt', r));
     }
     const cell = document.createElement('div');
     cell.className = 'mg-cell';

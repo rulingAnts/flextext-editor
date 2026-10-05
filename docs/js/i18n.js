@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v703';
+export const ENGINE_VERSION = 'v704';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -165,6 +165,9 @@ en: {
   'sg.oneSpan': 'cut into 1 piece',
   'mg.audio': 'Audio',
   'mg.text': 'Text',
+  'mg.langPick': 'Which analysis language to show. This device edits only {lang}; the others are shown as they are.',
+  'mg.langAll': 'All languages',
+  'mg.langAlt': 'In {lang} \u2014 shown as it is; this device edits {prim}.',
   'mg.back': '← Back',
   'mg.done': 'Done',
   'mg.countsMatch': 'Audio and text line up: {n} rows each. Done saves them as pairs.',
@@ -1629,6 +1632,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.new.mgLangPick': 'Audio Segmenter: when a text carries more than one analysis language, a picker on the Text column shows one of them, or all of them stacked under each word and line \u2014 the other languages as they are; this device still edits only its own.'
     ,'panel.rel.fix.activeLineTabs': 'Editor: the line you are on travels with you between the Cut, Baseline and Gloss tabs \u2014 the new tab opens scrolled to it, with the playhead on it. (The researcher panel\u2019s settings dialog keeps its own rule: every tab starts at the top.)'
     ,'panel.rel.fix.keylessButtons': 'Researcher panel: on a device in a project shared with you, Settings and Assign new text no longer vanish while the device\u2019s key is still on its way \u2014 they stay on the card, greyed with a small spinner and the reason, and come alive when the key arrives.'
     ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording. \u2728 now sits on the player, bottom right, so it stays on screen while you scroll.'
@@ -3000,6 +3004,9 @@ id: {
   'sg.oneSpan': 'dipotong menjadi 1 bagian',
   'mg.audio': 'Audio',
   'mg.text': 'Teks',
+  'mg.langPick': 'Bahasa analisis mana yang ditampilkan. Perangkat ini hanya mengedit {lang}; bahasa lain ditampilkan apa adanya.',
+  'mg.langAll': 'Semua bahasa',
+  'mg.langAlt': 'Dalam {lang} \u2014 ditampilkan apa adanya; perangkat ini mengedit {prim}.',
   'mg.back': '← Kembali',
   'mg.done': 'Selesai',
   'mg.countsMatch': 'Audio dan teks sudah sejajar: {n} baris masing-masing. Selesai menyimpannya berpasangan.',
@@ -4255,6 +4262,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.new.mgLangPick': 'Pemotong Audio: kalau sebuah teks membawa lebih dari satu bahasa analisis, pemilih di kolom Teks menampilkan salah satunya, atau semuanya bertumpuk di bawah tiap kata dan baris \u2014 bahasa lain apa adanya; perangkat ini tetap hanya mengedit bahasanya sendiri.'
     ,'panel.rel.fix.activeLineTabs': 'Editor: baris yang sedang Anda kerjakan ikut berpindah antara tab Potong, Ketik dan Glos \u2014 tab yang baru terbuka langsung tergulir ke baris itu, dengan posisi putar di sana. (Dialog pengaturan di Panel Peneliti tetap dengan aturannya sendiri: setiap tab mulai dari atas.)'
     ,'panel.rel.fix.keylessButtons': 'Panel Peneliti: pada perangkat di proyek yang dibagikan kepada Anda, Pengaturan dan Tugaskan teks baru tidak lagi hilang selagi kunci perangkat masih dalam perjalanan \u2014 tombolnya tetap ada di kartu, abu-abu dengan putaran kecil dan alasannya, lalu aktif begitu kuncinya sampai.'
     ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya. \u2728 kini ada di pemutar, kanan bawah, jadi tetap terlihat saat Anda menggulir.'

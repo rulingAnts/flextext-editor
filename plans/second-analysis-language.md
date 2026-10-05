@@ -55,6 +55,33 @@ Segmenter (v704, `analysisRows` in `flextext.js`). Everything below was checked 
   language twice. `pickByLang` must move the chosen item OUT of the preserved list (it does for the
   primary), and settings validation refuses `analLang2 === analLang` or `=== vernLang`.
 
+### 2.1b Texts that lack the second language — and every other mismatch (Seth, 2026-10-05)
+
+> *"it's not just devices without a second language, but also TEXTs without a second language that
+> our app with this feature needs to be able to handle. So like the project (and device settings) may
+> specify two analysis languages, but if a particular text only has one, that needs to not break our
+> app when it imports."*
+
+The device's two languages and the text's languages are independent facts, and every combination
+must import, edit, save and export without a special case the coworker can see:
+
+| Device has | Text has | What happens |
+|---|---|---|
+| en only (today) | en | today, unchanged |
+| en only | en + id | id rides as preserved XML (today, unchanged); the Segmenter's v704 picker shows it read-only |
+| en + id | en only | **the case Seth named.** `pickByLang(items, 'id')` finds nothing → `gls2 = ''`, `gls2Lang = ''` (empty, meaning "the device's second language"), exactly as a word with no gloss at all is `gls = ''` today. The Gloss tab shows an EMPTY second row under each word and an empty second free line — that is the layer waiting to be filled, not an error. Nothing is written for it until someone types (serialise `gls2` only when non-empty, the same `if (w.gls)` rule as today), so a text that is only looked at round-trips byte-for-byte. |
+| en + id | en + id | both slots editable; nothing rides |
+| en + id | en + fr | fr rides as preserved XML; the id slot is empty and editable; the picker shows fr read-only. **The one rule that matters:** a slot is filled only by an exact language match — never "the next language we find" — or an fr gloss would be edited as if it were id and written back under the wrong code. |
+| en + id | id only (no en at all) | the primary slot is empty (today's behaviour for a text with no glosses), the second is filled. The Baseline/Gloss tabs already cope with an untranslated text. |
+| en + id | en + id, but only SOME words/lines have id | per item: words that have it show it, words that lack it show the empty row. There is no line-level "has a second language" flag to get out of step. |
+| en + id | three or more languages | the two slots as above; the rest rides. `analysisLangs` lists them all; the picker shows them read-only. |
+
+Two consequences for the build: (1) `pickByLang` must MOVE a chosen item out of the preserved list
+and must never choose a different language than asked (the "exact match" rule above) — the test for
+phase 1 runs every row of this table over real corpus files (the corpus has texts with 0, 1 and 2
+analysis languages); (2) the UI's empty second row needs its own placeholder text ("gloss in id…"), so
+a coworker on a one-language text sees what the row is for rather than a blank.
+
 ### 2.2 Settings: three keys, both surfaces, off by default
 - `analLang2`, `anal2Name`, `anal2Font` beside the existing `analLang` trio in the *This device ▸
   Languages* section (unpaired Settings tab and the researcher panel's per-device + project-default
@@ -92,7 +119,7 @@ orthography needs its own typing line per segment and a rule for keeping the two
 
 | Phase | What | Effort (a Claude session ≈ a few focused hours + Seth's staging check) |
 |---|---|---|
-| 1 | Model: `gls2`/`free2` in makeSegment/parseWord/pickByLang/serialize; merge/split/reconcile/undo carry them; `wordGlosses`/`phraseFrees` know the slot; tests on real corpus files | 1 session |
+| 1 | Model: `gls2`/`free2` in makeSegment/parseWord/pickByLang/serialize; merge/split/reconcile/undo carry them; `wordGlosses`/`phraseFrees` know the slot; the §2.1b table run over real corpus files (0, 1, 2 languages; a two-language device importing a one-language text and saving it unchanged) | 1 session |
 | 2 | Settings: the four keys on both surfaces, validation, snapshot, segmenter keys, typing tags; release note | 1 session |
 | 3 | Gloss tab: second gloss row + second free line, landing/Enter rules, gating by `showAnal2`; phone layout | 1–2 sessions |
 | 4 | Segmenter editable second row; PAT + listening page display; `.fxpa` fields | 1 session |

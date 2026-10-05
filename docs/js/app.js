@@ -2063,8 +2063,13 @@ function landOnLine(tab, pick, tries = 0) {
     const at = player?.playheadMs?.();
     if (!(typeof at === 'number' && at >= seg.start && at < seg.end)) player?.seekMs?.(seg.start);
   }
+  /* Under the sticky dock, with a little room. Two passes, measured: the first scroll uses the dock's
+   * height as the headroom; once the dock is STUCK its bottom edge sits a few px lower than that (its
+   * own margin), so the second pass reads the real edge and nudges the row clear of it. */
   const sc = scrollerOf(row);
   sc.scrollTop += row.getBoundingClientRect().top - sc.getBoundingClientRect().top - dockHeadroom() - 10;
+  const dock = $('#audio-player');
+  if (dock && !dock.hidden) sc.scrollTop += row.getBoundingClientRect().top - dock.getBoundingClientRect().bottom - 10;
 }
 
 function switchTab(tab, landing) {

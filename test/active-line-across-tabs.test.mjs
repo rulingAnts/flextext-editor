@@ -35,6 +35,7 @@ test('switchTab measures on the tab being left and lands the new tab on the line
   assert.match(land, /activeTab !== tab/, 'a quicker second switch cancels the landing');
   assert.match(land, /if \(pick\.seek && seg && isAligned\(seg\)\) \{\n\s+const at = player\?\.playheadMs\?\.\(\);\n\s+if \(!\(typeof at === 'number' && at >= seg\.start && at < seg\.end\)\) player\?\.seekMs\?\.\(seg\.start\);/, 'the playhead is moved into the line only when the choice came from typing and it is not already there');
   assert.match(land, /sc\.scrollTop \+= row\.getBoundingClientRect\(\)\.top - sc\.getBoundingClientRect\(\)\.top - dockHeadroom\(\) - 10;/, 'scrollTop on the one scroller, under the sticky dock');
+  assert.match(land, /if \(dock && !dock\.hidden\) sc\.scrollTop \+= row\.getBoundingClientRect\(\)\.top - dock\.getBoundingClientRect\(\)\.bottom - 10;/, 'second pass against the dock\'s REAL stuck edge (measured 2 px under it on the first cut)');
   assert.doesNotMatch(land, /scrollIntoView/, 'never scrollIntoView (it scrolls every ancestor)');
   assert.match(APP, /document\.addEventListener\('focusin', \(e\) => noteTouchedLine\(e\.target\)\);\n\s+document\.addEventListener\('pointerdown', \(e\) => noteTouchedLine\(e\.target\), \{ passive: true, capture: true \}\);/);
   assert.match(fn(APP, 'noteTouchedLine'), /closest\('#segment-strips \.seg-strip, #cut-strips \.cut-row, #gloss-body \.segment'\)/, 'rows of all three tabs');

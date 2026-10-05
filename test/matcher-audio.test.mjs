@@ -563,7 +563,8 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(/const editable = allowTextEditOn\(\);/.test(draw) && /mgWordStack\(ln, w, wi, editable\)/.test(draw), 'every pair is built by one helper that knows whether it is editable');
   ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
      'a blank line gets one empty pair, so there is somewhere to type');
-  ok(/if \(editable\) mgWireEditable\(ftbox, ln, -1, 'free'\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
+  // v704: …and only when the row shown IS this device's language (another language's free translation is read-only).
+  ok(/if \(editable && frows\[0\]\.primary\) mgWireEditable\(ftbox, ln, -1, 'free'\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
   const wire = fn(app, 'mgWireEditable');
   ok(/el\.contentEditable = 'plaintext-only'/.test(wire) && /el\.contentEditable = 'true'/.test(wire), 'plaintext where the browser has it, plain elsewhere');
   ok(/if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); el\.blur\(\); return; \}/.test(wire), 'Enter commits');

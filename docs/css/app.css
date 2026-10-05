@@ -3501,6 +3501,13 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
    approximate, with a min-height so a short window still shows rows rather than a sliver. */
 .mg-rowhead{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:.4rem .6rem 0}
 .mg-rowhead h3{margin:0 0 .2rem;font-size:.95rem;color:var(--muted,#667)}
+/* The text column's language picker (display only — see mgLangPickerHtml) and the read-only rows
+   of a language this device does not edit, each tagged with its code. */
+.mg-rowhead-text{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;min-width:0}
+.mg-lang{font-size:.8rem;padding:.1rem .3rem;border:1px solid var(--border);border-radius:6px;background:#fff;max-width:12em}
+.mg-g-alt,.mg-ft-alt{color:var(--muted,#667)}
+.mg-ft-alt{margin-top:.15rem}
+.mg-g-alt::before,.mg-ft-alt::before{content:attr(data-lang);display:inline-block;font-size:.62rem;font-style:normal;font-weight:600;line-height:1.3;color:var(--muted,#667);border:1px solid #cdd3da;border-radius:4px;padding:0 .25em;margin-right:.35em;vertical-align:middle}
 .mg-rows{list-style:none;margin:0;padding:.3rem .6rem .6rem;overflow:auto;overscroll-behavior:contain;
   max-height:calc(100vh - 22rem);min-height:12rem}
 .mg-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start;margin-bottom:.35rem}

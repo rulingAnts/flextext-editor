@@ -1184,6 +1184,27 @@ export function phraseFrees(seg) {
   }
   return out;
 }
+/* WHICH OF THOSE TO SHOW, and in what order (Seth, 2026-10-05: "ability to show more than one
+ * analysis writing system (or at least switch between them)" — the Audio Segmenter's text column).
+ * `entries` is wordGlosses(w) or phraseFrees(seg); `mode` is 'primary', 'all', or one language code.
+ * Exactly one row comes back for 'primary' and for a code (empty text when the text has none),
+ * every language for 'all' with the primary first. `primary: true` marks the one row a device may
+ * edit — the others are shown as they are. */
+export function analysisRows(entries, mode, primary) {
+  const prim = primary || 'en';
+  const list = (entries || []).map((e) => ({ lang: e.lang || prim, text: e.text || '' }));
+  const primRow = { lang: prim, text: (list.find((e) => e.lang === prim) || {}).text || '', primary: true };
+  if (mode === 'all') {
+    const out = [primRow];
+    for (const e of list) if (e.lang !== prim && !out.some((o) => o.lang === e.lang)) out.push({ ...e, primary: false });
+    return out;
+  }
+  if (mode && mode !== 'primary' && mode !== prim) {
+    return [{ lang: mode, text: (list.find((e) => e.lang === mode) || {}).text || '', primary: false }];
+  }
+  return [primRow];
+}
+
 /* { gloss: [...], free: [...] } — the primary analysis language first, then every other language
  * that has at least one non-empty line, in order of first appearance. A line with no language of
  * its own counts as the primary. */

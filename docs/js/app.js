@@ -32,7 +32,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1997,6 +1997,99 @@ async function prepareCutAudio() {
   renderCut();
 }
 
+/* ── THE ACTIVE LINE TRAVELS WITH YOU BETWEEN TABS (Seth, 2026-10-05, #39) ──────────────────────
+ * "if I'm halfway through on the baseline tab, when I switch to the gloss tab, then whichever
+ * segment I had active should be active and scrolled-to on the gloss tab. And same for cut tab."
+ *
+ * The rule is pickActiveLine (segments.js). What this file adds is the measuring and the landing:
+ * `touchedLine` remembers the row you last focused a field in or pressed (any tab), with where the
+ * playhead was at that moment; switchTab asks activeLineOnLeave on the tab being LEFT — before
+ * anything re-renders — and landOnLine puts the new tab on that line: the playhead moved into it
+ * when the choice came from your typing (so the highlight, Space and ▶ agree), and the row scrolled
+ * to sit just under the sticky dock. It retries for a few seconds because the Cut and Baseline tabs
+ * build their rows only after the audio is prepared.
+ *
+ * ⚠ THIS IS THE EDITOR'S RULE, NOT THE SETTINGS DIALOG'S. The researcher panel's settings dialog
+ * starts every tab at the top (#87, showSettingsTab); the editor's tabs keep your line. Seth,
+ * 2026-10-05: "They should have distinct scrolling/sync behavior." test/active-line-across-tabs
+ * pins both. scrollTop on the one scroller, never scrollIntoView — it scrolls every ancestor. */
+let touchedLine = null;   // { i, playheadMs }
+function lineIndexOfRow(row) {
+  if (!row) return -1;
+  if (row.dataset && row.dataset.i != null) return +row.dataset.i;          // Baseline strips, Cut rows
+  const body = $('#gloss-body');
+  if (body && row.classList.contains('segment')) return [...body.querySelectorAll('.segment')].indexOf(row);   // Gloss groups: 1:1 with lines, in order
+  return -1;
+}
+function noteTouchedLine(target) {
+  const row = target && target.closest && target.closest('#segment-strips .seg-strip, #cut-strips .cut-row, #gloss-body .segment');
+  const i = lineIndexOfRow(row);
+  if (i >= 0) touchedLine = { i, playheadMs: player?.playheadMs?.() ?? null };
+}
+function rowForLine(tab, i) {
+  if (tab === 'cut') return document.querySelector(`#cut-strips .cut-row[data-i="${i}"]`);
+  if (tab === 'baseline') return document.querySelector(`#segment-strips .seg-strip[data-i="${i}"]`);
+  if (tab === 'gloss') return ($('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment') : [])[i] || null;
+  return null;
+}
+function linesOf(tab) {
+  if (tab === 'gloss') return [...($('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment') : [])];
+  return [...document.querySelectorAll(tab === 'cut' ? '#cut-strips .cut-row' : '#segment-strips .seg-strip')];
+}
+function dockHeadroom() { const d = $('#audio-player'); return d && !d.hidden ? d.getBoundingClientRect().height : 0; }
+function topmostVisibleLine(tab) {
+  const rows = linesOf(tab);
+  const sc = rows[0] && scrollerOf(rows[0]); if (!sc) return -1;
+  const limit = sc.getBoundingClientRect().top + dockHeadroom();
+  for (let k = 0; k < rows.length; k++) if (rows[k].getBoundingClientRect().bottom > limit + 4) return tab === 'gloss' ? k : +rows[k].dataset.i;
+  return -1;
+}
+function scrollerOf(el) {
+  for (let n = el && el.parentElement; n; n = n.parentElement) { const ov = getComputedStyle(n).overflowY; if (ov === 'auto' || ov === 'scroll') return n; }
+  return document.scrollingElement || document.documentElement;
+}
+function activeLineOnLeave(fromTab) {
+  const doc = current && current.doc;
+  if (!doc || !isEditorTab(fromTab)) return null;
+  const at = player?.playheadMs?.();
+  return pickActiveLine({ touched: touchedLine, playheadIdx: segIndexAt(docSegments(doc), at), playheadMs: Number.isFinite(at) ? at : null, fallback: topmostVisibleLine(fromTab) });
+}
+function landOnLine(tab, pick, tries = 0) {
+  if (!pick || !isEditorTab(tab) || activeTab !== tab || !current) return;
+  const row = rowForLine(tab, pick.i);
+  if (!row || !row.offsetParent) { if (tries < 40) setTimeout(() => landOnLine(tab, pick, tries + 1), 100); return; }   // rows arrive with the audio
+  const seg = docSegments(current.doc)[pick.i];
+  if (pick.seek && seg && isAligned(seg)) {
+    const at = player?.playheadMs?.();
+    if (!(typeof at === 'number' && at >= seg.start && at < seg.end)) player?.seekMs?.(seg.start);
+  }
+  placeRowUnderDock(row);
+  /* ⚠ THE GLOSS GROUPS GROW AFTER THEY ARE DECORATED — their waveform bars arrive a moment after the
+   * groups themselves — so a row placed on first sight is pushed down by every group above it
+   * (measured: 204 px for three groups). Settle it a few times, unless the user has scrolled since. */
+  const landedAt = Date.now();
+  for (const ms of [150, 400, 900]) {
+    setTimeout(() => {
+      if (activeTab !== tab || userScrolledAt > landedAt) return;
+      const again = rowForLine(tab, pick.i);
+      if (!again || !again.offsetParent) return;
+      const dock = $('#audio-player');
+      const edge = dock && !dock.hidden ? dock.getBoundingClientRect().bottom : scrollerOf(again).getBoundingClientRect().top;
+      if (Math.abs(again.getBoundingClientRect().top - edge - 10) > 4) placeRowUnderDock(again);
+    }, ms);
+  }
+}
+/* Under the sticky dock, with a little room. Two passes, measured: the first scroll uses the dock's
+ * height as the headroom; once the dock is STUCK its bottom edge sits a few px lower than that (its
+ * own margin), so the second pass reads the real edge and nudges the row clear of it. */
+function placeRowUnderDock(row) {
+  const sc = scrollerOf(row);
+  sc.scrollTop += row.getBoundingClientRect().top - sc.getBoundingClientRect().top - dockHeadroom() - 10;
+  const dock = $('#audio-player');
+  if (dock && !dock.hidden) sc.scrollTop += row.getBoundingClientRect().top - dock.getBoundingClientRect().bottom - 10;
+}
+let userScrolledAt = 0;   // the settle loop above yields to a person who has started scrolling
+
 function switchTab(tab, landing) {
   splitCancel();   // a split half-placed on another tab is dropped, with nothing written
   /* ⚠ ONE GATE FOR EVERY PATH IN. Landing, a remembered tab, a live researcher push and a click all
@@ -2008,7 +2101,10 @@ function switchTab(tab, landing) {
     applyBaseline();
   }
   const fromTab = activeTab;      // what we are ARRIVING FROM — see the Cut tab's span-watcher rule
+  // Measured on the tab being LEFT, before anything re-renders; a landing (opening a text) keeps v360's own rule.
+  const carry = landing ? null : activeLineOnLeave(fromTab);
   activeTab = tab;
+  if (carry) setTimeout(() => landOnLine(tab, carry), 0);
   /* ⚠ ONLY A TAB THE USER CHOSE IS REMEMBERED. enterEditor's own landing switch passes `landing`,
    * because storing the tab the APP picked would make rule (2) self-fulfilling: the first auto-land
    * on Cut would become "the user's choice" forever, and a researcher later switching landOnCut off
@@ -12695,6 +12791,11 @@ function setup() {
     if (onGloss) glossPlaceAudio(); else stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
+  // The row you last worked in, for the tab switch (see activeLineOnLeave). Capture phase, so a
+  // row's own handlers cannot stop it; passive, so scrolling is never delayed by it.
+  document.addEventListener('focusin', (e) => noteTouchedLine(e.target));
+  document.addEventListener('pointerdown', (e) => noteTouchedLine(e.target), { passive: true, capture: true });
+  for (const ev of ['wheel', 'touchmove']) document.addEventListener(ev, () => { userScrolledAt = Date.now(); }, { passive: true });
   /* ℹ folds the Cut tab's instructions away on a phone. The button is display:none above 560px, so
    * this listener is inert there and the hint is simply visible — the CSS decides who needs it, not
    * a width read in JS that would then be wrong after a rotation. `is-open` is likewise harmless on

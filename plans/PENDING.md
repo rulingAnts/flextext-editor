@@ -34,7 +34,19 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v702 — released 2026-10-04 (keyless cards keep their buttons, greyed + spinner); production is v702 (e558b93e)
+## ▶ v703 — assembled 2026-10-05 (the active line travels between the editor's tabs, #39); production is v702 (e558b93e)
+
+Branch `fix/active-line-across-tabs`. Seth: "if I'm halfway through on the baseline tab, when I switch to the gloss tab,
+then whichever segment I had active should be active and scrolled-to on the gloss tab. And same for cut tab … I think
+that used to work … They should have distinct scrolling/sync behavior [from the device settings modal]." Built as an
+explicit rule rather than archaeology: `pickActiveLine` (segments.js, pure) — the row you last focused or pressed wins
+unless the playhead moved since, then the playhead's line; else the topmost visible line. `switchTab` measures it on the
+tab being left (`activeLineOnLeave`) and `landOnLine` puts the new tab on it (playhead moved into it when the choice came
+from typing; the row scrolled under the sticky dock; retried while the tab prepares audio; scrollTop on the one scroller,
+never scrollIntoView). A landing (opening a text) keeps v360's own rule. The settings dialog's "every tab starts at the
+top" (#87) is untouched and pinned beside this in test/active-line-across-tabs.test.mjs. Not built from #39: row numbers.
+
+## v702 — released 2026-10-04 (keyless cards keep their buttons, greyed + spinner)
 
 All seven apps verified live at v702 (deploy run 37207969153; every endpoint fetched twice 45 s apart; research.flextext.app's
 researcher-panel.js byte-identical to the commit; main = productionWeb = staging = e558b93e). Nothing is staged beyond

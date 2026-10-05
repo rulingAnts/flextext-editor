@@ -34,7 +34,17 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v703 — assembled 2026-10-05 (the active line travels between the editor's tabs, #39); production is v702 (e558b93e)
+## ▶ v704 — assembled 2026-10-05 (Segmenter: which analysis language the Text column shows); on top of v703 (staging)
+
+Branch `feat/segmenter-analysis-lang`. Seth: "implement the cheap, display-only option on the segmenter's text column".
+`analysisRows(entries, mode, primary)` (flextext.js, pure) picks the rows to show from wordGlosses / phraseFrees: one
+row for the primary or for one code, every language for 'all' (primary first; `primary: true` on the one row a device
+may edit). The matcher (app.js: `mgLangPickerHtml`, `mgWordStack`, the `.mg-ft` cell) renders a `<select id="mg-lang">`
+beside "Text" only when the open text carries more than the device's analysis language; the choice is remembered per
+device (`localStorage flextext-mg-lang`). Other languages render read-only (`.mg-g-alt` / `.mg-ft-alt`, tagged with
+their code); the primary stays editable. Not in scope: editing a second language — plans/second-analysis-language.md.
+
+## v703 — assembled 2026-10-05 (the active line travels between the editor's tabs, #39)
 
 Branch `fix/active-line-across-tabs`. Seth: "if I'm halfway through on the baseline tab, when I switch to the gloss tab,
 then whichever segment I had active should be active and scrolled-to on the gloss tab. And same for cut tab … I think

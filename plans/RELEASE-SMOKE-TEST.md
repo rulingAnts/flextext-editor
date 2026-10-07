@@ -507,7 +507,16 @@ These are the ones a tester can see.
 - [ ] **Researcher panel, a conversion that cannot be built** (a text with no alignment): the tray
       must say it failed, not "done — check your downloads".
 
-## v707 — ✨ at any length; join and split as separate permissions; the Gloss 🔗 honours its switch (2026-10-07)
+## v709 — silent lines leave the FLExText and EAF exports (#97) (2026-10-08)
+
+- [ ] **A text with blank (silent) lines between transcribed ones:** Save/share it. In the `.flextext` there is no
+      empty `<phrase>` and no empty paragraph; in the `.eaf` (open it in ELAN) the phrase tier has a hole where each
+      silence was, on every tier, and nothing carries an empty value. The SayMore `.annotations.eaf` likewise.
+- [ ] **The editor is unchanged:** the blank lines are still there on the Baseline, Cut and Gloss tabs after saving.
+- [ ] **Re-open the saved `.flextext` as a new text:** the transcribed lines arrive with their times; the silences are
+      holes between them (no row), which is how an ELAN file with pauses already opens.
+- [ ] **A blank line WITH a free translation, or with a note imported from FLEx:** still written.
+
 
 - [ ] **Researcher panel → a device's settings → Typing & keys:** four switches (join / split × Baseline / Gloss)
       where there were two; project defaults show the same four. Turn OFF only "Allow joining lines on the Gloss

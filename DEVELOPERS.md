@@ -228,7 +228,9 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
   it also teaches it — the user reaches for the space bar out of habit and gets the right character.
   Free translations are prose and are unaffected.
 - **Segmentation mode invariant (flat mode): one line = one paragraph = one phrase = one span**,
-  including blank lines (a blank line is a real timed span — usually silence).
+  including blank lines (a blank line is a real timed span — usually silence). ⚠ In the files written
+  for FLEx and ELAN/SayMore a blank line is left OUT (v709, `isSilentPhrase` in `flextext.js`): no empty
+  phrase, no empty annotation; the editor keeps it, and a re-import sees a hole between its neighbours.
 - All span edits route through `segments.js` (`boundaryAtPlayhead` / `mergeSegments` /
   `normalizeSegments` / `syncToLines`): spans can never cross; a time is never invented
   (out-of-range → `timePending`); **text is sacred** (a text edit always applies even when the

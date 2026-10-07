@@ -469,6 +469,27 @@ function indentFragment(xml, pad) {
   return xml.split('\n').map(l => pad + l.trim()).join('\n');
 }
 
+// Our own audio-timing note item (`audio 0:00.000–0:02.000`), so a round trip never carries it twice
+// and so a phrase holding nothing BUT that note counts as empty (isSilentPhrase).
+const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
+
+/* A SILENT PHRASE — no words, no baseline text, no free translation, nothing preserved from an
+ * import that is somebody's data — is a cut piece of audio the transcriber left empty: a pause, noise,
+ * an aside. Seth, 2026-10-08: "Silent segments exported (or saved) as flextext and especially eaf
+ * should not be included in the export … not as empty lines in FLEx or empty annotations in
+ * ELAN/SayMore." The EDITOR keeps every such line (it is a real timed span, 1:1 with doc.segments,
+ * and the Cut and Gloss tabs rely on that); only the files written for FLEx and ELAN leave it out,
+ * the way ELAN itself leaves a stretch unannotated. Imported notes and other preserved items make a
+ * phrase someone's data, so a phrase carrying any of them is written whatever its text. */
+export function isSilentPhrase(seg) {
+  if (!seg) return false;
+  if ((seg.words || []).length) return false;
+  if (String(seg.baseline || '').trim() || String(seg.free || '').trim()) return false;
+  if ((seg.preItemsXML || []).length) return false;
+  if ((seg.postItemsXML || []).some((x) => !OUR_NOTE.test(x))) return false;
+  return true;
+}
+
 export function serializeFlextext(doc, settings = {}, opts = {}) {
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
@@ -520,7 +541,6 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? doc.segments : [];
   const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
-  const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
     ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
   /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
@@ -557,12 +577,20 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
 
   let pi = -1;
   for (const run of emit) {
+    /* ⚠ A SILENT PHRASE IS NOT WRITTEN (Seth, 2026-10-08) — see isSilentPhrase — and a paragraph with
+     * nothing left in it is not written either (`mark` rewinds it). FLEx gets only the lines that say
+     * something; on a round trip the stretch comes back as a hole between the neighbouring phrases'
+     * offsets, which is exactly how an ELAN file with an unannotated stretch already arrives. */
+    const mark = lines.length;
+    let emitted = 0;
     lines.push(`      <paragraph guid="${esc(run.guid)}">`);
     lines.push('        <phrases>');
     for (const li of run.lines) {
     const para = doc.paragraphs[li];
     pi = li;
     for (const seg of para.segments) {
+      if (isSilentPhrase(seg)) continue;
+      emitted++;
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
@@ -631,6 +659,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     }
     lines.push('        </phrases>');
     lines.push('      </paragraph>');
+    if (!emitted) lines.length = mark;   // every phrase in it was silent: the paragraph is not written
   }
   lines.push('    </paragraphs>');
   // languages element. Authored docs SKIP doc.languages (that's the stale snapshot

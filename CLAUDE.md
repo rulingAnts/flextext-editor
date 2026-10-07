@@ -475,7 +475,10 @@ or a `?segmentation=on` settings link). OFF = the classic textarea workflow, pix
 the Baseline tab becomes waveform **strips** (one line = one paragraph = one phrase = one time
 span; Enter breaks text at the CURSOR and time at the PLAYHEAD; Backspace/Delete merges) and the
 Gloss tab gets per-line mini waves, join buttons, and Enter-split on gloss fields. Blank lines are
-real timed spans (silence) and hold placeholder rows on the Gloss tab.
+real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ Since v709 a SILENT line (no words, no text, no translation, nothing
+preserved from an import) is NOT WRITTEN to the .flextext or the EAFs (`isSilentPhrase`, flextext.js) — FLEx
+gets no empty line and ELAN/SayMore no empty annotation; the editor keeps it, and on a round trip the stretch
+is a hole between the neighbours' offsets, as an ELAN file with a pause already is (Seth, 2026-10-08).
 
 - **`flextext` IS the segmentation format — no proprietary sidecar.** Aligned spans export as
   FLEx-native phrase `begin/end-time-offset` attributes (+ a `media-files` block) AND as visible

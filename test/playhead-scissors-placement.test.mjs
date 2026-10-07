@@ -70,8 +70,8 @@ test('one line is armed at a time, and the same button disarms', () => {
 });
 
 test('both tabs offer the arm button, gated by the researcher switch', () => {
-  assert.match(STRIPS, /if \(joinSplitOk\(\) && !stripsLocked\(i\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'Baseline');
-  assert.match(APP, /if \(joinSplitAllowed\('gloss'\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'Gloss');
+  assert.match(STRIPS, /if \(splitOk\(\) && !stripsLocked\(i\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'Baseline');
+  assert.match(APP, /if \(splitLinesAllowed\('gloss'\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'Gloss');
   assert.match(APP, /armLine\(g\)/, 'and the Gloss tab arms through the same helper, so there is one source of truth');
   assert.equal((I18N.match(/\n {2},?'cut\.arm': '/g) || []).length, 2, 'cut.arm in EN and ID');
 });

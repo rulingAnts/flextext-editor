@@ -64,7 +64,7 @@ test('Baseline tab: the box places the text tier, the playhead the audio tier; r
   const merge = STRIPS.slice(STRIPS.indexOf('function mergeAt(a, b, caretAtJoin)'), STRIPS.indexOf('function commitTexts()'));
   assert.match(merge, /if \(stripsLocked\(a\) \|\| stripsLocked\(b\)\) \{ stripsRefuse\(\); return; \}/, 'rule A on a join');
   assert.match(STRIPS, /\+ \(deps\.hasGloss && deps\.hasGloss\(i\) \? ' seg-locked' : ''\);/, 'a locked line is drawn locked');
-  assert.match(STRIPS, /joinSplitOk\(\) && !stripsLocked\(i\) && !stripsLocked\(i \+ 1\)\) \{/, 'no join button beside a locked line');
+  assert.match(STRIPS, /joinOk\(\) && !stripsLocked\(i\) && !stripsLocked\(i \+ 1\)\) \{/, 'no join button beside a locked line');
   assert.match(STRIPS, /function stripsLocked\(i\) \{ return !splitAllowed\('baseline', stripsInfo\(i\)\); \}/);
   assert.match(STRIPS, /sc\.addEventListener\('click', \(ev\) => \{ ev\.stopPropagation\(\); stripSplitAtPlayhead\(\); \}\);/, 'a ✂ under the playhead on this tab too');
   assert.match(APP, /hasGloss: \(i\) => lineHasAnalysis\(current && current\.doc, i\),/);
@@ -86,7 +86,7 @@ test('Gloss tab: the ✂ between words, the translation\'s caret and the playhea
   assert.doesNotMatch(APP.replace(/\/\*[\s\S]*?\*\//g, ''), /querySelectorAll\('\.chain-btn'\)\.forEach/,
     'the ✂ no longer rides on the chain-links, which is what made canMerge decide both questions');
   assert.match(APP, /glossPlace\(i, 'words', atStart \? w : w \+ 1\);/);
-  assert.match(APP, /if \(fi\.value\.trim\(\) && joinSplitAllowed\('gloss'\)\) \{ glossPlace\(i, 'free', fi\.selectionStart \?\? fi\.value\.length\); return; \}/, 'mid-text Enter in the translation places its tier');
+  assert.match(APP, /if \(fi\.value\.trim\(\) && splitLinesAllowed\('gloss'\)\) \{ glossPlace\(i, 'free', fi\.selectionStart \?\? fi\.value\.length\); return; \}/, 'mid-text Enter in the translation places its tier');
   assert.match(APP, /glossPlaceEdge\(i, 0\);/, 'Enter at the start: an empty line before, audio still to place (through the edge helper, v598)');
   assert.match(APP, /if \(onGloss\) glossPlaceAudio\(\); else stripSplitAtPlayhead\(\);/, 'Enter outside the boxes places audio on either tab');
   assert.match(APP, /sc\.addEventListener\('click', \(ev\) => \{ ev\.stopPropagation\(\); glossPlaceAudio\(\); \}\);/, 'a ✂ under the gloss playhead');
@@ -116,7 +116,7 @@ test('the ✂ for a text tier hangs under the blinking caret and follows it (Set
   assert.match(APP, /registerCaretScissors\(input, freeRow, \(\) => glossCaretWant\(input, seg\), /, 'every translation box registers its ✂');
   const want = STRIPS.slice(STRIPS.indexOf('function stripsCaretWant(input, i)'), STRIPS.indexOf('function stripsCaretWant(input, i)') + 500);
   assert.match(want, /if \(document\.activeElement === input\) return true;/, 'shown whenever the focused box can be split by Enter');
-  assert.match(want, /if \(!joinSplitOk\(\) \|\| stripsLocked\(i\)\) return false;/, 'never on a locked line');
+  assert.match(want, /if \(!splitOk\(\) \|\| stripsLocked\(i\)\) return false;/, 'never on a locked line');
   assert.match(STRIPS, /caretRegs\.set\(input, \{ host, want, onCut, label, dispose: null \}\);[\s\S]{0,800}queueMicrotask\(syncCaretScissors\);/, 'the first sweep waits for the row to be in the document');
   assert.match(STRIPS, /document\.addEventListener\('focusin', \(\) => syncCaretScissors\(\)\);\s*\n\s*document\.addEventListener\('focusout', \(\) => setTimeout\(syncCaretScissors, 0\)\);/, 'follows focus');
   assert.match(STRIPS, /if \(!p\) \{ syncCaretScissors\(\); return; \}/, 're-decided the moment the split completes or cancels');

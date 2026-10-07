@@ -507,7 +507,16 @@ These are the ones a tester can see.
 - [ ] **Researcher panel, a conversion that cannot be built** (a text with no alignment): the tray
       must say it failed, not "done — check your downloads".
 
-## v706 — ✨ at any length; the Gloss 🔗 honours the join/split switch (2026-10-07)
+## v707 — ✨ at any length; join and split as separate permissions; the Gloss 🔗 honours its switch (2026-10-07)
+
+- [ ] **Researcher panel → a device's settings → Typing & keys:** four switches (join / split × Baseline / Gloss)
+      where there were two; project defaults show the same four. Turn OFF only "Allow joining lines on the Gloss
+      tab" and push: on the device the Gloss tab loses its 🔗 rows and Backspace-join but KEEPS its ✂ and
+      Enter-split; the Baseline tab is unchanged. Turn off only splitting on the Baseline tab: its ✂ go, its 🔗 stay.
+- [ ] **Unpaired editor, Settings tab:** the same four switches, and they take effect on Save.
+- [ ] **Cut tab, any combination:** still cuts and joins regardless.
+- [ ] **An older panel (production v705) against a device on this build:** turn the old combined Gloss switch off
+      there and push — the device turns BOTH halves off, even if the new panel had left one on.
 
 - [ ] **A recording over ten minutes, Cut tab, untouched seed:** ✨ is LIVE (not grey); one press
       cuts the whole recording into lines, the status line says how many; scroll to the bottom and

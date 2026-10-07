@@ -104,7 +104,7 @@ for (const lang of ['en', 'id']) {
 test('the Baseline hint is assembled from the live settings, not picked by one key', () => {
   const fn = APP.slice(APP.indexOf('function baselineHintHtml(classic)'), APP.indexOf('function applyGlossEmptyHint()'));
   assert.match(fn, /function baselineHintHtml\(classic\) \{\s*\n\s*if \(classic\) return t\('baseline\.hint'\);/, 'classic mode keeps its one sentence');
-  assert.match(fn, /const split = joinSplitAllowed\('baseline'\);/, 'consults the joinSplitBaseline gate…');
+  assert.match(fn, /const split = splitLinesAllowed\('baseline'\);/, 'consults the splitBaseline gate…');
   assert.match(fn, /if \(enterAtEndAdvances\(\)\) \{\s*\n\s*parts\.push\(t\('baseline\.hintSegEnterMove'\)\);\s*\n\s*if \(split\) parts\.push\(t\('baseline\.hintSegScissors'\)\);/, '…the scissors only when splitting is allowed');
   assert.match(fn, /\} else if \(split\) \{\s*\n\s*parts\.push\(t\('baseline\.hintSegEnterSplit'\)\);/, 'and the Enter-splits sentence only when it is true');
   assert.match(fn, /function applyBaselineHint\(\{ classic = !segmentationEnabled\(\) \} = \{\}\) \{\s*\n\s*const hint = \$\('#baseline-hint'\);/, 'repaints the span by id; classic defaults to the segmentation setting');
@@ -141,14 +141,14 @@ test('the Baseline tab\'s glossed-line refusal points at the Gloss tab only when
   assert.match(STRIPS, /function stripsRefuse\(\) \{\s*\n\s*if \(!deps\.say\) return;\s*\n\s*let msg = deps\.t\('split\.no\.glossed'\);\s*\n\s*if \(!\(deps\.splitOnGloss && !deps\.splitOnGloss\(\)\)\) msg \+= ' ' \+ deps\.t\('split\.no\.glossedGloss'\);\s*\n\s*deps\.say\(msg\);/, 'the second sentence is conditional — and absent dep (an older host) keeps it');
   assert.equal((STRIPS.match(/stripsRefuse\(\)/g) || []).length, 3, 'defined once; both the split and the join refusals go through it');
   assert.doesNotMatch(STRIPS, /deps\.t\('split\.no\.glossed'\)\)/, 'none says the first sentence alone outside stripsRefuse');
-  assert.match(APP, /splitOnGloss: \(\) => glossTabEnabled\(\) && joinSplitAllowed\('gloss'\),/, 'the host answers from the tab gate AND the split gate, read live through a function');
+  assert.match(APP, /splitOnGloss: \(\) => glossTabEnabled\(\) && splitLinesAllowed\('gloss'\),/, 'the host answers from the tab gate AND the split gate, read live through a function');
 });
 
 test('the Cut tab refusal points at the Baseline tab only when this device can split there', () => {
   assert.match(STRIPS, /function cutRefusal\(reason\) \{\s*\n\s*let msg = cutDeps\.t\('cut\.no\.' \+ reason\);\s*\n\s*if \(reason === 'hasText' && !\(cutDeps\.splitOnBaseline && !cutDeps\.splitOnBaseline\(\)\)\) msg \+= ' ' \+ cutDeps\.t\('cut\.no\.hasTextBaseline'\);/, 'the second sentence is conditional — and absent dep (an older host) keeps it');
   assert.equal((STRIPS.match(/cutSay\(cutRefusal\(r\.reason\)\)/g) || []).length, 2, 'both the cut and the join refusals go through it');
   assert.doesNotMatch(STRIPS, /cutSay\(cutDeps\.t\('cut\.no\.' \+ r\.reason\)\)/, 'none bypasses it');
-  assert.match(APP, /splitOnBaseline: \(\) => baselineTabEnabled\(\) && joinSplitAllowed\('baseline'\),/, 'the host answers from the tab gate AND the split gate, read live through a function');
+  assert.match(APP, /splitOnBaseline: \(\) => baselineTabEnabled\(\) && splitLinesAllowed\('baseline'\),/, 'the host answers from the tab gate AND the split gate, read live through a function');
 });
 
 test('the Gloss tab\'s empty note names the Baseline tab only when the device has one', () => {

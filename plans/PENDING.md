@@ -34,11 +34,21 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v706 — assembled 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100); merged `--no-ff` into staging the same day, NOT in main; production is v705 (9c6c5321)
+## ▶ v707 — assembled 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); merged `--no-ff` into staging the same day, NOT in main; production is v705 (9c6c5321)
 
 Built overnight on its own branch at Seth's request ("easy wins … while I sleep"; "don't push to productionWeb").
-`BUILD_TAG = 'guess-long v1'`. Suite green (769). Branch `claude/vibrant-einstein-9k737w`, merged into `staging` and deployed
+`BUILD_TAG = 'guess-long v2'`. Suite green. Branch `claude/vibrant-einstein-9k737w`, merged into `staging` and deployed
 to the `staging-*` aliases (editor, segmenter, researcher) for Seth's test drive. What it carries:
+- **Join and split are SEPARATE permissions per tab** (Seth, 2026-10-07: "individually set-able … each with its own
+  device setting option"; "the cut tab always allows splitting and joining"). Four keys replace two:
+  `joinBaseline` / `splitBaseline` / `joinGloss` / `splitGloss`, in the panel's device settings + project defaults and
+  the editor's Settings tab. ⚠ Backward-compatible by construction (Seth: "so that different versions of researcher
+  panel or editor don't collide"): `linePermissions(s, tab)` in `typing.js` is the ONE resolver the engine and both
+  forms read — new keys win unless the old combined key disagrees with join&&split, which only an older writer can
+  produce, and then the old key answers for both; both writers store the old key as join AND split (`legacyJoinSplit`)
+  so an un-updated device keeps the stricter rule. Engine gates `joinLinesAllowed(tab)` / `splitLinesAllowed(tab)`
+  replace `joinSplitAllowed`; strips take `joinLines` / `splitLines` deps. test/join-split-separate.test.mjs measures
+  every version pairing. The Cut tab reads none of it.
 - **#93 — ✨ guesses a recording of any length.** `guessSplitsWindowed` (`segments.js`) divides a span over
   `GUESS_WINDOW_MS` (the old `GUESS_MAX_MS`, same ten minutes, renamed because it is a window now, not a cap)
   at real pauses near the ideal dividing points and guesses each window with its own noise floor; the Cut

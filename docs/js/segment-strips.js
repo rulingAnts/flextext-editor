@@ -1032,7 +1032,7 @@ export function renderStrips() {
     });
 
     /* The line's own ✂, under ▶ — the only split control visible until it is pressed. */
-    if (joinSplitOk() && !stripsLocked(i)) {
+    if (splitOk() && !stripsLocked(i)) {
       const arm = document.createElement('button');
       arm.type = 'button'; arm.className = 'seg-arm'; arm.tabIndex = -1;
       arm.textContent = '\u2702';
@@ -1134,7 +1134,7 @@ export function renderStrips() {
      * incorrectly" was ⇥ moving a boundary). Same control, same glyph, same semantics as the gloss
      * tab's, in its own row OUTSIDE both strips so a missed tap hits nothing destructive; it calls
      * exactly what Backspace calls (mergeAt), so button and key can never disagree. */
-    if (i < paras.length - 1 && joinSplitOk() && !stripsLocked(i) && !stripsLocked(i + 1)) {
+    if (i < paras.length - 1 && joinOk() && !stripsLocked(i) && !stripsLocked(i + 1)) {
       const joinRow = document.createElement('div');
       joinRow.className = 'seg-joinrow';
       const join = document.createElement('button');
@@ -1238,11 +1238,14 @@ function drawStrip(canvas, seg, durationMs, opts) {
 
 /* ---------------- edits: Enter splits, Backspace/Delete merges ---------------- */
 
-/* The researcher's MASTER switch for this tab (joinSplitBaseline). Unlike `joinKeys`, which gates
- * only the keyboard shortcut, this removes the capability outright — keys AND buttons — which is how
- * a researcher says "segmentation happens on the Cut tab; do not reshape lines while transcribing".
- * Absent means allowed, so an older host that never passes it behaves exactly as before. */
-function joinSplitOk() { return !(deps.joinSplit && !deps.joinSplit()); }
+/* The researcher's two switches for this tab — JOIN (joinBaseline) and SPLIT (splitBaseline), separate
+ * since v707 (Seth, 2026-10-07: "allow or prohibit joining and splitting independently of each
+ * other"). Unlike `joinKeys`, which gates only the keyboard shortcut, these remove the capability
+ * outright — keys AND buttons — which is how a researcher says "segmentation happens on the Cut tab;
+ * do not reshape lines while transcribing". Absent means allowed, so an older host that never passes
+ * them behaves exactly as before. ⚠ The Cut tab reads neither: it always joins and splits. */
+function joinOk() { return !(deps.joinLines && !deps.joinLines()); }
+function splitOk() { return !(deps.splitLines && !deps.splitLines()); }
 
 /* BREAK LINE i IN TWO: text at `caret`, time at the playhead. The one implementation behind BOTH of
  * this tab's Enter gestures, so they cannot drift apart.
@@ -1294,7 +1297,7 @@ function splitLineAt(i, caret, focusNext, audioMs = null) {
  * chopping run on the playhead's own line, which is the whole gesture. */
 export function stripSplitAtPlayhead() {
   const doc = deps && deps.getDoc();
-  if (!doc || !joinSplitOk()) return false;
+  if (!doc || !splitOk()) return false;
   const ms = deps.getPlayer()?.playheadMs?.();
   const i = segmentIndexAt(docSegments(doc), ms);
   if (i < 0) return false;
@@ -1318,7 +1321,7 @@ function stripsInfo(i) {
 /* Rule A: a line that already carries glosses or a translation is not this tab's to split or join. */
 function stripsLocked(i) { return !splitAllowed('baseline', stripsInfo(i)); }
 /* The refusal ends by pointing at the Gloss tab, where a glossed line IS split — but only while that
- * device has one (Gloss tab shown and joinSplitGloss on, read through the host's `splitOnGloss`), or
+ * device has one (Gloss tab shown and splitGloss on, read through the host's `splitOnGloss`), or
  * the instructions explain a control the user does not have (#92). Absent dep (an older host that
  * never passed it) keeps the full message, as before — same shape as cutRefusal. */
 function stripsRefuse() {
@@ -1337,7 +1340,7 @@ function stripsSpec(i) {
   };
 }
 function stripsPlace(i, tier, value) {
-  if (!joinSplitOk()) return 'ignored';
+  if (!splitOk()) return 'ignored';
   if (stripsLocked(i)) { stripsRefuse(); return 'refused'; }
   return splitPlace({ tab: 'baseline', i }, tier, value, stripsSpec(i));
 }
@@ -1387,7 +1390,7 @@ function renderStripsPending(p) {
 /* When a Baseline box shows the ✂ under its caret: focused and splittable, or its line's pending
  * split still needs the words' side. */
 function stripsCaretWant(input, i) {
-  if (!joinSplitOk() || stripsLocked(i)) return false;
+  if (!splitOk() || stripsLocked(i)) return false;
   // Only on the line the user armed — see armLine.
   const row = input.closest && input.closest('.seg-strip');
   if (!row || !row.classList.contains('cut-armed')) return false;
@@ -1410,7 +1413,7 @@ function onKey(e, i, input) {
   if (e.key === 'Enter') {
     /* ⚠ AT THE END OF THE LINE, ENTER MOVES ON — it does not start a split (Seth, 2026-09-08). See
      * enterAtEndAdvances in app.js for why, and for why this is a new-devices-only default.
-     * Checked BEFORE joinSplitOk deliberately: a researcher who turned splitting off still wants
+     * Checked BEFORE splitOk deliberately: a researcher who turned splitting off still wants
      * Enter to walk to the next line, and today it does nothing at all for them. */
     /* ⚠ "END" MEANS NOTHING LEFT TO TYPE, NOT A CARET ON THE LAST CHARACTER (Seth, 2026-09-08:
      * "If it's really the end of the line (no non-whitespace characters past the cursor), it should
@@ -1437,7 +1440,7 @@ function onKey(e, i, input) {
       if (atEnd) { e.preventDefault(); focusStripAfter(i); }
       return;
     }
-    if (!joinSplitOk()) return;
+    if (!splitOk()) return;
     e.preventDefault();
     // The TEXT tier of the pending split; the audio tier is placed at the playhead (Enter outside
     // the boxes, or the ✂ under the playhead) — see plans/split-tiers.md.
@@ -1451,13 +1454,13 @@ function onKey(e, i, input) {
    * default, so the two can never disagree. The ⧉ join buttons are unaffected and remain the
    * reliable route; they call the same mergeAt, so nothing about joining is lost. */
   } else if (e.key === 'Backspace' && (input.selectionStart ?? 0) === 0 && (input.selectionEnd ?? 0) === 0 && i > 0) {
-    if (!joinSplitOk()) return;
+    if (!joinOk()) return;
     if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
     mergeAt(i - 1, i);
   } else if (e.key === 'Delete' && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
              && i < deps.getParagraphs(doc).length - 1) {
-    if (!joinSplitOk()) return;
+    if (!joinOk()) return;
     if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
     mergeAt(i, i + 1, /* caretAtJoin */ true);
@@ -1561,7 +1564,7 @@ function positionCursor() {
         cur.style.height = wave.offsetHeight + 'px';
         /* ✂ under the playhead, as on the Cut tab: the AUDIO tier of a split, for a thumb. Absent on
          * a locked line (rule A) and when the researcher has removed split/join from this tab. */
-        const canCut = joinSplitOk() && !row.classList.contains('seg-locked');
+        const canCut = splitOk() && !row.classList.contains('seg-locked');
         if (canCut) {
           if (!sc) {
             sc = document.createElement('button');
@@ -2006,7 +2009,7 @@ function cutCurrentIndex() {
 }
 function cutJoinOk() { return !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTexted()); }
 /* The refusal a texted line gets on this tab ends by pointing at the Baseline tab's split — but only
- * while that device HAS one (Baseline tab shown and joinSplitBaseline on, read through the host's
+ * while that device HAS one (Baseline tab shown and splitBaseline on, read through the host's
  * `splitOnBaseline`), or the instructions explain a control the user does not have (#92). Absent dep
  * (an older host that never passed it) keeps the full message, as before. */
 function cutRefusal(reason) {

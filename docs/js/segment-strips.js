@@ -22,7 +22,7 @@
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
-         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_MAX_MS } from './segments.js';
+         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 import { tidyField } from './typing.js';
 
@@ -2379,19 +2379,20 @@ function guessBlockedBecause(paras, doc) {
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) return T('cut.no.guessText');
   const dur = peaksDurationFor(cutDeps);
   if (!peaksCache.peaks || !dur) return T('cut.no.guessAudio');
-  if (dur > GUESS_MAX_MS) {
-    return T('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) });
-  }
+  // No length refusal any more (#93): a long recording is guessed in windows — see guessCuts.
   if (guessProbe.docId !== peaksCache.docId || guessProbe.gen !== peaksGen) {
     guessProbe = { docId: peaksCache.docId, gen: peaksGen, cuts: guessCuts(dur).length };
   }
   return guessProbe.cuts > 0 ? '' : T('cut.no.guessNone');
 }
 // The one call site's worth of argument assembly, shared so the probe and the press cannot disagree
-// about what the detector was asked.
+// about what the detector was asked. ⚠ WINDOWED (#93): up to ten minutes this IS guessSplits over the
+// whole recording, as it always was; past that the recording is first divided at real pauses into
+// windows of about ten minutes and each is guessed with its own levels, so ✨ works at any length.
+// The ten-minute refusal that stood here (v364–v705) protected canvas memory the lazy strips (v580,
+// #31) no longer spend — see GUESS_WINDOW_MS in segments.js.
 function guessCuts(dur) {
-  return guessSplits(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length),
-                     { durationMs: dur });
+  return guessSplitsWindowed(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length), 0, dur);
 }
 
 /* ✨ ON ONE PIECE (Seth, 2026-10-04: "the ability to 'guess' split a single segment … one way to
@@ -2399,10 +2400,12 @@ function guessCuts(dur) {
  * a selected segment"). The whole-file guess keeps every rule it has. This is what the SAME button
  * does once that is no longer on offer: as soon as anything has been cut by hand or has words, ✨
  * acts on THE PIECE UNDER THE PLAYHEAD — the tab's selection ("the playhead IS the selection on this
- * tab") — and on nothing else. The ten-minute cap is the same cap applied to the piece: detection is
- * cheap at any length, the rows it produces are not, and a piece of at most ten minutes yields at
- * most what one press already allows. So a 30-minute recording is cut by hand into three or four
- * pieces (Enter), then guessed piece by piece.
+ * tab") — and on nothing else. A piece of any length is guessed the way the whole recording is
+ * (guessSplitsWindowed, #93): in windows of about ten minutes, each with its own levels. Until v705
+ * a piece over ten minutes was refused with "cut it in two first"; the refusal guarded canvas memory
+ * that the lazy strips no longer spend, so a 30-minute recording no longer needs to be cut by hand
+ * before ✨ will look at it — though cutting it into pieces first and guessing piece by piece still
+ * works exactly as before, for someone who has started by hand.
  *
  * It never touches a line that has words — the piece itself must be empty — which is exactly why it
  * is allowed while OTHER lines are transcribed: a coworker transcribes piece 1 and guesses piece 2.
@@ -2420,7 +2423,7 @@ function pieceCuts(seg, i) {
   if (!peaksCache.peaks || !dur || !seg) return [];
   if (pieceProbe.docId !== peaksCache.docId || pieceProbe.gen !== peaksGen || pieceProbe.i !== i
       || pieceProbe.start !== seg.start || pieceProbe.end !== seg.end) {
-    const cuts = guessSplitsWithin(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length), seg.start, seg.end);
+    const cuts = guessSplitsWindowed(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length), seg.start, seg.end);
     pieceProbe = { docId: peaksCache.docId, gen: peaksGen, i, start: seg.start, end: seg.end, cuts };
   }
   return pieceProbe.cuts;
@@ -2433,9 +2436,7 @@ function pieceBlockedBecause(segs, paras, doc, i) {
   const seg = segs[i];
   if (!seg || !isAligned(seg)) return T('cut.no.guessPiecePick');
   if (String(paras[i] || '').trim() || paraHasWork(doc, i)) return T('cut.no.guessPieceText');
-  if (seg.end - seg.start > GUESS_MAX_MS) {
-    return T('cut.no.guessPieceLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil((seg.end - seg.start) / 60000) });
-  }
+  // No length refusal for the piece either (#93): pieceCuts guesses a long piece in windows.
   return pieceCuts(seg, i).length ? '' : T('cut.no.guessPieceNone');
 }
 /* The button's state for the piece under the playhead. renderCut calls it (force) when the tab is
@@ -2487,14 +2488,12 @@ export async function cutGuessSplits() {
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) { cutSay(cutDeps.t('cut.no.guessText')); return; }
   const dur = peaksDurationFor(cutDeps);   // 0 unless the peaks really are THIS recording's
   if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
-  /* ⚠ LONG RECORDINGS ARE CUT BY HAND. The detection itself is cheap at any length; what is not is
-   * the result — one press on a 40-minute recording is ~650 rows, each a live canvas on a phone, and
-   * the memory would run out AFTER the document had already been replaced. Refused up front, with
-   * the limit and the actual length, so it is a decision rather than a mystery. */
-  if (dur > GUESS_MAX_MS) {
-    cutSay(cutDeps.t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) }));
-    return;
-  }
+  /* ⚠ LONG RECORDINGS ARE NO LONGER REFUSED (#93). Until v705 anything over ten minutes was turned
+   * away here ("cut it into pieces first"), because one press on 40 minutes was ~650 rows each holding
+   * a live canvas bitmap on a phone. The strips have been lazy since v580 — about ten bitmaps on
+   * screen whatever the row count — and guessCuts now guesses a long recording in ten-minute windows
+   * divided at real pauses, so the press is the same one press at any length. One undo step still
+   * covers the lot. */
   // Already cut by hand? Ask before replacing it. `> 1` rather than a segmentation-state test: one
   // whole-file span is the seed, i.e. nobody has cut anything yet.
   if (cutSegs().length > 1 && cutDeps.confirmReplace) {

@@ -437,16 +437,21 @@ export const GUESS_MIN_LINE_MS = 900;
  * rather the length of a recording that allows auto-guessing lines. Maybe let's cap that at 10
  * minutes?").
  *
- * The DETECTION is cheap and scales fine — 40 minutes of peaks is ~45ms of work, measured. What does
- * not scale is what comes after: one press turns a 40-minute recording into ~650 lines, and the Cut
- * tab builds a live <canvas> for every one of them, on a phone. That is where a field device would
- * run out of memory, and it would do so AFTER the edit had already replaced the document.
+ * The DETECTION is cheap and scales fine — 40 minutes of peaks is ~45ms of work, measured. What did
+ * not scale, when this was a CAP (v364–v705), was what came after: one press turned a 40-minute
+ * recording into ~650 lines, and the Cut tab built a live <canvas> bitmap for every one of them, on
+ * a phone — past the browser's canvas budget new canvases silently got no bitmap (#31). So ✨ refused
+ * any recording over ten minutes, and the user cut it into pieces by hand first.
  *
- * So the cap is on the INPUT, where it can be explained before anything happens, rather than on the
- * output where it would mean silently dropping boundaries the user could see in the waveform. A
- * recording longer than this is cut by hand — which is also the honest answer, because a 40-minute
- * text is a different unit of work from a 5-minute one and probably wants splitting first. */
-export const GUESS_MAX_MS = 10 * 60 * 1000;
+ * ⚠ THAT REASON IS GONE (v580/v581, #31): strips are parked without a bitmap while off screen and
+ * drawn from the cached peaks as they scroll near, so a 650-row Cut tab holds about ten bitmaps at
+ * any time, however long the recording. What remains of the number is the thing Seth asked for in
+ * #93 — "look for convenient points to split them in half or quarters first and then auto segment
+ * each large segment one at a time" — which is what guessSplitsWindowed does below: a recording (or
+ * a piece) longer than this is first divided at real pauses into windows of about this length, and
+ * each window is then guessed as a recording of its own, with its own noise floor and speech level.
+ * The number is the WINDOW, not a limit: nothing is refused for being long any more. */
+export const GUESS_WINDOW_MS = 10 * 60 * 1000;
 
 /** Percentile of a SORTED copy — used for the floor and the speech level alike. */
 function pct(sorted, p) {
@@ -610,6 +615,55 @@ export function guessSplitsWithin(peaks, msPerBucket, startMs, endMs, opts = {})
   return guessSplits(slice, mpb, { ...opts, durationMs: endMs - base })
     .map((c) => Math.round(base + c))
     .filter((c) => c > startMs && c < endMs);
+}
+
+/* ✨ AT ANY LENGTH (#93, Seth 2026-10-02: "Auto-segmentation doesn't work on audio recordings longer
+ * than ten minutes … Maybe our auto segmentation for longer texts can look for convenient points to
+ * split them in half or quarters first and then auto segment each large segment one at a time").
+ *
+ * The span [startMs, endMs) — the whole recording, or one piece of it — is guessed in WINDOWS of
+ * about GUESS_WINDOW_MS:
+ *   1. a coarse pass over the whole span finds where its pauses are at all;
+ *   2. the span is divided into k = ceil(length / window) parts, and each ideal dividing point is
+ *      moved to the NEAREST coarse pause — so the windows meet at real silences, never mid-word;
+ *   3. each window is guessed as a recording of its own (guessSplitsWithin), so its noise floor and
+ *      speech level come from that stretch alone — a long field recording drifts, the speaker turns,
+ *      a generator starts, and one set of levels for forty minutes serves none of it well;
+ *   4. the window edges and every window's boundaries are stitched into one ascending list.
+ *
+ * A span no longer than one window is simply guessSplitsWithin — nothing changes for the recordings
+ * the detector always handled. A coarse pass that finds nothing returns [] (the honest "no clear
+ * pauses" answer, as before). The minimum-line rule holds across the stitch by construction: every
+ * window's boundaries keep GUESS_MIN_LINE_MS from that window's edges, and the edges are coarse
+ * boundaries that kept it from each other.
+ *
+ * ⚠ A window can come out longer than GUESS_WINDOW_MS when pauses are sparse near a dividing point;
+ * that is fine — the detector works at any length (step 1 just ran it over the whole span). The
+ * window is for LOCAL levels, not a limit. Pure, so it is measurable (test/guess-long.test.mjs).
+ *
+ * @returns {number[]} boundary times in ms (file time), ascending, strictly inside (startMs, endMs) */
+export function guessSplitsWindowed(peaks, msPerBucket, startMs, endMs, opts = {}) {
+  if (!isNum(startMs) || !isNum(endMs) || endMs <= startMs) return [];
+  const windowMs = isNum(opts.windowMs) && opts.windowMs > 0 ? opts.windowMs : GUESS_WINDOW_MS;
+  const span = endMs - startMs;
+  if (span <= windowMs) return guessSplitsWithin(peaks, msPerBucket, startMs, endMs, opts);
+  const coarse = guessSplitsWithin(peaks, msPerBucket, startMs, endMs, opts);
+  if (!coarse.length) return [];
+  const k = Math.ceil(span / windowMs);
+  const edges = [];
+  for (let j = 1; j < k; j++) {
+    const ideal = startMs + (span * j) / k;
+    let best = coarse[0];
+    for (const c of coarse) if (Math.abs(c - ideal) < Math.abs(best - ideal)) best = c;
+    if (!edges.includes(best)) edges.push(best);
+  }
+  edges.sort((a, b) => a - b);
+  const bounds = [startMs, ...edges, endMs];
+  const out = new Set(edges);
+  for (let w = 0; w < bounds.length - 1; w++) {
+    for (const c of guessSplitsWithin(peaks, msPerBucket, bounds[w], bounds[w + 1], opts)) out.add(c);
+  }
+  return [...out].sort((a, b) => a - b);
 }
 
 /* Apply such a guess to ONE piece: segments[i] becomes k+1 pieces and paragraphs[i] becomes k+1

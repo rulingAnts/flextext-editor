@@ -34,6 +34,23 @@ The item itself is tracked privately.
 
 ---
 
+## ▶ v706 — assembled 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100); merged `--no-ff` into staging the same day, NOT in main; production is v705 (9c6c5321)
+
+Built overnight on its own branch at Seth's request ("easy wins … while I sleep"; "don't push to productionWeb").
+`BUILD_TAG = 'guess-long v1'`. Suite green (769). Branch `claude/vibrant-einstein-9k737w`, merged into `staging` and deployed
+to the `staging-*` aliases (editor, segmenter, researcher) for Seth's test drive. What it carries:
+- **#93 — ✨ guesses a recording of any length.** `guessSplitsWindowed` (`segments.js`) divides a span over
+  `GUESS_WINDOW_MS` (the old `GUESS_MAX_MS`, same ten minutes, renamed because it is a window now, not a cap)
+  at real pauses near the ideal dividing points and guesses each window with its own noise floor; the Cut
+  tab's whole-file guess, the piece guess and the matcher's `mgGuess` all route through it, and none refuses
+  on length. `cut.no.guessLong` / `cut.no.guessPieceLong` are gone from both dictionaries. The cap's reason
+  (a live canvas bitmap per row) left with the lazy strips in v580. Measured in test/guess-long.test.mjs
+  (25-minute fixture, zero spurious, ≥95% recall; a drifting-floor case where windows beat one set of levels).
+- **#100 — the Gloss tab's 🔗 join row honours `joinSplitGloss`** like the ✂ (decorateGlossSegments), with a
+  backstop in glossJoinLines and a live re-enter of the visible Baseline/Gloss tab when a pushed settings
+  change flips the join/split gate (applyLiveSettings). test/gloss-join-gate.test.mjs.
+- RELEASES has the v706 section (both items, EN + ID); README's ✨ paragraph and the BACKLOG entry updated.
+
 ## ▶ v705 — released 2026-10-07 ("Open text + recording together" is a two-picker dialog); production is v705 (9c6c5321)
 
 All seven apps verified live at v705 (deploy run 37599179523; every endpoint fetched twice 45 s apart; app.flextext.app's app.js

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { guessSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_MAX_MS, MIN_SEGMENT_MS } from '../docs/js/segments.js';
+import { guessSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_WINDOW_MS, MIN_SEGMENT_MS } from '../docs/js/segments.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const MPB = 0.5;   // ms per bucket, as ensurePeaks produces
@@ -86,7 +86,8 @@ test('the piece guess: scoped, capped per piece, one undo step, no confirm, noth
   const blocked = fn(STRIPS, 'pieceBlockedBecause');
   assert.match(blocked, /if \(!seg \|\| !isAligned\(seg\)\) return T\('cut\.no\.guessPiecePick'\);/);
   assert.match(blocked, /paraHasWork\(doc, i\)\) return T\('cut\.no\.guessPieceText'\);/, 'the PIECE must be empty — other lines may have words');
-  assert.match(blocked, /if \(seg\.end - seg\.start > GUESS_MAX_MS\)/, 'the ten-minute cap applies to the piece');
+  assert.doesNotMatch(blocked, /GUESS_MAX_MS|GUESS_WINDOW_MS|guessPieceLong/, 'no length refusal for the piece (#93, v706): a long piece is guessed in windows');
+  assert.match(fn(STRIPS, 'pieceCuts'), /guessSplitsWindowed\(peaksCache\.peaks, [^\n]*, seg\.start, seg\.end\)/, '…by the same windowed detector the whole-file guess uses');
   const piece = fn(STRIPS, 'cutGuessPiece');
   assert.ok(piece, 'cutGuessPiece exists');
   assert.match(piece, /applyGuessedSplitsWithin\(segs, paras, i, pieceCuts\(segs\[i\], i\)/, 'the probe and the press share one detector call');
@@ -95,18 +96,16 @@ test('the piece guess: scoped, capped per piece, one undo step, no confirm, noth
   assert.match(piece, /clearSpan\?\.\(\)/, 'a live span watcher is dropped, as cutHere does');
   assert.match(piece, /renderCut\(i\);/, 'the piece\'s first row holds still');
   assert.match(fn(STRIPS, 'pieceCuts'), /pieceProbe\.gen !== peaksGen/, 'the per-piece probe is cached per peaks generation');
-  assert.ok(GUESS_MAX_MS === 10 * 60 * 1000);
+  assert.ok(GUESS_WINDOW_MS === 10 * 60 * 1000);
 });
 
-test('the words: EN and ID, and the long-recording refusal now says how', () => {
+test('the words: EN and ID, and the long-recording refusals are gone with the cap', () => {
   for (const k of ['cut.guessPiece', 'cut.guessPieceTip', 'cut.guessPieceDone', 'cut.no.guessPiecePick', 'cut.no.guessPieceText',
-                   'cut.no.guessPieceLong', 'cut.no.guessPieceNone', 'player.loop', 'panel.rel.new.guessPiece']) {
+                   'cut.no.guessPieceNone', 'player.loop', 'panel.rel.new.guessPiece']) {
     assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
   }
   assert.doesNotMatch(I18N, /'cut\.no\.guessManual'/, 'the sentence for the hidden button went with the rule');
-  const longs = I18N.match(/'cut\.no\.guessLong': '[^\n]*/g);
-  assert.equal(longs.length, 2);
-  assert.ok(longs.every((l) => l.includes('\\u2728')), 'both languages point at ✨ inside each piece');
+  assert.doesNotMatch(I18N, /'cut\.no\.guessLong'|'cut\.no\.guessPieceLong'/, 'the two refusal sentences went with the cap (#93, v706)');
   const hints = I18N.match(/'cut\.hint(?:NoJoinKey)?(?:Drag)?': '[^\n]*/g);
   assert.equal(hints.length, 8, 'four hint variants × two languages');
   assert.ok(hints.every((h) => /piece under the playhead|bagian tempat posisi putar/.test(h)), 'every hint describes the piece guess');

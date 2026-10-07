@@ -32,7 +32,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1458,8 +1458,16 @@ function decorateGlossSegments() {
     /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
      * to be the group's last child, a 44px tap target 6px under the full-width free-translation
      * input — an undershot tap meant an accidental join. Outside both groups, a missed tap on the
-     * free translation hits padding, not a destructive control. */
-    if (i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
+     * free translation hits padding, not a destructive control.
+     *
+     * ⚠ GATED LIKE THE ✂ ABOVE (#100). This block was the one join/split control on the tab that
+     * never read joinSplitAllowed('gloss'), so with the switch off the scissors went and the chain
+     * links stayed — a control that looks live and joins two lines on a tab where the researcher
+     * said no joining. A row left over from before the switch flipped is removed here too, so a
+     * decorate after a live push cannot leave one standing. */
+    const joinAllowed = joinSplitAllowed('gloss');
+    if (!joinAllowed && g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow')) g.nextElementSibling.remove();
+    if (joinAllowed && i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
       const joinRow = document.createElement('div');
       joinRow.className = 'gseg-joinrow';
       const join = document.createElement('button');
@@ -1928,7 +1936,9 @@ function glossSplitAt(i, boundary, opts = {}) {
 }
 
 function glossJoinLines(i) {
-  if (!current) return;
+  // The backstop behind the 🔗 and Backspace: a join is refused where the researcher switched
+  // joining off for this tab, whatever control asked for it (#100).
+  if (!current || !joinSplitAllowed('gloss')) return;
   captureUndo();
   const doc = current.doc;
   const paras = getBaselineParagraphs(doc).slice();
@@ -5086,6 +5096,10 @@ function docInScope(/* d, enr */) {
 function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   const segBefore = settings.segmentation === true;
+  // The join/split gates, read BEFORE the reload: their controls (the Gloss tab's ✂ and 🔗 rows,
+  // the Baseline strips' join buttons) are built at render time, so a pushed flip needs the
+  // re-enter below to reach them — the ticker only repaints the playhead ✂ (#100).
+  const joinBefore = { baseline: joinSplitAllowed('baseline'), gloss: joinSplitAllowed('gloss') };
   settings = loadSettings();
   applyUiScale();   // a pushed text size lands live, in every app
   applyHeaderLabels();
@@ -5106,7 +5120,8 @@ function applyLiveSettings() {
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
     // (not activeTab) so a user on the Texts list is never pulled into the editor.
     const v = currentView();
-    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && (settings.segmentation === true) !== segBefore) {
+    const joinFlipped = (v === 'baseline' || v === 'gloss') && joinSplitAllowed(v) !== joinBefore[v];
+    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && ((settings.segmentation === true) !== segBefore || joinFlipped)) {
       switchTab(v);
     }
   }
@@ -10707,18 +10722,15 @@ async function mgPrepareAudio(docId) {
  * since here the text already exists and its lines must survive. So the guess is a proposal on the
  * audio side alone: nothing is written until Done, and Back discards it.
  *
- * The three guards are the Cut tab's, for the same reasons: refuse a recording longer than the
- * detector's limit (one press on 40 minutes is hundreds of live canvases on a phone), say so when
- * there are no clear pauses rather than silently doing nothing, and ask first if the user has
- * already cut by hand — that work is exactly what this would throw away. */
+ * The two guards are the Cut tab's, for the same reasons: say so when there are no clear pauses
+ * rather than silently doing nothing, and ask first if the user has already cut by hand — that work
+ * is exactly what this would throw away. A third, the ten-minute refusal, went in v706 (#93): the
+ * shared guessedBoundaries() now guesses a long recording in windows, and the matcher's span rows are
+ * lazy strips like the editor's, so length costs nothing it did not already pay. */
 async function mgGuess() {
   if (!MG) return;
   const dur = peaksDurationMs();
   if (!dur) { toast(t('cut.no.guessAudio'), 6000); return; }
-  if (dur > GUESS_MAX_MS) {
-    toast(t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) }), 9000);
-    return;
-  }
   // >1 span means real cutting has happened. One whole-file span is the seed, not work.
   if (MG.spans.length > 1 && !await confirmDialog(t('mg.guessReplace'))) return;
   if (!MG) return;                      // the dialog is async; the user may have left

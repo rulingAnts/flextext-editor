@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v705';
+export const ENGINE_VERSION = 'v706';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v705';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'guess-long v1';
 
 const S = {
 en: {
@@ -1637,6 +1637,8 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.new.guessLong': 'Editor, Cut tab, and the Audio Segmenter: \u2728 now guesses the lines of a recording of ANY length \u2014 the ten-minute limit is gone. A long recording is first divided at real pauses into stretches of about ten minutes, and each stretch is guessed on its own, with its own background level, so a recording whose conditions change half way through is cut as well at the end as at the start. The same goes for a long piece under the playhead. One Undo still puts the whole guess back.'
+    ,'panel.rel.fix.glossJoinGate': 'Gloss tab: the \ud83d\udd17 join button between two lines now disappears when a researcher switches joining and splitting off for that tab, as the \u2702 already did. It also honours a switch pushed while the tab is open.'
     ,'panel.rel.fix.pairDialog': 'Editor and Audio Segmenter: \u201cOpen text + recording together\u201d now opens a small dialog with two pickers \u2014 one for the .flextext, one for the recording \u2014 instead of one picker that needed both files selected at once with Ctrl+click.'
     ,'panel.rel.new.mgLangPick': 'Audio Segmenter: when a text carries more than one analysis language, a picker on the Text column shows one of them, or all of them stacked under each word and line \u2014 the other languages as they are; this device still edits only its own.'
     ,'panel.rel.fix.activeLineTabs': 'Editor: the line you are on travels with you between the Cut, Baseline and Gloss tabs \u2014 the new tab opens scrolled to it, with the playhead on it. (The researcher panel\u2019s settings dialog keeps its own rule: every tab starts at the top.)'
@@ -2430,13 +2432,11 @@ internet after the first time.</p>
   'cut.no.guessText': 'This text already has words in it, so its lines cannot be guessed again. Cut it by hand instead.',
   'cut.no.guessNone': 'No clear pauses found in this recording, so nothing was changed. Cut it by hand.',
   'cut.no.guessAudio': 'The recording is still loading, so there is nothing to guess from yet.',
-  'cut.no.guessLong': 'This recording is {mins} minutes long, and the lines can be guessed for up to {max} minutes at a time. First cut it into a few pieces (play, then Enter where a piece should end), then press \u2728 inside each piece.',
   'cut.guessPiece': 'Guess the lines inside this piece',
   'cut.guessPieceTip': 'Cut the piece under the playhead at its pauses. Only that piece changes \u2014 Undo puts it back.',
   'cut.guessPieceDone': 'Guessed {n} lines inside this piece. Check them \u2014 Undo puts it back if it went wrong.',
   'cut.no.guessPiecePick': 'Put the playhead inside the piece you want to guess, then press \u2728.',
   'cut.no.guessPieceText': 'This piece already has words in it, so its lines cannot be guessed. Put the playhead in a piece with no words.',
-  'cut.no.guessPieceLong': 'This piece is {mins} minutes long, and lines can be guessed for pieces up to {max} minutes. Cut it in two first (Enter at the playhead), then guess each half.',
   'cut.no.guessPieceNone': 'No clear pauses found in this piece, so nothing was changed. Cut it by hand.',
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.baselineTab': 'Show the Baseline tab',
@@ -4273,6 +4273,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.new.guessLong': 'Editor, tab Potong, dan Pemotong Audio: \u2728 kini menebak baris untuk rekaman dengan panjang BERAPA PUN \u2014 batas sepuluh menit sudah dihapus. Rekaman yang panjang dibagi dulu pada jeda yang nyata menjadi bagian-bagian sekitar sepuluh menit, lalu setiap bagian ditebak sendiri dengan tingkat latarnya sendiri, sehingga rekaman yang kondisinya berubah di tengah jalan terpotong sebaik di akhir seperti di awal. Begitu juga untuk bagian panjang di posisi putar. Satu Urungkan tetap mengembalikan seluruh tebakan.'
+    ,'panel.rel.fix.glossJoinGate': 'Tab Glos: tombol gabung \ud83d\udd17 di antara dua baris kini hilang kalau peneliti mematikan gabung dan potong untuk tab itu, seperti \u2702 yang sudah begitu. Perubahan yang dikirim saat tab sedang terbuka juga dipatuhi.'
     ,'panel.rel.fix.pairDialog': 'Editor dan Pemotong Audio: \u201cBuka teks + rekaman sekaligus\u201d kini membuka dialog kecil dengan dua pemilih berkas \u2014 satu untuk .flextext, satu untuk rekaman \u2014 bukan lagi satu pemilih yang mengharuskan kedua berkas dipilih sekaligus dengan Ctrl+klik.'
     ,'panel.rel.new.mgLangPick': 'Pemotong Audio: kalau sebuah teks membawa lebih dari satu bahasa analisis, pemilih di kolom Teks menampilkan salah satunya, atau semuanya bertumpuk di bawah tiap kata dan baris \u2014 bahasa lain apa adanya; perangkat ini tetap hanya mengedit bahasanya sendiri.'
     ,'panel.rel.fix.activeLineTabs': 'Editor: baris yang sedang Anda kerjakan ikut berpindah antara tab Potong, Ketik dan Glos \u2014 tab yang baru terbuka langsung tergulir ke baris itu, dengan posisi putar di sana. (Dialog pengaturan di Panel Peneliti tetap dengan aturannya sendiri: setiap tab mulai dari atas.)'
@@ -4971,13 +4973,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.no.guessText': 'Teks ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak lagi. Potonglah sendiri.',
   'cut.no.guessNone': 'Tidak ditemukan jeda yang jelas di rekaman ini, jadi tidak ada yang diubah. Potonglah sendiri.',
   'cut.no.guessAudio': 'Rekaman masih dimuat, jadi belum ada yang bisa ditebak.',
-  'cut.no.guessLong': 'Rekaman ini panjangnya {mins} menit, sedangkan baris hanya bisa ditebak untuk paling banyak {max} menit sekaligus. Potong dulu menjadi beberapa bagian (putar, lalu tekan Enter di tempat bagian itu harus berakhir), lalu tekan \u2728 di dalam setiap bagian.',
   'cut.guessPiece': 'Tebak baris di dalam bagian ini',
   'cut.guessPieceTip': 'Potong bagian tempat posisi putar berada, di jeda-jedanya. Hanya bagian itu yang berubah \u2014 Urungkan mengembalikannya.',
   'cut.guessPieceDone': 'Ditebak {n} baris di dalam bagian ini. Periksalah \u2014 Urungkan mengembalikannya kalau salah.',
   'cut.no.guessPiecePick': 'Taruh posisi putar di dalam bagian yang mau ditebak, lalu tekan \u2728.',
   'cut.no.guessPieceText': 'Bagian ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak. Taruh posisi putar di bagian yang belum ada kata-katanya.',
-  'cut.no.guessPieceLong': 'Bagian ini panjangnya {mins} menit, sedangkan baris hanya bisa ditebak untuk bagian sampai {max} menit. Potong dulu menjadi dua (Enter di posisi putar), lalu tebak masing-masing.',
   'cut.no.guessPieceNone': 'Tidak ada jeda yang jelas di bagian ini, jadi tidak ada yang diubah. Potonglah sendiri.',
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.baselineTab': 'Tampilkan tab Dasar',

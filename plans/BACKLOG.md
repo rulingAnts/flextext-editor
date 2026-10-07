@@ -3630,6 +3630,14 @@ on that (`segmentsFromOffsets`, the EAF/SayMore tiers). So "absorb" must change 
 DRAWN, never make a span text-only — the invariant that alignment edits never touch text, and that
 text is sacred, applies in both directions.
 
+**A fourth answer shipped in v708 (2026-10-08, #97): split silence out as a GAP.** A cut piece without
+words can be unticked on the Cut tab (`seg.gap`): it keeps its cut and its slot, but is not a line — a
+slim placeholder on the Baseline and Gloss tabs, no `<phrase>` in the .flextext, no annotation in the
+EAF (consecutive slots do not meet, as ELAN does), and a join across it keeps its audio (`joinRun`).
+The round trip comes from `fillHoles`: a hole between phrases opens as a gap row again. The device
+setting above (split / absorb / off / **gap**) and a ✨ that unticks the pauses it finds, with padding
+so consonants are not clipped (Seth, 2026-10-07), are the remaining halves.
+
 **4. Unassigned texts do not reparent into the Unassigned folder.** Seth saw a text tagged
 `unassigned` in the panel while its folder still sat inside the device folder in Drive. **Known and
 expected** — `drive-unassign` is fully implemented in the worker, idempotent, and has **zero callers**

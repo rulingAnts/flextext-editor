@@ -557,6 +557,13 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
 
   let pi = -1;
   for (const run of emit) {
+    /* ⚠ A GAP WRITES NO PHRASE (#97): a cut piece the user unticked on the Cut tab — audio with no
+     * words that is not a line — leaves the file entirely, the way ELAN leaves an unannotated
+     * stretch. A paragraph with nothing left in it is not written either (`mark` rewinds it). On
+     * open, fillHoles (segments.js) turns the hole back into the gap, so the cut round-trips. A
+     * phrase that carries words or a translation is never dropped, whatever the flag says. */
+    const mark = lines.length;
+    let emitted = 0;
     lines.push(`      <paragraph guid="${esc(run.guid)}">`);
     lines.push('        <phrases>');
     for (const li of run.lines) {
@@ -564,6 +571,8 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     pi = li;
     for (const seg of para.segments) {
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
+      if (span && span.gap === true && !(seg.words || []).length && !String(seg.baseline || '').trim() && !String(seg.free || '').trim()) continue;
+      emitted++;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
       // the stale copies or the phrase would carry the attribute twice (invalid XML). media-file
@@ -631,6 +640,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     }
     lines.push('        </phrases>');
     lines.push('      </paragraph>');
+    if (!emitted) lines.length = mark;   // every phrase in it was a gap: the paragraph is not written
   }
   lines.push('    </paragraphs>');
   // languages element. Authored docs SKIP doc.languages (that's the stale snapshot

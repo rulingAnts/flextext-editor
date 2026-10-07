@@ -507,7 +507,21 @@ These are the ones a tester can see.
 - [ ] **Researcher panel, a conversion that cannot be built** (a text with no alignment): the tray
       must say it failed, not "done — check your downloads".
 
-## v707 — ✨ at any length; join and split as separate permissions; the Gloss 🔗 honours its switch (2026-10-07)
+## v708 — gaps: the Line tick on the Cut tab (#97) (2026-10-08)
+
+- [ ] **Cut tab:** every piece without words shows a ticked *Line* box; a piece with words shows it
+      ticked and locked. Untick one: the row dims; Baseline and Gloss show a slim "(no speech — n s)"
+      placeholder in its slot with no ▶, ✂ or text box; the line numbers on the Gloss tab skip it.
+- [ ] **Joins across it:** on Baseline, the 🔗 after the line BEFORE the gap joins it with the line
+      AFTER, and the joined line's waveform covers the silence; Backspace at the start of the line
+      after does the same. Same on Gloss. One Ctrl+Z undoes it.
+- [ ] **Exports:** save the text; in the .flextext the gap has no `<phrase>`; in the .eaf no
+      annotation covers it on any tier (open it in ELAN: the phrase tier has a hole there). The
+      listening page shows no row for it.
+- [ ] **Round trip:** open that .flextext again (new text) — the gap is back as a gap, in its slot.
+      Open an ELAN .eaf whose annotations do not meet — the holes arrive as gaps.
+- [ ] **Tick it back:** the row brightens and the line returns on the other two tabs.
+
 
 - [ ] **Researcher panel → a device's settings → Typing & keys:** four switches (join / split × Baseline / Gloss)
       where there were two; project defaults show the same four. Turn OFF only "Allow joining lines on the Gloss

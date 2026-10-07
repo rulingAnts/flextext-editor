@@ -101,7 +101,7 @@ test('the engine reads the half each control is about', () => {
   assert.match(fn(APP, 'glossJoinLines'), /if \(!current \|\| !joinLinesAllowed\('gloss'\)\) return;/, 'the Gloss join backstop');
   assert.match(APP, /if \(!joinLinesAllowed\('gloss'\)\) return;   \/\/ researcher removed joining on this tab/, 'Backspace in a gloss box');
   assert.match(APP, /e\.key === 'Backspace' && atStart && i > 0 && joinLinesAllowed\('gloss'\) && joinKeysEnabled\(\)/, 'Backspace in a translation');
-  assert.match(STRIPS, /if \(i < paras\.length - 1 && joinOk\(\) && !stripsLocked\(i\) && !stripsLocked\(i \+ 1\)\) \{/, 'the Baseline 🔗');
+  assert.match(STRIPS, /if \(next >= 0 && next < paras\.length && joinOk\(\) && !stripsLocked\(i\) && !stripsLocked\(next\)\) \{/, 'the Baseline 🔗');
   assert.equal((fn(STRIPS, 'onKey').match(/if \(!joinOk\(\)\) return;/g) || []).length, 2, 'Backspace and Delete joins on the Baseline');
   // SPLIT sites
   assert.match(dec, /if \(splitLinesAllowed\('gloss'\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'the Gloss gutter ✂');

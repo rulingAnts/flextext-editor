@@ -32,7 +32,11 @@ function phraseRows(doc) {
       const e = parseInt(phrase.attrs && phrase.attrs['end-time-offset'], 10);
       const own = (Number.isFinite(b) && Number.isFinite(e) && e > b) ? { start: b, end: e } : null;
       const live = para.segments.length === 1 ? (segs[i] || null) : null;
-      rows.push({ phrase, span: (live && isAligned(live)) ? live : (own || live) });
+      // A GAP (#97): the user unticked this piece on the Cut tab — audio with no words that is not a
+      // line. The EAF and the listening page leave it out; the .fxpa keeps it (its cut must survive
+      // the Paragraph Analysis round trip). Never with words or a translation present.
+      const gap = !!(live && live.gap === true && !(phrase.words || []).length && !String(phrase.baseline || '').trim() && !String(phrase.free || '').trim());
+      rows.push({ phrase, span: (live && isAligned(live)) ? live : (own || live), gap });
     }
     i++;
   }
@@ -77,6 +81,7 @@ export function buildFxpa(doc, opts = {}) {
       line.end = Math.round(r.span.end);
       if (r.span.timeEstimated) line.timeEstimated = true;
     }
+    if (r.gap) line.gap = true;   // the tool hides blank lines anyway; the flag keeps the cut for the round trip (#97)
     line.words = (t.words || []).map((w) => {
       const o = { txt: w.txt || '' };
       if (w.punct) o.punct = true;
@@ -142,6 +147,7 @@ export function serializeEaf(doc, opts = {}) {
   const anns = [];                       // { id, ts1, ts2, text, words:[{id, text, gloss}], free }
   let aid = 0;
   for (const r of rows) {
+    if (r.gap) continue;   // no annotation over a gap, on any tier: the next line's slot will not meet the last one's (#97)
     const a = { id: 'a' + (++aid), text: r.phrase.baseline || '', free: r.phrase.free || '', frees: phraseFrees(r.phrase), words: [] };
     if (isAligned(r.span)) {
       a.ts1 = (prev && isAligned(prev.span) && prev.span.end === r.span.start) ? prev.endSlot : slot(r.span.start);
@@ -421,7 +427,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
     ? `<label>${label} <select id="${id}">${langs.map((l) => `<option value="${esc(l)}"${l === langs[0] ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
     : '';
   const wsBar = multi ? `<div class="ws">${wsPick('glossws', 'Gloss language', glossLangs)}${wsPick('freews', 'Translation language', freeLangs)}</div>` : '';
-  const body = rows.map((r) => {
+  const body = rows.filter((r) => !r.gap).map((r) => {   // a gap draws in the waveform but gets no row (#97)
     const t = r.phrase;
     const timed = isAligned(r.span);
     const est = timed && r.span.timeEstimated ? '~' : '';

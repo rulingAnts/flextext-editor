@@ -11,6 +11,7 @@
 
 **Status: PLAN ONLY — not built.** Written 2026-10-05 after the display-only picker shipped in the Audio
 Segmenter (v704, `analysisRows` in `flextext.js`). Everything below was checked against the code that day.
+**2026-10-07: phase 0 added** — the browser-DB storage model (#104), agreed by Seth as the first step of this work.
 
 ## 1. What the suite does today (the facts the plan stands on)
 
@@ -37,6 +38,22 @@ Segmenter (v704, `analysisRows` in `flextext.js`). Everything below was checked 
   (`merged.glsLang = …`, `nw.gls = w.gls`).
 
 ## 2. The shape
+
+### 2.0 Phase 0 — the browser DB keeps FLEx data as fields, not XML fragments (#104; Seth, 2026-10-07: "I agree")
+The Editor's IndexedDB (`flextext-editor` v2, `docs/js/db.js`) stores a parsed doc model, but everything the editor
+does not model rides inside it as verbatim XML strings — per word `preservedXML` (morphemes, POS, **other-language
+glosses**), per phrase `preItemsXML` / `postItemsXML` (notes, literal and **other-language free translations**), per
+text `metaItemsXML`, `objectsXML`, `mediaXML` (`flextext.js` `serializeEl`). A second analysis language lives exactly
+in those strings, so this plan would otherwise be string surgery. Phase 0:
+- Replace the fragment strings with a **lossless structured node tree** (`{ t, a, c, x }`: tag, attributes,
+  children, text) in the same places; the serializer still writes byte-identical `.flextext`.
+- A **`schemaVersion`** on every doc record and a **lazy migration** on read (old records stay readable; a record is
+  rewritten in the new shape on its next save) — no bulk rewrite of devices in the field.
+- **Proof before switching on:** export every text in the Fayu corpus and the FLEx test corpus before and after
+  migration and require identical `.flextext`; check every other reader of the model at its boundary (sync/inventory,
+  `.fxpa`, the segment exports, lameta).
+- Nothing visible changes. Its payoff is that §2.1's `gls2` / `free2` (and §2.1b's exact-language rule) become field
+  edits; it also unblocks #103 (EAF/SFM/USFM import), #96 (speakers) and #97 (gaps).
 
 ### 2.1 Model: a second editable slot, not a generalised map (backward compatibility first)
 - Words gain `gls2` / `gls2Lang`; segments gain `free2` / `free2Lang`. Chosen at parse by
@@ -119,15 +136,16 @@ orthography needs its own typing line per segment and a rule for keeping the two
 
 | Phase | What | Effort (a Claude session ≈ a few focused hours + Seth's staging check) |
 |---|---|---|
+| 0 | Browser DB: fragments → lossless node tree, `schemaVersion`, lazy migration, corpus round-trip proof (#104) | 1–1½ sessions |
 | 1 | Model: `gls2`/`free2` in makeSegment/parseWord/pickByLang/serialize; merge/split/reconcile/undo carry them; `wordGlosses`/`phraseFrees` know the slot; the §2.1b table run over real corpus files (0, 1, 2 languages; a two-language device importing a one-language text and saving it unchanged) | 1 session |
 | 2 | Settings: the four keys on both surfaces, validation, snapshot, segmenter keys, typing tags; release note | 1 session |
 | 3 | Gloss tab: second gloss row + second free line, landing/Enter rules, gating by `showAnal2`; phone layout | 1–2 sessions |
 | 4 | Segmenter editable second row; PAT + listening page display; `.fxpa` fields | 1 session |
 | 5 | Docs (README settings tables, in-app help EN/ID), smoke-test lines, release | ½ session |
 
-**Total: about 4½–6 sessions** of building, spread over a week or two of calendar time so each phase
-gets a staging check (phase 1 is invisible on its own; phases 1+2 ship together behind the OFF switch,
-so nothing changes for anyone until a researcher turns it on). Risks that could stretch it: the Gloss
+**Total: about 5½–7½ sessions** of building (phase 0 included), spread over a week or two of calendar time so each phase
+gets a staging check (phases 0 and 1 are invisible on their own; phases 0–2 ship together behind the OFF
+switch, so nothing changes for anyone until a researcher turns it on). Risks that could stretch it: the Gloss
 tab's split/landing logic (plans/split-tiers.md) has many pinned rules; the `.fxpa` and PAT readers
 in the field; and the double-write trap in §2.1, which needs a corpus-wide dry run before release.
 

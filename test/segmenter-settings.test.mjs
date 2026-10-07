@@ -37,8 +37,10 @@ console.log('\nthe timing NOTE is a setting; the attributes never were');
      'the begin/end attributes are written either way');
   ok(/<item type="note" lang="en">audio 0:01\.000–0:02\.500<\/item>/.test(on), 'the note rides by default (every export so far)');
   ok(!/type="note"/.test(off), 'and is left out with timeNotes:false — attributes only');
-  ok((app.match(/timeNotes: settings\.segTimeNotes !== false/g) || []).length === 3,
-     'all three of the app\'s serializeFlextext call sites read the device setting');
+  // Four since v703: Save, the bundle, exportXml, and the diagnostic export's per-text .flextext
+  // (diagDeps — which forces segTimes on but still honours THIS setting).
+  ok((app.match(/timeNotes: settings\.segTimeNotes !== false/g) || []).length === 4,
+     'all four of the app\'s serializeFlextext call sites read the device setting');
 }
 
 console.log('\nthe setting exists once, in three places that share one key');

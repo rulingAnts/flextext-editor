@@ -1444,6 +1444,9 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v703', date: '2026-10-07', items: [
+    { k: 'panel.rel.new.diagExport' },
+  ] },
   { v: 'v702', date: '2026-10-04', items: [
     { k: 'panel.rel.fix.keylessButtons' },
   ] },
@@ -2149,6 +2152,7 @@ function feedbackModal() {
       <button type="button" class="secondary-btn" data-report="bug">${esc(t('panel.reportBug'))}</button>
       <button type="button" class="secondary-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button>
       <button type="button" class="secondary-btn" data-issues title="${esc(t('panel.feedback.knownTip'))}">${esc(t('panel.feedback.known'))}</button>
+      ${deps.exportDiagnostics ? `<button type="button" class="secondary-btn" data-diag>${esc(t('panel.feedback.diag'))}</button>` : ''}
     </div>
     ${notes ? `<p class="note">${notes}</p>` : ''}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
@@ -2157,6 +2161,11 @@ function feedbackModal() {
     reportModal(b.dataset.report);
   }));
   m.el.querySelector('[data-issues]').addEventListener('click', () => openExternal(ISSUES_URL.replace(/\/$/, '')));
+  /* The diagnostic export of THIS device (the one the panel runs on): the host's dialog, so the
+   * editor and the standalone Researcher app offer the same thing. Closes this window first — the
+   * same stacked-modal rule as the report buttons above. */
+  const diag = m.el.querySelector('[data-diag]');
+  if (diag) diag.addEventListener('click', () => { m.close(); deps.exportDiagnostics(); });
   m.el.querySelectorAll('[data-notes]').forEach((b) => b.addEventListener('click', () => {
     m.close();
     releaseNotesModal();

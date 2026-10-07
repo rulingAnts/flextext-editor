@@ -22,6 +22,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
+import { buildDiagnosticsZip, estimateMediaBytes } from './diagnostics.js';   // the diagnostic export (admin drawer + panel Feedback)
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
          peaksDurationMs, guessedBoundaries,
@@ -303,8 +304,11 @@ function applyUrlSettings() {
     }
     // AGC mode — its own param: 'off' (default, faithful) | 'on' (auto-gain) | 'auto'.
     if (p.has('agc')) s.agc = ['on', 'off', 'auto'].includes(p.get('agc')) ? p.get('agc') : 'off';
-    // Audio Segmentation Mode (researcher opt-in, default OFF). Persisted like every other
-    // pushed setting; segmentationEnabled() also honours a live ?segmentation=1 for dev links.
+    // Audio Segmentation Mode. Persisted like every other pushed setting; segmentationEnabled()
+    // also honours a live ?segmentation=1 for dev links. ⚠ UNSET MEANS ON (see segmentationEnabled):
+    // only `1`/`on` writes true here, so ANY other value — `off`, `0`, and also a well-meant `true`
+    // — writes the explicit false that turns the mode off and keeps it off until something writes
+    // true again. A link is one of the three ways a device ends up with the classic textarea.
     if (p.has('segmentation')) s.segmentation = ['1', 'on'].includes(p.get('segmentation'));
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
@@ -990,6 +994,36 @@ function applyGlossEmptyHint() {
   if (!el) return;
   el.dataset.i18nHtml = baselineTabEnabled() ? 'gloss.empty' : 'gloss.emptyNoBaseline';
   el.innerHTML = t(el.dataset.i18nHtml);
+}
+
+/* ⚠ THE ALIGNMENT IS THERE; THE MODE IS OFF — say so where the person is looking (2026-10-07).
+ *
+ * A researcher segmented a text, sent the .flextext and the audio to a coworker, and the coworker's
+ * laptop opened it as the classic textarea: `segmentation: false` was stored on that device, and
+ * nothing on screen said so. The offsets had imported fine (segmentsFromOffsets on open) and were
+ * sitting on the doc, hidden — the textarea even scrolled, because every blank timed span is a blank
+ * line in it. Two screenshots over WhatsApp could not show a setting.
+ *
+ * This note appears ONLY in that exact state: the classic textarea is showing, the setting is an
+ * EXPLICIT false (unset means on, so a default device never sees it), and the open text carries time
+ * alignment (docCarriesTime — the same doc-truth test applyBaseline uses). It names the setting and
+ * says the alignment is kept, and it says who can turn the mode on: the researcher on a paired
+ * device, the person themselves on a standalone one. Its own element rather than #baseline-hint,
+ * because that span's single-key repaint is pinned (test/baseline-help-follows-settings) and this is
+ * a second, state-dependent sentence. The key is set on the element so applyI18n repaints it on a
+ * language change. */
+function applyAlignedNote(classic) {
+  const el = $('#baseline-aligned-note');
+  if (!el) return;
+  const on = !!classic && settings.segmentation === false && !!current && docCarriesTime(current.doc);
+  if (on) {
+    el.dataset.i18nHtml = Sync.hasSession() ? 'baseline.alignedOffPaired' : 'baseline.alignedOffSolo';
+    el.innerHTML = t(el.dataset.i18nHtml);
+  } else {
+    delete el.dataset.i18nHtml;
+    el.innerHTML = '';
+  }
+  el.hidden = !on;
 }
 
 function applyCutHint() {
@@ -2068,6 +2102,7 @@ function switchTab(tab, landing) {
   if (tab === 'baseline') {
     stopGlossCursor();
     applyBaselineHint();
+    applyAlignedNote(false);   // strips, or still deciding: the classic branch below is the one that can show it
     if (segmentationEnabled()) {
       // Strip mode: per-segment waveform + single-line text pairs. The textarea stays in the DOM
       // but hidden — switching the researcher setting off returns the classic editor with the
@@ -2173,6 +2208,7 @@ function switchTab(tab, landing) {
       $('#segment-strips').hidden = true;
       $('#baseline-text').hidden = false;
       $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
+      applyAlignedNote(true);   // the one state the note is for: classic textarea over an aligned text
       show('baseline');
       if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
       refreshPlayer();
@@ -4955,6 +4991,7 @@ function applyLiveSettings() {
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
     applyCutHint();            // …and a pushed backspaceJoin re-words the hint it gates, in place
     applyBaselineHint({ classic: baselineShowsTextarea() });   // …a pushed joinSplitBaseline / enterAtEnd re-words the Baseline hint (#92)
+    applyAlignedNote(baselineShowsTextarea());   // …and a pushed segmentation=on takes the aligned-but-off note down with it
     applyGlossEmptyHint();     // …and a pushed baselineTab re-words where the Gloss tab says to type the words
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
@@ -6831,7 +6868,8 @@ const SETUP_GROUPS = [
     { k: 'sortAlpha', type: 'checkbox' },
   ] },
   { id: 'tasks', fields: [
-    // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
+    // Unset means ON (segmentationEnabled); only an explicit false — this box unticked and saved —
+    // gives the classic textarea. deviceSetupValues renders an unset value ticked for that reason.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
     { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
     // ⚠ The other two tabs, so steps can be handed to different coworkers. Never all three off —
@@ -8400,8 +8438,12 @@ function applyAdminDrawer() {
     box.id = 'admin-drawer';
     box.className = 'admin-drawer';
     box.innerHTML = '<h3></h3><p class="note"></p>'
+      + '<button type="button" id="btn-admin-diag" class="secondary-btn"></button>'
       + '<button type="button" id="btn-admin-unpair" class="secondary-btn"></button>'
       + '<button type="button" id="btn-admin-panel" class="secondary-btn"></button>';
+    /* FIRST, because it is the one control here that changes nothing: it reads the device and writes
+     * a file. The recovery controls follow, the destructive one is re-appended below the box. */
+    box.querySelector('#btn-admin-diag').addEventListener('click', () => openDiagnosticsExport());
     box.querySelector('#btn-admin-unpair').addEventListener('click', runAdminUnpair);
     /* ⚠ THE PANEL ROUTE MOVED HERE RATHER THAN DISAPPEARING. The gesture used to open the researcher
      * panel outright on a managed install — the only way in on a coworker's phone, since the
@@ -8415,6 +8457,7 @@ function applyAdminDrawer() {
   }
   box.querySelector('h3').textContent = t('admin.title');
   box.querySelector('p').textContent = t('admin.note');
+  box.querySelector('#btn-admin-diag').textContent = t('admin.diag');
   const unpair = box.querySelector('#btn-admin-unpair');
   unpair.textContent = t('admin.unpair');
   unpair.disabled = !Sync.hasSession();
@@ -8424,6 +8467,134 @@ function applyAdminDrawer() {
    * Delete-All is the destructive one and belongs BELOW the recoverable controls, not above them. */
   const del = $('#btn-delete-all');
   if (del && del.parentNode === view) view.appendChild(del);
+}
+
+/* ---------------- Diagnostic export ----------------
+ * (Seth, 2026-10-07: "a dump of all the data on their devices, optionally including encryption
+ * keys/pairing keys (though that would be only if explicitly clicked and a very alarming warning
+ * box warns them to be sure they want to do this first)".)
+ *
+ * The gathering, redaction and zip planning live in js/diagnostics.js (pure, node-tested). This is
+ * the dialog: two choices and a button. Reached from the admin drawer at the bottom of Help — the
+ * researcher's gesture, which works paired or not and with no signal — and from the panel's Feedback
+ * window for the device the panel itself runs on. Nothing is sent anywhere; the ZIP lands in the
+ * downloads folder and the person decides who gets it, by whatever channel they have.
+ *
+ * ⚠ KEYS ARE OFF, AND TICKING THE BOX IS NOT ENOUGH. The checkbox opens a second, red dialog that
+ * says plainly what the file would let its holder do, requires an "I understand" tick before its
+ * confirm button is enabled, and un-ticks the box if it is dismissed in any way. Enter does NOT
+ * confirm it (unlike confirmDialog): a key the person is already holding down must not be the thing
+ * that exports their credentials. */
+function saveBlobDownload(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+function diagDeps() {
+  return {
+    db,
+    app: RESEARCHER_MODE ? 'researcher' : RECORD_MODE ? 'recorder' : PARAGRAPH_MODE ? 'paragraph'
+       : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : CROWD_MODE ? 'crowd' : 'editor',
+    engineVersion: ENGINE_VERSION, buildTag: BUILD_TAG, lang: getLang(),
+    settings: loadSettings(),
+    listCachedApps, nativePlatform, nativeEngineInfo,
+    /* ⚠ segTimes ALWAYS ON here, whatever the device's mode. The dump exists to show what the device
+     * HOLDS; a text whose offsets were hidden by a switched-off mode is the very case it was built
+     * for, and a .flextext that dropped them would hide the evidence again. */
+    serialize: (rec) => serializeFlextext(rec.doc, settings, { segTimes: true, timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() }),
+  };
+}
+
+function confirmKeysExport() {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.diagKeysDialog = '1';
+    wrap.innerHTML = `<div class="modal-card modal-warn" role="dialog" aria-modal="true">
+      <h3>${esc(t('diag.keysWarnTitle'))}</h3>
+      <p><b>${esc(t('diag.keysWarn'))}</b></p>
+      <label class="check-label"><input type="checkbox" data-kc="ack"> <span>${esc(t('diag.keysAck'))}</span></label>
+      <button class="primary-btn rp-danger" data-kc="yes" disabled>${esc(t('diag.keysYes'))}</button>
+      <button class="link-btn" data-kc="no">${esc(t('share.cancel'))}</button>
+    </div>`;
+    document.body.appendChild(wrap);
+    let done = false;
+    const finish = (answer) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey, true);
+      wrap.remove();
+      resolve(answer);
+    };
+    // Escape dismisses. Enter deliberately does nothing here.
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } }
+    document.addEventListener('keydown', onKey, true);
+    const ack = wrap.querySelector('[data-kc="ack"]');
+    const yes = wrap.querySelector('[data-kc="yes"]');
+    ack.addEventListener('change', () => { yes.disabled = !ack.checked; });
+    yes.addEventListener('click', () => finish(!!ack.checked));
+    wrap.querySelector('[data-kc="no"]').addEventListener('click', () => finish(false));
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) finish(false); });
+    setTimeout(() => { try { wrap.querySelector('[data-kc="no"]').focus(); } catch { /* noop */ } }, 0);
+  });
+}
+
+function openDiagnosticsExport() {
+  if (document.querySelector('[data-diag-dialog]')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.dataset.diagDialog = '1';
+  wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+    <h3>${esc(t('diag.title'))}</h3>
+    <p class="note">${esc(t('diag.intro'))}</p>
+    <label class="check-label"><input type="checkbox" data-diag="audio" checked> <span data-diag="audioLabel">${esc(t('diag.recordings', { size: '…' }))}</span></label>
+    <p class="note">${esc(t('diag.recordingsNote'))}</p>
+    <label class="check-label"><input type="checkbox" data-diag="keys"> <span>${esc(t('diag.keys'))}</span></label>
+    <p class="note">${esc(t('diag.keysNote'))}</p>
+    <p class="note" data-diag="status" role="status" aria-live="polite" hidden></p>
+    <button class="primary-btn" data-diag="build">${esc(t('diag.build'))}</button>
+    <button class="link-btn" data-diag="cancel">${esc(t('share.cancel'))}</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const q = (k) => wrap.querySelector(`[data-diag="${k}"]`);
+  let busy = false;
+  const close = () => { if (busy) return; document.removeEventListener('keydown', onKey, true); wrap.remove(); };
+  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } }
+  document.addEventListener('keydown', onKey, true);
+  q('cancel').addEventListener('click', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  q('keys').addEventListener('change', async () => {
+    if (!q('keys').checked) return;
+    if (!await confirmKeysExport()) q('keys').checked = false;
+  });
+  // The recordings' size, so the choice is informed: a chat app takes a 40 KB file and not a 400 MB one.
+  estimateMediaBytes(db)
+    .then((bytes) => { const el = q('audioLabel'); if (el) el.textContent = t('diag.recordings', { size: mbFmt(bytes) + ' MB' }); })
+    .catch(() => {});
+  const setBusy = (on) => { busy = on; for (const k of ['build', 'cancel', 'audio', 'keys']) q(k).disabled = on; };
+  q('build').addEventListener('click', async () => {
+    if (busy) return;
+    const st = q('status');
+    st.hidden = false;
+    setBusy(true);
+    const opts = { includeRecordings: q('audio').checked, includeKeys: q('keys').checked };
+    try {
+      const { blob, name } = await buildDiagnosticsZip(diagDeps(), opts,
+        (stage, i, n) => { st.textContent = t('diag.stage.' + stage) + (n ? ` ${i}/${n}` : '') + '…'; });
+      saveBlobDownload(blob, name);
+      setBusy(false);
+      close();
+      toast(t('diag.done', { name }), 8000);
+    } catch (err) {
+      setBusy(false);
+      st.textContent = (err && err.code === 'ZIP_TOO_LARGE')
+        ? t('diag.tooBig', { size: mbFmt(err.bytes || 0) + ' MB' })
+        : t('diag.failed', { msg: (err && err.message) || String(err) });
+    }
+  });
+  setTimeout(() => { try { q('build').focus(); } catch { /* noop */ } }, 0);
 }
 
 function setupResearchToggle() {
@@ -11924,6 +12095,7 @@ function setupResearcherMode() {
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
     eraseAllData: () => eraseAllData(),
     producedBy: () => producedBy(),
+    exportDiagnostics: () => openDiagnosticsExport(),   // the Feedback window's "Export diagnostics from this device…"
     canInstall: () => !!installPrompt,
     doInstall: async () => {
       if (!installPrompt) return;
@@ -12843,6 +13015,7 @@ function setup() {
     goHome: () => { renderDocList(); show('texts'); },
     eraseAllData: () => eraseAllData(),
     producedBy: () => producedBy(),
+    exportDiagnostics: () => openDiagnosticsExport(),   // the Feedback window's "Export diagnostics from this device…"
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
     /* No onLocalSettingsSaved any more: the panel's "This device" settings modal is gone (Seth,
      * 2026-08-07). A researcher's own device is UNPAIRED, so it already has this app's Settings tab

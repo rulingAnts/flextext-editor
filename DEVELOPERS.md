@@ -119,6 +119,32 @@ coworker. It is `sessionStorage`-backed (survives the reloads a dev pairing need
 tab) and while an override is active the panel keeps a highlighted badge visible — an invisible mode
 that rewrites every invite link is exactly what you forget is on and then hand to a real coworker.
 
+### The diagnostic export — what is on this device, in one ZIP (v703)
+
+When a device behaves in a way nobody can explain from the outside (the first case: a coworker's
+laptop showed a segmented text as the classic textarea because `segmentation: false` was stored on
+it, and two screenshots could not show a setting), the person holding it exports a diagnostic ZIP
+and sends it by whatever channel they have. It works offline and needs no pairing.
+
+- **Where:** the admin controls at the bottom of **Help** (tap the `?` button seven times, or
+  Ctrl+Alt+R) → **Export diagnostics…**; and in the researcher panel, **Feedback → Export
+  diagnostics from this device…** (the device the panel itself runs on). `js/diagnostics.js`
+  builds it; `openDiagnosticsExport()` in `app.js` is the dialog.
+- **What is in it:** `diagnostics.json` (app + engine version, origin and shell, browser, storage
+  quota, service worker and caches, the **full settings blob**, every `localStorage` /
+  `sessionStorage` entry, the IndexedDB inventory, the upload queue, and `errors` — every gather
+  step that failed, so one unreadable record never takes the export down); `docs/NNN-title.json`
+  (each text's complete stored record) and `docs/NNN-title.flextext` (serialised **with** offsets,
+  whatever the device's mode); `media/…` (optional — the recordings, and every derived or pending
+  audio record under a folder named for its kind).
+- **Secrets are redacted by default.** Any field whose *name* says credential (`secret`, `token`,
+  `password`, `wrappedKey`, `privateKey`…), at any depth of any stored value, is replaced by
+  `{ $redacted, bytes, sha256_8 }` — a fingerprint that lets two dumps be compared without
+  containing the value. Only an explicit **Include the keys** tick, followed by a red warning that
+  requires an "I understand" tick before its confirm button enables (and that Enter cannot
+  confirm), adds `keys.json` with the raw entries. The install private key is non-extractable and
+  is never in it. `test/diagnostics-export.test.mjs` pins all of this.
+
 ## 3. Repository layout & the engine/satellite model
 
 **`docs/` is the website** (GitHub Pages serves `productionWeb:/docs`). Everything else is

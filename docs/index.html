@@ -222,6 +222,9 @@
     <button id="btn-attach-audio" class="link-btn" data-i18n="player.attach">Attach audio&hellip;</button>
     <input type="file" id="attach-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
   </p>
+  <!-- Shown ONLY when the classic textarea is showing an aligned text on a device whose Audio
+       Segmentation Mode was explicitly switched off — see applyAlignedNote (app.js). -->
+  <p id="baseline-aligned-note" class="note" hidden></p>
   <!-- Shown while the recording decodes, INSTEAD of the strips. A span seeded before the duration
        is known is a wrong alignment written to the doc, not a placeholder — see switchTab. -->
   <p id="seg-loading" class="note seg-loading" hidden role="status" aria-live="polite">

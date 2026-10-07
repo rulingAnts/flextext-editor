@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v702';
+export const ENGINE_VERSION = 'v703';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v702';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'diagnostics v1';
 
 const S = {
 en: {
@@ -432,6 +432,34 @@ en: {
   'admin.unpairDone': 'This device is unpaired. Nothing was deleted. Ask the researcher to remove it in their panel too, then send a fresh invite link when you want to pair it again.',
   'admin.unpairNone': 'This device is not paired with a researcher.',
   'admin.panel': 'Researcher panel\u2026',
+  'admin.diag': 'Export diagnostics\u2026',
+  /* THE DIAGNOSTIC EXPORT (2026-10-07). Keys are OFF and stay off unless the person ticks the box and
+   * gets through the warning. Write the warning as what the file would LET ITS HOLDER DO, plainly \u2014
+   * it is the only thing standing between a well-meant "sure, include everything" and a credential
+   * in a chat thread. */
+  'diag.title': 'Export diagnostics',
+  'diag.intro': 'Builds one ZIP file with everything this app holds on this device \u2014 every text, the recordings if you keep them ticked, the settings, and the app and device details \u2014 for a researcher or developer to read. Nothing is sent anywhere: the file is saved on this device, and you choose who receives it.',
+  'diag.recordings': 'Include the recordings (about {size})',
+  'diag.recordingsNote': 'Without the recordings the file is small enough to send in a chat message.',
+  'diag.keys': 'Include the pairing and sign-in keys',
+  'diag.keysNote': 'Off unless you tick it. The keys are left out and only a fingerprint of each is written \u2014 enough to tell two devices apart, not enough to use.',
+  'diag.keysWarnTitle': '\u26a0 Include the keys?',
+  'diag.keysWarn': 'The file would then hold the credentials this device uses with its researcher. Anyone who has the file can act as this device: read what it syncs, receive what is sent to it, and upload in its name. Do this only because a developer asked you to, send the file to that person alone over a private channel, and ask the researcher to unpair and re-pair this device afterwards.',
+  'diag.keysAck': 'I understand: whoever receives this file receives this device\u2019s keys.',
+  'diag.keysYes': 'Include the keys',
+  'diag.build': 'Build the ZIP file',
+  'diag.stage.device': 'Reading the device details',
+  'diag.stage.texts': 'Reading the texts',
+  'diag.stage.media': 'Reading the recordings',
+  'diag.stage.zip': 'Building the ZIP file',
+  'diag.done': 'Saved {name}. Send it to the person who asked for it.',
+  'diag.failed': 'Could not build the file: {msg}',
+  'diag.tooBig': 'Too much to zip in a browser ({size}). Untick the recordings and try again.',
+  'panel.feedback.diag': 'Export diagnostics from this device\u2026',
+  /* The Baseline tab over an ALIGNED text on a device where the mode was switched off \u2014 see
+   * applyAlignedNote. Two variants: who can turn it on differs by pairing. */
+  'baseline.alignedOffPaired': 'This text carries audio alignment, but Audio Segmentation Mode is off on this device, so it is shown as plain text here. The alignment is kept \u2014 ask your researcher to turn the mode on, and the lines appear as timed strips.',
+  'baseline.alignedOffSolo': 'This text carries audio alignment, but Audio Segmentation Mode is off on this device, so it is shown as plain text here. The alignment is kept \u2014 turn the mode on under Settings \u2192 Tasks, and the lines appear as timed strips.',
   'seg.prep.convert': 'Preparing the recording for precise alignment\u2026',
   'seg.prep.decode': 'Reading the sound\u2026',
   'seg.prep.peaks': 'Drawing the waveform\u2026 {pct}%',
@@ -1630,6 +1658,7 @@ internet after the first time.</p>
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
     ,'panel.rel.fix.keylessButtons': 'Researcher panel: on a device in a project shared with you, Settings and Assign new text no longer vanish while the device\u2019s key is still on its way \u2014 they stay on the card, greyed with a small spinner and the reason, and come alive when the key arrives.'
+    ,'panel.rel.new.diagExport': 'Export diagnostics: on any device, the admin controls at the bottom of Help (tap ? seven times, or Ctrl+Alt+R) now offer \u201cExport diagnostics\u2026\u201d, and the panel\u2019s Feedback window offers the same for the device the panel runs on. It builds one ZIP with every text as .json and .flextext, the recordings (optional), the settings, every stored value, the app and device details, and a list of anything that could not be read. Pairing and sign-in keys are left out and only fingerprinted unless you tick \u201cInclude the keys\u201d and confirm a warning. The Baseline tab also says so now when a text carries audio alignment on a device where Audio Segmentation Mode is switched off.'
     ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording. \u2728 now sits on the player, bottom right, so it stays on screen while you scroll.'
     ,'panel.rel.new.loopPlay': 'Repeat playback: a Repeat button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
     ,'panel.rel.new.bootScreen': 'The Researcher app shows a loading screen the moment it opens, instead of a blank page until all of its code has downloaded. On a slow connection it says so after 20 seconds and offers a reload; if the connection dropped, it says that.'
@@ -3232,6 +3261,28 @@ id: {
   'admin.unpairDone': 'Perangkat ini sudah dilepas. Tidak ada yang dihapus. Minta peneliti menghapusnya di panel mereka juga, lalu kirim tautan undangan baru bila ingin memasangkannya kembali.',
   'admin.unpairNone': 'Perangkat ini tidak dipasangkan dengan peneliti.',
   'admin.panel': 'Panel peneliti\u2026',
+  'admin.diag': 'Ekspor diagnostik\u2026',
+  'diag.title': 'Ekspor diagnostik',
+  'diag.intro': 'Membuat satu berkas ZIP berisi semua yang disimpan aplikasi ini di perangkat ini \u2014 setiap teks, rekamannya jika tetap dicentang, pengaturan, serta rincian aplikasi dan perangkat \u2014 untuk dibaca peneliti atau pengembang. Tidak ada yang dikirim ke mana pun: berkasnya disimpan di perangkat ini, dan Anda yang menentukan siapa yang menerimanya.',
+  'diag.recordings': 'Sertakan rekaman (sekitar {size})',
+  'diag.recordingsNote': 'Tanpa rekaman, berkasnya cukup kecil untuk dikirim lewat pesan.',
+  'diag.keys': 'Sertakan kunci pemasangan dan kunci masuk',
+  'diag.keysNote': 'Mati kecuali Anda mencentangnya. Kuncinya tidak disertakan dan hanya sidik jarinya yang ditulis \u2014 cukup untuk membedakan dua perangkat, tidak cukup untuk dipakai.',
+  'diag.keysWarnTitle': '\u26a0 Sertakan kuncinya?',
+  'diag.keysWarn': 'Berkas itu kemudian akan memuat kredensial yang dipakai perangkat ini dengan penelitinya. Siapa pun yang memegang berkas itu dapat bertindak sebagai perangkat ini: membaca apa yang disinkronkan, menerima apa yang dikirim kepadanya, dan mengunggah atas namanya. Lakukan ini hanya karena diminta pengembang, kirim berkasnya hanya kepada orang itu lewat saluran pribadi, dan minta peneliti melepas lalu memasangkan kembali perangkat ini sesudahnya.',
+  'diag.keysAck': 'Saya mengerti: siapa pun yang menerima berkas ini menerima kunci perangkat ini.',
+  'diag.keysYes': 'Sertakan kuncinya',
+  'diag.build': 'Buat berkas ZIP',
+  'diag.stage.device': 'Membaca rincian perangkat',
+  'diag.stage.texts': 'Membaca teks',
+  'diag.stage.media': 'Membaca rekaman',
+  'diag.stage.zip': 'Membuat berkas ZIP',
+  'diag.done': 'Tersimpan {name}. Kirimkan kepada orang yang memintanya.',
+  'diag.failed': 'Tidak dapat membuat berkas: {msg}',
+  'diag.tooBig': 'Terlalu besar untuk dijadikan zip di peramban ({size}). Hilangkan centang rekaman lalu coba lagi.',
+  'panel.feedback.diag': 'Ekspor diagnostik dari perangkat ini\u2026',
+  'baseline.alignedOffPaired': 'Teks ini membawa penyelarasan audio, tetapi Mode Segmentasi Audio mati di perangkat ini, jadi di sini ditampilkan sebagai teks biasa. Penyelarasannya tetap tersimpan \u2014 minta peneliti Anda menyalakan mode itu, dan barisnya akan tampil sebagai potongan berwaktu.',
+  'baseline.alignedOffSolo': 'Teks ini membawa penyelarasan audio, tetapi Mode Segmentasi Audio mati di perangkat ini, jadi di sini ditampilkan sebagai teks biasa. Penyelarasannya tetap tersimpan \u2014 nyalakan mode itu di Pengaturan \u2192 Tugas, dan barisnya akan tampil sebagai potongan berwaktu.',
   'seg.prep.convert': 'Menyiapkan rekaman untuk penyelarasan yang tepat\u2026',
   'seg.prep.decode': 'Membaca suara\u2026',
   'seg.prep.peaks': 'Menggambar bentuk gelombang\u2026 {pct}%',
@@ -4255,6 +4306,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
     ,'panel.rel.fix.keylessButtons': 'Panel Peneliti: pada perangkat di proyek yang dibagikan kepada Anda, Pengaturan dan Tugaskan teks baru tidak lagi hilang selagi kunci perangkat masih dalam perjalanan \u2014 tombolnya tetap ada di kartu, abu-abu dengan putaran kecil dan alasannya, lalu aktif begitu kuncinya sampai.'
+    ,'panel.rel.new.diagExport': 'Ekspor diagnostik: di perangkat mana pun, kontrol admin di bagian bawah Bantuan (ketuk ? tujuh kali, atau Ctrl+Alt+R) kini menawarkan \u201cEkspor diagnostik\u2026\u201d, dan jendela Masukan di panel menawarkan hal yang sama untuk perangkat tempat panel berjalan. Ia membuat satu ZIP berisi setiap teks sebagai .json dan .flextext, rekaman (opsional), pengaturan, setiap nilai tersimpan, rincian aplikasi dan perangkat, serta daftar apa pun yang tidak terbaca. Kunci pemasangan dan kunci masuk tidak disertakan, hanya sidik jarinya yang dicatat, kecuali Anda mencentang \u201cSertakan kuncinya\u201d dan mengonfirmasi peringatan. Tab Ketik kini juga memberi tahu bila sebuah teks membawa penyelarasan audio di perangkat yang Mode Segmentasi Audio-nya dimatikan.'
     ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya. \u2728 kini ada di pemutar, kanan bawah, jadi tetap terlihat saat Anda menggulir.'
     ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol Ulangi di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
     ,'panel.rel.new.bootScreen': 'Aplikasi Peneliti kini menampilkan layar pemuatan begitu dibuka, bukan halaman kosong sampai seluruh kodenya selesai diunduh. Pada koneksi lambat, setelah 20 detik aplikasi memberi tahu dan menawarkan muat ulang; jika koneksi terputus, itu pun disebutkan.'

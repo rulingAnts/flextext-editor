@@ -291,11 +291,12 @@ consent" tab is dropped rather than shown empty.
   pause it, and the top ▶ repeats the whole recording; off, a line stops at its end as before. The
   device setting *Start with Repeat on* only chooses what it starts as when a text opens.
 - **✨ Guess the lines** also sits on the top player, far right, while the Cut tab is open. On a
-  recording nobody has cut yet it cuts the whole recording at its pauses (up to ten minutes). Once
-  anything has been cut by hand, it guesses only the piece under the playhead — if that piece has
-  no words and is at most ten minutes — and leaves every other piece alone, so a long recording is
-  cut into a few pieces first (Enter at the playhead) and then guessed piece by piece. One Undo
-  puts a guess back.
+  recording nobody has cut yet it cuts the whole recording at its pauses, whatever its length: a
+  long recording is first divided at real pauses into stretches of about ten minutes and each is
+  guessed with its own background level (v706, #93). Once anything has been cut by hand, it guesses
+  only the piece under the playhead — if that piece has no words — and leaves every other piece
+  alone, so someone who has started by hand can hand the untouched rest to it piece by piece. One
+  Undo puts a guess back.
 - **The top player is the same grammar plus zoom:** a tap places the playhead, the playhead line
   scrubs, dragging anywhere else scrolls the waveform once it is zoomed, pinching zooms (a trackpad
   pinch zooms too). Its thin cut marks show on all three tabs and follow a boundary you drag on a

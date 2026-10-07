@@ -507,6 +507,20 @@ These are the ones a tester can see.
 - [ ] **Researcher panel, a conversion that cannot be built** (a text with no alignment): the tray
       must say it failed, not "done — check your downloads".
 
+## v706 — ✨ at any length; the Gloss 🔗 honours the join/split switch (2026-10-07)
+
+- [ ] **A recording over ten minutes, Cut tab, untouched seed:** ✨ is LIVE (not grey); one press
+      cuts the whole recording into lines, the status line says how many; scroll to the bottom and
+      the last lines are cut as cleanly as the first. One Ctrl+Z puts the single seed back.
+- [ ] **A piece over ten minutes** (one Enter near the start of a long recording, playhead in the
+      long remainder): ✨ reads "Guess the lines inside this piece" and is live; it cuts only that
+      piece.
+- [ ] **Audio Segmenter, a recording over ten minutes:** ✨ guesses it rather than refusing; the
+      span count in the toast matches the rows.
+- [ ] **Gloss tab, join/split OFF for the tab** (researcher panel → Typing & keys): no ✂ in the
+      gutter AND no 🔗 row between lines. Push the switch ON while the tab is open: both appear
+      without a reload; push it OFF again: both go.
+
 ## v701 — ✨ inside one piece (on the dock), Repeat playback (2026-10-04)
 
 - [ ] **Fresh recording, Cut tab:** ✨ sits on the top player, far right; it guesses the whole

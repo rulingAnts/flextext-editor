@@ -17,7 +17,7 @@
  *
  * Run: node test/guess-splits.test.mjs
  */
-import { guessSplits, applyGuessedSplits, GUESS_MIN_GAP_MS, GUESS_MIN_LINE_MS, GUESS_MAX_MS } from '../docs/js/segments.js';
+import { guessSplits, applyGuessedSplits, GUESS_MIN_GAP_MS, GUESS_MIN_LINE_MS, GUESS_WINDOW_MS } from '../docs/js/segments.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -277,20 +277,20 @@ console.log('\n…and otherwise builds N spans and N EMPTY paragraphs, 1:1');
   ok(applyGuessedSplits([''], [1000], { duration: 0 }).reason === 'noAudio', 'and no duration ⇒ noAudio');
 }
 
-/* ⚠ THE CAP IS ON THE INPUT, and it is about MEMORY rather than about the detector (Seth: "cap …
- * the length of a recording that allows auto-guessing lines. Maybe let's cap that at 10 minutes?").
- * Detection is ~45ms on 40 minutes of peaks, measured — but the RESULT would be ~650 rows, each a
- * live canvas on a phone, and the device would run out after the document had already been replaced.
- * Refusing up front is the difference between a decision and a mystery. */
-console.log('\nthe 10-minute cap is a stated constant, not a magic number in the UI');
+/* ⚠ THE TEN MINUTES WAS A CAP ON THE INPUT, about MEMORY rather than the detector (Seth, v364: "cap …
+ * the length of a recording that allows auto-guessing lines. Maybe let's cap that at 10 minutes?"):
+ * the RESULT of one press on 40 minutes was ~650 rows, each a live canvas on a phone. Since the lazy
+ * strips (v580, #31) that cost is gone, and since v706 (#93) the number is the WINDOW a long recording
+ * is guessed in, not a limit — see guessSplitsWindowed and test/guess-long.test.mjs. */
+console.log('\nthe 10-minute window is a stated constant, not a magic number in the UI');
 {
-  ok(GUESS_MAX_MS === 10 * 60 * 1000, `GUESS_MAX_MS is 10 minutes (${GUESS_MAX_MS}ms)`);
-  // The detector itself is NOT capped — the limit belongs to the tab that has to render the result,
-  // and a caller with its own budget (a future background pass) must not be silently truncated.
-  const long = new Float32Array(Math.round((GUESS_MAX_MS + 60000) / 0.5));
+  ok(GUESS_WINDOW_MS === 10 * 60 * 1000, `GUESS_WINDOW_MS is 10 minutes (${GUESS_WINDOW_MS}ms)`);
+  // The detector itself has never been capped — a caller with its own budget must not be silently
+  // truncated — which is what lets the windowed wrapper run it over a whole long span first.
+  const long = new Float32Array(Math.round((GUESS_WINDOW_MS + 60000) / 0.5));
   for (let i = 0; i < long.length; i++) long[i] = (Math.floor(i / 4000) % 4 === 3) ? 0.02 : 0.6;
-  ok(guessSplits(long, 0.5, { durationMs: GUESS_MAX_MS + 60000 }).length > 0,
-     'guessSplits still answers for a recording past the cap — the cap is policy, not physics');
+  ok(guessSplits(long, 0.5, { durationMs: GUESS_WINDOW_MS + 60000 }).length > 0,
+     'guessSplits still answers for a recording past the window — the window is policy, not physics');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');

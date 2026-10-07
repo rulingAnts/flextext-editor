@@ -32,7 +32,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, GUESS_MAX_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -10722,18 +10722,15 @@ async function mgPrepareAudio(docId) {
  * since here the text already exists and its lines must survive. So the guess is a proposal on the
  * audio side alone: nothing is written until Done, and Back discards it.
  *
- * The three guards are the Cut tab's, for the same reasons: refuse a recording longer than the
- * detector's limit (one press on 40 minutes is hundreds of live canvases on a phone), say so when
- * there are no clear pauses rather than silently doing nothing, and ask first if the user has
- * already cut by hand — that work is exactly what this would throw away. */
+ * The two guards are the Cut tab's, for the same reasons: say so when there are no clear pauses
+ * rather than silently doing nothing, and ask first if the user has already cut by hand — that work
+ * is exactly what this would throw away. A third, the ten-minute refusal, went in v706 (#93): the
+ * shared guessedBoundaries() now guesses a long recording in windows, and the matcher's span rows are
+ * lazy strips like the editor's, so length costs nothing it did not already pay. */
 async function mgGuess() {
   if (!MG) return;
   const dur = peaksDurationMs();
   if (!dur) { toast(t('cut.no.guessAudio'), 6000); return; }
-  if (dur > GUESS_MAX_MS) {
-    toast(t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) }), 9000);
-    return;
-  }
   // >1 span means real cutting has happened. One whole-file span is the seed, not work.
   if (MG.spans.length > 1 && !await confirmDialog(t('mg.guessReplace'))) return;
   if (!MG) return;                      // the dialog is async; the user may have left

@@ -190,14 +190,20 @@ ok(/docHasWork\(doc\)/.test(guessFn) && /function docHasWork/.test(strips),
    'a text with words, GLOSSES or free translations is refused — not just one with baseline text');
 ok(/w\.gls/.test(fn(strips, 'docHasWork')) && /s\.free/.test(fn(strips, 'docHasWork')),
    '…and that test really does look at glosses and free translations');
-ok(/dur > GUESS_MAX_MS/.test(guessFn) && /GUESS_MAX_MS = 10 \* 60 \* 1000/.test(read('docs/js/segments.js')),
-   'a recording longer than ten minutes is refused up front (Seth\'s cap)');
-ok(/cut\.no\.guessLong/.test(guessFn) && /\{mins\} minutes long/.test(i18n),
-   '…with the limit AND the recording\'s actual length, so it is a decision rather than a mystery');
+/* ⚠ THE TEN-MINUTE REFUSAL IS GONE (#93, v706). It guarded canvas memory the lazy strips (v580) no
+ * longer spend; a long recording is now guessed in ten-minute windows divided at real pauses
+ * (guessSplitsWindowed, measured in test/guess-long.test.mjs). So the press must NOT refuse on length,
+ * and the dead sentences must not linger in either dictionary. */
+ok(!/GUESS_MAX_MS/.test(guessFn) && !/cut\.no\.guessLong/.test(guessFn) && !/GUESS_MAX_MS/.test(strips),
+   'no recording is refused for being long — the cap and its sentence are gone from the press');
+ok(/return guessSplitsWindowed\(peaksCache\.peaks, [^\n]*, 0, dur\);/.test(fn(strips, 'guessCuts')),
+   '…because the one detector call guesses the whole recording in windows');
+ok(!/'cut\.no\.guessLong'/.test(i18n) && !/'cut\.no\.guessPieceLong'/.test(i18n),
+   '…and the two refusal sentences left both dictionaries with it');
 const blocked = fn(strips, 'guessBlockedBecause');
 ok(/guess\.disabled = !!why;/.test(render) && /guessBlockedBecause\(paras, doc\)/.test(render),
    'and the button is disabled in every refusing case, rather than looking live and refusing on click');
-ok(/cut\.no\.guessText/.test(blocked) && /cut\.no\.guessLong/.test(blocked) && /cut\.no\.guessAudio/.test(blocked),
+ok(/cut\.no\.guessText/.test(blocked) && !/cut\.no\.guessLong/.test(blocked) && /cut\.no\.guessAudio/.test(blocked),
    '…with the SAME sentence on the tooltip that the click would have said');
 /* Seth, 2026-08-14, on a recording made in a crowded workshop: "If the background noise is too high
  * to make easy splits, then graying out the guess button is fine." */

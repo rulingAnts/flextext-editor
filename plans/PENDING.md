@@ -34,7 +34,17 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v704 — released 2026-10-07 with v703 (Segmenter analysis-language picker; the active line travels between tabs); production is v704 (f9d1ec1c)
+## ▶ v705 — assembled 2026-10-07 ("Open text + recording together" is a two-picker dialog); production is v704 (f9d1ec1c)
+
+Branch `feat/open-pair-modal`. Seth: "requiring ctrl+click of two files in the same folder isn't actually the most user
+friendly way … Better to open a modal with two file input fields (… similar to the 'new text' modal in the Researcher
+panel)". `openPairDialog(onPair)` in app.js: the panel's `.rp-field` look, a .flextext picker and a recording picker,
+Open live only once both are chosen, Escape/backdrop/Cancel close it; the editor's `#btn-new-pair` and the Segmenter's
+import bar both open it and hand the pair to what they always called (`newDocFromPair` / `satImportFiles`). The editor's
+hidden multi-file `#new-pair-file` is gone; the other satellite shells keep their one picker (no pairing there). Lost on
+purpose: opening several pairs in one go in the Segmenter.
+
+## v704 — released 2026-10-07 with v703 (Segmenter analysis-language picker; the active line travels between tabs); production is v704 (f9d1ec1c)
 
 All seven apps verified live at v704 (deploy run 37569817129; every endpoint fetched twice 45 s apart; app.flextext.app's app.js
 byte-identical to the commit; the segmenter host serves analysisRows, the editor host pickActiveLine; main = productionWeb =

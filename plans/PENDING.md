@@ -34,7 +34,12 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v704 — assembled 2026-10-05 (Segmenter: which analysis language the Text column shows); on top of v703 (staging)
+## ▶ v704 — released 2026-10-07 with v703 (Segmenter analysis-language picker; the active line travels between tabs); production is v704 (f9d1ec1c)
+
+All seven apps verified live at v704 (deploy run 37569817129; every endpoint fetched twice 45 s apart; app.flextext.app's app.js
+byte-identical to the commit; the segmenter host serves analysisRows, the editor host pickActiveLine; main = productionWeb =
+staging = f9d1ec1c — the verified v704 bytes plus one plan document). Issues that day, backlog only: #96 (speakers + video,
+very high), #97 (export gaps, high), #98 (feedback without a GitHub account, very high). Nothing is staged beyond production.
 
 Branch `feat/segmenter-analysis-lang`. Seth: "implement the cheap, display-only option on the segmenter's text column".
 `analysisRows(entries, mode, primary)` (flextext.js, pure) picks the rows to show from wordGlosses / phraseFrees: one

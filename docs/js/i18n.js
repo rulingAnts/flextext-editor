@@ -554,6 +554,20 @@ en: {
   'panel.f.archivalDefaults': 'Use archival settings',
   'panel.f.archivalNote': 'Widely accepted for language archives: 24-bit WAV with auto-gain, noise reduction, echo cancellation, and normalization all OFF. This button sets exactly that — then Save.',
   'panel.f.archivalSet': 'Archival settings applied — Save to keep them.',
+  /* THE ONE-TAP LOCK (2026-10-07) — the answer to "they may transcribe against the cuts but not
+   * change them". Six boxes on two tabs, set in one press; the note says exactly which. */
+  'panel.f.lockCuts': 'Lock the cuts: play and type only',
+  'panel.f.lockCutsNote': 'One press sets this up: Audio Segmentation Mode on, the five switches below off (joining and splitting on Baseline and on Gloss, joining texted lines on Cut, moving boundaries, Backspace joins), and the Cut tab hidden. The coworker still sees every line as a waveform strip and plays it line by line — they just cannot reshape anything. To allow single things again, tick them below. Then Save.',
+  'panel.f.lockCutsSet': 'Cuts locked: the coworker can play and type, not reshape. Audio Segmentation Mode is on. Save to keep it.',
+  /* THE WARNING BEFORE A PUSH TURNS THE MODE OFF on a device that holds cut texts. Two lead
+   * sentences: a device on v703+ reports how many texts carry cuts; an older one reports only which
+   * texts have a recording, so the weaker fact is what gets said. */
+  'panel.set.segOffTitle': 'Turn Audio Segmentation Mode off?',
+  'panel.set.segOffCuts': '{n} of this device’s texts carry audio cuts.',
+  'panel.set.segOffAudio': '{n} of this device’s texts have a recording.',
+  'panel.set.segOffBody': 'With the mode off, the coworker sees them as plain text and cannot play line by line; the cuts stay stored but hidden. This does not lock the cuts. To let them use the cuts without changing them, keep the mode on and press “Lock the cuts” under What the coworker may change.',
+  'panel.set.segOffAnyway': 'Turn it off anyway',
+  'panel.set.segOffKeep': 'Keep it on',
   'panel.f.maxRecUnlimited': 'no limit',
   'panel.f.perMinEstimate': 'About {mb} MB per minute of recording.',
   'panel.f.autoBackupMins': 'Auto-backup wait time',
@@ -1658,6 +1672,7 @@ internet after the first time.</p>
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
     ,'panel.rel.fix.keylessButtons': 'Researcher panel: on a device in a project shared with you, Settings and Assign new text no longer vanish while the device\u2019s key is still on its way \u2014 they stay on the card, greyed with a small spinner and the reason, and come alive when the key arrives.'
+    ,'panel.rel.new.lockCuts': 'Settings: “Lock the cuts: play and type only”, one button under What the coworker may change, in the panel and on a device’s own Settings tab. One press turns Audio Segmentation Mode on, the five cut-changing switches off and the Cut tab hidden, so a coworker transcribes against the cuts without being able to reshape them. The mode switch is now worded for what off costs the coworker (a plain text box, no line playback, the cuts hidden), and the panel asks before a push turns the mode off on a device whose texts carry cuts.'
     ,'panel.rel.new.diagExport': 'Export diagnostics: on any device, the admin controls at the bottom of Help (tap ? seven times, or Ctrl+Alt+R) now offer \u201cExport diagnostics\u2026\u201d, and the panel\u2019s Feedback window offers the same for the device the panel runs on. It builds one ZIP with every text as .json and .flextext, the recordings (optional), the settings, every stored value, the app and device details, and a list of anything that could not be read. Pairing and sign-in keys are left out and only fingerprinted unless you tick \u201cInclude the keys\u201d and confirm a warning. The Baseline tab also says so now when a text carries audio alignment on a device where Audio Segmentation Mode is switched off.'
     ,'panel.rel.new.guessPiece': 'Editor, Cut tab: once you have cut by hand, \u2728 guesses the lines inside ONE piece \u2014 the piece under the playhead \u2014 and leaves the rest alone. So a long recording is cut into a few pieces first and guessed piece by piece; the ten-minute limit now applies to the piece, not the recording. \u2728 now sits on the player, bottom right, so it stays on screen while you scroll.'
     ,'panel.rel.new.loopPlay': 'Repeat playback: a Repeat button on the player. When it is on, a line\u2019s \u25b6 plays that line again and again, and the big \u25b6 repeats the whole recording. The device setting \u201cStart with Repeat on\u201d (under Typing) chooses what it starts as.'
@@ -2404,8 +2419,11 @@ internet after the first time.</p>
   'panel.opt.glossIcon.pencil': 'Pencil',
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
   'panel.f.sortAlpha': 'Keep the texts list in alphabetical order (otherwise: most recent first)',
-  'panel.f.segmentation': 'Enable Audio Segmentation Mode',
-  'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and per-line cutting. What the Enter key does is a separate setting below. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
+  /* ⚠ SAY WHAT OFF COSTS THE COWORKER (2026-10-07). A researcher read "Enable Audio Segmentation
+   * Mode" as "may the coworker segment?", unticked it to stop his coworker changing the cuts, and
+   * took away the strips and line-by-line playback instead. The note names the lock he wanted. */
+  'panel.f.segmentation': 'Audio Segmentation Mode (waveform strips, play line by line)',
+  'panel.f.segmentationNote': '⚠ Off is not a lock. With this off the coworker gets a plain text box: no waveform strips, no line-by-line playback, and no sign of the cuts — the cuts stay stored, hidden. To let somebody use the cuts without being able to change them, keep this ON and press “Lock the cuts” under What the coworker may change. With it on, the Baseline and Gloss tabs show every line as a strip with its own ▶, and the Cut tab can be shown. What the Enter key does is a separate setting below. Try it with one worker first before enabling it broadly.',
   /* Seth, 2026-08-13 — DEFAULT OFF, unlike segmentation. The join BUTTONS are the reliable route
    * now; the keys mainly produce accidental joins the transcriber then has to notice and undo. */
   'panel.f.backspaceJoin': 'Allow Backspace/Delete to join lines',
@@ -3366,6 +3384,15 @@ id: {
   'panel.f.archivalDefaults': 'Gunakan setelan arsip',
   'panel.f.archivalNote': 'Yang diterima luas untuk arsip bahasa: WAV 24-bit dengan auto-gain, reduksi derau, peredam gema, dan normalisasi semuanya MATI. Tombol ini mengatur persis itu — lalu Simpan.',
   'panel.f.archivalSet': 'Setelan arsip diterapkan — Simpan untuk menyimpannya.',
+  'panel.f.lockCuts': 'Kunci potongan: hanya putar dan ketik',
+  'panel.f.lockCutsNote': 'Satu tekanan mengatur ini: Mode Segmentasi Audio aktif, lima saklar di bawah mati (menggabungkan dan memisahkan di tab Ketik dan di tab Terjemahan Balik, menggabungkan baris berteks di tab Potong, memindahkan batas, penggabungan dengan Backspace), dan tab Potong disembunyikan. Rekan kerja tetap melihat setiap baris sebagai potongan gelombang suara dan memutarnya per baris — hanya saja tidak bisa mengubah bentuknya. Untuk mengizinkan satu hal lagi, centang di bawah. Lalu Simpan.',
+  'panel.f.lockCutsSet': 'Potongan terkunci: rekan kerja bisa memutar dan mengetik, tidak mengubah bentuk. Mode Segmentasi Audio aktif. Simpan untuk menyimpannya.',
+  'panel.set.segOffTitle': 'Matikan Mode Segmentasi Audio?',
+  'panel.set.segOffCuts': '{n} teks di perangkat ini membawa potongan audio.',
+  'panel.set.segOffAudio': '{n} teks di perangkat ini punya rekaman.',
+  'panel.set.segOffBody': 'Jika mode dimatikan, rekan kerja melihatnya sebagai teks biasa dan tidak bisa memutar per baris; potongannya tetap tersimpan tetapi disembunyikan. Ini tidak mengunci potongan. Agar mereka bisa memakai potongan tanpa mengubahnya, biarkan mode aktif dan tekan “Kunci potongan” di bagian Apa yang boleh diubah rekan kerja.',
+  'panel.set.segOffAnyway': 'Matikan saja',
+  'panel.set.segOffKeep': 'Biarkan aktif',
   'panel.f.maxRecUnlimited': 'tanpa batas',
   'panel.f.perMinEstimate': 'Sekitar {mb} MB per menit rekaman.',
   'panel.f.autoBackupMins': 'Waktu tunggu cadangan otomatis',
@@ -4306,6 +4333,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
     ,'panel.rel.fix.keylessButtons': 'Panel Peneliti: pada perangkat di proyek yang dibagikan kepada Anda, Pengaturan dan Tugaskan teks baru tidak lagi hilang selagi kunci perangkat masih dalam perjalanan \u2014 tombolnya tetap ada di kartu, abu-abu dengan putaran kecil dan alasannya, lalu aktif begitu kuncinya sampai.'
+    ,'panel.rel.new.lockCuts': 'Pengaturan: “Kunci potongan: hanya putar dan ketik”, satu tombol di bagian Apa yang boleh diubah rekan kerja, di panel maupun di tab Pengaturan perangkat itu sendiri. Satu tekanan mengaktifkan Mode Segmentasi Audio, mematikan lima saklar pengubah potongan, dan menyembunyikan tab Potong, sehingga rekan kerja menulis mengikuti potongan tanpa bisa mengubah bentuknya. Saklar mode kini diberi kata sesuai akibatnya bagi rekan kerja jika mati (kotak teks biasa, tanpa pemutaran per baris, potongan disembunyikan), dan panel bertanya dulu sebelum kiriman mematikan mode itu di perangkat yang teksnya membawa potongan.'
     ,'panel.rel.new.diagExport': 'Ekspor diagnostik: di perangkat mana pun, kontrol admin di bagian bawah Bantuan (ketuk ? tujuh kali, atau Ctrl+Alt+R) kini menawarkan \u201cEkspor diagnostik\u2026\u201d, dan jendela Masukan di panel menawarkan hal yang sama untuk perangkat tempat panel berjalan. Ia membuat satu ZIP berisi setiap teks sebagai .json dan .flextext, rekaman (opsional), pengaturan, setiap nilai tersimpan, rincian aplikasi dan perangkat, serta daftar apa pun yang tidak terbaca. Kunci pemasangan dan kunci masuk tidak disertakan, hanya sidik jarinya yang dicatat, kecuali Anda mencentang \u201cSertakan kuncinya\u201d dan mengonfirmasi peringatan. Tab Ketik kini juga memberi tahu bila sebuah teks membawa penyelarasan audio di perangkat yang Mode Segmentasi Audio-nya dimatikan.'
     ,'panel.rel.new.guessPiece': 'Editor, tab Potong: kalau Anda sudah memotong sendiri, \u2728 menebak baris di dalam SATU bagian \u2014 bagian tempat posisi putar berada \u2014 dan membiarkan sisanya. Jadi rekaman panjang dipotong dulu menjadi beberapa bagian, lalu ditebak bagian demi bagian; batas sepuluh menit kini berlaku untuk bagian itu, bukan rekamannya. \u2728 kini ada di pemutar, kanan bawah, jadi tetap terlihat saat Anda menggulir.'
     ,'panel.rel.new.loopPlay': 'Pemutaran berulang: tombol Ulangi di pemutar. Kalau menyala, \u25b6 pada sebuah baris memutar baris itu terus-menerus, dan \u25b6 besar mengulang seluruh rekaman. Pengaturan perangkat \u201cMulai dengan Ulangi menyala\u201d (di bagian Mengetik) menentukan keadaan awalnya.'
@@ -4967,8 +4995,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.glossIcon.pencil': 'Pensil',
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
   'panel.f.sortAlpha': 'Urutkan daftar teks menurut abjad (jika tidak: yang terbaru dahulu)',
-  'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',
-  'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan pemotongan per baris. Apa yang dilakukan tombol Enter adalah pengaturan tersendiri di bawah. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
+  'panel.f.segmentation': 'Mode Segmentasi Audio (potongan gelombang suara, putar per baris)',
+  'panel.f.segmentationNote': '⚠ Mati bukan berarti terkunci. Jika ini mati, rekan kerja mendapat kotak teks biasa: tanpa potongan gelombang suara, tanpa pemutaran per baris, dan tanpa tanda potongan apa pun — potongannya tetap tersimpan, hanya disembunyikan. Agar seseorang bisa memakai potongan tanpa bisa mengubahnya, biarkan ini AKTIF dan tekan “Kunci potongan” di bagian Apa yang boleh diubah rekan kerja. Jika aktif, tab Ketik dan Terjemahan Balik menampilkan setiap baris sebagai potongan dengan tombol ▶ sendiri, dan tab Potong bisa ditampilkan. Apa yang dilakukan tombol Enter adalah pengaturan tersendiri di bawah. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas.',
   /* Lihat catatan pada blok en \u2014 default MATI. */
   'panel.f.backspaceJoin': 'Izinkan Backspace/Delete menggabungkan baris',
   'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah \u2014 di tab Ketik dan Gloss, dan juga di tab Potong, di mana Backspace menggabungkan baris yang sedang aktif dengan baris di atasnya. Tombol gabung \ud83d\udd17 tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',

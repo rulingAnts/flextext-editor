@@ -5281,6 +5281,13 @@ async function syncGatherInventory() {
       title: d.title || '',
       titleHash: await syncTitleHash(d.title),
       hasAudio: !!(d.audioSource || d.pendingAudio || d.audioId),
+      /* How many lines of this text are cut against the recording (aligned spans; a timePending
+       * span is a cut nobody has made yet). The panel reads it to warn before a push turns Audio
+       * Segmentation Mode off on a device holding cut texts (2026-10-07). Additive: an older panel
+       * ignores it, and an older device simply does not send it. */
+      spans: Array.isArray(d.doc && d.doc.segments)
+        ? d.doc.segments.filter((s) => s && !s.timePending && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start).length
+        : 0,
       modified: d.modified,
       done: !!d.done,
       pendingDelete: upDel.has(d.id),   // panel shows it struck-through/faded until it's gone
@@ -6880,6 +6887,13 @@ const SETUP_GROUPS = [
     { k: 'wordGloss', type: 'checkbox', note: 'panel.f.wordGlossNote' },
   ] },
   { id: 'permissions', fields: [
+    /* ⚠ NOT A SETTING — `type: 'action'`, like archivalDefaults. One tap answers the question a
+     * researcher actually asks ("they may transcribe against the cuts but not change them"): it
+     * turns Audio Segmentation Mode ON and the five cut-changing switches below OFF, and hides the
+     * Cut tab. It exists because the first researcher with that question found "Enable Audio
+     * Segmentation Mode" instead and unticked it, which took the strips and line playback away from
+     * his coworker (2026-10-07). No new engine key: the lock IS those switches. */
+    { k: 'lockCuts', type: 'action', note: 'panel.f.lockCutsNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
@@ -7149,8 +7163,9 @@ function setupFieldHtml(f) {
       + (f.note ? `<p class="note rp-subnote">${esc(t(f.note))}</p>` : '');
   }
   if (f.type === 'action') {
+    // An action carries its own note; archivalDefaults predates `note:` and keeps its old key.
     return `<div class="rp-field"><button type="button" class="secondary-btn" data-sact="${f.k}">${label}</button></div>`
-         + `<p class="note">${esc(t('panel.f.archivalNote'))}</p>`;
+         + `<p class="note">${esc(t(f.note || 'panel.f.archivalNote'))}</p>`;
   }
   if (f.type === 'range') {
     return `<label class="rp-field"><span>${label} — <span id="ds-maxrec-lbl"></span></span>`
@@ -7756,6 +7771,19 @@ function renderDeviceSetup() {
     if (which === 'pair') { showInvitePasteModal(); return; }
     if (which === 'recfmtHelp') { const m = $('#recformat-help-modal'); if (m) m.hidden = false; return; }
     if (which === 'wscodesHelp') { wsCodesHelpModal(); return; }   // the code-box guess warning's "more info…" (#68)
+    /* The one-tap lock (see SETUP_GROUPS → permissions). Mode ON, Cut tab OFF, the five
+     * cut-changing switches OFF — the same six keys the panel's twin sets, pinned by
+     * test/lock-cuts.test.mjs so the two cannot drift. */
+    if (which === 'lockCuts') {
+      const tick = (k, v) => { const el = form.querySelector(`[data-sf="${k}"]`); if (el && el.type === 'checkbox') el.checked = v; };
+      tick('segmentation', true);
+      tick('cutTab', false);
+      for (const k of ['joinSplitBaseline', 'joinSplitGloss', 'adjustBoundaries', 'backspaceJoin', 'cutJoinTexted']) tick(k, false);
+      updateSetupConditionals(form);
+      toast(t('panel.f.lockCutsSet'), 6000);
+      saveDeviceSetupLive(form, showGroup, { immediate: true });   // script-set boxes fire no `change`
+      return;
+    }
     if (which === 'archivalDefaults') {
       const set = (k, v) => { const el = form.querySelector(`[data-sf="${k}"]`); if (el) el.value = v; };
       set('recordFormat', 'wav24');

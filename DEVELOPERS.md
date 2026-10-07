@@ -145,6 +145,16 @@ and sends it by whatever channel they have. It works offline and needs no pairin
   confirm), adds `keys.json` with the raw entries. The install private key is non-extractable and
   is never in it. `test/diagnostics-export.test.mjs` pins all of this.
 
+**The case that prompted it, and the lock it was really asking for.** The researcher had unticked
+"Audio Segmentation Mode" to stop a coworker changing the cuts. Off is not a lock: it is the whole
+feature (strips, line-by-line playback, the Cut tab), and the cuts stay stored but invisible. The
+lock is the five switches under *What the coworker may change* plus hiding the Cut tab, and since
+v703 one button sets all of it: **Lock the cuts: play and type only** (an `action` field, like *Use
+archival settings*, on both the panel form and the device's own Settings tab, setting the same six
+keys — `test/lock-cuts.test.mjs`). The mode switch is worded for what off costs the coworker, and the
+panel asks before a push turns the mode off on a device whose inventory reports texts with cuts
+(`spans`, reported since v703; older engines fall back to `hasAudio`).
+
 ## 3. Repository layout & the engine/satellite model
 
 **`docs/` is the website** (GitHub Pages serves `productionWeb:/docs`). Everything else is

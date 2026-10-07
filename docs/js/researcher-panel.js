@@ -756,6 +756,13 @@ const GROUPS = [
    * in the field — pare a screen back for somebody who is getting lost, then grow it as they learn
    * (Seth: "Different coworker users will be ready for different levels of complexity"). */
   { id: 'permissions', fields: [
+    /* ⚠ NOT A SETTING — `type: 'action'`, like archivalDefaults. One tap for the question a
+     * researcher actually asks ("they may transcribe against the cuts but not change them"): Audio
+     * Segmentation Mode ON, the five cut-changing switches below OFF, the Cut tab hidden. The first
+     * researcher with that question found "Enable Audio Segmentation Mode" instead and unticked it,
+     * which took the strips and line playback away from his coworker (2026-10-07). No new engine
+     * key: the lock IS those switches, and the device's own Settings tab has the same button. */
+    { k: 'lockCuts', type: 'action', note: 'panel.f.lockCutsNote' },
     { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
     { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
@@ -1445,6 +1452,7 @@ function header(titleKey, withLock) {
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
   { v: 'v703', date: '2026-10-07', items: [
+    { k: 'panel.rel.new.lockCuts' },
     { k: 'panel.rel.new.diagExport' },
   ] },
   { v: 'v702', date: '2026-10-04', items: [
@@ -10293,7 +10301,9 @@ function fieldHtml(f) {
       + (f.note ? `<p class="note rp-subnote">${esc(t(f.note))}</p>` : '');
   }
   if (f.type === 'action') {
-    const note = f.k === 'archivalDefaults' ? `<p class="note">${esc(t('panel.f.archivalNote'))}</p>` : '';
+    // An action carries its own note; archivalDefaults predates `note:` and keeps its old key.
+    const noteKey = f.note || (f.k === 'archivalDefaults' ? 'panel.f.archivalNote' : '');
+    const note = noteKey ? `<p class="note">${esc(t(noteKey))}</p>` : '';
     return `<div class="rp-field"><button type="button" class="secondary-btn" data-gact="${f.k}">${label}</button></div>${note}`;
   }
   if (f.type === 'range') {
@@ -10706,6 +10716,35 @@ function validateDeviceSettings(raw, opts = {}) {
   return out;
 }
 
+/* THE QUESTION BEFORE A PUSH TURNS AUDIO SEGMENTATION MODE OFF (2026-10-07). A researcher unticked
+ * the mode to stop his coworker changing the cuts, and the coworker's segmented text turned into a
+ * plain text box with no line playback. The device's inventory says whether there is anything to
+ * lose: `spans` (how many lines are cut, reported since v703) or, from an older engine, only
+ * `hasAudio`. Nothing to lose → no question. Returns 'off' (push as asked), 'keep' (re-tick the
+ * mode and push the rest), or null (dismissed: push nothing). Two labelled buttons rather than
+ * confirmModal's OK/Cancel, because "OK" to a question that starts "Turn … off?" reads both ways. */
+function segOffWarning(instanceId) {
+  const row = ((lastData && lastData.instances) || [])
+    .concat(((lastData && lastData.memberProjects) || []).flatMap((mp) => mp.instances || []))
+    .find((x) => x.instance_id === instanceId);
+  const items = row && row.inventory && Array.isArray(row.inventory.items) ? row.inventory.items : [];
+  const cut = items.filter((d) => d && d.spans > 0).length;
+  const withAudio = items.filter((d) => d && d.hasAudio).length;
+  if (!cut && !withAudio) return Promise.resolve('off');
+  const lead = cut ? t('panel.set.segOffCuts', { n: cut }) : t('panel.set.segOffAudio', { n: withAudio });
+  return new Promise((resolve) => {
+    let answered = false;
+    const done = (v) => { if (!answered) { answered = true; resolve(v); } };
+    const m = modal(`${modalHead(t('panel.set.segOffTitle'))}
+      <p><b>${esc(lead)}</b> ${esc(t('panel.set.segOffBody'))}</p>
+      <button class="primary-btn" data-m="keep">${esc(t('panel.set.segOffKeep'))}</button>
+      <button class="link-btn rp-danger" data-m="off">${esc(t('panel.set.segOffAnyway'))}</button>`,
+      false, () => done(null));
+    m.el.querySelector('[data-m="keep"]').onclick = () => { done('keep'); m.close(); };
+    m.el.querySelector('[data-m="off"]').onclick = () => { done('off'); m.close(); };
+  });
+}
+
 // Map a stored settings snapshot (device keys) → the canonical shape validateDeviceSettings reads.
 function settingsToRaw(s) {
   s = s || {};
@@ -10953,6 +10992,9 @@ async function openSettingsModal(target, opts = {}) {
   }
   fillForm(box, toFormValues(source));
   wireIconPicks(box);
+  /* What the mode box showed when the form opened — the save below warns only on the TRANSITION
+   * to off, never on every save of a device that was already off (segOffWarning). */
+  const segWasOn = !!(box.querySelector('[data-f="segmentation"]') && box.querySelector('[data-f="segmentation"]').checked);
   /* "ALSO USE THESE AS THE PROJECT'S DEFAULTS" (#85/#86, Brian Plimley, 2026-09-30; Seth,
    * 2026-10-02: "the user doesn't have to set defaults for the project, but they DO have to fill in
    * required device settings… and maybe it would be good to ask them if they want to make those
@@ -11027,6 +11069,19 @@ async function openSettingsModal(target, opts = {}) {
   box.querySelectorAll('[data-ghelp]').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.ghelp === 'wscodes') wsCodesHelpModal();
     if (b.dataset.ghelp === 'recfmt') recfmtHelpModal();
+  }));
+  /* The one-tap lock (GROUPS → permissions): mode ON, Cut tab OFF, the five cut-changing switches
+   * OFF. Sets the form; Save/push as usual, so the researcher still sees exactly what will go. The
+   * same six keys as the device's own button — test/lock-cuts.test.mjs pins both lists. */
+  box.querySelectorAll('[data-gact="lockCuts"]').forEach((b) => b.addEventListener('click', () => {
+    const tick = (k, v) => {
+      const el = box.querySelector(`[data-f="${k}"]`);
+      if (el && el.type === 'checkbox') { el.checked = v; el.dispatchEvent(new Event('change')); }   // change → the exports follow the mode
+    };
+    tick('segmentation', true);
+    tick('cutTab', false);
+    for (const k of ['joinSplitBaseline', 'joinSplitGloss', 'adjustBoundaries', 'backspaceJoin', 'cutJoinTexted']) tick(k, false);
+    deps.toast(t('panel.f.lockCutsSet'), 6000);
   }));
   // Archive-grade one-tap: 24-bit WAV + AGC/NR/echo/normalization OFF (the widely
   // accepted preservation-master baseline). Sets the form; Save/push as usual.
@@ -11136,6 +11191,18 @@ async function openSettingsModal(target, opts = {}) {
     // Block save/push until minimal usable settings are present (offending fields flagged inline).
     const problems = validateDeviceSettings(collectRaw(box), vopts);
     if (problems.length) { flagProblems(box, problems, showGroup); return; }
+    /* ⚠ THE QUESTION COMES BEFORE THE FORM IS READ, and before the disarm below: a researcher who
+     * backs out of it has pushed nothing, so the first-time Cancel must still mean what it meant.
+     * Devices only — a template holds no texts. "Keep it on" re-ticks the box through the form (its
+     * change listeners re-derive the export toggles), and readForm then reads what the form shows. */
+    if (target.instance && segWasOn && collectRaw(box).segmentation === false) {
+      const verdict = await segOffWarning(target.instance.instance_id);
+      if (verdict === null) return;
+      if (verdict === 'keep') {
+        const el = box.querySelector('[data-f="segmentation"]');
+        if (el) { el.checked = true; el.dispatchEvent(new Event('change')); }
+      }
+    }
     const patch = readForm(box);
     /* ⚠ DISARMED BEFORE THE PUSH, NOT AFTER IT. The box can still be closed (Escape, the backdrop)
      * while changeSettings is in flight; were the first-time dismiss still armed, that close would

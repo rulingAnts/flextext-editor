@@ -100,20 +100,24 @@ const strays = marksAt.filter((t) => { const m = t % 2; return !(m >= 1.15 && m 
 ok(marksAt.length >= 8, `the boundaries are marked on the player (${marksAt.length})`);
 ok(strays.length === 0,
    `and every one lands in a silence, not inside speech (strays: ${strays.map((s) => s.toFixed(2)).join(', ') || 'none'})`);
-/* ── ✨ OVER MANUAL WORK (Seth, 2026-08-14: "having that button still active after manual
- * adjustments have been made is WAY too easy for a native speaker who isn't tech savvy to
- * accidentally ruin all the work"). Visible on a pristine guess (re-rolling it destroys nothing —
- * the detector is deterministic), GONE — not greyed — the moment one manual edit exists, and back
- * when that edit is undone. The mechanism is a comparison against the guessed boundaries stamped on
- * the doc, so no edit gesture has to know the feature exists. */
-console.log('\n✨ disappears over manual work, and comes back when the work is undone');
-ok(await page.isVisible('#btn-guess-splits'), 'still visible right after the guess — nothing manual to lose yet');
+/* ── ✨ OVER MANUAL WORK. Seth, 2026-08-14: "having that button still active after manual adjustments
+ * have been made is WAY too easy for a native speaker who isn't tech savvy to accidentally ruin all
+ * the work" — so from v368 the button VANISHED the moment one manual edit existed. Since v699 (#93)
+ * it stays, but changes what it is: over manual work the same button guesses only THE PIECE UNDER
+ * THE PLAYHEAD (data-mode "piece"), never the whole recording, so the worst an accidental press can
+ * do is cut one empty piece into lines, which one Undo puts back — the protection is scope rather
+ * than absence. Undoing the manual edit restores the whole-file mode. (This block asserted the v368
+ * rule until v706 and had been failing since v699 — a test that fails on a clean checkout proves
+ * nothing, which is why it says what the button does NOW.) */
+console.log('\n✨ stays over manual work, but shrinks to the piece under the playhead');
+const guessMode = () => page.evaluate(() => document.getElementById('btn-guess-splits')?.dataset.mode || null);
+ok(await page.isVisible('#btn-guess-splits') && await guessMode() === 'all', `whole-file mode right after the guess — nothing manual to lose yet (${await guessMode()})`);
 await page.locator('#cut-strips .gseg-join').first().click();   // ONE manual join
 await page.waitForTimeout(700);
-ok(await page.locator('#btn-guess-splits').isHidden(), 'one manual join and it is GONE, not greyed');
+ok(await page.isVisible('#btn-guess-splits') && await guessMode() === 'piece', `one manual join and it is still there, in PIECE mode (${await guessMode()})`);
 await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
 await page.waitForTimeout(900);
-ok(await page.isVisible('#btn-guess-splits'), 'undoing that join brings it back — the guess is pristine again');
+ok(await guessMode() === 'all', `undoing that join restores whole-file mode — the guess is pristine again (${await guessMode()})`);
 
 // Undo puts the whole guess back in ONE step.
 await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
@@ -356,23 +360,41 @@ ok(/already has words|sudah ada kata/.test(say || ''), `and says why: "${(say ||
  * only thing worth asserting here, and it needs a line that has words in it to be able to see.
  *
  * Line 1 already carries "kata pertama" from the section above. */
-console.log('\nEnter on BASELINE: outside a box it keeps the words, inside one it splits them');
+/* ⚠ TWO DESIGN CHANGES SINCE THIS SECTION WAS WRITTEN, both Seth's, both now asserted here:
+ *   - CUT MODE (2026-09-08): on a fresh device Enter at the end of a line MOVES to the next line, and
+ *     out of the boxes it is navigation; a line is divided only once it is ARMED with its ✂ (.seg-arm,
+ *     one line at a time, its boxes read-only so a stray tap types nothing).
+ *   - SPLIT TIERS (plans/split-tiers.md): a line with words AND audio needs ONE POSITION PER TIER —
+ *     the playhead for the audio (Enter on the ▶ / out of the boxes), the caret for the text (Enter
+ *     in the box) — and NOTHING is written until both are placed. One undo step per completed split.
+ * So the claim is now: the two Enters each place their own tier, the split lands only when both
+ * have, the words divide at the CARET and the time at the PLAYHEAD. */
+console.log('\nEnter on BASELINE: out of the box places the time, in the box places the words; both make a split');
 await page.evaluate(() => document.querySelector('.top-tab[data-tab="baseline"]').click());
 await page.waitForTimeout(2000);
 const bLines = () => page.locator('#segment-strips .seg-text');
+// Arm a line for cutting (idempotent — a rebuilt row comes back disarmed).
+const armStrip = async (nth) => {
+  const btn = page.locator('#segment-strips .seg-strip').nth(nth).locator('.seg-arm');
+  if (await btn.getAttribute('aria-pressed') !== 'true') { await btn.click(); await page.waitForTimeout(300); }
+};
+await armStrip(0);
+ok(await page.locator('#segment-strips .seg-strip.cut-armed').count() === 1, 'line 1 is armed with its ✂ (cut mode is a mode you enter)');
 const bStrip = await page.locator('#segment-strips .seg-wave').first().boundingBox();
 await page.mouse.click(bStrip.x + bStrip.width * 0.5, bStrip.y + bStrip.height / 2);   // playhead into line 1
 await page.waitForTimeout(400);
 await page.evaluate(() => document.querySelector('#segment-strips .seg-play')?.focus());
 const bBefore = await bLines().count();
-await page.keyboard.press('Enter');
+await page.keyboard.press('Enter');                                                        // the AUDIO tier
+await page.waitForTimeout(900);
+ok(await bLines().count() === bBefore, `the audio tier alone writes nothing — still ${bBefore} lines, the split is pending`);
+await page.evaluate(() => { const el = document.querySelector('#segment-strips .seg-text'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
+await page.keyboard.press('Enter');                                                        // the TEXT tier, at the end
 await page.waitForTimeout(900);
 const afterOutside = await page.evaluate(() => [...document.querySelectorAll('#segment-strips .seg-text')].slice(0, 2).map((el) => el.value));
-ok(await bLines().count() === bBefore + 1, `one more line (${bBefore} → ${await bLines().count()})`);
+ok(await bLines().count() === bBefore + 1, `…and the text tier completes it: one more line (${bBefore} → ${await bLines().count()})`);
 ok(afterOutside[0] === 'kata pertama' && afterOutside[1] === '',
-   `the words all stayed on the line, the new one is empty (${JSON.stringify(afterOutside)})`);
-ok(await page.evaluate(() => document.activeElement?.classList?.contains('seg-text') !== true),
-   'and the cursor was NOT dropped into a box — the next Enter still follows the playhead');
+   `caret at the end: the words all stayed on the line, the new one is empty (${JSON.stringify(afterOutside)})`);
 // The time really did break at the playhead, not vanish into a pending span.
 ok(await page.locator('#segment-strips .seg-strip.seg-pending').count() === 0,
    'both halves carry real times, so nothing became "⋯"');
@@ -400,13 +422,16 @@ console.log('\n…and a chop far down the list does not throw the view back to t
   await page.waitForTimeout(300);
   const strips = page.locator('#segment-strips .seg-strip');
   const n = await strips.count();
+  await armStrip(n - 2);                                   // cut mode on that line; it has no words, so the playhead alone completes a split
   const bb = await strips.nth(n - 2).locator('.seg-wave').boundingBox();
   await page.mouse.click(bb.x + bb.width * 0.5, bb.y + bb.height / 2);
   await page.waitForTimeout(400);
   const top0 = await scroller();
   ok(top0 > 100, `the view really is scrolled well down first (${top0}px)`);
+  await page.evaluate(() => document.querySelector('#segment-strips .seg-strip.cut-armed .seg-play')?.focus());
   await page.keyboard.press('Enter');
   await page.waitForTimeout(900);
+  ok(await strips.count() === n + 1, `the chop landed (${n} → ${await strips.count()})`);
   const top1 = await scroller();
   ok(Math.abs(top1 - top0) < 80, `and held its place across the chop (${top0} -> ${top1})`);
   await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
@@ -422,11 +447,17 @@ console.log('\n…and a chop far down the list does not throw the view back to t
 }
 
 console.log('\n…and INSIDE a box the caret still decides where the words divide');
+await armStrip(0);
+{ const w = await page.locator('#segment-strips .seg-wave').first().boundingBox(); await page.mouse.click(w.x + w.width * 0.5, w.y + w.height / 2); }
+await page.waitForTimeout(300);
+await page.evaluate(() => document.querySelector('#segment-strips .seg-strip.cut-armed .seg-play')?.focus());
+await page.keyboard.press('Enter');                 // the audio tier, at the playhead
+await page.waitForTimeout(600);
 await page.evaluate(() => {
   const el = document.querySelector('#segment-strips .seg-text');
-  el.focus(); el.setSelectionRange(4, 4);          // "kata| pertama"
+  el.focus(); el.setSelectionRange(4, 4);          // "kata| pertama" — read-only while armed, but the caret still places
 });
-await page.keyboard.press('Enter');
+await page.keyboard.press('Enter');                 // the text tier, at the caret
 await page.waitForTimeout(900);
 const afterInside = await page.evaluate(() => [...document.querySelectorAll('#segment-strips .seg-text')].slice(0, 2).map((el) => el.value));
 // The model trims each line, so the caret's space does not survive into line 2 — what matters is

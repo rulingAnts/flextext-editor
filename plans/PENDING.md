@@ -34,7 +34,13 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v705 — assembled 2026-10-07 ("Open text + recording together" is a two-picker dialog); production is v704 (f9d1ec1c)
+## ▶ v705 — released 2026-10-07 ("Open text + recording together" is a two-picker dialog); production is v705 (9c6c5321)
+
+All seven apps verified live at v705 (deploy run 37599179523; every endpoint fetched twice 45 s apart; app.flextext.app's app.js
+byte-identical to the commit; the editor shell has the button and no `#new-pair-file`; the segmenter's bundle carries
+openPairDialog; main = productionWeb = staging = 9c6c5321). Known issues filed the same day, backlog only: #100 (Gloss-tab
+join row not gated by joinSplitGloss), #101 (verify Drive re-parenting), #102 (one current .flextext + a history/ folder).
+Nothing is staged beyond production.
 
 Branch `feat/open-pair-modal`. Seth: "requiring ctrl+click of two files in the same folder isn't actually the most user
 friendly way … Better to open a modal with two file input fields (… similar to the 'new text' modal in the Researcher

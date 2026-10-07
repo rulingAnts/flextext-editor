@@ -706,6 +706,55 @@ function schedulePersist() {
  * audio is stored), then the audio is attached to that same record via the existing attachAudioFile
  * path — the same one the researcher-assigned flow ends in, so conversion, peaks, and the
  * segmentation seed all behave identically to an assigned text. */
+/* "OPEN TEXT + RECORDING TOGETHER" — TWO PICKERS IN A DIALOG, not one picker that needs a ctrl+click
+ * (Seth, 2026-10-07: "requiring ctrl+click of two files in the same folder isn't actually the most
+ * user friendly way to do it. Better to open a modal with two file input fields (that's similar to
+ * or nearly identical to the 'new text' modal in the Researcher panel)"). The same dialog serves the
+ * editor's Texts screen and the Audio Segmenter's import bar; what happens with the pair stays each
+ * surface's own (newDocFromPair / satImportFiles) and is unchanged. Open is live only once BOTH files
+ * are chosen — the pair is the point; a lone .flextext has "Open .flextext file…", a lone recording
+ * has "New text from audio…". */
+const PAIR_TEXT_ACCEPT = '.flextext,.xml,.txt,text/plain,text/xml,application/xml';
+const PAIR_AUDIO_ACCEPT = 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac,.oga,.opus,.webm,.3gp,.amr';
+function openPairDialog(onPair) {
+  if (document.querySelector('[data-pair-dialog]')) return;   // never stack
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.dataset.pairDialog = '1';
+  wrap.innerHTML = `<div class="modal-card pair-card" role="dialog" aria-modal="true" aria-labelledby="pair-title">
+    <h3 id="pair-title">${esc(t('openPair.title'))}</h3>
+    <p class="note">${esc(t('openPair.intro'))}</p>
+    <label class="rp-field"><span>${esc(t('openPair.textFile'))}</span><input type="file" id="pair-ft" accept="${PAIR_TEXT_ACCEPT}"></label>
+    <label class="rp-field"><span>${esc(t('openPair.audioFile'))}</span><input type="file" id="pair-audio" accept="${PAIR_AUDIO_ACCEPT}"></label>
+    <button class="primary-btn" data-pd="open" disabled>${esc(t('openPair.open'))}</button>
+    <button class="link-btn" data-pd="cancel">${esc(t('share.cancel'))}</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const prevFocus = document.activeElement;
+  const ft = wrap.querySelector('#pair-ft'), au = wrap.querySelector('#pair-audio'), go = wrap.querySelector('[data-pd="open"]');
+  const ready = () => { go.disabled = !(ft.files[0] && au.files[0]); };
+  ft.addEventListener('change', ready); au.addEventListener('change', ready);
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    document.removeEventListener('keydown', onKey, true);
+    wrap.remove();
+    try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* noop */ }
+  };
+  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(); } }
+  document.addEventListener('keydown', onKey, true);
+  go.addEventListener('click', () => {
+    const files = [ft.files[0], au.files[0]];
+    if (!files[0] || !files[1]) return;
+    finish();
+    Promise.resolve(onPair(files)).catch((err) => toast(t('toast.importFailed', { msg: err.message }), 6000));
+  });
+  wrap.querySelector('[data-pd="cancel"]').addEventListener('click', finish);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) finish(); });
+  try { ft.focus(); } catch { /* noop */ }
+}
+
 async function newDocFromPair(files) {
   const list = [...files];
   const isText = (f) => /\.(flextext|xml|txt)$/i.test(f.name) || /(xml|text)/i.test(f.type || '');
@@ -9254,10 +9303,15 @@ function satImportBar(host) {
   btn.textContent = t(SEGMENTER_MODE ? 'sat.openPair' : CONSENT_MODE ? 'sat.openAny' : 'sat.open');
   const input = document.createElement('input');
   input.type = 'file';
-  input.multiple = true;          // a morning's worth of pairs in one go
+  input.multiple = true;          // a morning's worth of files in one go (the non-segmenter shells)
   input.accept = SAT_ACCEPT;
   input.hidden = true;
-  btn.addEventListener('click', () => input.click());
+  /* The Segmenter's "text + recording together" is the two-picker dialog (openPairDialog, v705); the
+   * other satellite shells keep the one picker, whose files need no pairing. */
+  btn.addEventListener('click', () => {
+    if (SEGMENTER_MODE) openPairDialog((fs) => satImportFiles(fs));
+    else input.click();
+  });
   input.addEventListener('change', (e) => {
     const fs = [...e.target.files];
     e.target.value = '';          // so picking the SAME file again still fires
@@ -12884,12 +12938,8 @@ function setup() {
   $('#doc-title').addEventListener('input', schedulePersist);
   $('#btn-new').addEventListener('click', () => newDoc());
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
-  $('#btn-new-pair')?.addEventListener('click', () => $('#new-pair-file').click());
-  $('#new-pair-file')?.addEventListener('change', (e) => {
-    const fs = [...e.target.files];
-    e.target.value = '';
-    if (fs.length) newDocFromPair(fs).catch((err) => toast(t('toast.importFailed', { msg: err.message }), 6000));
-  });
+  // Two pickers in a dialog (openPairDialog) — the one-picker-two-files ctrl+click is gone (v705).
+  $('#btn-new-pair')?.addEventListener('click', () => openPairDialog((fs) => newDocFromPair(fs)));
   $('#btn-record').addEventListener('click', startConsentThenRecord);
   // The researcher can show/hide each Texts-screen button via a link (btns=…).
   applyAllowedButtons();

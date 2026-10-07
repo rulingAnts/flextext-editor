@@ -952,6 +952,9 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
   max-height: 88vh; overflow-y: auto;
 }
 .modal-card h3 { margin: 0 0 2px; }
+/* "Open text + recording together": two pickers, the panel's field style (.rp-field is in this sheet). */
+.pair-card { width: min(92vw, 420px); }
+.pair-card input[type=file] { font-size: 13px; max-width: 100%; }
 
 /* Invite-consent dialog (who is enrolling this device). */
 .invite-who { display: flex; gap: 12px; align-items: center; margin: 6px 0 4px; text-align: left; }

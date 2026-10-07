@@ -34,11 +34,13 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v707 — assembled 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); merged `--no-ff` into staging the same day, NOT in main; production is v705 (9c6c5321)
+## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); main = productionWeb = staging at the release commit (BUILD_TAG cleared); sites-only release, no worker change
 
 Built overnight on its own branch at Seth's request ("easy wins … while I sleep"; "don't push to productionWeb").
-`BUILD_TAG = 'guess-long v2'`. Suite green. Branch `claude/vibrant-einstein-9k737w`, merged into `staging` and deployed
-to the `staging-*` aliases (editor, segmenter, researcher) for Seth's test drive. What it carries:
+Built overnight on branch `claude/vibrant-einstein-9k737w`, merged `--no-ff` into `staging`, test-driven on the `staging-*` aliases
+(editor, segmenter, researcher), released on Seth's sign-off the same day ("This is ready for release"). `BUILD_TAG` cleared in the
+release commit. No worker or D1 change — the four permission keys ride inside the encrypted settings blob — so no maintenance
+flag, no rollback message. What it carries:
 - **Join and split are SEPARATE permissions per tab** (Seth, 2026-10-07: "individually set-able … each with its own
   device setting option"; "the cut tab always allows splitting and joining"). Four keys replace two:
   `joinBaseline` / `splitBaseline` / `joinGloss` / `splitGloss`, in the panel's device settings + project defaults and

@@ -34,7 +34,11 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); main = productionWeb = staging at the release commit (BUILD_TAG cleared); sites-only release, no worker change
+## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); production = 6d86abd6 (main = productionWeb = staging); sites-only release, no worker change
+
+Deploy run 37636842031: all seven apps green (editor, researcher, recorder, crowd, PAT, consent, segmenter), each log
+reading `branch: productionWeb` → a real deploy; `pages build and deployment` run 37636812420 green at the same SHA.
+⚠ Not fetched from the sandbox (egress to the live hosts is blocked) — the first browser to open each app confirms v707.
 
 Built overnight on its own branch at Seth's request ("easy wins … while I sleep"; "don't push to productionWeb").
 Built overnight on branch `claude/vibrant-einstein-9k737w`, merged `--no-ff` into `staging`, test-driven on the `staging-*` aliases

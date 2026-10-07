@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v704';
+export const ENGINE_VERSION = 'v705';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -289,6 +289,11 @@ en: {
   'consent.audioFailed': 'Could not load the spoken reminder. You can still continue.',
   'texts.open': 'Open .flextext file…',
   'texts.newPair': 'Open text + recording together…',
+  'openPair.title': 'Open a text with its recording',
+  'openPair.intro': 'Choose the .flextext file and the recording that goes with it. Both come from this device; nothing is sent anywhere.',
+  'openPair.textFile': 'Text (.flextext)',
+  'openPair.audioFile': 'Recording (audio)',
+  'openPair.open': 'Open',
   'texts.arriving': 'The text is still arriving…',
   'texts.empty': 'No texts yet. Tap <b>New text</b> to start transcribing, or open an existing <code>.flextext</code> file.',
   'texts.deleteTitle': 'Delete',
@@ -1632,6 +1637,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.pairDialog': 'Editor and Audio Segmenter: \u201cOpen text + recording together\u201d now opens a small dialog with two pickers \u2014 one for the .flextext, one for the recording \u2014 instead of one picker that needed both files selected at once with Ctrl+click.'
     ,'panel.rel.new.mgLangPick': 'Audio Segmenter: when a text carries more than one analysis language, a picker on the Text column shows one of them, or all of them stacked under each word and line \u2014 the other languages as they are; this device still edits only its own.'
     ,'panel.rel.fix.activeLineTabs': 'Editor: the line you are on travels with you between the Cut, Baseline and Gloss tabs \u2014 the new tab opens scrolled to it, with the playhead on it. (The researcher panel\u2019s settings dialog keeps its own rule: every tab starts at the top.)'
     ,'panel.rel.fix.keylessButtons': 'Researcher panel: on a device in a project shared with you, Settings and Assign new text no longer vanish while the device\u2019s key is still on its way \u2014 they stay on the card, greyed with a small spinner and the reason, and come alive when the key arrives.'
@@ -3125,6 +3131,11 @@ id: {
   'consent.audioFailed': 'Tidak bisa memuat pengingat lisan. Anda tetap bisa melanjutkan.',
   'texts.open': 'Buka file .flextext…',
   'texts.newPair': 'Buka teks + rekaman sekaligus…',
+  'openPair.title': 'Buka teks bersama rekamannya',
+  'openPair.intro': 'Pilih berkas .flextext dan rekaman yang menyertainya. Keduanya dari perangkat ini; tidak ada yang dikirim ke mana pun.',
+  'openPair.textFile': 'Teks (.flextext)',
+  'openPair.audioFile': 'Rekaman (audio)',
+  'openPair.open': 'Buka',
   'texts.arriving': 'Teks masih dalam perjalanan…',
   'texts.empty': 'Belum ada teks. Tekan <b>Teks baru</b> untuk mulai mengetik, atau buka file <code>.flextext</code> yang sudah ada.',
   'texts.deleteTitle': 'Hapus',
@@ -4262,6 +4273,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.pairDialog': 'Editor dan Pemotong Audio: \u201cBuka teks + rekaman sekaligus\u201d kini membuka dialog kecil dengan dua pemilih berkas \u2014 satu untuk .flextext, satu untuk rekaman \u2014 bukan lagi satu pemilih yang mengharuskan kedua berkas dipilih sekaligus dengan Ctrl+klik.'
     ,'panel.rel.new.mgLangPick': 'Pemotong Audio: kalau sebuah teks membawa lebih dari satu bahasa analisis, pemilih di kolom Teks menampilkan salah satunya, atau semuanya bertumpuk di bawah tiap kata dan baris \u2014 bahasa lain apa adanya; perangkat ini tetap hanya mengedit bahasanya sendiri.'
     ,'panel.rel.fix.activeLineTabs': 'Editor: baris yang sedang Anda kerjakan ikut berpindah antara tab Potong, Ketik dan Glos \u2014 tab yang baru terbuka langsung tergulir ke baris itu, dengan posisi putar di sana. (Dialog pengaturan di Panel Peneliti tetap dengan aturannya sendiri: setiap tab mulai dari atas.)'
     ,'panel.rel.fix.keylessButtons': 'Panel Peneliti: pada perangkat di proyek yang dibagikan kepada Anda, Pengaturan dan Tugaskan teks baru tidak lagi hilang selagi kunci perangkat masih dalam perjalanan \u2014 tombolnya tetap ada di kartu, abu-abu dengan putaran kecil dan alasannya, lalu aktif begitu kuncinya sampai.'

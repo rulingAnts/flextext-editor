@@ -108,10 +108,10 @@
     <button id="btn-new-pair" class="secondary-btn" data-i18n="texts.newPair">Open text + recording together&hellip;</button>
     <input type="file" id="import-file" accept=".flextext,.xml,.txt,text/plain,text/xml,application/xml" hidden>
     <input type="file" id="new-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
-    <!-- Standalone (unpaired) editor: ONE picker taking BOTH files at once — a recording and its
-         .flextext — because on an unpaired device there is no researcher to assign the pair, and
-         importing them separately gave no way to attach audio to an imported text. -->
-    <input type="file" id="new-pair-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.flextext,.xml,.txt,text/plain,text/xml,application/xml" multiple hidden>
+    <!-- Standalone (unpaired) editor: "Open text + recording together…" opens a dialog with TWO pickers
+         (openPairDialog in app.js, v705) — a recording and its .flextext — because on an unpaired
+         device there is no researcher to assign the pair, and importing them separately gave no way to
+         attach audio to an imported text. It used to be one picker needing a ctrl+click of both files. -->
   </div>
   <div id="ws-banner" class="banner" hidden></div>
   <ul id="doc-list" class="doc-list"></ul>

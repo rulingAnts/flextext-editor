@@ -5339,7 +5339,7 @@ the speaker's own answer (§3.6: the companion must not show other people's deci
 playhead once anything has been cut by hand (`guessMode`, `cutGuessPiece` in `docs/js/segment-strips.js`;
 `guessSplitsWithin` / `applyGuessedSplitsWithin` in `segments.js`). Of the open questions: the action lives on
 the existing ✨ (no per-strip control); the Audio Segmenter's matcher did not get it. **The automatic half
-followed in v706 (2026-10-07, #93):** `guessSplitsWindowed` divides any span over `GUESS_WINDOW_MS` at real
+followed in v707 (2026-10-07, #93):** `guessSplitsWindowed` divides any span over `GUESS_WINDOW_MS` at real
 pauses near the ideal dividing points and guesses each window with its own levels, so neither the whole-file
 guess, the piece guess nor the matcher's ✨ refuses on length any more (`GUESS_MAX_MS` and the two
 "cut it in two first" sentences are gone; test/guess-long.test.mjs measures the stitch and the drift case). The

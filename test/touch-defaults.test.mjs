@@ -124,7 +124,7 @@ test('#42 Enter in a free-translation box walks to the next line when no split a
   // #78 (Seth, 2026-09-11) moved where the walk lands into walkOnFromFree: the next line's first gloss by default.
   assert.match(branch, /walkOnFromFree\(g\);/, 'the walk to the next line');
   const before = APP.slice(i - 400, i);
-  assert.match(before, /joinSplitAllowed\('gloss'\)/, 'the split branches are tried first; the walk is the fallback');
+  assert.match(before, /splitLinesAllowed\('gloss'\)/, 'the split branches are tried first; the walk is the fallback');
 });
 
 test('#44 uiScale applies as a root zoom at boot and on every live-settings push', () => {

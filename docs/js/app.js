@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -987,7 +987,7 @@ function rememberTab(tab) {
  * behaving the way it used to, nor a control they do not have:
  *   - what Enter does at the end of a line is a setting (enterAtEnd, v635) — one sentence or the other;
  *   - how to SPLIT a line (Enter splitting on a `split` device, the ✂ at the left edge on an
- *     `advance` one) is said only while joinSplitBaseline allows it (#92, Brian Plimley, 2026-10-02:
+ *     `advance` one) is said only while splitBaseline allows it (#92, Brian Plimley, 2026-10-02:
  *     "even if splitting/joining is disabled, the instructions still explain how to split/join").
  *     With splitting off on a `split` device Enter does nothing at all (segment-strips onKey), so
  *     there is no sentence to put in its place.
@@ -999,7 +999,7 @@ function rememberTab(tab) {
  * repaint paths read it from DOM truth (baselineShowsTextarea), the same truth applyBaseline reads. */
 function baselineHintHtml(classic) {
   if (classic) return t('baseline.hint');
-  const split = joinSplitAllowed('baseline');
+  const split = splitLinesAllowed('baseline');
   const parts = [t('baseline.hintSegLead')];
   if (enterAtEndAdvances()) {
     parts.push(t('baseline.hintSegEnterMove'));
@@ -1202,10 +1202,25 @@ function singleSpaceEnabled() {
   return Sync.hasSession();
 }
 
-function joinSplitAllowed(tab) {
-  if (!segmentationEnabled()) return true;   // classic mode has its own rules; this is not its gate
-  return tab === 'gloss' ? settings.joinSplitGloss !== false : settings.joinSplitBaseline !== false;
-}
+/* JOIN and SPLIT are SEPARATE permissions, per tab (Seth, 2026-10-07: "have joining and splitting be
+ * separate (individually set-able) permissions/privileges in the system (each with its own device
+ * setting option)" — "the other two tabs you can allow or prohibit joining and splitting independently
+ * of each other"). Four keys, all default on: joinBaseline / splitBaseline / joinGloss / splitGloss,
+ * in the panel's device settings and project defaults and in the unpaired Settings tab alike.
+ *
+ * ⚠ THE OLD COMBINED KEYS STILL COUNT, and a mixed-version fleet must not collide (Seth: "so that
+ * different versions of researcher panel or editor don't collide and break each other or corrupt
+ * data"). The resolution — new keys win unless the old key disagrees, which only an older writer can
+ * cause — is linePermissions() in typing.js, ONE function shared with the panel's and this file's
+ * settings forms, so the engine and both surfaces can never read the same blob differently. Both
+ * writers also store the old key as join AND split (legacyJoinSplit), so an un-updated field device
+ * receiving new settings keeps the stricter rule.
+ *
+ * ⚠ THE CUT TAB IS GATED BY NONE OF THESE (Seth: "the cut tab always allows splitting and joining.
+ * Otherwise there's no point in having it even visible"); its own cutJoinTexted is a different
+ * question. Classic mode has its own rules; these are not its gate. */
+function joinLinesAllowed(tab) { return !segmentationEnabled() || linePermissions(settings, tab).join; }
+function splitLinesAllowed(tab) { return !segmentationEnabled() || linePermissions(settings, tab).split; }
 /* May a boundary be DRAGGED — the grips on the Cut, Baseline and Gloss strips and the movable marks
  * on the Cut tab's top player (Seth, 2026-09-06: "adjusting boundaries enabled/disabled should be a
  * separate setting … independently of whether joining/splitting lines that already have text on the
@@ -1428,7 +1443,7 @@ function decorateGlossSegments() {
      * duplicated, so there is still exactly one of it. */
     const num = g.querySelector('.segnum');
     if (num) bar.appendChild(num);
-    if (joinSplitAllowed('gloss')) {
+    if (splitLinesAllowed('gloss')) {
       const arm = document.createElement('button');
       arm.type = 'button'; arm.className = 'seg-arm gseg-arm'; arm.tabIndex = -1;
       arm.textContent = '\u2702';
@@ -1460,12 +1475,12 @@ function decorateGlossSegments() {
      * input — an undershot tap meant an accidental join. Outside both groups, a missed tap on the
      * free translation hits padding, not a destructive control.
      *
-     * ⚠ GATED LIKE THE ✂ ABOVE (#100). This block was the one join/split control on the tab that
-     * never read joinSplitAllowed('gloss'), so with the switch off the scissors went and the chain
-     * links stayed — a control that looks live and joins two lines on a tab where the researcher
-     * said no joining. A row left over from before the switch flipped is removed here too, so a
-     * decorate after a live push cannot leave one standing. */
-    const joinAllowed = joinSplitAllowed('gloss');
+     * ⚠ GATED (#100) — by the JOIN permission, where the ✂ above reads the SPLIT one (v707: the two
+     * are separate switches). Until v706 this block read no gate at all, so with the tab's switch off
+     * the scissors went and the chain links stayed — a control that looks live and joins two lines
+     * on a tab where the researcher said no joining. A row left over from before the switch flipped
+     * is removed here too, so a decorate after a live push cannot leave one standing. */
+    const joinAllowed = joinLinesAllowed('gloss');
     if (!joinAllowed && g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow')) g.nextElementSibling.remove();
     if (joinAllowed && i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
       const joinRow = document.createElement('div');
@@ -1580,7 +1595,7 @@ function decorateGlossSegments() {
           const atStart = gi.selectionStart === 0 && gi.selectionEnd === 0;
           const atEnd = gi.selectionStart === gi.value.length && gi.selectionEnd === gi.value.length;
           if (e.key === 'Backspace' && atStart && w === 0 && i > 0) {
-            if (!joinSplitAllowed('gloss')) return;   // researcher removed join/split on this tab
+            if (!joinLinesAllowed('gloss')) return;   // researcher removed joining on this tab
             if (!joinKeysEnabled()) return;   // researcher-disabled: fall through to normal editing
             e.preventDefault();
             glossJoinLines(i - 1);
@@ -1614,7 +1629,7 @@ function decorateGlossSegments() {
             return;
           }
           if (!atStart && !atEnd) return;
-          if (!joinSplitAllowed('gloss')) return;
+          if (!splitLinesAllowed('gloss')) return;
           e.preventDefault();
           glossPlace(i, 'words', atStart ? w : w + 1);   // the WORDS tier of the pending split
         });
@@ -1626,13 +1641,13 @@ function decorateGlossSegments() {
           // ⚠ End means nothing but whitespace after the caret — see the Baseline note in
           // segment-strips.js onKey. A trailing space must not turn "move on" into "split here".
           const atEnd = fi.selectionStart === fi.selectionEnd && !fi.value.slice(fi.selectionStart ?? 0).trim();
-          if (e.key === 'Backspace' && atStart && i > 0 && joinSplitAllowed('gloss') && joinKeysEnabled()) {
+          if (e.key === 'Backspace' && atStart && i > 0 && joinLinesAllowed('gloss') && joinKeysEnabled()) {
             e.preventDefault();
             glossJoinLines(i - 1);
           } else if (e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))) {
             /* ⚠ Same rule as the Baseline tab (Seth, 2026-09-08: "I think maybe something similar on
              * the gloss tab"): at the end, Enter WALKS to the next line's translation rather than
-             * trimming an empty line after this one. Before joinSplitAllowed, for the same reason.
+             * trimming an empty line after this one. Before splitLinesAllowed, for the same reason.
              *
              * ⚠ AND IT COVERS EVERY CARET POSITION NOW, NOT ONLY THE END — without cut mode Enter
              * must not split at all ("enter splits a line on the baseline tab, even with cut mode
@@ -1642,7 +1657,7 @@ function decorateGlossSegments() {
             if (!atEnd) { e.preventDefault(); return; }
             e.preventDefault();
             walkOnFromFree(g);   // #78: the next line's first gloss by default, or its free translation
-          } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
+          } else if (e.key === 'Enter' && atStart && splitLinesAllowed('gloss')) {
             /* ⚠ AFTER the advance branch, not before it (Seth, 2026-09-08). A BLANK box satisfies
              * atStart and atEnd at once, so while this came first it swallowed every Enter on an
              * empty translation and started an edge split — the stuck "orange border, no scissors"
@@ -1650,7 +1665,7 @@ function decorateGlossSegments() {
              * after the caret is not atEnd, so a deliberate split-before-this-line still lands. */
             e.preventDefault();
             glossPlaceEdge(i, 0);                    // an empty line BEFORE this one (audio still to place)
-          } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
+          } else if (e.key === 'Enter' && atEnd && splitLinesAllowed('gloss')) {
             e.preventDefault();
             glossPlaceEdge(i, wordCount());          // an empty line AFTER this one
           } else if (e.key === 'Enter' && !e.shiftKey) {
@@ -1658,7 +1673,7 @@ function decorateGlossSegments() {
             /* Mid-text Enter in a translation PLACES the translation's side of a split (Seth, 2026-09-06:
              * "For the free translation or baseline, enter/return positions the split on that text
              * tier"); the walk to the next line (2026-09-04) remains for a box with nothing to split. */
-            if (fi.value.trim() && joinSplitAllowed('gloss')) { glossPlace(i, 'free', fi.selectionStart ?? fi.value.length); return; }
+            if (fi.value.trim() && splitLinesAllowed('gloss')) { glossPlace(i, 'free', fi.selectionStart ?? fi.value.length); return; }
             // Not a split: Enter walks on to the next line, the same walk as the move-to-next branch above (#78).
             walkOnFromFree(g);
           }
@@ -1712,7 +1727,7 @@ function startGlossCursor(entries) {
         const x = ((time - en.seg.start) / (en.seg.end - en.seg.start)) * en.wave.offsetWidth;
         cur.style.left = x + 'px';
         // ✂ under the playhead: the AUDIO tier of a split on this tab (plans/split-tiers.md).
-        if (joinSplitAllowed('gloss')) {
+        if (splitLinesAllowed('gloss')) {
           if (!sc) {
             sc = document.createElement('button');
             sc.className = 'cut-scissors gseg-scissors'; sc.type = 'button'; sc.tabIndex = -1; sc.textContent = '\u2702';
@@ -1775,7 +1790,7 @@ function glossSpec(i) {
   };
 }
 function glossPlace(i, tier, value) {
-  if (!current || !joinSplitAllowed('gloss')) return 'ignored';
+  if (!current || !splitLinesAllowed('gloss')) return 'ignored';
   return splitPlace({ tab: 'gloss', i }, tier, value, glossSpec(i));
 }
 /* Enter outside the boxes, or the ✂ under the playhead: the AUDIO tier, on the line the playhead is in. */
@@ -1838,7 +1853,7 @@ function renderGlossPending(p) {
 /* When a translation box shows the ✂ under its caret: focused with something to split, or its
  * line's pending split still needs the translation's side. */
 function glossCaretWant(fi, seg) {
-  if (!current || !joinSplitAllowed('gloss') || !fi.value.trim()) return false;
+  if (!current || !splitLinesAllowed('gloss') || !fi.value.trim()) return false;
   const i = current.doc.paragraphs.findIndex((p) => p.segments && p.segments[0] === seg);
   if (i < 0) return false;
   if (document.activeElement === fi) return true;
@@ -1938,7 +1953,7 @@ function glossSplitAt(i, boundary, opts = {}) {
 function glossJoinLines(i) {
   // The backstop behind the 🔗 and Backspace: a join is refused where the researcher switched
   // joining off for this tab, whatever control asked for it (#100).
-  if (!current || !joinSplitAllowed('gloss')) return;
+  if (!current || !joinLinesAllowed('gloss')) return;
   captureUndo();
   const doc = current.doc;
   const paras = getBaselineParagraphs(doc).slice();
@@ -2212,7 +2227,7 @@ function switchTab(tab, landing) {
       allowAdjust: () => adjustBoundariesAllowed(),
       // Whether "split it on the Baseline tab instead" is advice this device can follow (#92): the
       // tab must be shown AND allowed to split. The refusal message drops the sentence otherwise.
-      splitOnBaseline: () => baselineTabEnabled() && joinSplitAllowed('baseline'),
+      splitOnBaseline: () => baselineTabEnabled() && splitLinesAllowed('baseline'),
       // Guessing replaces every cut in the text, so hand-made work is confirmed before it goes.
       confirmReplace: () => confirmDialog(t('cut.guessConfirm')),   // async now; cutGuessSplits awaits it
       t,
@@ -2245,10 +2260,11 @@ function switchTab(tab, landing) {
         // answer until the next open, which is the drift this setting exists to remove.
         joinKeys: () => joinKeysEnabled(),
         enterAdvances: () => enterAtEndAdvances(),
-        joinSplit: () => joinSplitAllowed('baseline'),
+        joinLines: () => joinLinesAllowed('baseline'),    // the two permissions, separately (v707)
+        splitLines: () => splitLinesAllowed('baseline'),
         // Whether "do that on the Gloss tab" is advice this device can follow (#92): the tab must be
         // shown AND allowed to split/join. The glossed-line refusal drops the sentence otherwise.
-        splitOnGloss: () => glossTabEnabled() && joinSplitAllowed('gloss'),
+        splitOnGloss: () => glossTabEnabled() && splitLinesAllowed('gloss'),
         singleSpace: () => singleSpaceEnabled(),
         allowAdjust: () => adjustBoundariesAllowed(),
         // Rule A (plans/split-tiers.md): a line with glosses or a translation is the Gloss tab's.
@@ -5099,7 +5115,8 @@ function applyLiveSettings() {
   // The join/split gates, read BEFORE the reload: their controls (the Gloss tab's ✂ and 🔗 rows,
   // the Baseline strips' join buttons) are built at render time, so a pushed flip needs the
   // re-enter below to reach them — the ticker only repaints the playhead ✂ (#100).
-  const joinBefore = { baseline: joinSplitAllowed('baseline'), gloss: joinSplitAllowed('gloss') };
+  const gateSig = (tab) => `${joinLinesAllowed(tab)}/${splitLinesAllowed(tab)}`;
+  const joinBefore = { baseline: gateSig('baseline'), gloss: gateSig('gloss') };
   settings = loadSettings();
   applyUiScale();   // a pushed text size lands live, in every app
   applyHeaderLabels();
@@ -5113,14 +5130,14 @@ function applyLiveSettings() {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
     applyCutHint();            // …and a pushed backspaceJoin re-words the hint it gates, in place
-    applyBaselineHint({ classic: baselineShowsTextarea() });   // …a pushed joinSplitBaseline / enterAtEnd re-words the Baseline hint (#92)
+    applyBaselineHint({ classic: baselineShowsTextarea() });   // …a pushed splitBaseline / enterAtEnd re-words the Baseline hint (#92)
     applyGlossEmptyHint();     // …and a pushed baselineTab re-words where the Gloss tab says to type the words
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
     // (not activeTab) so a user on the Texts list is never pulled into the editor.
     const v = currentView();
-    const joinFlipped = (v === 'baseline' || v === 'gloss') && joinSplitAllowed(v) !== joinBefore[v];
+    const joinFlipped = (v === 'baseline' || v === 'gloss') && gateSig(v) !== joinBefore[v];
     if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && ((settings.segmentation === true) !== segBefore || joinFlipped)) {
       switchTab(v);
     }
@@ -5436,7 +5453,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'enterAtEnd', 'freeEnterNext','cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon',
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'joinBaseline', 'splitBaseline', 'joinGloss', 'splitGloss', 'enterAtEnd', 'freeEnterNext','cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon',
                    /* ⚠ THE TYPING SETTINGS WERE MISSING FROM THIS LIST since they shipped in v663,
                     * so the panel could push them but never READ BACK what a device actually had —
                     * its form fell through to defaults and showed the researcher a value the device
@@ -7002,8 +7019,11 @@ const SETUP_GROUPS = [
     { k: 'wordGloss', type: 'checkbox', note: 'panel.f.wordGlossNote' },
   ] },
   { id: 'permissions', fields: [
-    { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
-    { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
+    // Join and split are SEPARATE permissions per tab (v707) — see linePermission for the old keys.
+    { k: 'joinBaseline', type: 'checkbox', note: 'panel.f.joinBaselineNote' },
+    { k: 'splitBaseline', type: 'checkbox', note: 'panel.f.splitBaselineNote' },
+    { k: 'joinGloss', type: 'checkbox', note: 'panel.f.joinGlossNote' },
+    { k: 'splitGloss', type: 'checkbox', note: 'panel.f.splitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
     // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
@@ -7449,12 +7469,16 @@ function deviceSetupValues() {
     else if (f.k === 'glossLanding') v.glossLanding = s.glossLanding === 'gloss' ? 'gloss' : 'free';
     else if (f.k === 'freeEnterNext') v.freeEnterNext = s.freeEnterNext === 'free' ? 'free' : 'gloss';
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
-    else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
+    // The four line permissions, resolved by the ONE shared rule (typing.js linePermissions) so this
+    // form shows exactly what the engine will do with the same blob, whichever version wrote it.
+    else if (f.k === 'joinBaseline') v.joinBaseline = linePermissions(s, 'baseline').join;
+    else if (f.k === 'splitBaseline') v.splitBaseline = linePermissions(s, 'baseline').split;
+    else if (f.k === 'joinGloss') v.joinGloss = linePermissions(s, 'gloss').join;
+    else if (f.k === 'splitGloss') v.splitGloss = linePermissions(s, 'gloss').split;
     // Same rule as the panel's twin: an explicit value wins, otherwise a device that has stored
     // anything at all is an existing one and keeps 'split'. See enterAtEndAdvances.
     else if (f.k === 'enterAtEnd') v.enterAtEnd = (s.enterAtEnd === 'advance' || s.enterAtEnd === 'split')
       ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
-    else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
     else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
@@ -7515,6 +7539,10 @@ function readDeviceSetup(box) {
     if (f.type === 'action' || f.type === 'file' || f.type === 'subhead' || f.off || SPECIAL.includes(f.k) || !has(f.k)) continue;
     patch[f.k] = raw[f.k];
   }
+  // The old combined keys, written as join AND split, so an engine that predates v707 keeps the
+  // stricter rule from these four switches — see linePermission.
+  if (has('joinBaseline') && has('splitBaseline')) patch.joinSplitBaseline = legacyJoinSplit(raw.joinBaseline, raw.splitBaseline);
+  if (has('joinGloss') && has('splitGloss')) patch.joinSplitGloss = legacyJoinSplit(raw.joinGloss, raw.splitGloss);
   /* ⚠ Exports: store an override ONLY when it DIFFERS from what Audio Segmentation Mode implies,
    * and store `undefined` (the save then deletes the key) when it matches again. Writing all four
    * every time would pin them the moment anybody opened this page — so turning the mode on and
@@ -10724,7 +10752,7 @@ async function mgPrepareAudio(docId) {
  *
  * The two guards are the Cut tab's, for the same reasons: say so when there are no clear pauses
  * rather than silently doing nothing, and ask first if the user has already cut by hand — that work
- * is exactly what this would throw away. A third, the ten-minute refusal, went in v706 (#93): the
+ * is exactly what this would throw away. A third, the ten-minute refusal, went in v707 (#93): the
  * shared guessedBoundaries() now guesses a long recording in windows, and the matcher's span rows are
  * lazy strips like the editor's, so length costs nothing it did not already pay. */
 async function mgGuess() {

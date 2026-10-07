@@ -14,7 +14,7 @@
 
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
-import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS } from './typing.js';
+import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
@@ -756,8 +756,11 @@ const GROUPS = [
    * in the field — pare a screen back for somebody who is getting lost, then grow it as they learn
    * (Seth: "Different coworker users will be ready for different levels of complexity"). */
   { id: 'permissions', fields: [
-    { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
-    { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
+    // Join and split are SEPARATE permissions per tab (v707); readForm also writes the old combined keys.
+    { k: 'joinBaseline', type: 'checkbox', note: 'panel.f.joinBaselineNote' },
+    { k: 'splitBaseline', type: 'checkbox', note: 'panel.f.splitBaselineNote' },
+    { k: 'joinGloss', type: 'checkbox', note: 'panel.f.joinGlossNote' },
+    { k: 'splitGloss', type: 'checkbox', note: 'panel.f.splitGlossNote' },
     { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
     // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
@@ -1444,7 +1447,8 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v706', date: '2026-10-07', items: [
+  { v: 'v707', date: '2026-10-07', items: [
+    { k: 'panel.rel.new.joinSplitSeparate' },
     { k: 'panel.rel.new.guessLong', issue: 93 },
     { k: 'panel.rel.fix.glossJoinGate', issue: 100 },
   ] },
@@ -10551,14 +10555,18 @@ function toFormValues(s) {
     else if (f.k === 'glossLanding') v.glossLanding = s.glossLanding === 'gloss' ? 'gloss' : 'free';
     else if (f.k === 'freeEnterNext') v.freeEnterNext = s.freeEnterNext === 'free' ? 'free' : 'gloss';
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
-    else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
+    // The four line permissions, resolved by the ONE shared rule (typing.js linePermissions) so this
+    // form shows exactly what the device will do with the same blob, whichever version wrote it.
+    else if (f.k === 'joinBaseline') v.joinBaseline = linePermissions(s, 'baseline').join;
+    else if (f.k === 'splitBaseline') v.splitBaseline = linePermissions(s, 'baseline').split;
+    else if (f.k === 'joinGloss') v.joinGloss = linePermissions(s, 'gloss').join;
+    else if (f.k === 'splitGloss') v.splitGloss = linePermissions(s, 'gloss').split;
     /* ⚠ A NEW PROJECT GETS THE NEW BEHAVIOUR; an existing one keeps whatever it had (Seth,
      * 2026-09-08: "default though for new devices and projects (not existing ones)"). An unset
      * value on a project that already has settings means it predates this field, so it shows
      * 'split' — the device-side accessor reads absence the same way. */
     else if (f.k === 'enterAtEnd') v.enterAtEnd = (s.enterAtEnd === 'advance' || s.enterAtEnd === 'split')
       ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
-    else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
@@ -10631,6 +10639,10 @@ function readForm(box) {
     if (SPECIAL.includes(f.k) || f.type === 'action' || f.type === 'subhead') continue;
     patch[f.k] = raw[f.k];
   }
+  // The old combined keys, written as join AND split, so a field device whose engine predates v707
+  // keeps the stricter rule from these four switches (app.js linePermission reads them as fallback).
+  patch.joinSplitBaseline = legacyJoinSplit(raw.joinBaseline, raw.splitBaseline);
+  patch.joinSplitGloss = legacyJoinSplit(raw.joinGloss, raw.splitGloss);
   // appLang 'follow' (or unset) = "don't change this device's language" → never push it (it would
   // clobber a field worker's own toggle choice). Only an explicit en/id is sent (set-with-override).
   if (patch.appLang === 'follow' || !patch.appLang) delete patch.appLang;

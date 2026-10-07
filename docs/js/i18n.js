@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v706';
+export const ENGINE_VERSION = 'v707';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v706';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'guess-long v1';
+export const BUILD_TAG = 'guess-long v2';
 
 const S = {
 en: {
@@ -316,7 +316,7 @@ en: {
    * device still set to `split`, where Enter does divide a line) OR the Enter-moves-on sentence (the
    * default for new devices — the Enter-splits sentence became false there in v635); and the
    * sentences that explain how to SPLIT a line (Enter splitting, the ✂ at the left edge) only while
-   * joinSplitBaseline allows one. With every capability on, the assembled text is word for word what
+   * splitBaseline allows one. With every capability on, the assembled text is word for word what
    * the two single paragraphs (hintSeg / hintSegMove) used to say. */
   'baseline.hintSegLead': 'Type the words for each line. ',
   'baseline.hintSegEnterSplit': '<b>Enter</b> inside a box breaks the line at the cursor; '
@@ -1637,6 +1637,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.new.joinSplitSeparate': 'Device settings: joining and splitting lines are now two separate permissions on each of the Baseline and Gloss tabs \u2014 four switches instead of two \u2014 in the researcher panel\u2019s device settings and project defaults and in the editor\u2019s own Settings tab. A device that has not been updated still follows the old combined switch, which the panel keeps writing as \u201cboth allowed\u201d only when both are. The Cut tab always joins and splits.'
     ,'panel.rel.new.guessLong': 'Editor, Cut tab, and the Audio Segmenter: \u2728 now guesses the lines of a recording of ANY length \u2014 the ten-minute limit is gone. A long recording is first divided at real pauses into stretches of about ten minutes, and each stretch is guessed on its own, with its own background level, so a recording whose conditions change half way through is cut as well at the end as at the start. The same goes for a long piece under the playhead. One Undo still puts the whole guess back.'
     ,'panel.rel.fix.glossJoinGate': 'Gloss tab: the \ud83d\udd17 join button between two lines now disappears when a researcher switches joining and splitting off for that tab, as the \u2702 already did. It also honours a switch pushed while the tab is open.'
     ,'panel.rel.fix.pairDialog': 'Editor and Audio Segmenter: \u201cOpen text + recording together\u201d now opens a small dialog with two pickers \u2014 one for the .flextext, one for the recording \u2014 instead of one picker that needed both files selected at once with Ctrl+click.'
@@ -2408,7 +2409,7 @@ internet after the first time.</p>
   'split.here': 'Split here',
   'split.cancel': 'Cancel the split',
   /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Gloss tab's split/join, so segment-strips
-   * (stripsRefuse) adds it only when that device has one — Gloss tab shown AND joinSplitGloss on. */
+   * (stripsRefuse) adds it only when that device has one — Gloss tab shown AND splitGloss on. */
   'split.no.glossed': 'This line already has glosses or a translation, so it cannot be split or joined here.',
   'split.no.glossedGloss': 'Do that on the Gloss tab.',
   'gloss.editWordTip': 'Tap to correct this word; its gloss stays with it',
@@ -2416,7 +2417,7 @@ internet after the first time.</p>
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
   'cut.no.outside': 'Move the playhead into a line first \u2014 press play, then cut where you want the line to end.',
   /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Baseline tab's split, so segment-strips
-   * (cutRefusal) adds it only when that device has one — Baseline tab shown AND joinSplitBaseline on. */
+   * (cutRefusal) adds it only when that device has one — Baseline tab shown AND splitBaseline on. */
   'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here.',
   'cut.no.hasTextBaseline': 'Split it on the Baseline tab instead, where you can choose where the words divide.',
   'cut.no.tooShort': 'Too close to the edge of the line \u2014 move the playhead a little further in.',
@@ -2451,8 +2452,10 @@ internet after the first time.</p>
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
   'panel.f.landOnCutNote': 'When a text has a recording and NO WORDS YET, open it on the Cut tab instead of Baseline. Once someone has chosen a tab for a text, that text re-opens on the tab they left it on, whatever this setting says \u2014 and a text with no recording never opens on Cut.',
-  'panel.f.joinSplitBaseline': 'Allow joining and splitting lines on the Baseline tab',
-  'panel.f.joinSplitBaselineNote': 'On by default. Turn it off to keep all cutting on the Cut tab, so lines cannot be reshaped while someone is transcribing. This hides the join buttons as well as the keys.',
+  'panel.f.joinBaseline': 'Allow joining lines on the Baseline tab',
+  'panel.f.joinBaselineNote': 'On by default. Off hides the \ud83d\udd17 join buttons and switches off the Backspace and Delete joins on that tab, so lines cannot be merged while someone is transcribing. Joining on the Cut tab is never affected.',
+  'panel.f.splitBaseline': 'Allow splitting lines on the Baseline tab',
+  'panel.f.splitBaselineNote': 'On by default. Off hides the \u2702 and stops Enter from starting a split on that tab, so all cutting stays on the Cut tab. Splitting on the Cut tab is never affected.',
   'panel.f.enterAtEnd': 'What Enter does at the end of a line',
   'panel.f.enterAtEndNote': 'At the END of a line, Enter can simply move to the next line, or it can start a split there. Splitting is always available in the middle of a line and from the \u2702 on the waveform, so “move to the next line” loses nothing and stops an accidental empty line. New devices start with “move to the next line”; devices already in use keep what they had.',
   'panel.opt.enterAtEnd.advance': 'Move to the next line',
@@ -2461,8 +2464,10 @@ internet after the first time.</p>
   'panel.f.freeEnterNextNote': 'On the Gloss tab, when Enter moves to the next line. The next line’s first word gloss follows reading order: the glosses, then the free translation, then on into the next line. Choose the free translation to keep someone who is translating on the free translations. Where a line has no gloss boxes (word glossing is off, or the line has no words), Enter goes to its free translation either way.',
   'panel.opt.freeEnterNext.gloss': 'The next line’s first word gloss',
   'panel.opt.freeEnterNext.free': 'The next line’s free translation',
-  'panel.f.joinSplitGloss': 'Allow joining and splitting lines on the Gloss tab',
-  'panel.f.joinSplitGlossNote': 'On by default. Same as above, for the Gloss tab.',
+  'panel.f.joinGloss': 'Allow joining lines on the Gloss tab',
+  'panel.f.joinGlossNote': 'On by default. Same as the Baseline switch, for the Gloss tab: hides its \ud83d\udd17 and switches off the Backspace join there.',
+  'panel.f.splitGloss': 'Allow splitting lines on the Gloss tab',
+  'panel.f.splitGlossNote': 'On by default. Same as the Baseline switch, for the Gloss tab: hides its \u2702 and stops Enter from starting a split there.',
   'panel.f.cutJoinTexted': 'Allow joining lines that already have text, on the Cut tab',
   'panel.f.adjustBoundaries': 'Allow moving line boundaries by dragging',
   'panel.f.adjustBoundariesNote': 'On by default. Puts a grip at each end of every line\u2019s waveform on the Cut, Baseline and Gloss tabs, and makes the cut marks on the Cut tab\u2019s top player draggable. A boundary can never be dragged past its neighbours, and the words stay where they are \u2014 only the timing changes, one undo per drag. Lines that already have text keep their grips even when cutting and joining them is off. Turn this off to remove every grip.',
@@ -4273,6 +4278,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.new.joinSplitSeparate': 'Pengaturan perangkat: menggabungkan dan memisahkan baris kini dua izin terpisah di masing-masing tab Ketik dan Gloss \u2014 empat sakelar, bukan dua \u2014 di pengaturan perangkat dan bawaan proyek pada panel peneliti maupun di tab Pengaturan editor sendiri. Perangkat yang belum diperbarui tetap mengikuti sakelar gabungan yang lama, yang terus ditulis panel sebagai \u201ckeduanya diizinkan\u201d hanya kalau keduanya memang diizinkan. Tab Potong selalu bisa menggabungkan dan memisahkan.'
     ,'panel.rel.new.guessLong': 'Editor, tab Potong, dan Pemotong Audio: \u2728 kini menebak baris untuk rekaman dengan panjang BERAPA PUN \u2014 batas sepuluh menit sudah dihapus. Rekaman yang panjang dibagi dulu pada jeda yang nyata menjadi bagian-bagian sekitar sepuluh menit, lalu setiap bagian ditebak sendiri dengan tingkat latarnya sendiri, sehingga rekaman yang kondisinya berubah di tengah jalan terpotong sebaik di akhir seperti di awal. Begitu juga untuk bagian panjang di posisi putar. Satu Urungkan tetap mengembalikan seluruh tebakan.'
     ,'panel.rel.fix.glossJoinGate': 'Tab Glos: tombol gabung \ud83d\udd17 di antara dua baris kini hilang kalau peneliti mematikan gabung dan potong untuk tab itu, seperti \u2702 yang sudah begitu. Perubahan yang dikirim saat tab sedang terbuka juga dipatuhi.'
     ,'panel.rel.fix.pairDialog': 'Editor dan Pemotong Audio: \u201cBuka teks + rekaman sekaligus\u201d kini membuka dialog kecil dengan dua pemilih berkas \u2014 satu untuk .flextext, satu untuk rekaman \u2014 bukan lagi satu pemilih yang mengharuskan kedua berkas dipilih sekaligus dengan Ctrl+klik.'
@@ -4992,8 +4998,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',
   'panel.f.landOnCutNote': 'Bila sebuah teks punya rekaman dan BELUM ADA KATA-KATANYA, buka di tab Potong, bukan Ketik. Setelah seseorang memilih tab untuk sebuah teks, teks itu dibuka lagi di tab terakhir yang dipakai, apa pun pengaturan ini \u2014 dan teks tanpa rekaman tidak pernah dibuka di tab Potong.',
-  'panel.f.joinSplitBaseline': 'Izinkan menggabungkan dan memisahkan baris di tab Ketik',
-  'panel.f.joinSplitBaselineNote': 'Aktif secara bawaan. Matikan agar semua pemotongan hanya di tab Potong, sehingga baris tidak bisa diubah saat seseorang sedang menulis. Ini juga menyembunyikan tombol gabung, bukan hanya tombol papan ketik.',
+  'panel.f.joinBaseline': 'Izinkan menggabungkan baris di tab Ketik',
+  'panel.f.joinBaselineNote': 'Aktif secara bawaan. Kalau dimatikan, tombol gabung \ud83d\udd17 disembunyikan dan penggabungan dengan Backspace serta Delete di tab itu dimatikan, sehingga baris tidak bisa digabung saat seseorang sedang menulis. Penggabungan di tab Potong tidak pernah terpengaruh.',
+  'panel.f.splitBaseline': 'Izinkan memisahkan baris di tab Ketik',
+  'panel.f.splitBaselineNote': 'Aktif secara bawaan. Kalau dimatikan, \u2702 disembunyikan dan Enter tidak lagi memulai pemisahan di tab itu, sehingga semua pemotongan tetap di tab Potong. Pemisahan di tab Potong tidak pernah terpengaruh.',
   'panel.f.enterAtEnd': 'Fungsi Enter di akhir baris',
   'panel.f.enterAtEndNote': 'Di AKHIR baris, Enter dapat langsung berpindah ke baris berikutnya, atau memulai pemisahan di sana. Pemisahan tetap tersedia di tengah baris dan lewat \u2702 pada gelombang suara, jadi “pindah ke baris berikutnya” tidak menghilangkan apa pun dan mencegah baris kosong yang tidak disengaja. Perangkat baru dimulai dengan “pindah ke baris berikutnya”; perangkat yang sudah dipakai tetap seperti sebelumnya.',
   'panel.opt.enterAtEnd.advance': 'Pindah ke baris berikutnya',
@@ -5002,8 +5010,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.freeEnterNextNote': 'Di tab Glos, saat Enter berpindah ke baris berikutnya. Glos kata pertama di baris berikutnya mengikuti urutan baca: glos-glosnya, lalu terjemahan bebas, lalu lanjut ke baris berikutnya. Pilih terjemahan bebas agar orang yang sedang menerjemahkan tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos (glos kata dimatikan, atau baris itu tidak berisi kata), Enter tetap menuju terjemahan bebasnya.',
   'panel.opt.freeEnterNext.gloss': 'Glos kata pertama di baris berikutnya',
   'panel.opt.freeEnterNext.free': 'Terjemahan bebas di baris berikutnya',
-  'panel.f.joinSplitGloss': 'Izinkan menggabungkan dan memisahkan baris di tab Gloss',
-  'panel.f.joinSplitGlossNote': 'Aktif secara bawaan. Sama seperti di atas, untuk tab Gloss.',
+  'panel.f.joinGloss': 'Izinkan menggabungkan baris di tab Gloss',
+  'panel.f.joinGlossNote': 'Aktif secara bawaan. Sama seperti sakelar tab Ketik, untuk tab Gloss: menyembunyikan \ud83d\udd17-nya dan mematikan penggabungan dengan Backspace di sana.',
+  'panel.f.splitGloss': 'Izinkan memisahkan baris di tab Gloss',
+  'panel.f.splitGlossNote': 'Aktif secara bawaan. Sama seperti sakelar tab Ketik, untuk tab Gloss: menyembunyikan \u2702-nya dan Enter tidak lagi memulai pemisahan di sana.',
   'panel.f.cutJoinTexted': 'Izinkan menggabungkan baris yang sudah ada teksnya, di tab Potong',
   'panel.f.adjustBoundaries': 'Izinkan memindahkan batas baris dengan menyeret',
   'panel.f.adjustBoundariesNote': 'Aktif secara bawaan. Menaruh pegangan di kedua ujung gelombang setiap baris di tab Potong, Ketik dan Terjemahan Balik, dan membuat tanda potongan di pemutar atas tab Potong bisa diseret. Batas tidak pernah bisa diseret melewati tetangganya, dan kata-katanya tetap di tempatnya \u2014 hanya waktunya yang berubah, satu urungan per seretan. Baris yang sudah ada teksnya tetap punya pegangan meski pemotongan dan penggabungannya dimatikan. Matikan untuk menghilangkan semua pegangan.',

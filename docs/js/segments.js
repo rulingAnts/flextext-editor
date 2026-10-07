@@ -450,7 +450,7 @@ export const GUESS_MIN_LINE_MS = 900;
  * each large segment one at a time" — which is what guessSplitsWindowed does below: a recording (or
  * a piece) longer than this is first divided at real pauses into windows of about this length, and
  * each window is then guessed as a recording of its own, with its own noise floor and speech level.
- * The number is the WINDOW, not a limit: nothing is refused for being long any more. */
+ * The number is the WINDOW, not a limit: nothing is refused for being long any more (v707). */
 export const GUESS_WINDOW_MS = 10 * 60 * 1000;
 
 /** Percentile of a SORTED copy — used for the floor and the speech level alike. */

@@ -293,7 +293,7 @@ consent" tab is dropped rather than shown empty.
 - **✨ Guess the lines** also sits on the top player, far right, while the Cut tab is open. On a
   recording nobody has cut yet it cuts the whole recording at its pauses, whatever its length: a
   long recording is first divided at real pauses into stretches of about ten minutes and each is
-  guessed with its own background level (v706, #93). Once anything has been cut by hand, it guesses
+  guessed with its own background level (v707, #93). Once anything has been cut by hand, it guesses
   only the piece under the playhead — if that piece has no words — and leaves every other piece
   alone, so someone who has started by hand can hand the untouched rest to it piece by piece. One
   Undo puts a guess back.

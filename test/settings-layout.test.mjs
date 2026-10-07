@@ -89,7 +89,7 @@ test('allowAudioSwap now has a switch, on both surfaces', () => {
 });
 
 test('the split/join permissions are NOT marked paired-only — they work alone', () => {
-  for (const k of ['joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'adjustBoundaries', 'backspaceJoin']) {
+  for (const k of ['joinBaseline', 'splitBaseline', 'joinGloss', 'splitGloss', 'cutJoinTexted', 'adjustBoundaries', 'backspaceJoin']) {
     assert.doesNotMatch(setupField(k).rest, /off:/,
       `${k} reads settings directly (absent means on), so it is live on a standalone app`);
   }

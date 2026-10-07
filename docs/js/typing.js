@@ -764,3 +764,40 @@ export function capBlankLines(value, max = 2) {
   if (max < 1) return src;
   return src.replace(new RegExp(`\\n{${max + 1},}`, 'g'), '\n'.repeat(max));
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────────
+ * LINE PERMISSIONS — may lines be JOINED, may they be SPLIT, on the Baseline or the Gloss tab —
+ * resolved from a settings blob that any mix of versions may have written (v707, Seth 2026-10-07:
+ * "have joining and splitting be separate (individually set-able) permissions … each with its own
+ * device setting option"; "make it backward-compatible … so that different versions of researcher
+ * panel or editor don't collide and break each other or corrupt data").
+ *
+ * Two generations of keys describe the same thing:
+ *   - OLD (≤ v706): one combined key per tab, joinSplitBaseline / joinSplitGloss.
+ *   - NEW (v707+): four keys, joinBaseline / splitBaseline / joinGloss / splitGloss.
+ * All default ON (absent means allowed). A v707+ writer writes all of them, the old key as join AND
+ * split, so an engine that only knows the old key keeps the stricter rule. An old writer writes only
+ * the old key — and a pushed settings change MERGES onto the device (app.js 'changeSettings'), so a
+ * device can end up holding new keys from one panel and an old key from another, written later.
+ *
+ * The rule, which both surfaces and the engine share so they can never disagree:
+ *   1. no new key present ⇒ the old key answers for both halves (an old device, or an old-only fleet);
+ *   2. new keys present and CONSISTENT with the old key (old === join && split) ⇒ the new keys answer;
+ *   3. new keys present but the old key DISAGREES ⇒ a v707+ writer never produces that state, so an
+ *      older writer touched the old key last and meant both halves ⇒ the old key answers for both.
+ * ⚠ One state is genuinely ambiguous — new keys mixed (one off) with the old key false — because a
+ * new writer produces exactly that too; it resolves as the new keys say. Nothing in this ever loses
+ * or rewrites data; at worst a permission differs between two panels of different ages, and a save
+ * from either brings the blob back to a consistent state. Pure, so it is measurable. */
+export function linePermissions(s, tab) {
+  s = s || {};
+  const suffix = tab === 'gloss' ? 'Gloss' : 'Baseline';
+  const has = (v) => v !== undefined && v !== null;
+  const legacy = s['joinSplit' + suffix], j = s['join' + suffix], sp = s['split' + suffix];
+  if (!has(j) && !has(sp)) { const b = !has(legacy) || legacy !== false; return { join: b, split: b }; }
+  const join = j !== false, split = sp !== false;
+  if (has(legacy) && (legacy !== false) !== (join && split)) { const b = legacy !== false; return { join: b, split: b }; }
+  return { join, split };
+}
+/** What a v707+ writer stores in the OLD combined key: both halves allowed, and nothing less. */
+export function legacyJoinSplit(join, split) { return join !== false && split !== false; }

@@ -36,7 +36,7 @@ test('a device that has never saved settings is seeded with the new behaviour, o
 test('Baseline: at the end it advances, and it does so even when splitting is switched off', () => {
   const fn = STRIPS.slice(STRIPS.indexOf('function onKey(e, i, input)'), STRIPS.indexOf("} else if (e.key === 'Backspace'"));
   const advanceAt = fn.indexOf('deps.enterAdvances');
-  const gateAt = fn.indexOf('if (!joinSplitOk()) return;');
+  const gateAt = fn.indexOf('if (!splitOk()) return;');
   assert.ok(advanceAt > -1 && gateAt > -1, 'both branches present');
   assert.ok(advanceAt < gateAt,
     'the advance is decided BEFORE the split gate — a researcher who turned splitting off still wants Enter to walk');
@@ -61,12 +61,12 @@ test('Gloss uses the same whitespace-tolerant end', () => {
 
 test('Gloss: the same rule, and it takes precedence over trimming an edge line', () => {
   const i = APP.indexOf("} else if (e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))) {");
-  const j = APP.indexOf("} else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {");
+  const j = APP.indexOf("} else if (e.key === 'Enter' && atEnd && splitLinesAllowed('gloss')) {");
   assert.ok(i > -1 && j > -1, 'both branches present');
   assert.ok(i < j, 'the advance branch is first, so it wins when the setting is on');
   assert.match(APP.slice(i, j), /walkOnFromFree\(g\);/, 'it walks on to the next line (#78 decides which box)');
   // the edge-split branches survive — they are simply out of reach until the line is armed
-  assert.match(APP, /e\.key === 'Enter' && atStart && joinSplitAllowed\('gloss'\)/);
+  assert.match(APP, /e\.key === 'Enter' && atStart && splitLinesAllowed\('gloss'\)/);
 });
 
 test('the researcher can set it, and a NEW project defaults to advance', () => {
@@ -93,7 +93,7 @@ test('on the Gloss tab "move to next" is tested before the edge split', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   const handler = APP.slice(APP.indexOf("fi.addEventListener('keydown'"));
   const advance = handler.indexOf("e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))");
-  const edgeBefore = handler.indexOf("e.key === 'Enter' && atStart && joinSplitAllowed('gloss')");
+  const edgeBefore = handler.indexOf("e.key === 'Enter' && atStart && splitLinesAllowed('gloss')");
   assert.ok(advance > -1, 'the advance branch exists');
   assert.ok(edgeBefore > -1, 'the edge-split branch exists');
   assert.ok(advance < edgeBefore,

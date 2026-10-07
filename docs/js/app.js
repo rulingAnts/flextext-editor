@@ -1458,8 +1458,16 @@ function decorateGlossSegments() {
     /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
      * to be the group's last child, a 44px tap target 6px under the full-width free-translation
      * input — an undershot tap meant an accidental join. Outside both groups, a missed tap on the
-     * free translation hits padding, not a destructive control. */
-    if (i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
+     * free translation hits padding, not a destructive control.
+     *
+     * ⚠ GATED LIKE THE ✂ ABOVE (#100). This block was the one join/split control on the tab that
+     * never read joinSplitAllowed('gloss'), so with the switch off the scissors went and the chain
+     * links stayed — a control that looks live and joins two lines on a tab where the researcher
+     * said no joining. A row left over from before the switch flipped is removed here too, so a
+     * decorate after a live push cannot leave one standing. */
+    const joinAllowed = joinSplitAllowed('gloss');
+    if (!joinAllowed && g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow')) g.nextElementSibling.remove();
+    if (joinAllowed && i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
       const joinRow = document.createElement('div');
       joinRow.className = 'gseg-joinrow';
       const join = document.createElement('button');
@@ -1928,7 +1936,9 @@ function glossSplitAt(i, boundary, opts = {}) {
 }
 
 function glossJoinLines(i) {
-  if (!current) return;
+  // The backstop behind the 🔗 and Backspace: a join is refused where the researcher switched
+  // joining off for this tab, whatever control asked for it (#100).
+  if (!current || !joinSplitAllowed('gloss')) return;
   captureUndo();
   const doc = current.doc;
   const paras = getBaselineParagraphs(doc).slice();
@@ -5086,6 +5096,10 @@ function docInScope(/* d, enr */) {
 function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   const segBefore = settings.segmentation === true;
+  // The join/split gates, read BEFORE the reload: their controls (the Gloss tab's ✂ and 🔗 rows,
+  // the Baseline strips' join buttons) are built at render time, so a pushed flip needs the
+  // re-enter below to reach them — the ticker only repaints the playhead ✂ (#100).
+  const joinBefore = { baseline: joinSplitAllowed('baseline'), gloss: joinSplitAllowed('gloss') };
   settings = loadSettings();
   applyUiScale();   // a pushed text size lands live, in every app
   applyHeaderLabels();
@@ -5106,7 +5120,8 @@ function applyLiveSettings() {
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
     // (not activeTab) so a user on the Texts list is never pulled into the editor.
     const v = currentView();
-    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && (settings.segmentation === true) !== segBefore) {
+    const joinFlipped = (v === 'baseline' || v === 'gloss') && joinSplitAllowed(v) !== joinBefore[v];
+    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && ((settings.segmentation === true) !== segBefore || joinFlipped)) {
       switchTab(v);
     }
   }

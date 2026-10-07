@@ -11,7 +11,7 @@
  * carries only real content — baseline text, words, word glosses, free translations, times.
  */
 
-import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn } from './flextext.js';
+import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn, isSilentPhrase } from './flextext.js';
 
 /* ---------------- shared helpers ---------------- */
 
@@ -120,8 +120,9 @@ export function buildFxpa(doc, opts = {}) {
  *   it lives in the .eaf and the .flextext (Seth, 2026-08-03).
  *
  * Shared machinery: contiguous boundaries share TIME_SLOTs; pending segments get slots WITHOUT
- * TIME_VALUE (ELAN's own unaligned mechanism); empty (silence) segments are empty aligned
- * annotations. All schema-verified in the plan. */
+ * TIME_VALUE (ELAN's own unaligned mechanism); a SILENT segment (no words, no text, no translation —
+ * isSilentPhrase) gets NO annotation on any tier, so the slots either side of it simply do not meet,
+ * the way ELAN itself leaves a pause unannotated (Seth, 2026-10-08). Schema-verified in the plan. */
 const eafTierNames = (flex, vern, anal) => (flex
   ? { itext: `A_interlinear-text-title-${anal}`, para: 'A_paragraph',
       phrase: `A_phrase-txt-${vern}`, free: `A_phrase-gls-${anal}`,
@@ -142,6 +143,7 @@ export function serializeEaf(doc, opts = {}) {
   const anns = [];                       // { id, ts1, ts2, text, words:[{id, text, gloss}], free }
   let aid = 0;
   for (const r of rows) {
+    if (isSilentPhrase(r.phrase)) continue;   // no annotation over silence, on any tier (Seth, 2026-10-08)
     const a = { id: 'a' + (++aid), text: r.phrase.baseline || '', free: r.phrase.free || '', frees: phraseFrees(r.phrase), words: [] };
     if (isAligned(r.span)) {
       a.ts1 = (prev && isAligned(prev.span) && prev.span.end === r.span.start) ? prev.endSlot : slot(r.span.start);
@@ -224,8 +226,8 @@ export function serializeEaf(doc, opts = {}) {
     L.push('  </TIER>');
   }
 
-  // Baseline: time-aligned; a child of the paragraph tier when the structure exists. Empty
-  // segments export with an empty ANNOTATION_VALUE (schema-legal) — timed silence is real data.
+  // Baseline: time-aligned; a child of the paragraph tier when the structure exists. A silent
+  // segment was dropped above, so nothing here ever carries an empty ANNOTATION_VALUE for a pause.
   L.push(`  <TIER LINGUISTIC_TYPE_REF="phrase"${structural ? ` PARENT_REF="${esc(names.para)}"` : ''} TIER_ID="${esc(names.phrase)}">`);
   for (const a of anns) {
     L.push(`    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="${a.id}" TIME_SLOT_REF1="${a.ts1}" TIME_SLOT_REF2="${a.ts2}"><ANNOTATION_VALUE>${esc(a.text)}</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>`);

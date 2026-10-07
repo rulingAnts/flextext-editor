@@ -34,6 +34,20 @@ The item itself is tracked privately.
 
 ---
 
+## ▶ v709 — assembled 2026-10-08 on branch `silent-exports` (silent lines leave the FLExText and EAF exports, #97) — on staging, NOT in main
+
+Seth, 2026-10-08: "Silent segments exported (or saved) as flextext and especially eaf should not be included in the
+export. That's all. Good enough. So not as empty lines in FLEx or empty annotations in ELAN/SayMore." `BUILD_TAG =
+'silent-exports v1'`. Export-only: `isSilentPhrase(seg)` (flextext.js — no words, no baseline, no free, nothing preserved
+from an import) is skipped by `serializeFlextext` (and a paragraph left with nothing is not written) and by `serializeEaf`
+in both profiles (no annotation on any tier; the slots either side do not meet). The editor, the listening page and the
+`.fxpa` are untouched. test/silent-exports.test.mjs measures it, including the guard (a translation or an imported note
+keeps the phrase) and the round trip (the file opens as lines with holes, like an ELAN file with pauses).
+
+**v708 (`gap-lines`, the Cut-tab Line tick, #97) was ROLLED BACK from staging the same day** — Seth: "too much machinery
+and too buggy" — by reverting its merge (`82ca0bf`); the branch is kept, unmerged. v708 was never released, so the number
+is skipped rather than reused: a device that loaded the v708 preview must see a NEW version string to fetch this shell.
+
 ## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); production = 6d86abd6 (main = productionWeb = staging); sites-only release, no worker change
 
 Deploy run 37636842031: all seven apps green (editor, researcher, recorder, crowd, PAT, consent, segmenter), each log

@@ -32,7 +32,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine, isGap, nextLineIndex, prevLineIndex, joinRun } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1126,12 +1126,7 @@ function freeEnterGoesToGloss(s) { return (s || settings).freeEnterNext !== 'fre
 function nextBoxAfterFree(lineEl) {
   const lines = [...document.querySelectorAll('#gloss-body .segment')];
   const at = lines.indexOf(lineEl);
-  // The next line WITH boxes: a gap placeholder (#97), like a blank line, has nothing to type into
-  // and is walked past rather than stopped at.
-  let next = null;
-  for (let k = at + 1; at >= 0 && k < lines.length; k++) {
-    if (lines[k].querySelector('.gloss-input, .free-input')) { next = lines[k]; break; }
-  }
+  const next = at < 0 ? null : lines[at + 1];
   if (!next) return null;
   const gloss = next.querySelector('.gloss-input');
   const free = next.querySelector('.free-input');
@@ -1422,7 +1417,7 @@ function decorateGlossSegments() {
   const entries = [];
   groups.forEach((g, i) => {
     const seg = segs[i];
-    if (!seg || isGap(seg) || g.querySelector('.gseg-bar')) return;   // a gap gets no bar, wave or ▶ (#97)
+    if (!seg || g.querySelector('.gseg-bar')) return;
     const bar = document.createElement('div');
     bar.className = 'gseg-bar';
     const btn = document.createElement('button');
@@ -1487,7 +1482,7 @@ function decorateGlossSegments() {
      * is removed here too, so a decorate after a live push cannot leave one standing. */
     const joinAllowed = joinLinesAllowed('gloss');
     if (!joinAllowed && g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow')) g.nextElementSibling.remove();
-    if (joinAllowed && nextLineIndex(segs, i) >= 0 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {   // with the next LINE, through any gaps (#97)
+    if (joinAllowed && i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
       const joinRow = document.createElement('div');
       joinRow.className = 'gseg-joinrow';
       const join = document.createElement('button');
@@ -1603,7 +1598,7 @@ function decorateGlossSegments() {
             if (!joinLinesAllowed('gloss')) return;   // researcher removed joining on this tab
             if (!joinKeysEnabled()) return;   // researcher-disabled: fall through to normal editing
             e.preventDefault();
-            glossJoinWithPrevious(i);
+            glossJoinLines(i - 1);
             return;
           }
           if (e.key !== 'Enter') return;
@@ -1648,7 +1643,7 @@ function decorateGlossSegments() {
           const atEnd = fi.selectionStart === fi.selectionEnd && !fi.value.slice(fi.selectionStart ?? 0).trim();
           if (e.key === 'Backspace' && atStart && i > 0 && joinLinesAllowed('gloss') && joinKeysEnabled()) {
             e.preventDefault();
-            glossJoinWithPrevious(i);
+            glossJoinLines(i - 1);
           } else if (e.key === 'Enter' && enterAtEndAdvances() && !(g.classList && g.classList.contains('cut-armed'))) {
             /* ⚠ Same rule as the Baseline tab (Seth, 2026-09-08: "I think maybe something similar on
              * the gloss tab"): at the end, Enter WALKS to the next line's translation rather than
@@ -1961,25 +1956,19 @@ function glossJoinLines(i) {
   if (!current || !joinLinesAllowed('gloss')) return;
   captureUndo();
   const doc = current.doc;
-  const segs = docSegments(doc);
-  const k = nextLineIndex(segs, i);   // the next LINE, through any gaps between (#97): the silence comes along
-  if (i < 0 || k < 0) return;
+  const paras = getBaselineParagraphs(doc).slice();
+  if (i < 0 || i + 1 >= paras.length) return;
+  const left = paras[i] ?? '', right = paras[i + 1] ?? '';
+  const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
+  paras.splice(i, 2, left + glue + right);
   // duration matters: without it normalizeSegments skips its clamp passes (the baseline path
   // always passed it; the gloss path forgot — v322 parity fix).
-  const r = joinRun(segs, getBaselineParagraphs(doc).slice(), i, k, { duration: player?.durationMs?.() ?? null });
-  if (!r.ok) return;
-  doc.segments = r.segments;
-  reconcileBaseline(doc, r.paragraphs.length ? r.paragraphs : [''], { flatSegments: true });
+  doc.segments = mergeSegments(docSegments(doc), i, { duration: player?.durationMs?.() ?? null });
+  reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
   schedulePersist();
   stopGlossCursor();
   renderGloss();
   decorateGlossSegments();
-}
-// Backspace at the start of line i: join it with the previous LINE, over any gaps (#97).
-function glossJoinWithPrevious(i) {
-  if (!current) return;
-  const p = prevLineIndex(docSegments(current.doc), i);
-  if (p >= 0) glossJoinLines(p);
 }
 
 /* Prepare the Cut tab's audio — the SAME sequence the Baseline strips use, and for the same
@@ -4363,19 +4352,9 @@ function renderGloss() {
   const analFont = fontFor(doc, false);
   let segnum = 0;
   let any = false;
-  const segs = docSegments(doc);
-  let pi = -1;
   for (const para of doc.paragraphs) {
-    pi++;
     for (const seg of para.segments) {
       if (!seg.words.length && !seg.baseline.trim()) {
-        /* A GAP (#97) holds its slot too, but is not a line: a placeholder with no number, no bar, no
-         * wave and nothing to type — the Cut tab's tick is where it becomes a line again. */
-        if (segmentationEnabled() && para.segments.length === 1 && isGap(segs[pi])) {
-          any = true;
-          body.appendChild(renderGapSegment(segs[pi]));
-          continue;
-        }
         // Blank line: in segmentation mode it IS a line — a timed span (usually silence) that must
         // hold its slot here, because decorateGlossSegments pairs .segment groups to doc.segments
         // POSITIONALLY. Skipping it (the classic behaviour, kept when segmentation is off) shifted
@@ -4396,16 +4375,6 @@ function renderGloss() {
   }
   applyGlossEmptyHint();   // which tab (if any) it points at follows the device's settings (#92)
   $('#gloss-empty').hidden = any;
-}
-
-function renderGapSegment(seg) {
-  const div = document.createElement('div');
-  div.className = 'segment seg-gap';
-  const lbl = document.createElement('span');
-  lbl.className = 'gap-label';
-  lbl.textContent = t('seg.gap', { dur: isAligned(seg) ? ((seg.end - seg.start) / 1000).toFixed(1) : '?' });
-  div.appendChild(lbl);
-  return div;
 }
 
 function renderBlankSegment(segnum) {
@@ -12446,7 +12415,7 @@ function typingTargetForLastPlayed() {
   if (!segNow) return null;
   const i = docSegments(current.doc).indexOf(segNow);
   if (i < 0) return null;
-  if (activeTab === 'baseline') return $('#segment-strips')?.querySelector(`.seg-strip[data-i="${i}"] .seg-text`) || null;   // by model index: gap rows have no box (#97)
+  if (activeTab === 'baseline') return $('#segment-strips')?.querySelectorAll('.seg-text')[i] || null;
   if (activeTab === 'gloss') {
     const g = $('#gloss-body')?.querySelectorAll('.segment')[i];
     if (!g) return null;
@@ -12483,7 +12452,7 @@ function segmentForField(el) {
   // Index by the text boxes themselves, the way the Baseline ticker finds a line (segment-strips.js
   // uses querySelectorAll('.seg-text')[i]): the row markup owes us nothing about nesting.
   const box = el.closest('.seg-text');
-  if (box) return segs[Number(box.closest('.seg-strip')?.dataset.i)] || null;   // by the row's model index: gap rows have no box (#97)
+  if (box) return segs[[...$('#segment-strips').querySelectorAll('.seg-text')].indexOf(box)] || null;
   const g = el.closest('#gloss-body .segment');
   if (g) return segs[[...$('#gloss-body').querySelectorAll('.segment')].indexOf(g)] || null;
   return null;

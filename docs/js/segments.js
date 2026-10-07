@@ -229,99 +229,10 @@ export function mergeSegments(segments, i, opts = {}) {
   // The merged span inherits "estimated" if either side was a guess — the result is no more
   // trustworthy than its least trustworthy half.
   if (merged.start !== undefined && (a.timeEstimated || b.timeEstimated)) merged.timeEstimated = true;
-  // Two gaps joined are still a gap; a line joined with a gap is a line that now covers the
-  // silence (#97: "joins with unchecked segments between would of course include the silent audio").
-  if (isGap(a) && isGap(b)) merged.gap = true;
 
   const out = src.map((s) => ({ ...s }));
   out.splice(i, 2, merged);
   return normalizeSegments(out, opts);
-}
-
-/* ---------------------------------------------------------------------------------------------
- * GAPS — "no line here" (#97; Seth, 2026-10-07: "the ability to uncheck audio segments in the cut
- * tab and then have them not included in the other two tabs as things the user can edit … they
- * don't get included in FLExText or ELAN exports").
- *
- * A gap is a cut piece of audio with no words that the user has said is NOT a line: silence, noise,
- * an aside nobody will transcribe. It KEEPS its cut and its slot — segments[i] is still paragraph i,
- * the paragraph is simply empty — so the Cut tab still shows it and a tick puts it back; the 1:1
- * invariant that everything here relies on is untouched. What changes is what the piece MEANS:
- *   - the Baseline and Gloss tabs show a slim placeholder, not a row with a text box or a ▶;
- *   - the .flextext writes no <phrase> for it, the EAF no annotation over it (consecutive time
- *     slots simply do not meet, which is what ELAN itself produces), the listening page no row;
- *   - a join across it includes its audio (mergeSegments above; joinRun below);
- *   - on open, a hole between phrases — a file written this way, or one from ELAN — becomes a gap
- *     again (fillHoles), so the round trip keeps the cut.
- * A piece that carries words can never be a gap; the flag is ignored wherever text exists. */
-export function isGap(seg) { return !!(seg && seg.gap === true); }
-/** The next / previous segment that IS a line (not a gap), or -1. */
-export function nextLineIndex(segments, i) {
-  const segs = segments || [];
-  for (let k = i + 1; k < segs.length; k++) if (!isGap(segs[k])) return k;
-  return -1;
-}
-export function prevLineIndex(segments, i) {
-  const segs = segments || [];
-  for (let k = i - 1; k >= 0; k--) if (!isGap(segs[k])) return k;
-  return -1;
-}
-
-/* fillHoles — every stretch of recording that no segment covers becomes a GAP segment with an empty
- * paragraph beside it, so a document opened from a file that was written without its gaps (ours, or
- * ELAN's, where annotations need not meet) comes back as lines plus gaps rather than lines with
- * unreachable audio between them. Holes shorter than minMs are left alone (rounding, not a gap);
- * a trailing hole counts only past tailTolMs and only when the last line cannot simply be extended
- * (it has text, or imported times that are not ours to move — the two cases coverTail refuses).
- * Idempotent: a gap is an aligned segment, so a second pass finds nothing to fill. Pure; same
- * { segments, paragraphs, added } shape as the other model edits, so a caller applies both or
- * neither. */
-export function fillHoles(segments, paragraphs, opts = {}) {
-  const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
-  const duration = isNum(opts.duration) && opts.duration > 0 ? opts.duration : null;
-  const tailTol = isNum(opts.tailTolMs) ? opts.tailTolMs : 1000;
-  const segs = (segments || []).map((s) => (s ? { ...s } : { timePending: true }));
-  const paras = (paragraphs || []).slice();
-  const outS = [], outP = [];
-  let added = 0, prevEnd = 0, prevAligned = true;   // before the first segment: the file's start
-  for (let i = 0; i < segs.length; i++) {
-    const s = segs[i];
-    if (isAligned(s)) {
-      if (prevAligned && s.start - prevEnd >= minMs) { outS.push({ start: prevEnd, end: s.start, gap: true }); outP.push(''); added++; }
-      prevEnd = s.end; prevAligned = true;
-    } else prevAligned = false;             // across a pending span nobody knows where the hole is
-    outS.push(s); outP.push(paras[i] ?? '');
-  }
-  if (duration && segs.length && prevAligned && duration - prevEnd >= tailTol) {
-    const last = segs[segs.length - 1];
-    if (String(paras[segs.length - 1] ?? '').trim() || last.attrs) { outS.push({ start: prevEnd, end: duration, gap: true }); outP.push(''); added++; }
-  }
-  return { segments: outS, paragraphs: outP, added };
-}
-
-/* joinRun — join line a with line b and EVERYTHING between them (the gaps), as one edit. The text is
- * the pieces' texts in order, a space between two that neither supplies one for; the span is the
- * union, silence included; the result is a gap only if every piece was. `joinPos` is where the
- * caret belongs afterwards (the seam between the left text and line b's), `playheadMs` where the
- * first seam was. Same { ok, segments, paragraphs } shape as the other edits. */
-export function joinRun(segments, paragraphs, a, b, opts = {}) {
-  const segs = (segments || []).map((s) => ({ ...s }));
-  const paras = (paragraphs || []).slice();
-  const fail = (reason) => ({ ok: false, reason, index: a, segments: segs, paragraphs: paras, joinPos: 0, playheadMs: null });
-  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b <= a || b >= segs.length) return fail('range');
-  let left = '';
-  for (let k = a; k < b; k++) {
-    const t = String(paras[k] ?? '');
-    if (!t) continue;
-    left += (left && !/\s$/.test(left) && !/^\s/.test(t) ? ' ' : '') + t;
-  }
-  const right = String(paras[b] ?? '');
-  const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
-  paras.splice(a, b - a + 1, left + glue + right);
-  let out = segs;
-  for (let k = a; k < b; k++) out = mergeSegments(out, a, opts);
-  return { ok: true, reason: '', index: a, segments: out, paragraphs: paras, joinPos: left.length + glue.length,
-           playheadMs: isAligned(segs[a]) ? segs[a].end : null };
 }
 
 /* ---------------------------------------------------------------------------------------------

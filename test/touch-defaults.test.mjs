@@ -193,7 +193,7 @@ test('2026-09-06: with Space off, a plain keystroke goes to the last played line
   assert.match(focus, /r\.collapse\(false\)/, 'contenteditable: range collapsed to the logical end');
   assert.doesNotMatch(focus, /getBoundingClientRect|clientWidth|left|right/, 'no visual-edge arithmetic, so right-to-left needs nothing here');
   const target = APP.slice(APP.indexOf('function typingTargetForLastPlayed()'), APP.indexOf('function spaceToggles()'));
-  assert.match(target, /if \(activeTab === 'baseline'\) return \$\('#segment-strips'\)\?\.querySelector\(`\.seg-strip\[data-i="\$\{i\}"\] \.seg-text`\)/, 'Baseline: that line\'s text box, by its model index (gap rows have none, #97)');
+  assert.match(target, /if \(activeTab === 'baseline'\) return \$\('#segment-strips'\)\?\.querySelectorAll\('\.seg-text'\)\[i\]/, 'Baseline: that line\'s text box');
   /* ⚠ CHANGED TWICE ON 2026-09-08, and it is a SETTING now. It used to guess the next box worth
    * filling (the first EMPTY gloss). Seth wanted a predictable landing place instead — "default to
    * cursor at the end of the baseline or free translation box" — and then, on reflection, wanted

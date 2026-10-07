@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v708';
+export const ENGINE_VERSION = 'v707';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v708';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'gaps v1';
+export const BUILD_TAG = '';
 
 const S = {
 en: {
@@ -1293,7 +1293,6 @@ internet after the first time.</p>
   'panel.admin.kind.text_moved': 'Text moved',
   'seg.pauseTip': 'Pause here \u2014 then press Enter to break the segment at this spot',
   'seg.joinTip': 'Join this line with the next \u2014 text and audio together',
-  'seg.gap': '(no speech \u2014 {dur} s)',
   'seg.playTip': 'Play this segment',
   'seg.pendingTip': 'No time yet \u2014 scrub to the right spot and press Enter again',
   'panel.dl.loading': 'Checking the text\u2019s folder\u2026',
@@ -1638,7 +1637,6 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
-    ,'panel.rel.new.gapLines': 'Cut tab: every piece without words has a Line tick. Untick it to say \u201cno line here\u201d \u2014 the piece stays on the Cut tab, dimmed, so you can tick it again, but leaves the Baseline and Gloss tabs (a slim placeholder marks where it is) and the FLExText and ELAN exports, the way ELAN leaves a stretch unannotated. Joining the lines either side of it keeps its audio. A file saved this way opens again with its gaps in place, and so does a file from ELAN with unannotated stretches.'
     ,'panel.rel.new.joinSplitSeparate': 'Device settings: joining and splitting lines are now two separate permissions on each of the Baseline and Gloss tabs \u2014 four switches instead of two \u2014 in the researcher panel\u2019s device settings and project defaults and in the editor\u2019s own Settings tab. A device that has not been updated still follows the old combined switch, which the panel keeps writing as \u201cboth allowed\u201d only when both are. The Cut tab always joins and splits.'
     ,'panel.rel.new.guessLong': 'Editor, Cut tab, and the Audio Segmenter: \u2728 now guesses the lines of a recording of ANY length \u2014 the ten-minute limit is gone. A long recording is first divided at real pauses into stretches of about ten minutes, and each stretch is guessed on its own, with its own background level, so a recording whose conditions change half way through is cut as well at the end as at the start. The same goes for a long piece under the playhead. One Undo still puts the whole guess back.'
     ,'panel.rel.fix.glossJoinGate': 'Gloss tab: the \ud83d\udd17 join button between two lines now disappears when a researcher switches joining and splitting off for that tab, as the \u2702 already did. It also honours a switch pushed while the tab is open.'
@@ -2408,9 +2406,6 @@ internet after the first time.</p>
   'cut.hintNoJoinKeyDrag': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \ud83d\udd17 button between two lines joins them. \u2728 guesses the lines from the pauses in the recording \u2014 all of them at once or, once you have cut by hand, only the piece under the playhead. No typing on this tab \u2014 the words come later. Drag the grip at either end of a line\u2019s waveform to move a boundary; it can never pass its neighbours, and the player at the top zooms in on it while you drag.',
   'cut.cut': 'Cut here',
   'cut.arm': 'Cut this line \u2014 tap again to put the scissors away',
-  'cut.lineChk': 'Line',
-  'cut.lineChkTip': 'Ticked: this piece is a line of the text. Unticked: no line here \u2014 audio with no words. It leaves the Baseline and Gloss tabs and the FLExText and ELAN exports, and stays here so you can tick it again. Joining the lines either side of it keeps its audio.',
-  'cut.lineChkLocked': 'A piece with words is always a line.',
   'split.here': 'Split here',
   'split.cancel': 'Cancel the split',
   /* ⚠ TWO KEYS (#92): the second sentence sends the user to the Gloss tab's split/join, so segment-strips
@@ -4005,7 +4000,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.kind.text_moved': 'Teks dipindahkan',
   'seg.pauseTip': 'Jeda di sini \u2014 lalu tekan Enter untuk memecah segmen di titik ini',
   'seg.joinTip': 'Gabungkan baris ini dengan berikutnya \u2014 teks dan audio sekaligus',
-  'seg.gap': '(tanpa ucapan \u2014 {dur} dtk)',
   'seg.playTip': 'Putar segmen ini',
   'seg.pendingTip': 'Belum ada waktu \u2014 geser ke posisi yang tepat lalu tekan Enter lagi',
   'panel.dl.loading': 'Memeriksa folder teks\u2026',
@@ -4284,7 +4278,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
-    ,'panel.rel.new.gapLines': 'Tab Potong: setiap bagian tanpa kata punya centang Baris. Hilangkan centangnya untuk menyatakan \u201ctidak ada baris di sini\u201d \u2014 bagian itu tetap di tab Potong, diredupkan, supaya bisa dicentang lagi, tetapi hilang dari tab Ketik dan Gloss (penanda tipis menunjukkan tempatnya) serta dari ekspor FLExText dan ELAN, seperti ELAN membiarkan suatu rentang tanpa anotasi. Menggabungkan baris di kedua sisinya tetap membawa audionya. Berkas yang disimpan begini terbuka lagi dengan celah-celahnya, begitu juga berkas dari ELAN yang punya rentang tanpa anotasi.'
     ,'panel.rel.new.joinSplitSeparate': 'Pengaturan perangkat: menggabungkan dan memisahkan baris kini dua izin terpisah di masing-masing tab Ketik dan Gloss \u2014 empat sakelar, bukan dua \u2014 di pengaturan perangkat dan bawaan proyek pada panel peneliti maupun di tab Pengaturan editor sendiri. Perangkat yang belum diperbarui tetap mengikuti sakelar gabungan yang lama, yang terus ditulis panel sebagai \u201ckeduanya diizinkan\u201d hanya kalau keduanya memang diizinkan. Tab Potong selalu bisa menggabungkan dan memisahkan.'
     ,'panel.rel.new.guessLong': 'Editor, tab Potong, dan Pemotong Audio: \u2728 kini menebak baris untuk rekaman dengan panjang BERAPA PUN \u2014 batas sepuluh menit sudah dihapus. Rekaman yang panjang dibagi dulu pada jeda yang nyata menjadi bagian-bagian sekitar sepuluh menit, lalu setiap bagian ditebak sendiri dengan tingkat latarnya sendiri, sehingga rekaman yang kondisinya berubah di tengah jalan terpotong sebaik di akhir seperti di awal. Begitu juga untuk bagian panjang di posisi putar. Satu Urungkan tetap mengembalikan seluruh tebakan.'
     ,'panel.rel.fix.glossJoinGate': 'Tab Glos: tombol gabung \ud83d\udd17 di antara dua baris kini hilang kalau peneliti mematikan gabung dan potong untuk tab itu, seperti \u2702 yang sudah begitu. Perubahan yang dikirim saat tab sedang terbuka juga dipatuhi.'
@@ -4965,9 +4958,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.hintNoJoinKeyDrag': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \ud83d\udd17 di antara dua baris menggabungkan keduanya. \u2728 menebak baris dari jeda-jeda dalam rekaman \u2014 semuanya sekaligus, atau, kalau Anda sudah memotong sendiri, hanya bagian tempat posisi putar berada. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul. Seret pegangan di salah satu ujung gelombang sebuah baris untuk memindahkan batas; batas tidak pernah bisa melewati tetangganya, dan pemutar di atas memperbesar tempat itu selama Anda menyeret.',
   'cut.cut': 'Potong di sini',
   'cut.arm': 'Potong baris ini \u2014 ketuk lagi untuk menyembunyikan gunting',
-  'cut.lineChk': 'Baris',
-  'cut.lineChkTip': 'Dicentang: bagian ini adalah baris teks. Tidak dicentang: tidak ada baris di sini \u2014 audio tanpa kata. Bagian itu hilang dari tab Ketik dan Gloss serta dari ekspor FLExText dan ELAN, tetapi tetap di sini supaya bisa dicentang lagi. Menggabungkan baris di kedua sisinya tetap membawa audionya.',
-  'cut.lineChkLocked': 'Bagian yang ada katanya selalu merupakan baris.',
   'split.here': 'Bagi di sini',
   'split.cancel': 'Batalkan pembagian',
   'split.no.glossed': 'Baris ini sudah punya glos atau terjemahan, jadi tidak bisa dibagi atau digabung di sini.',

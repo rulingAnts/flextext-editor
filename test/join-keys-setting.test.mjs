@@ -60,7 +60,7 @@ console.log('\nall FOUR join sites are gated');
    * "rule enforced in one place the other path reaches around" drift the backlog warns about. */
   ok(/e\.key === 'Delete'[\s\S]{0,260}?deps\.joinKeys/.test(strips),
      'Delete-at-end-of-line specifically, not just Backspace');
-  ok(/if \(!joinKeysEnabled\(\)\) return;[^\n]*\n\s*e\.preventDefault\(\);\s*\n\s*glossJoinWithPrevious/.test(app),
+  ok(/if \(!joinKeysEnabled\(\)\) return;[^\n]*\n\s*e\.preventDefault\(\);\s*\n\s*glossJoinLines/.test(app),
      'the first-gloss Backspace checks it');
   // v353 inserted the joinSplitAllowed('gloss') master gate ahead of it; assert the key gate is
   // still IN the condition rather than pinning the exact neighbours.
@@ -84,10 +84,10 @@ console.log('\nthe join BUTTONS are untouched — they are the route this assume
 {
   /* The setting removes a shortcut, never the capability. If the buttons were gated too, the
    * researcher would be disabling joining altogether, which is not what was asked for. */
-  const btn = strips.slice(strips.indexOf('exactly what Backspace calls (mergeRange)') - 400,
-                           strips.indexOf('exactly what Backspace calls (mergeRange)') + 900);
+  const btn = strips.slice(strips.indexOf('exactly what Backspace calls (mergeAt)') - 400,
+                           strips.indexOf('exactly what Backspace calls (mergeAt)') + 900);
   ok(!/joinKeys/.test(btn), 'the join button path never consults the setting');
-  ok(/mergeRange\(/.test(btn), '...and still calls the same mergeRange, so joining is fully available (through any gaps, #97)');
+  ok(/mergeAt\(/.test(btn), '...and still calls the same mergeAt, so joining is fully available');
 }
 
 console.log('\nthe strips read it LIVE, not as a snapshot');

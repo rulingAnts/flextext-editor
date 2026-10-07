@@ -26,8 +26,8 @@ test('the join row is created only where joining is allowed, like the ✂ in the
   assert.ok(dec, 'decorateGlossSegments exists');
   assert.match(dec, /if \(splitLinesAllowed\('gloss'\)\) \{\s*\n\s*const arm = document\.createElement\('button'\);/, 'the gutter ✂ is gated by the split permission (the existing half)');
   assert.match(dec, /const joinAllowed = joinLinesAllowed\('gloss'\);/, 'the join permission is read for the join row…');
-  assert.match(dec, /if \(joinAllowed && nextLineIndex\(segs, i\) >= 0 && [^\n]*\) \{[^\n]*\n\s*const joinRow = document\.createElement\('div'\);/,
-               '…and the row is built only when it says yes (and only when there is a next LINE to join, #97)');
+  assert.match(dec, /if \(joinAllowed && i < groups\.length - 1 && [^\n]*\) \{\s*\n\s*const joinRow = document\.createElement\('div'\);/,
+               '…and the row is built only when it says yes');
   // The row's creation must sit AFTER the gate is read, and nothing else may build a gseg-joinrow.
   assert.equal((dec.match(/className = 'gseg-joinrow'/g) || []).length, 1, 'exactly one place mints a join row');
   assert.ok(dec.indexOf('const joinAllowed') < dec.indexOf("className = 'gseg-joinrow'"), 'gate before build');

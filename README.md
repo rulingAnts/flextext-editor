@@ -290,12 +290,6 @@ consent" tab is dropped rather than shown empty.
 - **Repeat** sits on the top player: on, a line's ▶ plays that line again and again until you
   pause it, and the top ▶ repeats the whole recording; off, a line stops at its end as before. The
   device setting *Start with Repeat on* only chooses what it starts as when a text opens.
-- **A Line tick on every piece without words** (Cut tab, v708, #97). Unticked means *no line here*:
-  audio with no words — silence, noise, an aside — that stays on the Cut tab, dimmed, so it can be
-  ticked again, but leaves the Baseline and Gloss tabs (a slim placeholder marks its slot) and the
-  FLExText and ELAN exports, the way ELAN leaves a stretch unannotated. Joining the lines either
-  side of a gap keeps its audio. A file saved with gaps opens again with them in place, and so does
-  an ELAN file with unannotated stretches.
 - **✨ Guess the lines** also sits on the top player, far right, while the Cut tab is open. On a
   recording nobody has cut yet it cuts the whole recording at its pauses, whatever its length: a
   long recording is first divided at real pauses into stretches of about ten minutes and each is

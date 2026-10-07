@@ -34,30 +34,6 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v708 — assembled 2026-10-08 on branch `gap-lines` (gaps: the Line tick on the Cut tab, #97) — NOT merged, NOT on staging yet
-
-Seth, 2026-10-07: "the ability to uncheck audio segments in the cut tab and then have them not included in the other two tabs as
-things the user can edit … they don't get included in FLExText or ELAN exports … Joins with unchecked segments between would of
-course include the silent audio." `BUILD_TAG = 'gaps v1'`. What it carries:
-- **`seg.gap`** — "no line here" — on a cut piece without words. The piece keeps its cut and its slot (1:1 untouched); the
-  Cut tab shows a *Line* tick on every piece (locked ticked when the piece has words; `cutSetGap`, one undo step); the
-  Baseline and Gloss tabs show a slim dotted placeholder (`.seg-gap`, `renderGapSegment`) with no ▶, ✂, box or wave.
-- **Joins go THROUGH gaps** and keep the silence: `joinRun(segments, paragraphs, a, b)` (segments.js) joins line a with
-  line b and everything between; the strips' `mergeRange` (the 🔗, Backspace, Delete) and the Gloss `glossJoinLines` /
-  `glossJoinWithPrevious` use `nextLineIndex` / `prevLineIndex` to find the other LINE. `mergeAt` is gone.
-- **Exports:** `serializeFlextext` writes no `<phrase>` for a gap (and no paragraph when nothing is left in it);
-  `phraseRows` marks gaps so `serializeEaf` (both profiles) writes no annotation over them — consecutive slots do not
-  meet, as ELAN does — and the listening page draws no row; `buildFxpa` keeps the line with `gap: true`.
-- **Round trip:** `fillHoles` (segments.js), run from `reconcile` on every strips/Cut render, turns a hole between
-  aligned spans, before the first, or after a texted last line (past the 1 s tail tolerance) into a gap row — so our own
-  file comes back with its gaps, and an ELAN file with unannotated stretches arrives the same way.
-- ⚠ **Three DOM-order lookups became model-index lookups** because a gap row has no text box: `commitTexts` (was dropping
-  a paragraph per gap on every keystroke — found in the browser, not by the suite), `focusStrip`, `focusStripAfter`,
-  `splitLineAt`'s box, and the editor's Baseline box lookup; the strips ticker skips gap rows; the Gloss walk steps past
-  them. test/gap-lines.test.mjs measures the model, every exporter and the round trip, and pins the tabs. Verified in
-  Chromium: untick → placeholder on both tabs → 🔗 joins through the gap with both texts and the silence inside → one
-  Ctrl+Z → tick back.
-
 ## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); production = 6d86abd6 (main = productionWeb = staging); sites-only release, no worker change
 
 Deploy run 37636842031: all seven apps green (editor, researcher, recorder, crowd, PAT, consent, segmenter), each log

@@ -338,19 +338,6 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 /* An EMPTY strip is a real segment whose text just happens to be empty — how silence is marked
    (Enter, let it play through the pause, Enter again). Visually quieter, never hidden. */
 .seg-strip.seg-empty .seg-wave { opacity: .55; }
-/* GAPS (#97) — "no line here". A slim dotted placeholder in the line's slot on the Baseline and Gloss
-   tabs (nothing to press, nothing to type: the script reads on past it); on the Cut tab the piece
-   stays in full, dimmed, with its Line tick unticked. */
-.seg-strip.seg-gap { grid-template-columns: 1fr; grid-template-rows: auto; padding: 3px 12px;
-                     background: var(--panel, #f4f6fa); border-style: dotted; }
-.seg-gaplabel, .segment.seg-gap .gap-label { color: var(--muted); font-style: italic; font-size: 12px; }
-.segment.seg-gap { padding: 3px 12px; background: var(--panel, #f4f6fa); border: 1px dotted var(--border); border-radius: 8px; }
-.cut-row.cut-gap { background: var(--panel, #f4f6fa); border-style: dotted; }
-.cut-row.cut-gap .seg-wave { opacity: .35; }
-.cut-linechk { grid-column: 2; display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
-               color: var(--muted); padding-top: 2px; cursor: pointer; user-select: none; -webkit-user-select: none; }
-.cut-linechk input { margin: 0; }
-.cut-linechk input:disabled + * , .cut-row.cut-locked .cut-linechk { cursor: default; opacity: .7; }
 .seg-text:focus { outline: 2px solid var(--blue); border-radius: 4px; }
 /* ⚠ THE GHOST TEXT IN AN EMPTY LINE (#91, Brian Plimley, 2026-10-02: the baseline box "is invisible
    until you click on it and type in it"). Set in segment-strips.js renderStrips; styled here so it

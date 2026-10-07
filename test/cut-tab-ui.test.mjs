@@ -267,7 +267,7 @@ ok(!!splitAt && /stripsPlace\(i, 'text', input\.selectionStart/.test(fn(strips, 
    'both Enters go through ONE function, so the time can never break differently for the two');
 ok(/caret == null \? text\.length/.test(splitAt),
    '…and "no caret" means the END of the line — the words all stay put, the new line starts empty');
-ok(/const input = deps\.container\.querySelector\(`\.seg-strip\[data-i="\$\{i\}"\] \.seg-text`\)/.test(splitAt),
+ok(/const input = deps\.container\.querySelectorAll\('\.seg-text'\)\[i\]/.test(splitAt),
    'the words come from the BOX, not the model, so keystrokes not yet committed are not dropped');
 ok(/const ms = deps\.getPlayer\(\)\?\.playheadMs\?\.\(\);\s*\n\s*const i = segmentIndexAt\(docSegments\(doc\), ms\);/.test(atPlayhead) && /if \(i < 0\) return false/.test(atPlayhead),
    'it acts on the line the PLAYHEAD is in, and refuses when the playhead is in none of them');

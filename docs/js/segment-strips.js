@@ -22,7 +22,8 @@
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
-         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed } from './segments.js';
+         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed,
+         isGap, nextLineIndex, prevLineIndex, joinRun, fillHoles } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 import { tidyField } from './typing.js';
 
@@ -913,7 +914,7 @@ function coverTail(segments, paras, durationMs) {
 }
 
 function reconcile(doc, d = deps) {
-  const paras = d.getParagraphs(doc);
+  let paras = d.getParagraphs(doc);
   const segs = docSegments(doc);
   // SEED: a doc entering segmentation for the first time gets ONE segment spanning the whole
   // recording — that is the truthful starting state (nothing has been divided yet), and it is what
@@ -948,6 +949,17 @@ function reconcile(doc, d = deps) {
     repaired = true;
   }
   doc.segments = syncToLines(docSegments(doc), paras.length, { duration: known || null });
+  /* HOLES BECOME GAPS (#97). A file written without its gaps (ours — a gap writes no phrase) or with
+   * unannotated stretches (ELAN's) opens with audio that no row reaches. fillHoles gives each hole a
+   * gap row — an empty paragraph beside a segment flagged `gap` — so the Cut tab shows it, a tick can
+   * make it a line again, and the round trip keeps the cut. Both halves of the model move together,
+   * through the host's setParagraphs, exactly as a cut does. */
+  const holes = fillHoles(doc.segments, paras, { duration: known || null });
+  if (holes.added) {
+    doc.segments = holes.segments;
+    if (d.setParagraphs) { d.setParagraphs(doc, holes.paragraphs); paras = d.getParagraphs(doc); }
+    repaired = true;
+  }
   // …and whatever produced them, they must reach the end of the recording. See coverTail.
   if (coverTail(doc.segments, paras, known)) repaired = true;
   // Persist a seed/heal right away: without this the repair lived only in memory until the next
@@ -990,6 +1002,21 @@ export function renderStrips() {
 
   paras.forEach((text, i) => {
     const seg = segs[i] || { timePending: true };
+    /* A GAP IS NOT A LINE (#97): a slim placeholder in its slot — no ▶, no ✂, no text box, no grips,
+     * no 🔗 — so the tab reads like a script of what was said. The slot stays (segments[i] is still
+     * paragraph i); the Cut tab is where it is ticked back into a line. A piece that somehow carries
+     * text is shown as the line it is, whatever the flag says. */
+    if (isGap(seg) && !text.trim()) {
+      const row = document.createElement('div');
+      row.className = 'seg-strip seg-gap';
+      row.dataset.i = i;
+      const lbl = document.createElement('div');
+      lbl.className = 'seg-gaplabel';
+      lbl.textContent = deps.t('seg.gap', { dur: gapSeconds(seg) });
+      row.appendChild(lbl);
+      host.appendChild(row);
+      return;
+    }
     const row = document.createElement('div');
     row.className = 'seg-strip' + (isAligned(seg) ? '' : ' seg-pending') + (text.trim() ? '' : ' seg-empty')
       + (seg.timeEstimated ? ' seg-est' : '') + (deps.hasGloss && deps.hasGloss(i) ? ' seg-locked' : '');
@@ -1133,8 +1160,10 @@ export function renderStrips() {
      * had a join button — the ⇥ set-boundary control was being read as one ("join joins the lines
      * incorrectly" was ⇥ moving a boundary). Same control, same glyph, same semantics as the gloss
      * tab's, in its own row OUTSIDE both strips so a missed tap hits nothing destructive; it calls
-     * exactly what Backspace calls (mergeAt), so button and key can never disagree. */
-    if (i < paras.length - 1 && joinOk() && !stripsLocked(i) && !stripsLocked(i + 1)) {
+     * exactly what Backspace calls (mergeRange), so button and key can never disagree. */
+    // …and it joins with the next LINE, through any gaps between (#97): the silence comes along.
+    const next = nextLineIndex(segs, i);
+    if (next >= 0 && next < paras.length && joinOk() && !stripsLocked(i) && !stripsLocked(next)) {
       const joinRow = document.createElement('div');
       joinRow.className = 'seg-joinrow';
       const join = document.createElement('button');
@@ -1143,7 +1172,7 @@ export function renderStrips() {
       join.textContent = '🔗';   // the chain link, as between two words (Seth, 2026-09-06: "For consistency")
       join.setAttribute('aria-label', deps.t('seg.joinTip'));
       join.title = deps.t('seg.joinTip');
-      join.addEventListener('click', () => mergeAt(i, i + 1));
+      join.addEventListener('click', () => mergeRange(i, next));
       joinRow.appendChild(join);
       host.appendChild(joinRow);
     }
@@ -1267,7 +1296,7 @@ function splitOk() { return !(deps.splitLines && !deps.splitLines()); }
 function splitLineAt(i, caret, focusNext, audioMs = null) {
   const doc = deps.getDoc();
   if (!doc) return false;
-  const input = deps.container.querySelectorAll('.seg-text')[i];
+  const input = deps.container.querySelector(`.seg-strip[data-i="${i}"] .seg-text`);   // by model index: gap rows have no box (#97)
   const text = input ? input.value : String(deps.getParagraphs(doc)[i] ?? '');
   const c = caret == null ? text.length : Math.max(0, Math.min(text.length, caret));
   const paras = deps.getParagraphs(doc).slice();
@@ -1400,8 +1429,11 @@ function stripsCaretWant(input, i) {
 }
 
 function focusStripAfter(i) {
-  const boxes = [...document.querySelectorAll('.seg-strip .seg-text')];
-  const next = boxes[i + 1];
+  // The next LINE's box by MODEL index, not the next box in the list: a gap row has no box (#97), so
+  // "box i + 1" would be a line further down than the one after this.
+  const rows = [...document.querySelectorAll('.seg-strip[data-i]')];
+  const after = rows.find((r) => Number(r.dataset.i) > i && r.querySelector('.seg-text'));
+  const next = after && after.querySelector('.seg-text');
   if (!next) return;
   next.focus();
   try { next.setSelectionRange(next.value.length, next.value.length); } catch { /* not a text input */ }
@@ -1457,45 +1489,54 @@ function onKey(e, i, input) {
     if (!joinOk()) return;
     if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
-    mergeAt(i - 1, i);
+    const segs = docSegments(doc);
+    mergeRange(prevLineIndex(segs, i), i);   // with the previous LINE, through any gaps (#97)
   } else if (e.key === 'Delete' && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
-             && i < deps.getParagraphs(doc).length - 1) {
+             && nextLineIndex(docSegments(doc), i) >= 0) {
     if (!joinOk()) return;
     if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
-    mergeAt(i, i + 1, /* caretAtJoin */ true);
+    mergeRange(i, nextLineIndex(docSegments(doc), i), /* caretAtJoin */ true);
   }
 }
 
-function mergeAt(a, b, caretAtJoin) {
+// "2.3" — the seconds a gap lasts, for its placeholder label.
+function gapSeconds(seg) { return isAligned(seg) ? ((seg.end - seg.start) / 1000).toFixed(1) : '?'; }
+
+/* Join line a with line b and every gap between them (#97) — one edit, through the model's joinRun,
+ * so the button, Backspace and Delete can never disagree about what a join across silence means. */
+function mergeRange(a, b, caretAtJoin) {
   const doc = deps.getDoc();
+  if (!(a >= 0 && b > a)) return;
   if (stripsLocked(a) || stripsLocked(b)) { stripsRefuse(); return; }   // rule A covers joins too
   splitCancel();
   const paras = deps.getParagraphs(doc).slice();
-  // ⚠ Joined lines get a SPACE between them (Seth): without it "…akhir" + "Mulai…" mashes into one
-  // orthographic word — data corruption from the transcriber's point of view. The caret lands
-  // AFTER the glue space, so a second Backspace removes the space when mashing genuinely is the
-  // intent. No glue when either side is empty (silence strips) or a boundary space already exists.
-  const left = paras[a] ?? '', right = paras[b] ?? '';
-  const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
-  const joinPos = left.length + glue.length;
-  paras.splice(a, 2, left + glue + right);
-  doc.segments = mergeSegments(docSegments(doc), a, { duration: peaksCache.durationMs || null });
-  deps.setParagraphs(doc, paras);
+  const r = joinRun(docSegments(doc), paras, a, b, { duration: peaksCache.durationMs || null });
+  if (!r.ok) return;
+  doc.segments = r.segments;
+  deps.setParagraphs(doc, r.paragraphs);
   deps.persist();
   renderStrips();
-  focusStrip(a, caretAtJoin ? joinPos : joinPos);
+  focusStrip(a, r.joinPos);
 }
 
 function commitTexts() {
   const doc = deps.getDoc();
-  const inputs = deps.container.querySelectorAll('.seg-text');
-  deps.setParagraphs(doc, [...inputs].map((el) => el.value));
+  /* ⚠ BY THE ROW'S MODEL INDEX, NOT BY THE BOXES' ORDER (#97). A gap row has no box, so a list built
+   * from the boxes alone is one paragraph short per gap — and syncToLines would then quietly merge a
+   * segment to match, on every keystroke. The gap's empty paragraph stays exactly where it is. */
+  const paras = deps.getParagraphs(doc).slice();
+  deps.container.querySelectorAll('.seg-strip[data-i] .seg-text').forEach((el) => {
+    const i = Number(el.closest('.seg-strip').dataset.i);
+    if (Number.isInteger(i) && i >= 0 && i < paras.length) paras[i] = el.value;
+  });
+  deps.setParagraphs(doc, paras);
   deps.persist();
 }
 
 function focusStrip(i, caret) {
-  const el = deps.container.querySelectorAll('.seg-text')[i];
+  // By the row's model index (data-i), not by position among the boxes — gap rows have none (#97).
+  const el = deps.container.querySelector(`.seg-strip[data-i="${i}"] .seg-text`) || deps.container.querySelectorAll('.seg-text')[i];
   if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch { /* noop */ } }
 }
 
@@ -1534,9 +1575,16 @@ function positionCursor() {
     }
     deps.container.querySelectorAll('.seg-strip').forEach((row, i) => {
       const seg = docSegments(doc)[i];
-      fixStaleWave(row.querySelector('.seg-wave'));
       let cur = row.querySelector('.seg-cursor');
       const inSeg = seg && isAligned(seg) && typeof t === 'number' && t >= seg.start && t < seg.end;
+      /* A GAP placeholder (#97) has no wave, ▶ or ✂ to drive: it only lights up while the playhead
+       * passes through it, so the eye can follow the recording across the silence. */
+      if (row.classList.contains('seg-gap')) {
+        if (row.classList.contains('seg-on') !== !!inSeg) row.classList.toggle('seg-on', !!inSeg);
+        if (inSeg) { takeReveal(row); followRow = followLine(row, !!(p?.playing?.()), followRow, p); }
+        return;
+      }
+      fixStaleWave(row.querySelector('.seg-wave'));
       const btn = row.querySelector('.seg-play');
       if (btn && seg && isAligned(seg)) {
         const rolling = p?.playing?.() && inSeg;
@@ -2097,6 +2145,23 @@ export function renderCut(anchorIdx) {
       cap.textContent = text;
       row.appendChild(cap);
     }
+    /* THE LINE TICK (#97; Seth, 2026-10-07): ticked, this piece is a line of the text; unticked, "no
+     * line here" — audio with no words, which leaves the Baseline and Gloss tabs and the exports but
+     * stays on this tab, dimmed, so it can be ticked again. A piece with words is always a line, so
+     * its tick is locked. The control is its own label, not a row press and not a play target. */
+    const chkWrap = document.createElement('label');
+    chkWrap.className = 'cut-linechk';
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.tabIndex = -1;                 // the row holds focus on this tab — see row.tabIndex above
+    chk.checked = !isGap(seg) || !!text;
+    chk.disabled = !!text;
+    chkWrap.title = cutDeps.t(text ? 'cut.lineChkLocked' : 'cut.lineChkTip');
+    chkWrap.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    chk.addEventListener('change', () => cutSetGap(i, !chk.checked));
+    chkWrap.append(chk, document.createTextNode(' ' + cutDeps.t('cut.lineChk')));
+    row.appendChild(chkWrap);
+    if (isGap(seg) && !text) row.classList.add('cut-gap');
     host.appendChild(row);
     attachEdgeHandles(row, wave, i, cutEdgeCtx(segs));   // the grips (adjustBoundaries) — see the block above stopCut
 
@@ -2547,6 +2612,24 @@ function cutGuessPiece(idx) {
   cutDeps.setParagraphs(doc, r.paragraphs);
   cutDeps.persist();
   cutSay(cutDeps.t('cut.guessPieceDone', { n: r.added + 1 }));
+  renderCut(i);
+}
+
+/* THE LINE TICK'S WRITE (#97): flag piece i as a gap, or make it a line again. Only the flag moves —
+ * the cut, the slot and the empty paragraph stay — so one Undo puts it back and nothing else can be
+ * disturbed. Refused for a piece with words: that is a line whatever the tick says. */
+function cutSetGap(i, gap) {
+  const doc = cutDeps && cutDeps.getDoc();
+  if (!doc) return;
+  const segs = cutSegs();
+  if (!segs[i] || String(cutDeps.getParagraphs(doc)[i] || '').trim()) return;
+  if (cutDeps.capture) cutDeps.capture();   // one undo step
+  const next = segs.map((s) => ({ ...s }));
+  if (gap) next[i] = { ...segs[i], gap: true };
+  else { const { gap: _g, ...rest } = segs[i]; next[i] = rest; }
+  doc.segments = next;
+  cutDeps.persist();
+  cutSay('');
   renderCut(i);
 }
 

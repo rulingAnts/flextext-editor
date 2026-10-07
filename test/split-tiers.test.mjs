@@ -51,7 +51,7 @@ test('the pending-split engine: one at a time, toggle off, and every cancel with
 });
 
 test('Baseline tab: the box places the text tier, the playhead the audio tier; rule A locks and joins', () => {
-  const onKey = STRIPS.slice(STRIPS.indexOf('function onKey(e, i, input)'), STRIPS.indexOf('function mergeAt('));
+  const onKey = STRIPS.slice(STRIPS.indexOf('function onKey(e, i, input)'), STRIPS.indexOf('function mergeRange('));
   assert.match(onKey, /stripsPlace\(i, 'text', input\.selectionStart \?\? input\.value\.length\);/);
   const atPlayhead = STRIPS.slice(STRIPS.indexOf('export function stripSplitAtPlayhead()'), STRIPS.indexOf('function stripsInfo(i)'));
   assert.match(atPlayhead, /return stripsPlace\(i, 'audio', ms\) !== 'ignored';/);
@@ -61,10 +61,10 @@ test('Baseline tab: the box places the text tier, the playhead the audio tier; r
   assert.match(STRIPS, /doc\.segments = boundaryAtPlayhead\(docSegments\(doc\), i, audioMs,/, 'the placed audio position, never the live playhead');
   const place = STRIPS.slice(STRIPS.indexOf('function stripsPlace(i, tier, value)'), STRIPS.indexOf('function renderStripsPending(p)'));
   assert.match(place, /if \(stripsLocked\(i\)\) \{ stripsRefuse\(\); return 'refused'; \}/, 'rule A on a split');
-  const merge = STRIPS.slice(STRIPS.indexOf('function mergeAt(a, b, caretAtJoin)'), STRIPS.indexOf('function commitTexts()'));
+  const merge = STRIPS.slice(STRIPS.indexOf('function mergeRange(a, b, caretAtJoin)'), STRIPS.indexOf('function commitTexts()'));
   assert.match(merge, /if \(stripsLocked\(a\) \|\| stripsLocked\(b\)\) \{ stripsRefuse\(\); return; \}/, 'rule A on a join');
   assert.match(STRIPS, /\+ \(deps\.hasGloss && deps\.hasGloss\(i\) \? ' seg-locked' : ''\);/, 'a locked line is drawn locked');
-  assert.match(STRIPS, /joinOk\(\) && !stripsLocked\(i\) && !stripsLocked\(i \+ 1\)\) \{/, 'no join button beside a locked line');
+  assert.match(STRIPS, /joinOk\(\) && !stripsLocked\(i\) && !stripsLocked\(next\)\) \{/, 'no join button beside a locked line');
   assert.match(STRIPS, /function stripsLocked\(i\) \{ return !splitAllowed\('baseline', stripsInfo\(i\)\); \}/);
   assert.match(STRIPS, /sc\.addEventListener\('click', \(ev\) => \{ ev\.stopPropagation\(\); stripSplitAtPlayhead\(\); \}\);/, 'a ✂ under the playhead on this tab too');
   assert.match(APP, /hasGloss: \(i\) => lineHasAnalysis\(current && current\.doc, i\),/);

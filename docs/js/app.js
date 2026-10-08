@@ -32,7 +32,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine, fillGapLines } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1318,7 +1318,45 @@ function healFlatSegments(doc) {
   if (!segmentationEnabled()) return;
   // Everything this used to do inline is now the pure function below; only the persist is left,
   // because only THIS caller knows the doc it healed is the open one.
-  if (normalizePhraseLines(doc)) schedulePersist();
+  const flattened = normalizePhraseLines(doc);
+  // …then the pauses between timed lines become blank lines (v710) — see healGapLines. AFTER the
+  // flattening, because only then is doc.segments one span per line to look for holes between.
+  const filled = healGapLines(doc);
+  if (flattened || filled) schedulePersist();
+}
+
+/* THE PAUSES BETWEEN TIMED LINES, AS BLANK LINES (v710; Seth, 2026-10-09: "gaps in duration between
+ * paragraphs, phrases, etc, should re-generate empty lines/audio segments in flextext editor so that
+ * they can be changed"). fillGapLines (segments.js) says where; this is the paragraph it inserts: a
+ * fresh guid and one empty phrase — the same blank line a transcriber makes by cutting — which
+ * isSilentPhrase keeps out of every export until someone types into it.
+ *
+ * Called from healFlatSegments, i.e. on entering the Cut, Baseline and Gloss tabs and on opening a
+ * text in the Audio Segmenter — so texts imported before this fix are healed the first time they are
+ * opened, and the classic (non-segmentation) editor never sees a blank line it did not ask for.
+ *
+ * ⚠ paraOf IS INHERITED ONLY FROM BETWEEN TWO LINES OF THE SAME ORIGINAL PARAGRAPH. serializeFlextext
+ * writes consecutive lines that share a paraOf as one <paragraph> and falls back to flat for the
+ * WHOLE document the moment one paraOf appears in two runs — so an untagged blank line between two
+ * phrases of one paragraph would quietly cost the text its paragraph structure on export. Between two
+ * paragraphs (or at either end) the blank line is its own paragraph. */
+function blankGapLine(prev, next) {
+  const paraOf = prev && next && prev.paraOf != null && prev.paraOf === next.paraOf ? prev.paraOf : null;
+  return { guid: newGuid(), segments: [makeSegment('', [])], ...(paraOf != null ? { paraOf } : {}) };
+}
+function healGapLines(doc) {
+  if (!doc || !Array.isArray(doc.paragraphs)) return false;
+  const r = fillGapLines(doc.paragraphs, docSegments(doc), blankGapLine);
+  if (!r.changed) return false;
+  doc.paragraphs = r.paragraphs;
+  doc.segments = r.segments;
+  return true;
+}
+// The tail's blank line — reconcile (segment-strips) asks for it once it knows the recording's length.
+function appendBlankLine(doc) {
+  if (!doc || !Array.isArray(doc.paragraphs)) return false;
+  doc.paragraphs.push(blankGapLine(null, null));
+  return true;
 }
 
 /* ⚠ THE SAME REPAIR, AS A PURE FUNCTION ON ANY DOC — no `current`, no persist, no settings gate.
@@ -2225,6 +2263,8 @@ function switchTab(tab, landing) {
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
       allowAdjust: () => adjustBoundariesAllowed(),
+      // The tail after the last line becomes a blank line of its own (v710) — see reconcile.
+      appendBlankLine: (doc) => appendBlankLine(doc),
       // Whether "split it on the Baseline tab instead" is advice this device can follow (#92): the
       // tab must be shown AND allowed to split. The refusal message drops the sentence otherwise.
       splitOnBaseline: () => baselineTabEnabled() && splitLinesAllowed('baseline'),
@@ -2267,6 +2307,8 @@ function switchTab(tab, landing) {
         splitOnGloss: () => glossTabEnabled() && splitLinesAllowed('gloss'),
         singleSpace: () => singleSpaceEnabled(),
         allowAdjust: () => adjustBoundariesAllowed(),
+        // The tail after the last line becomes a blank line of its own (v710) — see reconcile.
+        appendBlankLine: (doc) => appendBlankLine(doc),
         // Rule A (plans/split-tiers.md): a line with glosses or a translation is the Gloss tab's.
         hasGloss: (i) => lineHasAnalysis(current && current.doc, i),
         say: (msg) => toast(msg, 5000),

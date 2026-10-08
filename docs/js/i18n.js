@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v709';
+export const ENGINE_VERSION = 'v710';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v709';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'roundtrip v1';
 
 const S = {
 en: {
@@ -1299,6 +1299,7 @@ internet after the first time.</p>
   'panel.dl.audioUpload': 'Recording (uploaded)',
   'panel.dl.lastUploadSub': 'the last file this text uploaded',
   'panel.dl.all': 'Download all (ZIP)',
+  'panel.dl.olderFolder': 'older_versions',
   'panel.dl.allSub': 'the folder\u2019s {n} file(s) plus freshly built ELAN, SayMore, listening page and .fxpa',
   // Pre-manifest texts: the same control, but nothing is generated — say so rather than promising it.
   'panel.dl.allSubRaw': 'every file in this text\u2019s Drive folder \u2014 {n} file(s)',
@@ -1637,6 +1638,8 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.gapLines': 'Editor and Audio Segmenter: a text whose timed lines leave pauses between them \u2014 a file exported since v709, or a FLEx or ELAN text with stretches left unannotated \u2014 now opens with a blank line in each pause of a third of a second or more, and before the first line and after the last, so every part of the recording has a line you can play, cut or type into. A blank line still reaches FLEx and ELAN only once something is typed into it.'
+    ,'panel.rel.fix.zipLatest': 'Researcher panel, Files\u2026 \u25b8 Download all (ZIP): the current .flextext is at the top of the ZIP under the text\u2019s own name, beside the ELAN and SayMore files made from it; older timestamped copies are inside an \u201colder_versions\u201d folder (no space in the name, so lameta can take it).'
     ,'panel.rel.new.silentExports': 'Exports: a line with no words, no text and no translation \u2014 a pause, noise, an aside left empty \u2014 is no longer written to the FLExText or to the ELAN and SayMore files. FLEx gets no empty line and ELAN no empty annotation: the stretch is simply unannotated, as ELAN itself leaves a pause. Nothing changes in the editor, where such a line stays a real timed span; a line that carries a translation or a note imported from FLEx is always written.'
     ,'panel.rel.new.joinSplitSeparate': 'Device settings: joining and splitting lines are now two separate permissions on each of the Baseline and Gloss tabs \u2014 four switches instead of two \u2014 in the researcher panel\u2019s device settings and project defaults and in the editor\u2019s own Settings tab. A device that has not been updated still follows the old combined switch, which the panel keeps writing as \u201cboth allowed\u201d only when both are. The Cut tab always joins and splits.'
     ,'panel.rel.new.guessLong': 'Editor, Cut tab, and the Audio Segmenter: \u2728 now guesses the lines of a recording of ANY length \u2014 the ten-minute limit is gone. A long recording is first divided at real pauses into stretches of about ten minutes, and each stretch is guessed on its own, with its own background level, so a recording whose conditions change half way through is cut as well at the end as at the start. The same goes for a long piece under the playhead. One Undo still puts the whole guess back.'
@@ -4007,6 +4010,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.audioUpload': 'Rekaman (terunggah)',
   'panel.dl.lastUploadSub': 'berkas terakhir yang diunggah teks ini',
   'panel.dl.all': 'Unduh semua (ZIP)',
+  'panel.dl.olderFolder': 'versi_lama',
   'panel.dl.allSub': '{n} berkas di folder ditambah ELAN, SayMore, halaman dengar, dan .fxpa yang baru dibuat',
   'panel.dl.allSubRaw': 'semua berkas di folder Drive teks ini \u2014 {n} berkas',
   'panel.dl.zipBuilding': 'Membuat ZIP\u2026',
@@ -4279,6 +4283,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.gapLines': 'Editor dan Pemotong Audio: teks yang baris-baris berwaktunya menyisakan jeda di antaranya \u2014 berkas yang diekspor sejak v709, atau teks FLEx atau ELAN dengan bagian yang tidak dianotasi \u2014 kini dibuka dengan baris kosong di setiap jeda sepertiga detik atau lebih, serta sebelum baris pertama dan sesudah baris terakhir, sehingga setiap bagian rekaman punya baris yang bisa diputar, dipotong, atau diketik. Baris kosong tetap baru masuk ke FLEx dan ELAN setelah ada yang diketik di dalamnya.'
+    ,'panel.rel.fix.zipLatest': 'Panel Peneliti, Berkas\u2026 \u25b8 Unduh semua (ZIP): .flextext yang terbaru ada di bagian atas ZIP dengan nama teksnya sendiri, di samping berkas ELAN dan SayMore yang dibuat darinya; salinan lama yang bertanda waktu ada di dalam folder \u201cversi_lama\u201d (tanpa spasi pada namanya, agar bisa dipakai lameta).'
     ,'panel.rel.new.silentExports': 'Ekspor: baris tanpa kata, tanpa teks, dan tanpa terjemahan \u2014 jeda, derau, selingan yang dibiarkan kosong \u2014 tidak lagi ditulis ke FLExText maupun ke berkas ELAN dan SayMore. FLEx tidak menerima baris kosong dan ELAN tidak menerima anotasi kosong: rentang itu dibiarkan tanpa anotasi, seperti ELAN sendiri membiarkan jeda. Tidak ada yang berubah di editor, tempat baris seperti itu tetap rentang waktu yang nyata; baris yang membawa terjemahan atau catatan yang diimpor dari FLEx selalu ditulis.'
     ,'panel.rel.new.joinSplitSeparate': 'Pengaturan perangkat: menggabungkan dan memisahkan baris kini dua izin terpisah di masing-masing tab Ketik dan Gloss \u2014 empat sakelar, bukan dua \u2014 di pengaturan perangkat dan bawaan proyek pada panel peneliti maupun di tab Pengaturan editor sendiri. Perangkat yang belum diperbarui tetap mengikuti sakelar gabungan yang lama, yang terus ditulis panel sebagai \u201ckeduanya diizinkan\u201d hanya kalau keduanya memang diizinkan. Tab Potong selalu bisa menggabungkan dan memisahkan.'
     ,'panel.rel.new.guessLong': 'Editor, tab Potong, dan Pemotong Audio: \u2728 kini menebak baris untuk rekaman dengan panjang BERAPA PUN \u2014 batas sepuluh menit sudah dihapus. Rekaman yang panjang dibagi dulu pada jeda yang nyata menjadi bagian-bagian sekitar sepuluh menit, lalu setiap bagian ditebak sendiri dengan tingkat latarnya sendiri, sehingga rekaman yang kondisinya berubah di tengah jalan terpotong sebaik di akhir seperti di awal. Begitu juga untuk bagian panjang di posisi putar. Satu Urungkan tetap mengembalikan seluruh tebakan.'

@@ -560,3 +560,15 @@ These are the ones a tester can see.
       not a lock). Same in the researcher panel's per-device settings.
 - [ ] **Phone:** the dock's controls still fit two rows with Repeat and ✨; no sideways scroll.
 
+## v710 — the pauses come back as blank lines; the current .flextext on top of Download all (2026-10-09)
+
+- [ ] **Round trip:** on a text cut as line / pause / line / pause / line, export the .flextext (v709 leaves the pauses
+      out), import it again: Cut, Baseline and Gloss show five lines, the pauses as blank lines at their own times.
+- [ ] **A FLEx/ELAN text with unannotated pauses** opens with a blank line in each pause of a third of a second or more,
+      one before the first line if the recording starts later, and one after the last once the audio has loaded.
+- [ ] **Type into a blank line**, export: that line is now in the .flextext and the EAF; the untouched blank lines are not.
+- [ ] **A FLEx text with phrases grouped in paragraphs** keeps its paragraphs on export after the blank lines appear.
+- [ ] **The classic editor** (segmentation off) shows no blank lines.
+- [ ] **Panel ▸ Files… ▸ Download all (ZIP)** on a text with several device backups: the root holds `<title>.flextext`;
+      the timestamped copies are in `older_versions/` (`versi_lama/` in Indonesian) — no space in the folder name.
+

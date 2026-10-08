@@ -109,7 +109,7 @@ console.log('\nevery foreign .flextext is normalised where it ENTERS the library
 {
   ok(/function normalizePhraseLines\(doc\)/.test(app),
      'the repair is a pure function — no `current`, no persist, no settings gate');
-  ok(/if \(normalizePhraseLines\(doc\)\) schedulePersist\(\);/.test(fn(app, 'healFlatSegments')),
+  ok(/const flattened = normalizePhraseLines\(doc\);[\s\S]*const filled = healGapLines\(doc\);\n\s+if \(flattened \|\| filled\) schedulePersist\(\);/.test(fn(app, 'healFlatSegments')),
      'healFlatSegments keeps its behaviour by calling it — only IT knows the doc it healed is the open one');
   for (const [where, name] of [['importFile', 'the editor opening a .flextext'],
                                ['buildDocFromFlextextUrl', 'a researcher-assigned text'],

@@ -48,8 +48,13 @@ const STUBS = ['t', 'deps', 'db', 'Researcher', 'confirmModal', 'renderDashboard
   // v690: the manifest's schema-3 hashes are computed in runAssignUpload through this helper.
   'blobSha256'];
 
+/* v710: downloadAllZip names folder files through the real pickSourceFiles + zipEntryName (and the role
+ * constants they read), carried in the body like everything else it calls. */
+const FILE_RULES = PANEL.slice(PANEL.indexOf('const SOURCE_AUDIO_ROLES = '), PANEL.indexOf('\n', PANEL.indexOf('const isFlextextName = ')) + 1)
+  + fnSrc('function pickSourceFiles(files) {') + '\n' + fnSrc('function zipEntryName(f, current, base, olderFolder) {');
+
 function loadPanel(stubs) {
-  const body = `${TRAY}\n${AQ}\n${fnSrc('async function runAssignUpload(docId) {')}
+  const body = `${TRAY}\n${AQ}\n${FILE_RULES}\n${fnSrc('async function runAssignUpload(docId) {')}
     ${fnSrc('async function paintAssignQueue() {')}\n${fnSrc('async function downloadAllZip(btn) {')}
     return { jobs, jobStart, jobEnd, jobSet, jobPaused, jobDrop, aqActive, aqStop, aqJobs, aqPause,
              aqResume, aqCancelRunning, aqCancelCleanup, aqCancelPrompt, aqCancelIds,

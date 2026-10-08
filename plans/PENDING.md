@@ -34,7 +34,32 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v709 — assembled 2026-10-08 on branch `silent-exports` (silent lines leave the FLExText and EAF exports, #97) — on staging, NOT in main
+## ▶ v710 — assembled 2026-10-09 on branch `roundtrip-v710` (the pauses come back as blank lines; the current .flextext on top of Download all) — staging; production is v709
+
+`BUILD_TAG = 'roundtrip v1'`. Two of Seth's asks the same morning:
+- "On re-import, gaps in duration between paragraphs, phrases, etc, should re-generate empty lines/audio segments in
+  flextext editor so that they can be changed" — or "draw empty audio segments in the gaps and ADD flextext
+  paragraph/phrase lines whenever text … is typed in. Whichever is the easier and less risky." Built as the first, which
+  delivers the second: `gapLinesBetween` / `tailGapLine` / `fillGapLines` (segments.js, pure) plan a blank line for every
+  hole of ≥ 350 ms (GUESS_MIN_GAP_MS) between timed lines and before the first; `healGapLines` (app.js) inserts them into
+  paragraphs + segments together from `healFlatSegments`, i.e. on entering Cut/Baseline/Gloss and opening a text in the
+  Segmenter (so texts imported under v709 heal on next open; the classic editor is untouched); the tail after the last
+  line is a blank line too once the recording's length is known (`reconcile`, via the `appendBlankLine` dep, only where
+  `coverTail` may not stretch the last line). A blank line inside one original paragraph inherits its `paraOf` — without
+  that the serializer falls back to flat for the whole text. v709's `isSilentPhrase` keeps every blank line out of the
+  exports until someone types into it. test/gap-lines.test.mjs runs the round trip end to end.
+- "our export packages contain a long list of flextext files with timestamps … the most recent/authoritative one is in
+  the root while older ones go in a sub-folder" + "Let's not have a space in a folder name … incompatible with lameta."
+  `zipEntryName` (researcher-panel.js): in Files… ▸ Download all (ZIP) the current .flextext (pickSourceFiles — what every
+  conversion in the zip is built from) is `<base>.flextext` in the root; every other .flextext goes into `older_versions/`
+  (`versi_lama/` in Indonesian; whitespace forced to `_`). The Drive folder itself is still the pile (#102).
+
+## v709 — released 2026-10-09 (silent lines leave the FLExText and EAF exports, #97); production = bc25b076
+
+Seth, 2026-10-09: "You can push v709 first though. like deploy it." Released as tested on staging (`silent-exports v1`),
+BUILD_TAG cleared in bc25b076 (main = productionWeb = staging); deploy run 37853994428, all seven apps green, every
+endpoint v709 on two passes 45 s apart, the shipped flextext.js identical to the commit. Assembled 2026-10-08 on branch
+`silent-exports`:
 
 Seth, 2026-10-08: "Silent segments exported (or saved) as flextext and especially eaf should not be included in the
 export. That's all. Good enough. So not as empty lines in FLEx or empty annotations in ELAN/SayMore." `BUILD_TAG =

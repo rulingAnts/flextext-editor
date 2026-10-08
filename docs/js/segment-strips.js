@@ -22,7 +22,7 @@
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
-         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed } from './segments.js';
+         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed, tailGapLine } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 import { tidyField } from './typing.js';
 
@@ -950,6 +950,14 @@ function reconcile(doc, d = deps) {
   doc.segments = syncToLines(docSegments(doc), paras.length, { duration: known || null });
   // …and whatever produced them, they must reach the end of the recording. See coverTail.
   if (coverTail(doc.segments, paras, known)) repaired = true;
+  /* …and when the last line may NOT be stretched — it has words, or an imported alignment that stops
+   * early on purpose — the rest of the recording becomes a blank line of its own instead (v710):
+   * accounted for, and nothing anyone aligned is re-timed. The host adds the paragraph (it owns the
+   * paragraph's shape, see appendBlankLine in app.js); a host without the hook keeps the old rule. */
+  else if (d.appendBlankLine && doc.segments.length === paras.length) {
+    const tail = tailGapLine(doc.segments, known, { tolMs: COVER_TOL_MS });
+    if (tail && d.appendBlankLine(doc)) { doc.segments.push({ start: tail.start, end: tail.end }); repaired = true; }
+  }
   // Persist a seed/heal right away: without this the repair lived only in memory until the next
   // edit, so storage (and everything that syncs from it) kept the broken pending state.
   if (repaired && d.persist) d.persist();

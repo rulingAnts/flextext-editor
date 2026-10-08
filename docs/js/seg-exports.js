@@ -11,7 +11,7 @@
  * carries only real content — baseline text, words, word glosses, free translations, times.
  */
 
-import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn, isSilentPhrase } from './flextext.js';
+import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn, isSilentPhrase, stripSilentPhrasesXml } from './flextext.js';
 
 /* ---------------- shared helpers ---------------- */
 
@@ -1820,6 +1820,17 @@ export function durationVerdict({ spanEndMs = 0, durationMs = 0, tolerantMs = 15
   return spanEndMs > durationMs + tolerantMs ? 'short' : 'ok';
 }
 
+/* A picked .flextext without the empty timed lines a device older than v709 wrote; anything that cannot be
+ * read as text (or has nothing to remove) is returned as it came. */
+async function cleanFlextextBlob(blob) {
+  if (!blob || typeof blob.text !== 'function') return blob;
+  try {
+    const xml = await blob.text();
+    const clean = stripSilentPhrasesXml(xml);
+    return clean === xml ? blob : new Blob([clean], { type: blob.type || 'application/xml' });
+  } catch { return blob; }
+}
+
 /* Build ONE conversion, exactly as the Files ▾ menu builds its rows.
  *
  * @param kind        'elan' | 'saymore' | 'preview' | 'fxpa' | 'flextext'
@@ -1847,7 +1858,8 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
     ? { entries: list, zip: true, saveName: zipName, notes }
     : { entries: list, zip: false, saveName: list.length ? list[0].name : '', notes });
 
-  if (kind === 'flextext') return pack([{ name: base + '.flextext', data: flextextBlob }], '');
+  // The picked file, minus the empty timed lines an older device still wrote (v711; stripSilentPhrasesXml).
+  if (kind === 'flextext') return pack([{ name: base + '.flextext', data: await cleanFlextextBlob(flextextBlob) }], '');
 
   /* ── TEXT-ONLY INTERLINEAR PAGE — the preview's no-audio flavor (the fxpa treatment). Decided by
    * the PLAN so the row the user clicked and the file they get cannot disagree; with no plan in

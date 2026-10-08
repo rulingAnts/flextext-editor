@@ -560,7 +560,7 @@ These are the ones a tester can see.
       not a lock). Same in the researcher panel's per-device settings.
 - [ ] **Phone:** the dock's controls still fit two rows with Repeat and ✨; no sideways scroll.
 
-## v710 — the pauses come back as blank lines; the current .flextext on top of Download all (2026-10-09)
+## v711 (staged as v710 first) — the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines (2026-10-09)
 
 - [ ] **Round trip:** on a text cut as line / pause / line / pause / line, export the .flextext (v709 leaves the pauses
       out), import it again: Cut, Baseline and Gloss show five lines, the pauses as blank lines at their own times.
@@ -571,4 +571,8 @@ These are the ones a tester can see.
 - [ ] **The classic editor** (segmentation off) shows no blank lines.
 - [ ] **Panel ▸ Files… ▸ Download all (ZIP)** on a text with several device backups: the root holds `<title>.flextext`;
       the timestamped copies are in `older_versions/` (`versi_lama/` in Indonesian) — no space in the folder name.
+- [ ] **A text uploaded by a device still on v707 or earlier** (blank lines saved as empty timed phrases): Files… ▸
+      .flextext, the lameta session and Download all each give a .flextext with no empty phrase and no empty paragraph;
+      a file with nothing empty in it downloads byte-for-byte as before.
+- [ ] **Utilities ▸ Convert/Export ▸ .flextext** from such a file: same — the empty lines are gone, nothing else changed.
 

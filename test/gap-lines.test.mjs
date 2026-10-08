@@ -103,5 +103,5 @@ test('the wiring: every tab heals on entry; the tail is filled once the length i
   assert.match(rec, /if \(coverTail\(doc\.segments, paras, known\)\) repaired = true;\n[\s\S]*?else if \(d\.appendBlankLine && doc\.segments\.length === paras\.length\) \{\n\s+const tail = tailGapLine\(doc\.segments, known, \{ tolMs: COVER_TOL_MS \}\);\n\s+if \(tail && d\.appendBlankLine\(doc\)\) \{ doc\.segments\.push\(\{ start: tail\.start, end: tail\.end \}\); repaired = true; \}/,
     'the tail line only where coverTail may not stretch the last line, with the same tolerance');
   for (const k of ['panel.rel.fix.gapLines', 'panel.rel.fix.zipLatest']) assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
-  assert.match(PANEL, /\{ v: 'v710', date: '2026-10-09', items: \[\n    \{ k: 'panel\.rel\.fix\.gapLines' \},\n    \{ k: 'panel\.rel\.fix\.zipLatest', issue: 102 \},/);
+  assert.match(PANEL, /\{ v: 'v711', date: '2026-10-09', items: \[\n    \{ k: 'panel\.rel\.fix\.gapLines' \},\n    \{ k: 'panel\.rel\.fix\.zipLatest', issue: 102 \},\n    \{ k: 'panel\.rel\.fix\.passthroughSilent', issue: 97 \},/);
 });

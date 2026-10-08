@@ -18,7 +18,7 @@ import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wire
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets, stripSilentPhrasesXml } from './flextext.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -1447,9 +1447,10 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v710', date: '2026-10-09', items: [
+  { v: 'v711', date: '2026-10-09', items: [
     { k: 'panel.rel.fix.gapLines' },
     { k: 'panel.rel.fix.zipLatest', issue: 102 },
+    { k: 'panel.rel.fix.passthroughSilent', issue: 97 },
   ] },
   { v: 'v709', date: '2026-10-08', items: [
     { k: 'panel.rel.new.silentExports', issue: 97 },
@@ -4323,7 +4324,8 @@ async function runMenuConversion(wrap, kind, itemEl) {
     if (kind === 'flextext') {
       const xml = await menuFlextextText(wrap);
       if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
-      saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext');
+      // As uploaded, minus the empty timed lines an older device still wrote (v711) — see withoutSilentLines.
+      saveBlobAs(new Blob([stripSilentPhrasesXml(xml)], { type: 'application/xml' }), base + '.flextext');
       return;
     }
     const src = await prepareConversionSources(wrap, pkgBase, paint, { kind });
@@ -4369,7 +4371,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
        * its annotation extensions, so it is a first-class file there rather than a passenger. */
       /* …with its one reference to the recording pointed at the file this package actually ships
        * (lametaFlextextMedia changes that attribute and nothing else). */
-      if (src.xml) entries.push({ name: pkgBase + '.flextext', data: new Blob([lametaFlextextMedia(src.xml, src.segMedia ? src.segMedia.name : '')], { type: 'application/xml' }) });
+      if (src.xml) entries.push({ name: pkgBase + '.flextext', data: new Blob([lametaFlextextMedia(stripSilentPhrasesXml(src.xml), src.segMedia ? src.segMedia.name : '')], { type: 'application/xml' }) });
       /* Only what we actually know. Genre, Date, Location, Access are left out for the researcher to
        * complete in lameta, which is what lameta is for: an empty element would read as answered,
        * and a guessed value would read as a fact. */
@@ -4521,6 +4523,18 @@ function zipEntryName(f, current, base, olderFolder) {
   return `${String(olderFolder || 'older_versions').trim().replace(/\s+/g, '_')}/${name}`;
 }
 
+/* A .flextext about to leave the panel as it was uploaded loses its empty timed lines — the ones a
+ * device that had not yet updated to v709 still wrote (stripSilentPhrasesXml, flextext.js; v711). Any
+ * other file, or a blob that cannot be read as text, goes out exactly as it came. */
+async function withoutSilentLines(f, data) {
+  if (!(isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES)) || !data || typeof data.text !== 'function') return data;
+  try {
+    const xml = await data.text();
+    const clean = stripSilentPhrasesXml(xml);
+    return clean === xml ? data : new Blob([clean], { type: data.type || 'application/xml' });
+  } catch { return data; }
+}
+
 /* Download-everything-as-one-ZIP: every byte routes through the Worker with the RESEARCHER'S own
  * token and connection — this control must never exist on a field device. Built client-side because
  * Drive has no "folder as zip" URL — the web UI's folder download is an internal, cookie-
@@ -4582,10 +4596,10 @@ async function downloadAllZip(btn) {
       const i = ++got;
       const head = t('panel.dl.fetchingN', { i, n: wanted.length, name: f.name || '' });
       dlStatus(wrapForStatus, head); jobSet(job, head);
-      add(zipName(f), await Researcher.fetchDriveFile(f.id, (bytes) => {
+      add(zipName(f), await withoutSilentLines(f, await Researcher.fetchDriveFile(f.id, (bytes) => {
         const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
         dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
-      }, memberDlVia(wrapForStatus), dlCtl.signal));
+      }, memberDlVia(wrapForStatus), dlCtl.signal)));
       if (dlCancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
     }
 

@@ -32,6 +32,6 @@ test('downloadAllZip uses it — current = what every conversion in the zip is b
   const dl = src('downloadAllZip');
   assert.match(dl, /const currentFt = pickSourceFiles\(all\)\.flextext;/);
   assert.match(dl, /const ftBase = \(menuWrap && menuWrap\._menuSrc && menuWrap\._menuSrc\.base\) \|\| title \|\| 'text';/, 'the same base the ELAN/SayMore/.fxpa entries carry');
-  assert.match(dl, /add\(zipName\(f\), await Researcher\.fetchDriveFile\(f\.id,/);
+  assert.match(dl, /add\(zipName\(f\), await withoutSilentLines\(f, await Researcher\.fetchDriveFile\(f\.id,/, 'named by zipEntryName, cleaned by withoutSilentLines (v711)');
   assert.match(I18N, /'panel\.dl\.olderFolder': 'older_versions',/); assert.match(I18N, /'panel\.dl\.olderFolder': 'versi_lama',/);
 });

@@ -763,3 +763,73 @@ export function splitPlan(tiers, placed) {
   const missing = (tiers || []).filter((t) => !Object.prototype.hasOwnProperty.call(have, t));
   return { missing, complete: missing.length === 0 };
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * THE PAUSES BETWEEN TIMED LINES COME BACK AS BLANK LINES (v710; Seth, 2026-10-09, on v709: "On
+ * re-import, gaps in duration between paragraphs, phrases, etc, should re-generate empty lines/audio
+ * segments in flextext editor so that they can be changed. Right now it plays correctly, but the
+ * empty segments in between don't draw in the editor.")
+ *
+ * Since v709 a line with nothing in it is not written to the FLExText or the EAFs (isSilentPhrase),
+ * so a round trip — and any FLEx or ELAN file whose annotations leave pauses unannotated — arrives
+ * with HOLES between the lines' times. The engine draws one strip per line, so a hole was audio that
+ * no strip showed and no line could take. These planners say where a blank line belongs; the host
+ * inserts it into the paragraphs and the segments together, keeping them 1:1. A blank line costs
+ * nothing downstream: isSilentPhrase keeps it out of every export until someone types into it — which
+ * is Seth's other formulation ("draw empty audio segments in the gaps and ADD flextext paragraph/phrase
+ * lines whenever text or gloss or free translation data is typed in"), delivered without a second
+ * model of the text.
+ *
+ * A hole shorter than GAP_LINE_MIN_MS stays a hole: it is a breath, not a line — the same 350 ms the
+ * ✨ detector uses for the shortest pause that ends a line. A neighbour whose time is unknown
+ * (timePending) is never filled around: the hole may be its.
+ * ------------------------------------------------------------------------------------------- */
+export const GAP_LINE_MIN_MS = GUESS_MIN_GAP_MS;
+
+/* Leading and interior holes → [{ before, start, end }], ascending. `before` is the index in the
+ * GIVEN array that the blank line goes in front of. */
+export function gapLinesBetween(segments, opts = {}) {
+  const minGap = isNum(opts.minGapMs) ? opts.minGapMs : GAP_LINE_MIN_MS;
+  const segs = segments || [];
+  const out = [];
+  const first = segs[0];
+  if (isAligned(first) && first.start >= minGap) out.push({ before: 0, start: 0, end: first.start });
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const a = segs[i], b = segs[i + 1];
+    if (!isAligned(a) || !isAligned(b)) continue;
+    if (b.start - a.end >= minGap) out.push({ before: i + 1, start: a.end, end: b.start });
+  }
+  return out;
+}
+
+/* The tail — audio after the last line — once the recording's length is known. The tolerance is
+ * segment-strips' coverTail's (a second): below it, decoders and players disagree about where a lossy
+ * file ends, and a sliver of "line" there would be noise. */
+export function tailGapLine(segments, durationMs, opts = {}) {
+  const tol = isNum(opts.tolMs) ? opts.tolMs : 1000;
+  const segs = segments || [];
+  const last = segs[segs.length - 1];
+  if (!isNum(durationMs) || !(durationMs > 0) || !isAligned(last)) return null;
+  return durationMs - last.end > tol ? { start: last.end, end: durationMs } : null;
+}
+
+/* gapLinesBetween applied to a document's two parallel arrays. `makeLine(prev, next)` builds the
+ * blank paragraph — the host owns the paragraph's shape (guid, its one empty phrase, paraOf) — and is
+ * handed the ORIGINAL neighbours. Returns NEW arrays, or the given ones untouched when there is
+ * nothing to fill; and refuses outright when the arrays are not 1:1, because then an index names
+ * nothing (reconcile repairs that, and the next open fills). Idempotent: a filled document has no
+ * hole left in it. */
+export function fillGapLines(paragraphs, segments, makeLine, opts = {}) {
+  const paras = paragraphs || [], segs = segments || [];
+  const same = { changed: false, added: 0, paragraphs: paras, segments: segs };
+  if (paras.length !== segs.length || typeof makeLine !== 'function') return same;
+  const plan = gapLinesBetween(segs, opts);
+  if (!plan.length) return same;
+  const P = paras.slice(), S = segs.slice();
+  for (let k = plan.length - 1; k >= 0; k--) {          // back to front: earlier indexes stay valid
+    const { before, start, end } = plan[k];
+    P.splice(before, 0, makeLine(paras[before - 1] || null, paras[before] || null));
+    S.splice(before, 0, { start, end });
+  }
+  return { changed: true, added: plan.length, paragraphs: P, segments: S };
+}

@@ -1447,6 +1447,10 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v710', date: '2026-10-09', items: [
+    { k: 'panel.rel.fix.gapLines' },
+    { k: 'panel.rel.fix.zipLatest', issue: 102 },
+  ] },
   { v: 'v709', date: '2026-10-08', items: [
     { k: 'panel.rel.new.silentExports', issue: 97 },
   ] },
@@ -4499,6 +4503,24 @@ function findInventoryItem(instanceId, docId) {
   return null;
 }
 
+/* WHERE A FOLDER FILE GOES IN THE DOWNLOAD-ALL ZIP (v710; Seth, 2026-10-09: "our export packages
+ * contain a long list of flextext files with timestamps and it's not always easy to tell which one is
+ * most recent/currently active … the most recent/authoritative one is in the root while older ones go
+ * in a sub-folder"). The CURRENT .flextext — the one every conversion in the zip is built from
+ * (pickSourceFiles) — takes the text's plain name in the root, beside the ELAN/SayMore/.fxpa built
+ * from it under the same base. Every other .flextext (timestamped backups and the original assignment
+ * alike) keeps its own name inside `olderFolder`. Nothing else moves. The Drive folder itself is
+ * untouched — that is #102. ⚠ NO SPACE IN THE FOLDER'S NAME (Seth, 2026-10-09: "it will be
+ * incompatible with lameta") — lameta's own naming turns whitespace into `_`, so the folder is
+ * `older_versions`, and any translation is held to the same rule here rather than trusted to.
+ * PURE and lifted by test/download-all-latest.test.mjs. */
+function zipEntryName(f, current, base, olderFolder) {
+  const name = String((f && f.name) || 'file');
+  if (!(isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES))) return name;
+  if (current && f && f.id === current.id) return `${base || 'text'}.flextext`;
+  return `${String(olderFolder || 'older_versions').trim().replace(/\s+/g, '_')}/${name}`;
+}
+
 /* Download-everything-as-one-ZIP: every byte routes through the Worker with the RESEARCHER'S own
  * token and connection — this control must never exist on a field device. Built client-side because
  * Drive has no "folder as zip" URL — the web UI's folder download is an internal, cookie-
@@ -4540,6 +4562,11 @@ async function downloadAllZip(btn) {
       try { return (await Researcher.listTextFiles(iid, id)).files || []; } catch { return []; /* partial is fine */ }
     }));
     const all = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+    // The current .flextext on top under the text's name, the older ones in a folder — see zipEntryName.
+    const menuWrap = btn.closest ? btn.closest('.rp-dl') : null;
+    const ftBase = (menuWrap && menuWrap._menuSrc && menuWrap._menuSrc.base) || title || 'text';
+    const currentFt = pickSourceFiles(all).flextext;
+    const zipName = (f) => zipEntryName(f, currentFt, ftBase, t('panel.dl.olderFolder'));
     const wanted = all;   // the ENTIRE folder — every bridged identity, backups included
     const entries = [];
     const used = new Set();
@@ -4555,7 +4582,7 @@ async function downloadAllZip(btn) {
       const i = ++got;
       const head = t('panel.dl.fetchingN', { i, n: wanted.length, name: f.name || '' });
       dlStatus(wrapForStatus, head); jobSet(job, head);
-      add(f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
+      add(zipName(f), await Researcher.fetchDriveFile(f.id, (bytes) => {
         const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
         dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
       }, memberDlVia(wrapForStatus), dlCtl.signal));

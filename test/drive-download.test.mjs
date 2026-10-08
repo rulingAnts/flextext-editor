@@ -30,6 +30,14 @@ if (!m) { console.log('FAIL: downloadAllZip not findable'); process.exit(1); }
 let fail = 0;
 const ok = (c, msg) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${msg}`); if (!c) fail++; };
 
+/* v710: downloadAllZip names folder files through pickSourceFiles + zipEntryName (the current .flextext
+ * on top, older ones under older_versions/). The REAL helpers, lifted with the role constants they read —
+ * a stub could disagree with the code it stands in for. */
+const RULES = src.slice(src.indexOf('const SOURCE_AUDIO_ROLES = '), src.indexOf('\n', src.indexOf('const isFlextextName = ')) + 1);
+const liftFn = (sig) => { const i = src.indexOf(sig); return src.slice(i, src.indexOf('\n}\n', i) + 2); };
+const { pickSourceFiles, zipEntryName } = new Function('MANIFEST_NAME',
+  `${RULES}\n${liftFn('function pickSourceFiles(files) {')}\n${liftFn('function zipEntryName(f, current, base, olderFolder) {')}\nreturn { pickSourceFiles, zipEntryName };`)('flextext-manifest.json');
+
 /* `wrap` opts in to the v3.1 conversion-injection path: downloadAllZip reaches its menu through
  * btn.closest('.rp-dl'), so a btn without one (the original cases below) skips conversions
  * entirely — which is exactly the degradation a legacy/no-manifest text gets. */
@@ -57,6 +65,7 @@ const run = async (files, wrap = null, convo = {}) => {
       ...(wants.fxpa ? [{ name: 'My Text.fxpa', data: fakeBlob('fxpa') }] : []),
     ]),
     fmtSize: (b) => `${b}B`,
+    pickSourceFiles, zipEntryName,
     bridgedIds: () => ({ ids: ['doc1'] }),
     /* v468: downloadAllZip passes memberDlVia(wrap) to fetchDriveFile, which selects the member
      * download LANE — the project-scoped route running under the OWNER's Drive token — instead of the

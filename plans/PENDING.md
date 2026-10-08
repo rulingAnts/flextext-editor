@@ -34,9 +34,9 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v710 — assembled 2026-10-09 on branch `roundtrip-v710` (the pauses come back as blank lines; the current .flextext on top of Download all) — staging; production is v709
+## ▶ v711 — assembled 2026-10-09 on branch `roundtrip-v710` (the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines) — staging, NOT released (Seth: "Let's not release v710 yet. I still need to test it"); production is v709
 
-`BUILD_TAG = 'roundtrip v1'`. Two of Seth's asks the same morning:
+`BUILD_TAG = 'roundtrip v2'` (v710 = 'roundtrip v1' was the first staging build of the same branch; never released, so the number moves on). Three of Seth's asks the same day:
 - "On re-import, gaps in duration between paragraphs, phrases, etc, should re-generate empty lines/audio segments in
   flextext editor so that they can be changed" — or "draw empty audio segments in the gaps and ADD flextext
   paragraph/phrase lines whenever text … is typed in. Whichever is the easier and less risky." Built as the first, which
@@ -53,6 +53,12 @@ The item itself is tracked privately.
   `zipEntryName` (researcher-panel.js): in Files… ▸ Download all (ZIP) the current .flextext (pickSourceFiles — what every
   conversion in the zip is built from) is `<base>.flextext` in the root; every other .flextext goes into `older_versions/`
   (`versi_lama/` in Indonesian; whitespace forced to `_`). The Drive folder itself is still the pile (#102).
+- "ALL flextext exports on ALL export options have our v709 export fix right?" — not the pass-through ones: Files… ▸
+  .flextext, the lameta session and Download all hand over the uploaded file, and the Utilities Convert/Export tool the
+  picked one, byte-for-byte on purpose. v711: `stripSilentPhrasesXml` (flextext.js) removes exactly the empty timed
+  phrases a pre-v709 device wrote (empty txt, empty words, empty gls, segnum, our own `audio …` note — nothing else) and a
+  paragraph left empty, by string surgery, so every other byte stays; a file with nothing to remove is the same string.
+  test/silent-passthrough.test.mjs holds the frozen v707 shape.
 
 ## v709 — released 2026-10-09 (silent lines leave the FLExText and EAF exports, #97); production = bc25b076
 

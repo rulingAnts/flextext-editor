@@ -490,6 +490,45 @@ export function isSilentPhrase(seg) {
   return true;
 }
 
+/* THE SAME RULE FOR A FILE THAT IS HANDED OVER AS IT CAME (v711; Seth, 2026-10-09: "ALL flextext exports
+ * on ALL export options have our v709 export fix right?"). Three researcher-panel downloads — Files… ▸
+ * .flextext, the lameta session, Download all — and the Utilities converter pass a .flextext on AS IT WAS
+ * UPLOADED OR PICKED, on purpose: re-serializing somebody's file through our parser risks losing what it
+ * carries. But a device that had not yet updated to v709 uploaded its blank lines as empty timed phrases,
+ * and those downloads handed them on. This removes exactly those — string surgery, like
+ * lametaFlextextMedia, so every other byte stays as it was:
+ *   - a <phrase> holding nothing but an empty txt item, empty <words>, an empty gls item, a segnum, and
+ *     our own "audio m:ss.sss–…" note (OUR_NOTE) — isSilentPhrase's "nothing in it", read from the file
+ *     instead of the model. Anything else in it (a word, any text, a translation in any language, any
+ *     other note or item) keeps the phrase;
+ *   - and a <paragraph> left with no phrase in it, since serializeFlextext writes none.
+ * A file with nothing to remove comes back as the SAME string. */
+const SILENT_BITS = [
+  /<item\b[^>]*\btype="(?:txt|gls)"[^>]*\/>/g,                                  // self-closing txt / gls
+  /<item\b[^>]*\btype="(?:txt|gls)"[^>]*>\s*<\/item>/g,                         // empty txt / gls
+  /<item\b[^>]*\btype="segnum"[^>]*(?:\/>|>[^<]*<\/item>)/g,                    // numbering is not content
+  /<item\b[^>]*\btype="note"[^>]*>audio ~?\d+:\d\d\.\d{3}[^<]*<\/item>/g,       // our own timing note
+  /<words\b[^>]*\/>/g, /<words\b[^>]*>\s*<\/words>/g,                            // no words
+];
+export function stripSilentPhrasesXml(xml) {
+  const src = String(xml ?? '');
+  if (!src.includes('<phrase')) return src;
+  const silent = (inner) => {
+    if (inner == null) return true;                                             // <phrase …/>
+    let rest = inner;
+    for (const re of SILENT_BITS) rest = rest.replace(re, '');
+    return !rest.trim();
+  };
+  let changed = false;
+  const out = src.replace(/[ \t]*<phrase\b[^>]*?(?:\/>|>([\s\S]*?)<\/phrase>)[ \t]*(?:\r?\n)?/g, (m, inner) => {
+    if (!silent(inner)) return m;
+    changed = true;
+    return '';
+  });
+  if (!changed) return src;
+  return out.replace(/[ \t]*<paragraph\b[^>]*>\s*(?:<phrases\b[^>]*\/>|<phrases\b[^>]*>\s*<\/phrases>)\s*<\/paragraph>[ \t]*(?:\r?\n)?/g, '');
+}
+
 export function serializeFlextext(doc, settings = {}, opts = {}) {
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it

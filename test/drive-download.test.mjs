@@ -35,8 +35,9 @@ const ok = (c, msg) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${msg}`); if (!c
  * a stub could disagree with the code it stands in for. */
 const RULES = src.slice(src.indexOf('const SOURCE_AUDIO_ROLES = '), src.indexOf('\n', src.indexOf('const isFlextextName = ')) + 1);
 const liftFn = (sig) => { const i = src.indexOf(sig); return src.slice(i, src.indexOf('\n}\n', i) + 2); };
-const { pickSourceFiles, zipEntryName } = new Function('MANIFEST_NAME',
-  `${RULES}\n${liftFn('function pickSourceFiles(files) {')}\n${liftFn('function zipEntryName(f, current, base, olderFolder) {')}\nreturn { pickSourceFiles, zipEntryName };`)('flextext-manifest.json');
+const { stripSilentPhrasesXml } = await import('../docs/js/flextext.js');
+const { pickSourceFiles, zipEntryName, withoutSilentLines } = new Function('MANIFEST_NAME', 'stripSilentPhrasesXml',
+  `${RULES}\n${liftFn('function pickSourceFiles(files) {')}\n${liftFn('function zipEntryName(f, current, base, olderFolder) {')}\n${liftFn('async function withoutSilentLines(f, data) {')}\nreturn { pickSourceFiles, zipEntryName, withoutSilentLines };`)('flextext-manifest.json', stripSilentPhrasesXml);
 
 /* `wrap` opts in to the v3.1 conversion-injection path: downloadAllZip reaches its menu through
  * btn.closest('.rp-dl'), so a btn without one (the original cases below) skips conversions
@@ -65,7 +66,7 @@ const run = async (files, wrap = null, convo = {}) => {
       ...(wants.fxpa ? [{ name: 'My Text.fxpa', data: fakeBlob('fxpa') }] : []),
     ]),
     fmtSize: (b) => `${b}B`,
-    pickSourceFiles, zipEntryName,
+    pickSourceFiles, zipEntryName, withoutSilentLines,
     bridgedIds: () => ({ ids: ['doc1'] }),
     /* v468: downloadAllZip passes memberDlVia(wrap) to fetchDriveFile, which selects the member
      * download LANE — the project-scoped route running under the OWNER's Drive token — instead of the

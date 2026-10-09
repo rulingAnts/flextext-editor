@@ -132,10 +132,11 @@ test('a quiet tick: 204 → a scan and a first report; unchanged → no second r
 });
 
 test('commands: changeSettings applied and acked; delete refused and acked; a held command stops the cursor', async () => {
+  // M5 (v710) turned `assign` into a handler; `uploadDelete` is the held kind until M6.
   const cmds = [
     { seq: 1, type: 'changeSettings', enc: 'enc:' + JSON.stringify({ settings: { vernLang: 'fau', analLang: 'id' } }) },
     { seq: 2, type: 'delete', enc: 'enc:' + JSON.stringify({ id: 'doc-1' }) },
-    { seq: 3, type: 'assign', enc: 'enc:' + JSON.stringify({ id: 'doc-2', title: 'T' }) },
+    { seq: 3, type: 'uploadDelete', enc: 'enc:' + JSON.stringify({ id: 'doc-2' }) },
     { seq: 4, type: 'changeSettings', enc: 'enc:' + JSON.stringify({ settings: { doneEnabled: true } }) },
   ];
   const { a, R, F } = mk({ researcher: { poll: () => ({ desired_rev: 7, settings: {}, commands: cmds }) } });
@@ -144,14 +145,14 @@ test('commands: changeSettings applied and acked; delete refused and acked; a he
   await a.tick('inst-1');
   const rec = await F.recallFolder(LINK_KEY('acct', 'inst-1'));
   assert.deepEqual(rec.link.settings, { vernLang: 'fau', analLang: 'id' }, 'seq 1 applied; seq 4 NOT (it is behind the held one)');
-  assert.equal(rec.link.ackSeq, 2, 'acked through the refused delete, stopped before the held assign');
+  assert.equal(rec.link.ackSeq, 2, 'acked through the refused delete, stopped before the held uploadDelete');
   assert.equal(rec.link.desiredRev, -1, 'the lane is re-read next tick, so the held command keeps appearing');
   const s = a.status('inst-1');
-  assert.deepEqual(s.waiting, [{ seq: 3, type: 'assign' }, { seq: 4, type: 'changeSettings' }]);
+  assert.deepEqual(s.waiting, [{ seq: 3, type: 'uploadDelete' }, { seq: 4, type: 'changeSettings' }]);
   assert.equal(s.lastError, 'delete_refused');
   const report = R.calls.find((c) => /\/report$/.test(c[1]));
   assert.equal(report[4].body.ack_seq, 2, 'the report carries the cursor');
-  assert.deepEqual(HELD, ['assign', 'uploadDelete', 'triggerUpload', 'setDone']);
+  assert.deepEqual(HELD, ['uploadDelete', 'triggerUpload', 'setDone'], 'assign is handled since M5');
   assert.equal(F.writes.length, 0, 'nothing was written to the folder');
 });
 

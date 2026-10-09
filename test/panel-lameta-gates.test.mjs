@@ -72,3 +72,16 @@ test('the link step: name, create-and-claim, then the ordinary settings modal', 
     assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} EN + ID`);
   }
 });
+
+test('M5 (assign materialize): the browser-only pieces are injected, the card shows a failed command with Retry / Skip and the open marker', () => {
+  assert.match(PANEL, /convertWav: async \(blob, onProgress\) => \(await convertAudio\(await blob\.arrayBuffer\(\), \{ format: 'wav', wavBits: 16 \}, onProgress\)\)\.blob,\n\s+parseFlextext,/,
+    'the converter and the DOMParser-backed parser reach the agent by injection, so it never imports them');
+  assert.match(PANEL, /data-iact="lameta-retry" data-i="\$\{esc\(id\)\}" data-seq=/); assert.match(PANEL, /data-iact="lameta-skip" data-i="\$\{esc\(id\)\}" data-seq=/);
+  assert.match(PANEL, /act === 'lameta-retry'[\s\S]*?retryHeld\(id, Number\(el\.dataset\.seq\)/);
+  assert.match(PANEL, /act === 'lameta-skip'[\s\S]*?confirmModal\(t\('panel\.lameta\.confirmSkip'\)\)[\s\S]*?skipHeld\(id, Number\(el\.dataset\.seq\)/, 'Skip is confirmed first');
+  assert.match(PANEL, /const gate = lametaAgent\.pendingGate\(id\);/, 'the pending-updates line reads the agent\'s gate, the one M7\'s apply will also read');
+  assert.match(PANEL, /\$\{lametaWorkHtml\(id\)\}/, 'rendered inside the status block the agent repaints');
+  for (const k of ['panel.lameta.failed', 'panel.lameta.retry', 'panel.lameta.skip', 'panel.lameta.forkOpen', 'panel.lameta.pendingNOpen', 'panel.lameta.assignedLive', 'panel.lameta.returned']) {
+    assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length, 2, `${k} in both languages`);
+  }
+});

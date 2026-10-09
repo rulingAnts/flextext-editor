@@ -20,22 +20,42 @@
  *
  * ⚠ THE ACK RULE DIFFERS FROM A PHONE'S, DELIBERATELY. A phone acks a command it could not carry out
  * and moves on, because nobody is watching it. Here somebody is: a command this version cannot
- * carry out (assign, uploadDelete, triggerUpload, setDone — the milestones after this one) is HELD,
- * not acked; the ack cursor stops before it, the desired lane is re-read each tick so it keeps
- * appearing, and the card says how many are waiting. `changeSettings` is applied and acked;
- * `delete` is refused and acked (a lameta session is never deleted by the suite); a wipe or a 410
- * unlinks — forgets the record — and touches no file. ⚠ Nothing in this module can delete a file:
- * the seam exposes no such call, and test/lameta-agent-isolation.test.mjs pins that.
+ * carry out (uploadDelete, triggerUpload, setDone — the milestones after this one) is HELD, not
+ * acked; the ack cursor stops before it, the desired lane is re-read each tick so it keeps
+ * appearing, and the card says how many are waiting. A command this version CAN carry out but
+ * which FAILED (an `assign` whose fetch or write threw) is held the same way, with its error on the
+ * card and a Retry / Skip; it is not retried on its own more often than HELD_RETRY_MS, because a
+ * failing download of a 200 MB recording every twenty seconds is not a retry policy.
+ * `changeSettings` is applied and acked; `delete` is refused and acked (a lameta session is never
+ * deleted by the suite); a wipe or a 410 unlinks — forgets the record — and touches no file.
+ * ⚠ Nothing in this module can delete a file: the seam exposes no such call, and
+ * test/lameta-agent-isolation.test.mjs pins that.
  *
- * ⚠ ONLY PURE MODULES ARE IMPORTED (lameta.js for the session format and the pickers,
- * seg-exports.js for the manifest builder — both already loaded by the panel, both node-clean).
+ * ⚠ ONLY PURE MODULES ARE IMPORTED (lameta.js for the session format, the pickers and the
+ * progress fields; seg-exports.js for the manifest builder and the EAF assembler; flextext.js for
+ * segmentsFromOffsets — all three already loaded by the panel, all three node-clean to LOAD).
  * Everything with a platform behind it (researcher.js as `R`, files.js as `F`, the engine version,
- * the clock) is INJECTED by createLametaAgent, which is what lets the whole loop run under node
- * against fakes in test/lameta-agent-dispatch.test.mjs. The panel injects the real ones.
+ * the clock, the Web Audio converter as `convertWav`, and `parseFlextext`, which needs a DOMParser
+ * at call time) is INJECTED by createLametaAgent, which is what lets the whole loop run under node
+ * against fakes in test/lameta-agent-dispatch.test.mjs and test/lameta-agent-assign.test.mjs. The
+ * panel injects the real ones.
+ *
+ * THE OPEN MARKER (plans/flextext-metadata.md §5). FlexText Metadata — Seth's lameta fork — writes
+ * `<project>/.flextext-open.json` while it has the project open and rewrites its heartbeat every
+ * 30 s; stock lameta writes nothing. readOpenMarker reads it through the seam with a short timeout
+ * (a cloud placeholder must never jam the loop) and answers fresh / stale / absent; a heartbeat
+ * older than OPEN_MARKER_STALE_MS is a crash's leftover and counts as absent. lametaWritePolicy
+ * turns that into what may be written now: a NEW session folder is written at once in every state
+ * (the fork's watcher loads it live; stock lameta lists it on reopen); a REWRITE of an existing
+ * .session is queued in every state (record.pendingLameta, plans/lameta-device.md §7); and the
+ * queue may be APPLIED only while the marker is not fresh — "Apply — lameta is closed" cannot be
+ * confirmed about an app that is demonstrably open.
  */
-import { parseLametaSession, pickPrimaryRecording, pickFlextext, audioMimeOf, newHistory, historyCustody,
-         LAMETA_HISTORY_NAME, LAMETA_SUITE_DIR } from './lameta.js';
-import { buildSourceManifest, MANIFEST_NAME } from './seg-exports.js';
+import { parseLametaSession, pickPrimaryRecording, pickFlextext, audioMimeOf, newHistory, withHistoryEvent, historyCustody,
+         lametaSessionIdFor, lametaFlextextMedia, lametaSessionEntries, lametaFileName, deriveStages, mergeStages,
+         LAMETA_HISTORY_NAME, LAMETA_SUITE_DIR, LAMETA_ROOT_FILES } from './lameta.js';
+import { buildSourceManifest, assembleSegEntries, conversionCaps, mediaNameFor, derivedWavName, MANIFEST_NAME } from './seg-exports.js';
+import { segmentsFromOffsets } from './flextext.js';
 
 export const INDEX_KEY = (acct) => `${acct || 'anon'}:lameta-index`;
 export const LINK_KEY = (acct, instanceId) => `${acct || 'anon'}:lameta:${instanceId}`;
@@ -44,8 +64,69 @@ export const POLL_HIDDEN_MS = 60000;
 export const MAX_BACKOFF_STEPS = 5;
 export const SHA_MAX_BYTES = 256 * 1024 * 1024;
 /* What this version can carry out. Everything else is held (see the header). */
-export const HANDLED = ['changeSettings', 'delete'];
-export const HELD = ['assign', 'uploadDelete', 'triggerUpload', 'setDone'];
+export const HANDLED = ['changeSettings', 'delete', 'assign'];
+export const HELD = ['uploadDelete', 'triggerUpload', 'setDone'];
+/* A command that FAILED is held with its error and retried on its own no sooner than this; Retry on
+ * the card runs it at once, Skip acks it untouched. */
+export const HELD_RETRY_MS = 5 * 60 * 1000;
+/* The backups of a .flextext replaced on a return trip: outside Sessions/ (every directory there is
+ * a session to lameta), dated, never pruned. */
+export const BACKUP_DIR = 'lameta-agent-backups';
+
+/* ─── the open marker (plans/flextext-metadata.md §5) ─── */
+export const OPEN_MARKER_NAME = '.flextext-open.json';
+export const OPEN_MARKER_STALE_MS = 2 * 60 * 1000;
+export const OPEN_MARKER_TIMEOUT_MS = 3000;
+/** Pure: a parsed marker (or null) → 'fresh' | 'stale' | 'absent'. Unparseable or heartbeat-less is absent. */
+export function openMarkerState(marker, now = Date.now()) {
+  if (!marker || typeof marker !== 'object') return 'absent';
+  const hb = Date.parse(marker.heartbeat || marker.since || '');
+  if (!Number.isFinite(hb)) return 'absent';
+  return (now - hb) > OPEN_MARKER_STALE_MS ? 'stale' : 'fresh';
+}
+/* Through the seam, bounded: a marker that cannot be read in time (a cloud placeholder, a locked
+ * file) is reported as absent with `timeout: true` — the loop never waits on it. */
+export async function readOpenMarker(F, handle, { now = Date.now(), timeoutMs = OPEN_MARKER_TIMEOUT_MS } = {}) {
+  let text = '', timeout = false;
+  try { text = (await F.readFile(handle, OPEN_MARKER_NAME, { as: 'text', timeoutMs })) || ''; }
+  catch (e) { timeout = !!(e && e.code === 'FILES_TIMEOUT'); text = ''; }
+  let marker = null;
+  if (text) { try { marker = JSON.parse(text); } catch { marker = null; } }
+  const state = openMarkerState(marker, now);
+  return { state, marker: state === 'absent' ? null : marker, app: (marker && String(marker.app || '')) || '',
+           heartbeat: (marker && marker.heartbeat) || '', timeout, at: now };
+}
+/** What may be written NOW, by marker state. Identical for new folders in every state; the
+ *  difference is whether the pending queue may be applied (never while the fork is open) and
+ *  whether a new session appears live (the fork watches Sessions/; stock lameta reads on reopen). */
+export function lametaWritePolicy(state) {
+  const live = state === 'fresh';
+  return { live, createNow: true, rewriteNow: false, applyPending: !live };
+}
+
+/* The text's Drive files by ROLE (the tags Drive carries), the panel's own pickSourceFiles rule:
+ * the recording, the .flextext, the manifest, the consent receipt. Pure. */
+const SOURCE_AUDIO_ROLES = ['source-audio', 'assigned-audio'];
+const SOURCE_FT_ROLES = ['source-flextext', 'assigned-flextext'];
+const roleOf = (f) => String((f && f.role) || '');
+export function pickTextFiles(files = []) {
+  const rows = (files || []).filter(Boolean);
+  return {
+    audio: rows.find((f) => SOURCE_AUDIO_ROLES.includes(roleOf(f))) || null,
+    flextext: rows.find((f) => SOURCE_FT_ROLES.includes(roleOf(f)) || /\.flextext$/i.test(String(f.name || ''))) || null,
+    manifest: rows.find((f) => roleOf(f) === 'manifest' || f.name === MANIFEST_NAME) || null,
+    receipt: rows.find((f) => roleOf(f) === 'consent-receipt' && /\.json$/i.test(String(f.name || ''))) || null,
+  };
+}
+/* The queue of lameta updates (plans/lameta-device.md §7), one entry per session and kind: a later
+ * entry for the same session replaces the earlier, stages merged monotonically so nothing a
+ * previous return brought is lowered. Pure; the record is saved by the caller. */
+export function queueLametaUpdate(list, upd) {
+  const out = (list || []).filter((u) => !(u && u.sessionId === upd.sessionId && u.kind === upd.kind));
+  const prev = (list || []).find((u) => u && u.sessionId === upd.sessionId && u.kind === upd.kind);
+  const merged = upd.kind === 'stages' && prev ? { ...upd, stages: mergeStages(prev.stages || {}, upd.stages || {}), done: !!(prev.done || upd.done) } : upd;
+  return [...out, merged];
+}
 
 const enc = (s) => encodeURIComponent(String(s));
 const cryptoOf = () => (typeof globalThis !== 'undefined' && globalThis.crypto) || null;
@@ -108,7 +189,8 @@ export async function inspectProject(F, handle, { timeoutMs } = {}) {
 }
 
 export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange = () => {}, log = console,
-                                    now = () => Date.now(), timers = globalThis, visible = () => true } = {}) {
+                                    now = () => Date.now(), timers = globalThis, visible = () => true,
+                                    convertWav = null, parseFlextext = null, producedBy = () => '' } = {}) {
   if (!R || !F) throw new Error('lameta agent needs R (researcher.js) and F (files.js)');
   const acct = () => R.currentAccountId() || 'anon';
   /* Per-instance live state: what the card shows, never persisted. `cache` is the sessions read so
@@ -116,7 +198,8 @@ export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange 
   const live = new Map();
   const st = (id) => {
     if (!live.has(id)) live.set(id, { inFlight: false, failStreak: 0, lastTickAt: 0, lastError: '', waiting: [], permission: 'unknown',
-                                      scan: {}, sessions: null, cache: new Map(), linked: true, folderName: '', projectName: '' });
+                                      scan: {}, sessions: null, cache: new Map(), linked: true, folderName: '', projectName: '',
+                                      openMarker: { state: 'absent' }, heldFail: null, retrySeq: 0, skipSeq: 0, work: null, pendingLameta: [] });
     return live.get(id);
   };
   let timer = null, started = false;
@@ -226,6 +309,9 @@ export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange 
       await scanSessions(rec, s);
       s.scan = { sessions: s.sessions, available: true };
     } catch (e) { s.scan = { available: false, timeout: e && e.code === 'FILES_TIMEOUT', sessions: s.sessions }; }
+    // The fork's open marker, each tick: one small file at the project root, bounded by its own timeout.
+    try { s.openMarker = await readOpenMarker(F, rec.handle, { now: now() }); } catch { s.openMarker = { state: 'absent', at: now() }; }
+    s.pendingLameta = (rec.link.pendingLameta || []).map((u) => ({ sessionId: u.sessionId, kind: u.kind, at: u.at }));
     return s.scan;
   }
   async function requestPermission(instanceId) {
@@ -324,6 +410,226 @@ export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange 
     return history;
   }
 
+  /* ─── assign (plans/lameta-device.md §10, M5): a text moved in becomes a lameta session ───
+   * The panel's Move… re-parents the text's Drive folder to this device and issues `assign`. The
+   * command's streaming URLs are a phone's lane; the agent IS the researcher, so it lists the
+   * text's folder by role and fetches the manifest, the recording and the .flextext directly.
+   * Then exactly what the panel's lameta download builds, written into Sessions/<id>/:
+   *   <id>.session (NEW folder only) · <id>.eaf + <id>.pfsx (assembleSegEntries, wants.eaf) ·
+   *   the recording under its title name · the derived WAV when the recording is not WAV ·
+   *   <id>.flextext with its media reference repointed · a .meta beside each file WE created ·
+   *   flextext/flextext-manifest.json (the Drive bytes, immutable) + flextext-history.json.
+   * HOW-TO-OPEN.txt never enters a project (LAMETA_ROOT_FILES); nothing is written directly
+   * under Sessions/.
+   *
+   * A RETURN TRIP — a session whose manifest already carries this docId — is refreshed, never
+   * renamed: .flextext/.eaf/.pfsx replaced in place, the previous .flextext saved to
+   * <project>/lameta-agent-backups/<date>/ first; the recording is never overwritten (a returned
+   * recording with a different hash is written beside it as <name>.returned-<date>.<ext>); the
+   * .session and existing .meta files are untouched, and the stage facts the return brings are
+   * QUEUED (pendingLameta, the §7 rule) for the apply that waits until lameta is closed.
+   *
+   * ⚠ ACK ONLY AFTER EVERY FILE IS WRITTEN: a throw anywhere leaves the command held with its
+   * error on the card. Writes are ordered so a failure part-way leaves a folder that is at worst
+   * incomplete, never a session claiming a text it does not hold: the history file — what makes
+   * the session a text of this device — is written LAST. */
+  const dateStamp = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const stemExt = (name) => { const m = /^(.*?)(\.[A-Za-z0-9]+)?$/.exec(String(name || '')); return { stem: m[1] || String(name || ''), ext: m[2] || '' }; };
+  const fetchAs = async (f, as, label, s, instanceId) => {
+    if (!f || !f.id) return null;
+    s.work = { ...(s.work || {}), step: 'fetch', name: f.name || label, pct: null };
+    onChange(instanceId);
+    const blob = await R.fetchDriveFile(f.id, f.size ? (got) => { s.work = { ...(s.work || {}), pct: Math.min(99, Math.round((got / f.size) * 100)) }; onChange(instanceId); } : undefined);
+    if (!blob) throw new Error(`${label}_unreadable`);
+    return as === 'text' ? blob.text() : blob;
+  };
+  async function assignMaterialize(rec, s, cmd) {
+    const L = rec.link;
+    const docId = String(cmd.id || cmd.docId || '');
+    if (!docId) throw new Error('assign_no_id');
+    if (typeof parseFlextext !== 'function') throw new Error('no_parser');
+    if (s.permission !== 'granted' || !Array.isArray(s.sessions)) throw new Error('folder_unavailable');
+    const sessionsDir = await F.getDir(rec.handle, 'Sessions');
+    if (!sessionsDir) throw new Error('folder_unavailable');
+    s.work = { seq: cmd.seq, type: 'assign', docId, title: cmd.title || '', step: 'list', pct: null };
+    onChange(L.instanceId);
+
+    // 1. What the text's Drive folder holds, by role — as the researcher, under this device.
+    const listing = (await R.listTextFiles(L.instanceId, docId)) || {};
+    const picks = pickTextFiles(listing.files || []);
+    if (!picks.flextext && !picks.audio) throw new Error('nothing_to_materialize');
+    const manifestText = await fetchAs(picks.manifest, 'text', 'manifest', s, L.instanceId);
+    let manifest = null;
+    if (manifestText) { try { manifest = JSON.parse(manifestText); } catch { manifest = null; } }
+    if (manifest && (typeof manifest !== 'object' || !Array.isArray(manifest.files))) manifest = null;
+    const title = String(cmd.title || (manifest && manifest.title) || docId);
+    const xml = picks.flextext ? await fetchAs(picks.flextext, 'text', 'flextext', s, L.instanceId) : '';
+    const audioBlob = picks.audio ? await fetchAs(picks.audio, 'blob', 'audio', s, L.instanceId) : null;
+
+    // 2. The session: its own folder when this docId is already here (a return trip), else the title's id.
+    const existing = s.sessions.filter((e) => e && e.name).map((e) => ({ id: e.name, docId: e.docId || '' }));
+    const id = lametaSessionIdFor(title, docId, existing);
+    const returning = existing.some((r) => r.docId === docId && r.id === id);
+    let dir = await F.getDir(sessionsDir, id);
+    const isNew = !dir;
+    if (!isNew && !returning) {
+      // The id is free by the scan but a folder of that name exists (made since the scan, or a
+      // session without our manifest): never write into a folder that is not ours.
+      throw new Error('session_folder_taken');
+    }
+    const existsIn = async (d, name) => !!(await F.statFile(d, name, { timeoutMs: 8000 }));
+    /* On a return trip the files are matched by ROLE, not by name (§4): an ADOPTED session keeps
+     * the names it had before it was a text, so the .flextext to replace and the recording to
+     * leave alone are the ones the session's own manifest names, when they are still there. */
+    const known = s.cache.get(id) || null;
+    const mf = (returning && known && known.manifest) || null;
+    let ftName = `${id}.flextext`, recName = '';
+    if (mf) {
+      const prevFt = (mf.files || []).find((f) => f && f.name && String(f.role || '') === 'source-flextext');
+      if (prevFt && lametaFileName(prevFt.name) === prevFt.name && await existsIn(dir, prevFt.name)) ftName = prevFt.name;
+      const prevAu = mf.audio && mf.audio.name;
+      if (prevAu && lametaFileName(prevAu) === prevAu && await existsIn(dir, prevAu)) recName = prevAu;
+    }
+
+    // 3. The document and the timeline, exactly as the panel's lameta download derives them.
+    let doc = null, aligned = false;
+    if (xml) {
+      const parsed = parseFlextext(xml);
+      if (!parsed || parsed.error || !parsed.texts || !parsed.texts.length) throw new Error('flextext_unparseable');
+      doc = parsed.texts[0];
+      doc.segments = segmentsFromOffsets(doc) || [];
+      aligned = doc.segments.some((g) => typeof g.start === 'number' && !g.timePending);
+    }
+    const ws = (manifest && manifest.writingSystems) || {};
+    const vern = ws.vern || (doc && doc.vernLang) || (L.settings && L.settings.vernLang) || 'und';
+    const anal = ws.anal || (doc && doc.analLang) || (L.settings && L.settings.analLang) || 'en';
+    let media = null, segMedia = null;
+    if (audioBlob) {
+      const af = picks.audio;
+      const mime = af.mime || audioBlob.type || audioMimeOf(af.name);
+      // ⚠ Named lameta-safe BEFORE the EAF is built: it references the recording by this name.
+      media = { name: recName || lametaFileName(mediaNameFor(id, { name: af.name, mimeType: mime })), mimeType: mime, blob: audioBlob, srcName: af.name || '' };
+      const isWav = /\.wav$/i.test(af.name || '') || /\bwav\b/i.test(mime);
+      const caps = conversionCaps({ bytes: audioBlob.size || 0, isWav });
+      if (isWav || !caps.convert || !aligned) segMedia = media;
+      else {
+        if (typeof convertWav !== 'function') throw new Error('no_converter');
+        s.work = { ...s.work, step: 'convert', name: af.name || '', pct: null }; onChange(L.instanceId);
+        const wav = await convertWav(audioBlob, (f) => { s.work = { ...s.work, pct: Math.round((f || 0) * 100) }; onChange(L.instanceId); });
+        if (!wav) throw new Error('convert_failed');
+        segMedia = { name: lametaFileName(derivedWavName(id)), mimeType: 'audio/wav', blob: wav, derived: true, srcName: af.name || '' };
+      }
+    }
+
+    // 4. The files, built by the same code as the panel's download.
+    s.work = { ...s.work, step: 'build', pct: null }; onChange(L.instanceId);
+    const entries = (doc && media && segMedia && aligned)
+      ? await assembleSegEntries({ doc, title, base: id, media, segMedia, wants: { eaf: true }, vern, anal, full: false, producedBy: producedBy() })
+      : [];
+    if (segMedia && !entries.some((x) => x.name === segMedia.name)) entries.push({ name: segMedia.name, data: segMedia.blob });
+    if (media && !entries.some((x) => x.name === media.name)) entries.push({ name: media.name, data: media.blob });
+    if (xml) entries.push({ name: ftName, data: new Blob([lametaFlextextMedia(xml, segMedia ? segMedia.name : '')], { type: 'application/xml' }) });
+    const stages = deriveStages({ doc, manifest, files: listing.files || [], analLang: anal });
+    const contributors = [];
+    if (picks.receipt) {
+      try {
+        const receipt = JSON.parse(await fetchAs(picks.receipt, 'text', 'receipt', s, L.instanceId));
+        const who = String((receipt && receipt.signatureName) || '').trim();
+        if (who) contributors.push({ name: who, role: 'speaker' });
+      } catch (e) { log.warn('[lameta] consent receipt not readable for the session:', e); }
+    }
+    const flexGuid = xml ? ((/<interlinear-text\b[^>]*?\bguid="([^"]+)"/.exec(xml) || [])[1] || '') : '';
+    const done = !!cmd.done;
+    const suiteFiles = manifestText ? [{ name: MANIFEST_NAME, data: manifestText }] : [];
+    const session = { id, title, done, vernLang: vern, analLang: anal, stages, contributors, docId, flexGuid, engine: engineVersion, now: now() };
+    const prefix = `Sessions/${id}/`;
+    const all = lametaSessionEntries(session, entries, suiteFiles)
+      .filter((e) => e.name.startsWith(prefix) && !LAMETA_ROOT_FILES.includes(e.name.slice(prefix.length)))
+      .map((e) => ({ name: e.name.slice(prefix.length), data: e.data }));
+
+    // 5. Write. Order: a new folder, the annotation set, the recording, the sidecars, the suite files, the history LAST.
+    s.work = { ...s.work, step: 'write', pct: null }; onChange(L.instanceId);
+    if (isNew) dir = await F.ensureDir(sessionsDir, id);
+    const written = [], kept = [], notes = [], twins = [], created = [];
+    const put = async (name, data) => { if (!(await existsIn(dir, name))) created.push(name); await F.writeFile(dir, name, data); written.push(name); };
+    const suiteDir = await F.ensureDir(dir, LAMETA_SUITE_DIR);
+    const today = dateStamp(now());
+    const annotation = (n) => n === ftName || n === `${id}.eaf` || n === `${id}.pfsx`;
+    const isRecording = (n) => !!media && n === media.name;
+    const isDerived = (n) => !!segMedia && segMedia.derived && n === segMedia.name;
+    for (const e of all) {
+      const n = e.name;
+      if (n.startsWith(`${LAMETA_SUITE_DIR}/`)) continue;             // below, after the files they describe
+      if (n === `${id}.session`) {
+        if (isNew) await put(n, e.data);
+        else kept.push(n);                                            // a rewrite is queued, never done live
+        continue;
+      }
+      if (/\.meta$/i.test(n)) {
+        // A sidecar only beside a file this pass CREATED (§3: for files we created, once). A file
+        // that was already there — replaced or kept — is lameta's to describe; an existing sidecar
+        // is never rewritten.
+        if (!created.includes(n.replace(/\.meta$/i, '')) || await existsIn(dir, n)) { kept.push(n); continue; }
+        await F.writeFile(dir, n, e.data); written.push(n);
+        continue;
+      }
+      if (isRecording(n) && !isNew && await existsIn(dir, n)) {
+        // The recording is never overwritten. Same bytes: nothing to do. Different: written beside it.
+        const prev = await F.readFile(dir, n, { as: 'blob', timeoutMs: 30000 }).catch(() => null);
+        const same = prev && (prev.size === e.data.size) && (await sha256OfBlob(prev)) === (await sha256OfBlob(e.data));
+        if (same) { kept.push(n); continue; }
+        const { stem, ext } = stemExt(n);
+        const twin = `${stem}.returned-${today}${ext}`;
+        await put(twin, e.data); twins.push(twin); notes.push(`recording_differs:${twin}`);
+        continue;
+      }
+      if (annotation(n) && !isNew && n === ftName && await existsIn(dir, n)) {
+        // Back the previous .flextext up OUTSIDE the session before it is replaced.
+        const prev = await F.readFile(dir, n, { as: 'blob', timeoutMs: 30000 });
+        if (prev) {
+          const bdir = await F.ensureDir(rec.handle, `${BACKUP_DIR}/${today}`);
+          let bname = n;
+          if (await existsIn(bdir, bname)) bname = `${id}.${new Date(now()).toISOString().replace(/[-:]/g, '').replace(/\..+$/, '')}.flextext`;
+          await F.writeFile(bdir, bname, prev); notes.push(`backup:${BACKUP_DIR}/${today}/${bname}`);
+        }
+      }
+      // The annotation set (replaced in place), the derived WAV (ours, replaced), a new recording.
+      if (annotation(n) || isDerived(n) || isRecording(n) || isNew) { await put(n, e.data); continue; }
+      if (await existsIn(dir, n)) { kept.push(n); continue; }
+      await put(n, e.data);
+    }
+    // A sidecar for a returned twin, which lametaSessionEntries did not know about.
+    const metaData = (all.find((e) => /\.meta$/i.test(e.name)) || {}).data;
+    for (const n of twins) if (metaData && !(await existsIn(dir, `${n}.meta`))) await put(`${n}.meta`, metaData);
+    // The suite files: the manifest copy is immutable (written once), the history is the record.
+    if (manifestText && !(await existsIn(suiteDir, MANIFEST_NAME))) { await F.writeFile(suiteDir, MANIFEST_NAME, manifestText); written.push(`${LAMETA_SUITE_DIR}/${MANIFEST_NAME}`); }
+    const holder = { kind: 'lameta', id: L.instanceId, name: L.nickname || '' };
+    const by = { kind: 'lameta-agent', id: L.installId };
+    let history;
+    if (returning && known && known.history) {
+      history = withHistoryEvent(known.history, { kind: 'returned', from: historyCustody(known.history), to: holder, by, now: now() });
+      if (notes.length) history.events[history.events.length - 1].notes = notes;
+      // The stage facts this return brought: queued, never written into a .session lameta may hold.
+      L.pendingLameta = queueLametaUpdate(L.pendingLameta || [], { kind: 'stages', sessionId: id, docId, stages, done, at: now() });
+    } else {
+      history = newHistory({ docId, sessionId: id, holder, by, kind: 'assigned', now: now() });
+    }
+    history.sessionId = id;
+    await F.writeFile(suiteDir, LAMETA_HISTORY_NAME, JSON.stringify(history, null, 2));
+    written.push(`${LAMETA_SUITE_DIR}/${LAMETA_HISTORY_NAME}`);
+
+    // 6. The scan sees the session as a text here from now on; the card hears about it.
+    const entry = { name: id, docId, title, custody: holder, manifest: manifest || (known && known.manifest) || null, history,
+                    done, modified: Date.parse(history.custody.since) || now(), manifestFileId: (picks.manifest && picks.manifest.id) || '', available: true };
+    s.cache.set(id, entry);
+    s.sessions = isNew ? [...s.sessions.filter((e) => e && e.name !== id), entry] : s.sessions.map((e) => (e && e.name === id ? entry : e));
+    s.scan = { sessions: s.sessions, available: true };
+    s.pendingLameta = (L.pendingLameta || []).map((u) => ({ sessionId: u.sessionId, kind: u.kind, at: u.at }));
+    s.lastAssign = { docId, sessionId: id, returning, written, kept, notes, live: lametaWritePolicy(s.openMarker.state).live, at: now() };
+    s.work = null;
+    return 'ack';
+  }
+
   /* ─── commands ─── */
   async function dispatch(rec, s, cmd) {
     const L = rec.link;
@@ -335,6 +641,8 @@ export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange 
         // A lameta session is never deleted by the suite; the person sees the refusal on the card.
         s.lastError = 'delete_refused';
         return 'ack';
+      case 'assign':
+        return assignMaterialize(rec, s, cmd);
       default:
         return HELD.includes(cmd.type) ? 'hold' : 'ack';
     }
@@ -370,8 +678,26 @@ export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange 
           catch (e) { log.warn('[lameta] command decrypt failed', c.seq, e); if (!held) ack = Math.max(ack, c.seq || 0); continue; }
         }
         if (held) { waiting.push({ seq: c.seq, type: c.type }); continue; }   // behind a held one: not ours to ack yet
-        const verdict = await dispatch(rec, s, cmd);
+        if (s.skipSeq && s.skipSeq === c.seq) {
+          // Skip, from the card: acked untouched, exactly as a phone would have. The person decided.
+          s.skipSeq = 0; if (s.heldFail && s.heldFail.seq === c.seq) s.heldFail = null;
+          ack = Math.max(ack, c.seq || 0); continue;
+        }
+        if (s.heldFail && s.heldFail.seq === c.seq && s.retrySeq !== c.seq && (now() - s.heldFail.at) < HELD_RETRY_MS) {
+          held = true; waiting.push({ seq: c.seq, type: c.type, error: s.heldFail.error }); continue;   // failed recently: wait for Retry or the backoff
+        }
+        let verdict;
+        try { verdict = await dispatch(rec, s, cmd); }
+        catch (e) {
+          // A handler that threw: held with its error, so the card shows it and nothing is acked.
+          const msg = (e && e.message) || String(e);
+          s.heldFail = { seq: c.seq, type: c.type, error: msg, at: now() }; s.work = null;
+          log.warn('[lameta] command failed', c.type, c.seq, e);
+          held = true; waiting.push({ seq: c.seq, type: c.type, error: msg }); continue;
+        }
+        if (s.retrySeq === c.seq) s.retrySeq = 0;
         if (verdict === 'hold') { held = true; waiting.push({ seq: c.seq, type: c.type }); continue; }
+        if (s.heldFail && s.heldFail.seq === c.seq) s.heldFail = null;
         ack = Math.max(ack, c.seq || 0);
       }
       L.ackSeq = ack;
@@ -419,10 +745,32 @@ export function createLametaAgent({ R, F, engineVersion = '', ua = '', onChange 
     const s = live.get(instanceId);
     if (!s) return null;
     const { cache, ...rest } = s;
-    return { ...rest, waiting: s.waiting.slice(), sessions: Array.isArray(s.sessions) ? s.sessions.slice() : null };
+    return { ...rest, waiting: s.waiting.slice(), sessions: Array.isArray(s.sessions) ? s.sessions.slice() : null,
+             pendingLameta: (s.pendingLameta || []).slice(), openMarker: { ...(s.openMarker || { state: 'absent' }) } };
+  }
+  /* Retry / Skip for a held command that failed (the card's two buttons). Retry runs it on the next
+   * tick regardless of the backoff; Skip acks it untouched on the next tick. Both tick at once. */
+  function retryHeld(instanceId, seq) {
+    const s = st(instanceId); const f = s.heldFail;
+    if (!f || (seq && f.seq !== seq)) return false;
+    s.retrySeq = f.seq; onChange(instanceId); tick(instanceId).catch(() => {}); return true;
+  }
+  function skipHeld(instanceId, seq) {
+    const s = st(instanceId); const f = s.heldFail;
+    if (!f || (seq && f.seq !== seq)) return false;
+    s.skipSeq = f.seq; onChange(instanceId); tick(instanceId).catch(() => {}); return true;
+  }
+  /* THE GATE on the pending lameta updates (plans/lameta-device.md §7, plans/flextext-metadata.md
+   * §5): they may be applied only while the open marker is not fresh. M7's apply calls this first;
+   * the card reads it to say why Apply waits. */
+  function pendingGate(instanceId) {
+    const s = st(instanceId);
+    const state = (s.openMarker && s.openMarker.state) || 'absent';
+    const policy = lametaWritePolicy(state);
+    return { allowed: policy.applyPending, state, app: (s.openMarker && s.openMarker.app) || '', n: (s.pendingLameta || []).length, live: policy.live };
   }
 
   return { link, unlink, links, linkedFor, tick, tickAll, start, stop, status, requestPermission,
-           prepareAdopt, beginAdopt, finishAdopt,
+           prepareAdopt, beginAdopt, finishAdopt, retryHeld, skipHeld, pendingGate,
            inspect: (handle, opts) => inspectProject(F, handle, opts), running: () => started };
 }

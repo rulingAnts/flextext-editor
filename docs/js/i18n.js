@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v709';
+export const ENGINE_VERSION = 'v710';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v709';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'lameta-device-m5 v1';
 
 const S = {
 en: {
@@ -1168,6 +1168,23 @@ internet after the first time.</p>
   'panel.lameta.adoptGo': 'Adopt',
   'panel.lameta.adoptQueued': 'Adopting “{name}” — the files are uploading to Drive.',
   'panel.lameta.adopted': '“{title}” is now a FlexText text of this project.',
+  // Milestone 5: a moved-in text becomes a session; the FlexText Metadata open marker.
+  'panel.lameta.working': 'Working on “{title}”: {step}',
+  'panel.lameta.work.list': 'listing its files',
+  'panel.lameta.work.fetch': 'fetching {name}',
+  'panel.lameta.work.convert': 'converting {name} to WAV for ELAN',
+  'panel.lameta.work.build': 'building the session files',
+  'panel.lameta.work.write': 'writing the session folder',
+  'panel.lameta.failed': 'A command ({type}) failed: {msg}. It stays queued.',
+  'panel.lameta.retry': 'Retry',
+  'panel.lameta.skip': 'Skip',
+  'panel.lameta.confirmSkip': 'Skip this command? It is acknowledged without being carried out, and the text will not appear in this project until it is moved here again.',
+  'panel.lameta.forkOpen': '{app} has this project open — new sessions appear in it at once.',
+  'panel.lameta.pendingN': '{n} update(s) to existing sessions waiting to be applied once lameta is closed (a later version applies them).',
+  'panel.lameta.pendingNOpen': '{n} update(s) to existing sessions waiting — they cannot be applied while the project is open.',
+  'panel.lameta.assigned': 'Session “{id}” written. Reopen the project in lameta to see it.',
+  'panel.lameta.assignedLive': 'Session “{id}” written — it is already listed in the open project.',
+  'panel.lameta.returned': 'Session “{id}” refreshed with the returned text; the previous .flextext is in lameta-agent-backups/.',
   'panel.aq.doneAdopt': 'Adopted',
   'panel.dash.refresh': 'Refresh',
   // Admin modal — OWNER-only (ALLOWED_RESEARCHERS). The Worker enforces this independently; the
@@ -3901,6 +3918,23 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.lameta.adoptGo': 'Adopsi',
   'panel.lameta.adoptQueued': 'Mengadopsi “{name}” — berkasnya sedang diunggah ke Drive.',
   'panel.lameta.adopted': '“{title}” kini menjadi teks FlexText di proyek ini.',
+  // Milestone 5: teks yang dipindahkan menjadi sesi; penanda “terbuka” FlexText Metadata.
+  'panel.lameta.working': 'Mengerjakan “{title}”: {step}',
+  'panel.lameta.work.list': 'mendaftar berkasnya',
+  'panel.lameta.work.fetch': 'mengambil {name}',
+  'panel.lameta.work.convert': 'mengonversi {name} ke WAV untuk ELAN',
+  'panel.lameta.work.build': 'menyusun berkas sesi',
+  'panel.lameta.work.write': 'menulis folder sesi',
+  'panel.lameta.failed': 'Sebuah perintah ({type}) gagal: {msg}. Perintah tetap antre.',
+  'panel.lameta.retry': 'Coba lagi',
+  'panel.lameta.skip': 'Lewati',
+  'panel.lameta.confirmSkip': 'Lewati perintah ini? Perintah dianggap selesai tanpa dijalankan, dan teksnya tidak akan muncul di proyek ini sampai dipindahkan ke sini lagi.',
+  'panel.lameta.forkOpen': '{app} sedang membuka proyek ini — sesi baru langsung muncul di dalamnya.',
+  'panel.lameta.pendingN': '{n} pembaruan untuk sesi yang sudah ada menunggu diterapkan setelah lameta ditutup (versi berikutnya yang menerapkannya).',
+  'panel.lameta.pendingNOpen': '{n} pembaruan untuk sesi yang sudah ada menunggu — tidak dapat diterapkan selama proyek terbuka.',
+  'panel.lameta.assigned': 'Sesi “{id}” ditulis. Buka ulang proyek di lameta untuk melihatnya.',
+  'panel.lameta.assignedLive': 'Sesi “{id}” ditulis — sudah terdaftar di proyek yang terbuka.',
+  'panel.lameta.returned': 'Sesi “{id}” diperbarui dengan teks yang kembali; berkas .flextext sebelumnya ada di lameta-agent-backups/.',
   'panel.aq.doneAdopt': 'Diadopsi',
   'panel.dash.refresh': 'Segarkan',
   'panel.admin.btn': 'Admin',

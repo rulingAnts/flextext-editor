@@ -5387,6 +5387,13 @@ async function instanceActionInner(el) {
       const a = await lametaAgentGet();
       const ok = await busy(el, () => a.requestPermission(id));
       if (!ok) deps.toast(t('panel.lameta.denied'), 6000);
+    } else if (act === 'lameta-retry') {
+      (await lametaAgentGet()).retryHeld(id, Number(el.dataset.seq) || 0);
+    } else if (act === 'lameta-skip') {
+      // Skip acks the command untouched: the text's Drive folder already sits under this device,
+      // so skipping leaves it listed nowhere until it is moved again — said before it is done.
+      if (!await confirmModal(t('panel.lameta.confirmSkip'))) return;
+      (await lametaAgentGet()).skipHeld(id, Number(el.dataset.seq) || 0);
     } else if (act === 'revoke') {
       if (!await confirmModal(t('panel.inst.confirmRevoke', { name: el.dataset.name || '' }))) return;
       await busy(el, () => Researcher.revokeInstance(id));
@@ -5675,6 +5682,12 @@ async function lametaAgentGet() {
     R: Researcher, F, engineVersion: ENGINE_VERSION, ua: navigator.userAgent,
     onChange: (id) => paintLametaStatus(id),
     visible: () => document.visibilityState === 'visible',
+    /* M5 (assign materialize): the two browser-only pieces the agent needs, injected so it stays
+     * node-testable — the Web Audio converter for the WAV working copy (the same call the loose-file
+     * converter makes) and the DOMParser-backed flextext parser. */
+    convertWav: async (blob, onProgress) => (await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 }, onProgress)).blob,
+    parseFlextext,
+    producedBy: () => (deps.producedBy ? deps.producedBy() : ''),
   });
   return lametaAgent;
 }
@@ -5701,9 +5714,31 @@ function lametaStatusText(id) {
   const err = s.lastError === 'delete_refused' ? t('panel.lameta.deleteRefused') : (s.lastError && s.lastError !== 'revoked' ? t('panel.err', { msg: s.lastError }) : '');
   return { text: err ? `${text} · ${err}` : text, allow: false, waiting: s.waiting.length };
 }
+/* M5: what the agent is doing right now (an assign's fetch / convert / write), the command that
+ * FAILED with its Retry / Skip, the FlexText Metadata open marker, and the queued lameta updates
+ * (applied in M7; the gate that will decide is already the agent's pendingGate). */
+function lametaWorkHtml(id) {
+  const s = lametaAgent && lametaAgent.status(id);
+  if (!s || !s.linked) return '';
+  const parts = [];
+  if (s.work) {
+    const step = t('panel.lameta.work.' + (['list', 'fetch', 'convert', 'build', 'write'].includes(s.work.step) ? s.work.step : 'build'), { name: s.work.name || s.work.title || '' });
+    parts.push(`<div class="note rp-lameta-work">${esc(t('panel.lameta.working', { title: s.work.title || s.work.docId || '', step }))}${s.work.pct != null ? ` ${esc(String(s.work.pct))}%` : ''}</div>`);
+  }
+  if (s.heldFail) {
+    parts.push(`<div class="note rp-lameta-fail">${esc(t('panel.lameta.failed', { type: s.heldFail.type, msg: s.heldFail.error }))}
+      <button class="link-btn" data-iact="lameta-retry" data-i="${esc(id)}" data-seq="${esc(String(s.heldFail.seq))}">${esc(t('panel.lameta.retry'))}</button>
+      <button class="link-btn" data-iact="lameta-skip" data-i="${esc(id)}" data-seq="${esc(String(s.heldFail.seq))}">${esc(t('panel.lameta.skip'))}</button></div>`);
+  }
+  const gate = lametaAgent.pendingGate(id);
+  if (gate.live) parts.push(`<div class="note rp-lameta-open">${esc(t('panel.lameta.forkOpen', { app: gate.app || 'FlexText Metadata' }))}</div>`);
+  if (gate.n) parts.push(`<div class="note rp-lameta-pending">${esc(t(gate.allowed ? 'panel.lameta.pendingN' : 'panel.lameta.pendingNOpen', { n: gate.n }))}</div>`);
+  if (s.lastAssign && !s.work && !s.heldFail) parts.push(`<div class="note rp-lameta-last">${esc(t(s.lastAssign.returning ? 'panel.lameta.returned' : (s.lastAssign.live ? 'panel.lameta.assignedLive' : 'panel.lameta.assigned'), { id: s.lastAssign.sessionId }))}</div>`);
+  return parts.join('');
+}
 function lametaStatusHtml(id) {
   const { text, allow, waiting } = lametaStatusText(id);
-  return `<div class="note rp-lameta-status" data-lameta-status="${esc(id)}">${esc(text)}${waiting ? ' · ' + esc(t('panel.lameta.waiting', { n: waiting })) : ''}${allow ? ` <button class="link-btn" data-iact="lameta-allow" data-i="${esc(id)}">${esc(t('panel.lameta.allow'))}</button>` : ''}</div>`;
+  return `<div class="note rp-lameta-status" data-lameta-status="${esc(id)}">${esc(text)}${waiting ? ' · ' + esc(t('panel.lameta.waiting', { n: waiting })) : ''}${allow ? ` <button class="link-btn" data-iact="lameta-allow" data-i="${esc(id)}">${esc(t('panel.lameta.allow'))}</button>` : ''}</div>${lametaWorkHtml(id)}`;
 }
 /* The sessions the agent found that are NOT texts here yet (milestone 4, Adopt), and the ones that
  * carry a manifest but belong to another holder. Rendered only in the browser that holds the link:

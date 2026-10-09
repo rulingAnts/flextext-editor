@@ -164,8 +164,9 @@ Electron. The JSON-RPC contract is unchanged, so the switch is local.
 ## 5. The suite device, and the contract between the fork and the agent
 
 The project is an ordinary lameta folder on the researcher's disk. So the panel's lameta-device
-agent (`docs/js/lameta-agent.js` + `files.js`, built through M4 and in production behind
-`?lameta=1`) links it exactly as it would a stock lameta project.
+agent (`docs/js/lameta-agent.js` + `files.js`, in production through M4 behind `?lameta=1`; M5 built
+on branch `lameta-device` as v710, with this marker read — `plans/lameta-device.md` §10) links it
+exactly as it would a stock lameta project.
 
 What the fork changes is the cooperation. Stock lameta has no lock and no file watcher, which is
 why the agent queues every rewrite of an existing `.session` until the researcher confirms lameta
@@ -194,8 +195,9 @@ is closed.
 - **Later (M7):** the fork applies the agent's queued `.session` updates in-process, through a
   request file in `Sessions/<id>/flextext/`. That contract is written when M7 starts.
 
-**Suite milestones still to build** (`plans/lameta-device.md` §9–10):
-- **M5:** a moved-in text becomes a session.
+**Suite milestones** (`plans/lameta-device.md` §9–10):
+- **M5:** ✅ a moved-in text becomes a session; the marker is read every tick, `readOpenMarker` /
+  `openMarkerState` / `lametaWritePolicy` / `pendingGate` in `lameta-agent.js` (v710, branch only).
 - **M6:** checkout and return.
 - **M7:** setDone, changeSettings, recovery.
 - **M8:** gates, i18n, release.

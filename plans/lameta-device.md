@@ -168,26 +168,141 @@ the first install, as any device re-pair does.
 | 2 | ✅ v691 (staging) — `files.js` + tests; hidden "Link…" that only picks and lists `Sessions/` | Chrome: folder picked, sessions listed, permission survives an installed-PWA relaunch; Firefox: the honest message |
 | 3 | ✅ v692 (staging) — `researcher.js` helpers; agent link + poll/report; card badge/status/gates | a "linked" lameta card with the badge and engine version, zero texts; Unlink; second-browser link revokes the first |
 | 4 | ✅ v693 (staging) — Adopt (recording + .flextext to Drive; the ELAN file stays in the session until the worker accepts an `elan-eaf` upload) | an adopted session appears; Files ▾ builds ELAN/lameta downloads from the Drive copy; Move… offered |
-| 5 | `buildConversionSources` + `buildLametaSessionFiles`; `assign` materialize | a phone's text moved in; lameta reopened shows it; ELAN opens the EAF; media ref right; nothing of ours listed |
+| 5 | ✅ v710 (branch only, `lameta-device-m5 v1`) — `assign` materialize + the open marker (§10) | a phone's text moved in; lameta reopened shows it; ELAN opens the EAF; media ref right; nothing of ours listed; the fork lists it live |
 | 6 | checkout + return | out: phone holds it, card stops listing it, files remain; back: annotation set refreshed, `.session` untouched |
 | 7 | setDone/changeSettings/triggerUpload/delete/wipe; pending-updates box; recovery | Done queues; Apply writes once lameta is closed; Erase absent; revoke → unlink only |
 | 8 | gates audit, i18n EN/ID, RELEASES, bump, docs; then the real project | full suite, `check-native-containment.sh` |
 
-## 10. Where the build stands, and how to continue (2026-09-27, end of session)
+## 10. Where the build stands, and how to continue (2026-10-10, M5 built)
 
-**Built (branch `lameta-device`, on staging):** M0 docs; M1 = v690 (also fast-forwarded onto
-`satellite-apps-v566`, the production candidate); M2 = v691 (`files.js`, the hidden Link preview);
-M3 = v692 (`lameta-agent.js`: link/poll/report/held commands, the card's badge, status line and
-gates); M4 = v693 (Adopt through the assign-upload queue; `flextext/` written after the bytes land).
-Everything is behind `?lameta=1` and owner-only. `satellite-apps-v566` stays at v690 until the
-device is complete; production has not moved.
+**Built:** M0 docs; M1 = v690; M2 = v691 (`files.js`, the hidden Link preview); M3 = v692
+(`lameta-agent.js`: link/poll/report/held commands, the card's badge, status line and gates); M4 =
+v693 (Adopt through the assign-upload queue; `flextext/` written after the bytes land) — all four
+**in production since v709** (merged to `main`, released with the `?lameta=1` gate still on). **M5 =
+v710, `BUILD_TAG 'lameta-device-m5 v1'`, on branch `lameta-device` only** (built overnight,
+2026-10-10; not merged to `staging` or `main`, not deployed anywhere — no preview build has been
+dispatched, no worker touched). Everything stays behind `?lameta=1` and owner-only.
+
+### What M5 does (v710)
+
+- **`assign` is a handler, no longer held** (`HANDLED = changeSettings, delete, assign`; `HELD =
+  uploadDelete, triggerUpload, setDone`). The panel's Move… re-parents the text's Drive folder to
+  the lameta device and issues `assign`; the agent ignores the command's streaming URLs and, as the
+  researcher, calls `R.listTextFiles(lametaInstanceId, docId)` (roles from Drive's tags) and
+  `R.fetchDriveFile` for the manifest, the recording, the `.flextext` and the consent receipt.
+- **Two more injected deps** keep it node-testable: `convertWav` (the panel passes the same
+  `convertAudio(…, { format: 'wav', wavBits: 16 })` call the loose-file converter uses) and
+  `parseFlextext` (needs a DOMParser at call time, so it is a dep rather than an import; the agent
+  statically imports only `segmentsFromOffsets` from `flextext.js` — the isolation test now allows
+  exactly `flextext.js`, `lameta.js`, `seg-exports.js`).
+- **Session id** = `lametaSessionIdFor(title, docId, scan)`: a folder whose manifest carries this
+  docId is a return trip and keeps its name; otherwise the title's id with `_2`, `_3` on a
+  case-insensitive collision; a folder that exists under the chosen id without our manifest is
+  refused (`session_folder_taken`), never written into.
+- **Files** (built by the same code as the panel's lameta download): `parseFlextext` +
+  `segmentsFromOffsets` → `assembleSegEntries({ wants: { eaf: true }, full: false })` gives
+  `<id>.eaf` / `<id>.pfsx` and, when the recording is not WAV and the text is aligned, the derived
+  `<id>.converted-NOT-ARCHIVAL.wav` (above `conversionCaps`' ceiling the lossy original is the
+  timeline, as in the download); the recording under `<id>.<ext>`; `lametaFlextextMedia` repoints the
+  fetched XML's media reference at the file that ships (byte-for-byte otherwise);
+  `lametaSessionEntries` gives the layout, the `Sessions/<id>/` prefix is stripped and
+  `HOW-TO-OPEN.txt` is dropped (`LAMETA_ROOT_FILES`). `.session` only when the folder is NEW;
+  `.meta` only beside files this pass created; `flextext/flextext-manifest.json` = the Drive bytes,
+  written once; `flextext-history.json` written LAST (`newHistory({ kind: 'assigned' })`, custody
+  `{ kind: 'lameta', id, name: nickname }`). Stages via `deriveStages`; `Suite_Doc_Id`,
+  `Flex_Text_Guid`, `Suite_Stamp` in the CustomFields; the receipt's `signatureName` as a speaker.
+- **Return trip:** `.flextext` / `.eaf` / `.pfsx` replaced in place, the previous `.flextext` copied
+  to `<project>/lameta-agent-backups/<date>/` first (a second trip the same day gets a time-stamped
+  name); the recording is matched by hash and never overwritten — different bytes are written beside
+  it as `<name>.returned-<date>.<ext>` (with a `.meta`) and noted in the history event; the
+  `.session` and every existing `.meta` are untouched; `withHistoryEvent(h, { kind: 'returned' })`
+  moves custody back; the stage facts the return brought go into **`link.pendingLameta[]`**
+  (`queueLametaUpdate`: one entry per session and kind, stages merged monotonically) — the §7 queue,
+  which M7 applies. On a return to an ADOPTED session the `.flextext` to replace and the recording to
+  leave alone are the ones the session's manifest names (match by role, not name), when still there.
+- **Ack rule:** `ack` only after the history file is written. A throw anywhere holds the command with
+  its error (`status().heldFail`), nothing behind it is acked, the lane is re-read each tick; the
+  failed command is not retried on its own within `HELD_RETRY_MS` (5 min) — the card shows the error
+  with **Retry** (`retryHeld`) and **Skip** (`skipHeld`, confirmed first; acks it untouched).
+- **The open marker** (`plans/flextext-metadata.md` §5): `readOpenMarker(F, handle)` reads
+  `<project>/.flextext-open.json` through the seam with a 3 s timeout (a cloud placeholder reports
+  `absent` + `timeout`, never a hang); `openMarkerState` is pure: `fresh` / `stale` (heartbeat older
+  than 2 min) / `absent`. The agent reads it every tick (`status().openMarker`). `lametaWritePolicy`:
+  a new session folder is written at once in EVERY state (fresh: the fork's watcher lists it live;
+  absent/stale: lameta lists it on reopen — today's behaviour, unchanged); a rewrite of an existing
+  `.session` is queued in every state; the queue may be APPLIED only while the marker is not fresh.
+  **`pendingGate(instanceId)`** is that gate — the card reads it now ("cannot be applied while the
+  project is open"), and M7's apply must call it first.
+- **Card:** a working line (list / fetch N% / convert / build / write), the failed command with
+  Retry / Skip, "FlexText Metadata has this project open", the pending count, and the last result
+  ("Session X written — reopen lameta" / "— already listed in the open project" / "refreshed; the
+  previous .flextext is in lameta-agent-backups/"). EN + ID strings added.
+- **Tests:** `test/lameta-agent-assign.test.mjs` (16 tests, fake folder with file contents, fake
+  researcher serving a text by role, fake converter and parser): the new-session folder listing to
+  the file, the WAV and audio-less cases, the id collision, the return trip (backup, untouched
+  recording/.session/.meta, the queued stages, the twin), the ack/hold/Retry/Skip rule, the marker's
+  three states, the timeout, the policy and its wiring. `panel-lameta-gates` pins the injection and
+  the card. Full suite 797/797 (`node --test test/*.test.mjs`), `check-native-containment.sh` and
+  `check-secrets.sh` clean.
+
+### What Seth checks on a PREVIEW build (the M5 row of §9) — against a COPY of the lameta project
+
+Dispatch *Deploy to staging / preview* from `lameta-device`, ticking **researcher** (and editor, for
+`?mode=researcher`); the agent runs in the installed researcher panel with `?lameta=1`.
+
+1. Link the copy (M3), confirm the badge. Move a phone's text (one with a recording and an aligned
+   `.flextext`) to the lameta device with Move…. Watch the card: "Working on …: fetching / converting
+   / writing", then "Session `<id>` written".
+2. `Sessions/<id>/` holds exactly: `<id>.session`, `<id>.flextext`, `<id>.eaf`, `<id>.pfsx`, the
+   recording as `<id>.<ext>`, `<id>.converted-NOT-ARCHIVAL.wav` when the recording is not WAV, one
+   `.meta` beside each, and `flextext/` with the manifest and history. **Nothing of ours listed by
+   lameta**, no `HOW-TO-OPEN.txt`, nothing directly under `Sessions/`.
+3. Reopen the project in lameta: the session lists with the title, Status (In_Progress unless Done),
+   the languages, the speaker from the consent receipt, and the `Stage_*` / `Suite_Doc_Id` rows.
+   "Open in ELAN" on the EAF: tiers vernacular-first, waveform from the derived WAV, times right.
+   **The `.flextext`'s media reference names the WAV that is there** (open it in FLEx: no media hunt).
+4. The card now lists the text (inventory `items`), the panel's device view shows it moved; Files ▾
+   works on it (the Drive folder is unchanged).
+5. Return trip: move the text out to a phone (M6 is not built — do this with a second device if the
+   move offers it, or skip) and back: the annotation set refreshed, the old `.flextext` under
+   `<project>/lameta-agent-backups/<date>/`, the recording's mtime unchanged, the `.session` unchanged,
+   the card saying "1 update(s) to existing sessions waiting".
+6. Failure path: move a text whose Drive folder has no `.flextext` and no recording → the card shows
+   the error with Retry / Skip; nothing was written; Skip asks first.
+7. With FlexText Metadata (the fork) running on the project: the card says it is open; a moved-in
+   text appears in the fork without a reopen; the pending line says the updates cannot be applied
+   while it is open. Quit the fork → the line changes within a tick. Kill it → after 2 min the same.
+
+### Unverified (fakes only — nothing in M5 has run in a browser yet)
+
+- The real File System Access handles under `ensureDir` / `statFile` / `writeFile` for the backup
+  folder at the project root and for a session folder written in one pass; the installed-PWA
+  permission across the whole sequence.
+- `convertAudio` on a real phone recording through the injected `convertWav` (progress reaches the
+  card via `s.work.pct`); the EAF's `MEDIA_URL` against the file lameta/ELAN see on Windows.
+- The `.session` written with stages opens in stock lameta 3.0.21-beta without complaint (same caveat
+  as `plans/lameta-session-export.md` §6) and in the fork.
+- A pre-manifest (legacy) text: no roles on Drive → the `.flextext` is picked by name only and a
+  recording without a role is NOT picked (the text materializes audio-less). Decide whether to fall
+  back to audio-by-extension before M8.
+- The move flow still calls `Researcher.adoptText` (which mints streaming URLs the agent never reads)
+  before `assign`; harmless, but a lameta destination could skip it.
+- `cmd.done` on `assign` is never set by the panel's move flow, so a Done text arrives `In_Progress`
+  until `setDone` (M7); the inventory's `done` comes from the `.session` on the next scan.
+
+**Release notes:** `CLAUDE.md` requires the `RELEASES` modal entry before any PRODUCTION push. Not
+written — this is a feature build (`BUILD_TAG` set), nothing is released, and the entry belongs to
+the release that will carry M5–M8 together (M8). No deploy of any kind was made in this session.
+
+### How it was before M5 (2026-09-27, for the record)
 
 **What Seth checks before M5 is worth building** (staging = the real account; use a COPY of the
 lameta project): the folder permission survives a relaunch of the INSTALLED panel; Link makes a
 device with the `lameta` badge; Adopt of one session uploads its recording + `.flextext`, the
 session gains `flextext/`, lameta still lists nothing new, Files ▾ works on the adopted text.
 
-**M5 — `assign` materialize (a phone's text moved in), the plan that fits what is built:**
+**M5 — `assign` materialize (a phone's text moved in), the plan that fits what is built** (✅ built
+as above; kept because it is the spec the code follows):
 - The agent already HOLDS `assign` (`HELD`); M5 turns it into a handler. Do not use the command's
   streaming URLs: the agent is the researcher, so `R.listTextFiles(docId)` (roles) +
   `R.fetchDriveFile(fileId)` fetch the manifest, the recording and the `.flextext`; inject both

@@ -12,10 +12,16 @@ const FILES = read('../docs/js/files.js');
 const PANEL = read('../docs/js/researcher-panel.js');
 const RES = read('../docs/js/researcher.js');
 
-test('the agent imports only the two pure format modules; every platform is injected, so node can run the loop', () => {
+test('the agent imports only the three pure format modules; every platform is injected, so node can run the loop', () => {
   const imports = [...AGENT.matchAll(/^\s*import\s[\s\S]*?from '([^']+)';/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ['./lameta.js', './seg-exports.js'], 'the session format and the manifest builder — nothing with a browser behind it');
+  assert.deepEqual(imports, ['./flextext.js', './lameta.js', './seg-exports.js'],
+    'the session format, the EAF/manifest builders and segmentsFromOffsets — nothing with a browser behind it');
   assert.match(AGENT, /export function createLametaAgent\(\{ R, F,/);
+  // parseFlextext needs a DOMParser at CALL time and the converter needs Web Audio: both injected, never imported.
+  assert.match(AGENT, /import \{ segmentsFromOffsets \} from '\.\/flextext\.js';/, 'only the pure function from flextext.js');
+  assert.doesNotMatch(AGENT, /import \{[^}]*parseFlextext[^}]*\} from/, 'parseFlextext is a dependency, not an import');
+  assert.doesNotMatch(AGENT, /from '\.\/convert\.js'/, 'convert.js (Web Audio) is never imported');
+  assert.match(AGENT, /convertWav = null, parseFlextext = null/);
 });
 
 test('nothing of sync.js or the editor storage: no session key, no sync database, no localStorage', () => {

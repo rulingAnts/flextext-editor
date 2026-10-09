@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v712';
+export const ENGINE_VERSION = 'v713';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v712';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'roundtrip v3';
+export const BUILD_TAG = 'roundtrip v4';
 
 const S = {
 en: {
@@ -1644,6 +1644,7 @@ internet after the first time.</p>
     ,'panel.rel.fix.gapLines': 'Editor and Audio Segmenter: a text whose timed lines leave pauses between them \u2014 a file exported since v709, or a FLEx or ELAN text with stretches left unannotated \u2014 now opens with a blank line in each pause of a third of a second or more, and before the first line and after the last, so every part of the recording has a line you can play, cut or type into. A blank line still reaches FLEx and ELAN only once something is typed into it.'
     ,'panel.rel.fix.passthroughSilent': 'Researcher panel and Utilities: the .flextext download, the lameta session, Download all (ZIP) and the Convert/Export tool\u2019s .flextext now leave out empty timed lines as well \u2014 for files uploaded by a device that had not yet updated to v709. Nothing else in the file changes.'
     ,'panel.rel.fix.zipLatest': 'Researcher panel, Files\u2026 \u25b8 Download all (ZIP): the current .flextext is at the top of the ZIP under the text\u2019s own name, beside the ELAN and SayMore files made from it; older timestamped copies are inside an \u201colder_versions\u201d folder (no space in the name, so lameta can take it).'
+    ,'panel.rel.fix.blankLinesKept': 'Editor and Audio Segmenter: a text moved between devices \u2014 or opened again from a .flextext this suite wrote \u2014 comes back with every cut where it was, blank pieces included. The .flextext still has no empty lines for FLEx or ELAN; the blank pieces\u2019 times travel inside it in a note those programs skip.'
     ,'panel.rel.new.segPermsOn': 'Audio Segmenter: editing words, glosses and translations in place, adding blank lines, and swapping a recording the coworker attached themselves are now on by default on a paired device too. A researcher can still switch each one off in the device\u2019s settings; settings saved with an earlier panel count as not set, so these come on until you untick them.'
     ,'panel.rel.new.mgGuessPiece': 'Audio Segmenter: \u2728 is in the bottom-right corner of the big player, as in the Editor. Once anything has been cut it guesses only the piece under the playhead \u2014 cut part of a recording by hand, or cut a long one into pieces, and let \u2728 do the rest one piece at a time. Undo puts it back.'
     ,'panel.rel.new.mgWordSplitJoin': 'Audio Segmenter: when editing a word in place, Space in the middle of the word splits it into two word/gloss pairs, and Backspace at the start of a word joins it to the one before.'
@@ -4299,6 +4300,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.gapLines': 'Editor dan Pemotong Audio: teks yang baris-baris berwaktunya menyisakan jeda di antaranya \u2014 berkas yang diekspor sejak v709, atau teks FLEx atau ELAN dengan bagian yang tidak dianotasi \u2014 kini dibuka dengan baris kosong di setiap jeda sepertiga detik atau lebih, serta sebelum baris pertama dan sesudah baris terakhir, sehingga setiap bagian rekaman punya baris yang bisa diputar, dipotong, atau diketik. Baris kosong tetap baru masuk ke FLEx dan ELAN setelah ada yang diketik di dalamnya.'
     ,'panel.rel.fix.passthroughSilent': 'Panel Peneliti dan Utilitas: unduhan .flextext, sesi lameta, Unduh semua (ZIP), dan .flextext dari alat Konversi/Ekspor kini juga membuang baris kosong yang berwaktu \u2014 untuk berkas yang diunggah perangkat yang belum diperbarui ke v709. Bagian lain dari berkas tidak berubah.'
     ,'panel.rel.fix.zipLatest': 'Panel Peneliti, Berkas\u2026 \u25b8 Unduh semua (ZIP): .flextext yang terbaru ada di bagian atas ZIP dengan nama teksnya sendiri, di samping berkas ELAN dan SayMore yang dibuat darinya; salinan lama yang bertanda waktu ada di dalam folder \u201cversi_lama\u201d (tanpa spasi pada namanya, agar bisa dipakai lameta).'
+    ,'panel.rel.fix.blankLinesKept': 'Editor dan Pemotong Audio: teks yang dipindahkan antarperangkat \u2014 atau dibuka lagi dari .flextext yang ditulis rangkaian aplikasi ini \u2014 kembali dengan setiap potongan di tempatnya, termasuk potongan yang kosong. .flextext tetap tanpa baris kosong untuk FLEx atau ELAN; waktu potongan kosong ikut di dalamnya dalam catatan yang dilewati program-program itu.'
     ,'panel.rel.new.segPermsOn': 'Pemotong Audio: menyunting kata, glos, dan terjemahan di tempat, menambah baris kosong, dan mengganti rekaman yang dilampirkan rekan kerja sendiri kini aktif secara bawaan juga di perangkat yang tertaut. Peneliti tetap bisa mematikan masing-masing di pengaturan perangkat; pengaturan yang disimpan dengan panel versi lama dianggap belum diatur, jadi fitur ini aktif sampai Anda menghapus centangnya.'
     ,'panel.rel.new.mgGuessPiece': 'Pemotong Audio: \u2728 ada di sudut kanan bawah pemutar besar, seperti di Editor. Setelah ada yang dipotong, \u2728 hanya menebak bagian tempat posisi putar berada \u2014 potong sebagian rekaman sendiri, atau potong rekaman panjang menjadi beberapa bagian, lalu biarkan \u2728 mengerjakan sisanya satu per satu. Urungkan mengembalikannya.'
     ,'panel.rel.new.mgWordSplitJoin': 'Pemotong Audio: saat menyunting kata di tempat, Spasi di tengah kata membaginya menjadi dua pasangan kata/glos, dan Backspace di awal kata menggabungkannya dengan kata sebelumnya.'

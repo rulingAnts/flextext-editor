@@ -293,6 +293,14 @@ function parseInterlinearText(itEl, version, prefs = {}) {
     }
   }
 
+  // The blank lines the writer left out, by their times (BLANK_LINES_PI): the heal puts them back.
+  // A processing instruction is not an element, so it never reaches the switch above.
+  for (const node of Array.from(itEl.childNodes || [])) {
+    if (!node || node.nodeType !== 7 || node.target !== BLANK_LINES_PI) continue;
+    const pieces = parseBlankLinesPi(node.data);
+    if (pieces.length) doc.blankLines = (doc.blankLines || []).concat(pieces);
+  }
+
   // Determine writing systems: prefer <languages>, fall back to usage.
   const vernFromLangs = doc.languages.find(l => l.vernacular);
   if (vernFromLangs) doc.vernLang = vernFromLangs.lang;
@@ -501,6 +509,50 @@ export function isSilentPhrase(seg) {
   return true;
 }
 
+/* ⚠ …BUT ITS TIMES ARE KEPT, WHERE FLEX AND ELAN DO NOT LOOK (v713, #111; Seth, 2026-10-10: "Keep the
+ * upload clean and record the blank pieces' times inside the file, as a hidden XML instruction that
+ * FLEx and ELAN ignore").
+ *
+ * The .flextext a device uploads is also how a text MOVES: the researcher sends it to another device
+ * (or back to the same one) and that device rebuilds the text from it. Leaving the silent lines out
+ * left their cuts out too — Brian, #111: a text cut into pieces, half of them transcribed, came back
+ * with only the transcribed ones; from v712 the audio came back as blank lines, but a run of
+ * untranscribed pieces came back as ONE. So the serializer writes, inside <interlinear-text>, one
+ * XML processing instruction listing every blank line it left out, start–end in milliseconds, `~`
+ * for an estimated span:
+ *
+ *     <?flextext-editor v="1" blank-lines="0-4000 9000-12000 ~12000-16000"?>
+ *
+ * A processing instruction is XML's own place for one application's data (XML 1.0 §2.6): it is not
+ * an element, so it is not part of what the schema governs — the file still validates against FLEx's
+ * FlexInterlinear.xsd with it in (checked with xmllint, 2026-10-10) — and readers that do not know
+ * the target skip it. On re-import parseInterlinearText reads it into `doc.blankLines`, and the heal
+ * (fillGapLines' `pieces`, via app.js healGapLines) puts every blank line back at its own times. A
+ * file that has been through FLEx or ELAN loses the instruction and falls back to the 350 ms rule.
+ *
+ * (A step toward #104 — a data model with .flextext as one export of it, not the store — which is
+ * deliberately NOT started: Seth, "Let's not do that JUST yet.") */
+export const BLANK_LINES_PI = 'flextext-editor';
+export function blankLinesPi(pieces) {
+  const list = (pieces || []).filter((p) => p && Number.isFinite(p.start) && Number.isFinite(p.end) && p.end > p.start);
+  if (!list.length) return '';
+  const spans = list.map((p) => `${p.est ? '~' : ''}${Math.max(0, Math.round(p.start))}-${Math.round(p.end)}`).join(' ');
+  return `<?${BLANK_LINES_PI} v="1" blank-lines="${spans}"?>`;
+}
+// The pieces a processing instruction's data names ('v="1" blank-lines="…"'), in the order written.
+export function parseBlankLinesPi(data) {
+  const m = String(data ?? '').match(/\bblank-lines="([^"]*)"/);
+  if (!m) return [];
+  const out = [];
+  for (const tok of m[1].trim().split(/\s+/)) {
+    const t = tok.match(/^(~?)(\d+)-(\d+)$/);
+    if (!t) continue;
+    const start = +t[2], end = +t[3];
+    if (end > start) out.push({ start, end, ...(t[1] ? { est: true } : {}) });
+  }
+  return out;
+}
+
 /* THE SAME RULE FOR A FILE THAT IS HANDED OVER AS IT CAME (v711; Seth, 2026-10-09: "ALL flextext exports
  * on ALL export options have our v709 export fix right?"). Three researcher-panel downloads — Files… ▸
  * .flextext, the lameta session, Download all — and the Utilities converter pass a .flextext on AS IT WAS
@@ -628,6 +680,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const emit = canGroup ? runs : doc.paragraphs.map((para, i) => ({ guid: para.guid, lines: [i] }));
 
   let pi = -1;
+  const blanks = [], written = [];   // the times of the blank lines left out, and of the lines written (BLANK_LINES_PI)
   for (const run of emit) {
     /* ⚠ A SILENT PHRASE IS NOT WRITTEN (Seth, 2026-10-08) — see isSilentPhrase — and a paragraph with
      * nothing left in it is not written either (`mark` rewinds it). FLEx gets only the lines that say
@@ -641,10 +694,12 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     const para = doc.paragraphs[li];
     pi = li;
     for (const seg of para.segments) {
-      if (isSilentPhrase(seg)) continue;
-      emitted++;
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
+      // Left out, but its time is kept — see BLANK_LINES_PI.
+      if (isSilentPhrase(seg)) { if (timed) blanks.push({ start: span.start, end: span.end, est: !!span.timeEstimated }); continue; }
+      if (timed) written.push(span);
+      emitted++;
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
       // the stale copies or the phrase would carry the attribute twice (invalid XML). media-file
       // is filtered ONLY when we mint our own guid: an imported doc keeps its media-files block
@@ -714,6 +769,15 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     if (!emitted) lines.length = mark;   // every phrase in it was silent: the paragraph is not written
   }
   lines.push('    </paragraphs>');
+  /* The blank lines left out above, by their times (BLANK_LINES_PI) — and any a parsed file brought in
+   * that no heal has used yet (a text moved here and uploaded again before anybody opened it), unless a
+   * line written in this file now covers that time. Only where this file carries times at all. */
+  if (opts.segTimes !== false) {
+    const meets = (a, list) => list.some((b) => a.start < b.end && b.start < a.end);
+    const carried = (doc.blankLines || []).filter((b) => !meets(b, written) && !meets(b, blanks));
+    const instr = blankLinesPi([...blanks, ...carried].sort((a, b) => a.start - b.start));
+    if (instr) lines.push('    ' + instr);
+  }
   // languages element. Authored docs SKIP doc.languages (that's the stale snapshot
   // frozen at creation) and emit purely from the live settings; imported docs emit
   // their own languages first, with the settings only as gap-fillers.

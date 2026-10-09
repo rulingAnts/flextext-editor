@@ -101,7 +101,8 @@ test('the wiring: every tab heals on entry; the tail is filled once the length i
   assert.match(heal, /const flattened = normalizePhraseLines\(doc\);[\s\S]*const filled = healGapLines\(doc\);\n\s+if \(flattened \|\| filled\) schedulePersist\(\);/, 'after the flattening, persisted when changed');
   assert.equal((APP.match(/healFlatSegments\(current && current\.doc\);/g) || []).length, 3, 'Cut, Baseline and Gloss call it on entry');
   assert.match(APP, /healFlatSegments\(rec\.doc\);\n\s+mgLoad\(rec\);/, '…and the Audio Segmenter on opening a text');
-  assert.match(fn(APP, 'healGapLines'), /const r = fillGapLines\(doc\.paragraphs, docSegments\(doc\), blankGapLine\);/);
+  // v713 (#111): the recorded blank lines (doc.blankLines) go in exactly; without them, the 350 ms rule — test/blank-lines-pi.test.mjs
+  assert.match(fn(APP, 'healGapLines'), /const r = fillGapLines\(paras, segs, blankGapLine, pieces \? \{ pieces \} : \{\}\);/);
   assert.equal((APP.match(/appendBlankLine: \(doc\) => appendBlankLine\(doc\),/g) || []).length, 2, 'both the Cut and the Baseline deps carry the tail hook');
   assert.match(fn(STRIPS, 'reconcile'), /if \(settleTail\(doc, known, d\)\) repaired = true;/, 'reconcile settles the tail through the one rule');
   const settle = fn(STRIPS, 'settleTail');
@@ -112,5 +113,5 @@ test('the wiring: every tab heals on entry; the tail is filled once the length i
   assert.match(fn(APP, 'settleTailOf'), /const changed = settleTail\(rec\.doc, peaksDurationOf\(rec\.id\), TAIL_DEPS\);/, 'the text\'s OWN recording length, never another text\'s peaks');
   assert.match(APP, /if \(current && current\.id === glossFor && activeTab === 'gloss' && settleTailOf\(current\)\n\s+&& !inTextField\(document\.activeElement\)\) renderGloss\(\);/, 'the Gloss tab, once its peaks land — re-rendered only while nobody is typing');
   for (const k of ['panel.rel.fix.gapLines', 'panel.rel.fix.zipLatest']) assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
-  assert.match(PANEL, /\{ v: 'v712', date: '2026-10-09', items: \[\n    \{ k: 'panel\.rel\.fix\.gapLines' \},\n    \{ k: 'panel\.rel\.fix\.zipLatest', issue: 102 \},\n    \{ k: 'panel\.rel\.fix\.passthroughSilent', issue: 97 \},/);
+  assert.match(PANEL, /\{ v: 'v713', date: '2026-10-10', items: \[\n    \{ k: 'panel\.rel\.fix\.blankLinesKept', issue: 111 \},\n    \{ k: 'panel\.rel\.fix\.gapLines' \},\n    \{ k: 'panel\.rel\.fix\.zipLatest', issue: 102 \},\n    \{ k: 'panel\.rel\.fix\.passthroughSilent', issue: 97 \},/);
 });

@@ -359,6 +359,24 @@ milestones, media links, metadata — is preserved verbatim and re-emitted on
 export, except for words/sentences the user actually changes (where stale
 analyses are dropped, matching FLEx's own baseline-edit behavior).
 
+**Blank lines are not written as lines** (v709): a cut piece with nothing in it —
+a pause, or a piece nobody has transcribed yet — gets no `<phrase>` in the
+.flextext and no annotation in the EAF, so FLEx and ELAN see only the lines that
+say something. Their **times are kept** (v713, #111) in one XML processing
+instruction inside `<interlinear-text>`, which FLEx and ELAN skip and which leaves
+the file valid against `FlexInterlinear.xsd`:
+
+    <?flextext-editor v="1" blank-lines="0-4000 9000-12000 ~12000-16000"?>
+
+(start–end in milliseconds; `~` marks an estimated span). When a .flextext from
+this suite comes back in — above all when the researcher moves a text from one
+device to another, which is done with the file the first device uploaded — every
+blank line returns at its own times, so a coworker's cutting of the untranscribed
+stretches survives the move. A file that has been through FLEx or ELAN no longer
+carries the instruction; then every pause of a third of a second or more between
+timed lines (and before the first, and after the last once the recording's length
+is known) comes back as one blank line (v710–v712).
+
 The **Research** tab also has a **Writing system checker**: open any flextext
 file, see which writing-system codes are in use on each interlinear line
 (baseline, word, gloss, morphemes, free translation, …), remap wrong codes, and

@@ -34,10 +34,28 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v712 — assembled 2026-10-09 on branch `roundtrip-v710` (the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list) — staging, NOT released (Seth: "Let's not release v710 yet. I still need to test it"); production is v709
+## ▶ v713 — assembled 2026-10-10 on branch `roundtrip-v710` (#111: a moved text keeps every cut; the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list) — staging, NOT released (Seth: "Let's not release v710 yet. I still need to test it"); production is v709
 
-`BUILD_TAG = 'roundtrip v3'` (v710 = 'roundtrip v1' and v711 = 'roundtrip v2' were earlier staging builds of the same
-branch; never released, so the number moves on). Seth on v711, the same evening: "Round-trip appears to work, except
+`BUILD_TAG = 'roundtrip v4'` (v710–v712 = 'roundtrip v1'–'v3' were earlier staging builds of the same branch; never
+released, so the number moves on).
+
+v713 — Brian's #111 ("Missing audio segments with empty baseline after moving out and back in to device"). A text moves
+between devices as the .flextext its first device uploaded (Lane B, `serializeDocBlob`; the receiving device rebuilds it
+in `buildDocFromFlextextUrl`), and since v709 that file has no line for a piece with nothing in it — so the pieces
+nobody had typed yet vanished (v709), or came back merged, one blank line per hole (v712). Seth chose option B of two
+(2026-10-10): "Keep the upload clean and record the blank pieces' times inside the file, as a hidden XML instruction
+that FLEx and ELAN ignore." `serializeFlextext` writes `<?flextext-editor v="1" blank-lines="start-end …"?>` inside
+`<interlinear-text>` (`BLANK_LINES_PI`, flextext.js; `~` = estimated) for every timed blank line it leaves out, plus any
+`doc.blankLines` a parsed file brought in that nothing has used yet; the file still validates against FLEx's
+FlexInterlinear.xsd (xmllint, 2026-10-10). `parseInterlinearText` reads it into `doc.blankLines`; `healGapLines` (app.js)
+hands it to `fillGapLines` as `pieces` (segments.js `piecePlan`: each piece at its own times, the 350 ms rule for any
+stretch they leave uncovered, an open tail), lets the pieces replace the parser's placeholder line for a text whose
+every line was blank, and drops the field once used. Verified in the rig: a text cut into 15 (three untranscribed
+pieces in a row at the end), saved to file, imported again — 15 lines, every time identical, in the Editor and the
+Segmenter. test/blank-lines-pi.test.mjs; the test DOM learned processing instructions. Status note posted on #111.
+Seth: this also moves toward #104 (a data model, with .flextext as one export of it) — "Let's not do that JUST yet."
+
+v712 (the same evening as v711). Seth on v711, the same evening: "Round-trip appears to work, except
 final empty segment isn't being drawn. Make sure to also watch for a gap between the final audio segment in the
 flextext and the actual end of the audio file (total duration?)", then four Audio Segmenter items (the 40-minute
 recording one deferred: "Let's put that problem off for a future release"). v712:

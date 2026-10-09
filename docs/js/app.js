@@ -5,7 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords, isEmptyWord,
+  mergePhrases, baselineFromWords, isEmptyWord, isSilentPhrase,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
@@ -1344,10 +1344,24 @@ function blankGapLine(prev, next) {
   const paraOf = prev && next && prev.paraOf != null && prev.paraOf === next.paraOf ? prev.paraOf : null;
   return { guid: newGuid(), segments: [makeSegment('', [])], ...(paraOf != null ? { paraOf } : {}) };
 }
+/* ⚠ AND WHERE THE FILE RECORDED THEM, THE BLANK LINES COME BACK EXACTLY (v713, #111) — every cut where
+ * it was, not one blank line per hole: `doc.blankLines` is what parseInterlinearText read from the
+ * file's blank-lines instruction (BLANK_LINES_PI in flextext.js), and fillGapLines places them. Used
+ * once: from then on the doc's own blank lines say it, so the field goes (and the change persists).
+ * Kept for the next heal when this one could not run (the doc not 1:1 yet).
+ *
+ * ⚠ A TEXT CUT AND NOT YET TYPED HAS NO LINE IN THE FILE AT ALL — every phrase was blank, so none was
+ * written — and the parser gives such a text one empty, untimed placeholder line. With recorded blank
+ * lines to put back, that placeholder makes way for them; without, nothing changes. */
 function healGapLines(doc) {
   if (!doc || !Array.isArray(doc.paragraphs)) return false;
-  const r = fillGapLines(doc.paragraphs, docSegments(doc), blankGapLine);
-  if (!r.changed) return false;
+  const pieces = Array.isArray(doc.blankLines) && doc.blankLines.length ? doc.blankLines : null;
+  let paras = doc.paragraphs, segs = docSegments(doc);
+  if (pieces && !segs.some(isAligned) && paras.every((p) => (p.segments || []).every(isSilentPhrase))) { paras = []; segs = []; }
+  const r = fillGapLines(paras, segs, blankGapLine, pieces ? { pieces } : {});
+  if (r.refused) return false;
+  if ('blankLines' in doc) delete doc.blankLines;
+  if (!r.changed) return !!pieces;
   doc.paragraphs = r.paragraphs;
   doc.segments = r.segments;
   return true;

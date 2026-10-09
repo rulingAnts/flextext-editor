@@ -560,7 +560,19 @@ These are the ones a tester can see.
       not a lock). Same in the researcher panel's per-device settings.
 - [ ] **Phone:** the dock's controls still fit two rows with Repeat and ✨; no sideways scroll.
 
-## v712 (staged as v710, v711 first) — the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list (2026-10-09)
+## v713 (staged as v710–v712 first) — a moved text keeps every cut (#111); the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list (2026-10-09/10)
+
+v713 — #111, a text moved between devices:
+- [ ] **Brian's steps:** on a paired device, cut a text into pieces, type the baseline on only SOME of them (leave several
+      untranscribed pieces in a row, including at the end), Save and upload. In the panel, Remove it from the device (or
+      move it to Unassigned), then move it back. Open it: every piece is there at its own times — the untranscribed ones
+      as blank lines, not merged into one — on Cut, Baseline and Gloss, and in the Audio Segmenter.
+- [ ] **A text cut and not typed at all**, moved the same way: it comes back as all its pieces, not as one line.
+- [ ] **FLEx still sees no empty lines:** Panel ▸ Files… ▸ .flextext of that text imports into FLEx with only the lines
+      that have words, and FLEx raises no error about the file. (Open the file in a text editor: the blank pieces' times
+      are in one `<?flextext-editor … blank-lines="…"?>` line near the end of the text.)
+- [ ] **ELAN** opens the .eaf with no empty annotations, as in v709.
+
 
 - [ ] **Round trip:** on a text cut as line / pause / line / pause / line, export the .flextext (v709 leaves the pauses
       out), import it again: Cut, Baseline and Gloss show five lines, the pauses as blank lines at their own times.

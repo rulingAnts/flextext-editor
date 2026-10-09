@@ -31,8 +31,10 @@ on:
       # under its own (localised) heading and advice — byte-identical to before. Change either and the
       # three are stored as JSON, which needs the live panel at v715 or later: the guard step below reads
       # the live panel's version and refuses rather than let an older panel print a JSON blob.
+      # ⚠ A field submitted EMPTY gets its default back (GitHub fills a blank dispatch input from
+      # `default:`), so "blank = none" cannot work. A lone `-` means none.
       title:
-        description: "Heading (raise only). Blank = no heading."
+        description: "Heading (raise only). Type - for no heading."
         required: false
         type: string
         default: "Maintenance in progress"
@@ -42,10 +44,16 @@ on:
         type: string
         default: "Backend maintenance is in progress. You may see an outage or a glitch."
       advice:
-        description: "Last line (raise only). Blank = no last line."
+        description: "Last line (raise only). Type - for no last line."
         required: false
         type: string
         default: "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected."
+      tone:
+        description: "Colour (raise only): info = calm heads-up (default); success = good news; warning = the amber maintenance look; alert = something is wrong"
+        required: false
+        type: choice
+        default: info
+        options: [info, success, warning, alert]
       details:
         description: "More info (raise only, optional): a longer explanation shown collapsed under a 'More info' toggle. Use \\n for a line break."
         required: false
@@ -69,6 +77,7 @@ jobs:
           FX_MSG: ${{ inputs.message }}
           FX_ADVICE: ${{ inputs.advice }}
           FX_DETAILS: ${{ inputs.details }}
+          FX_TONE: ${{ inputs.tone }}
         run: |
           node -e '
             const act = process.env.FX_ACTION || "status";
@@ -77,8 +86,12 @@ jobs:
             const DEFAULT_TITLE = "Maintenance in progress";
             const DEFAULT_ADVICE = "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected.";
             const DEFAULT_MSG = "Backend maintenance is in progress. You may see an outage or a glitch.";
-            const title = (process.env.FX_TITLE || "").trim();
-            const advice = (process.env.FX_ADVICE || "").trim();
+            // A lone "-" means NONE: GitHub refills an empty dispatch field from its default, so an
+            // operator cannot submit a blank one (the v715 notice went out with the advice it had
+            // asked to drop). Both lines are stored as "" and the panel omits them.
+            const none = (s) => (s === "-" ? "" : s);
+            const title = none((process.env.FX_TITLE || "").trim());
+            const advice = none((process.env.FX_ADVICE || "").trim());
             const msg = (process.env.FX_MSG || "").trim() || DEFAULT_MSG;
             // A dispatch field is one line; \\n typed into it becomes a real line break in the collapsed text.
             const details = (process.env.FX_DETAILS || "").replace(/\\n/g, "\n").trim();
@@ -86,9 +99,14 @@ jobs:
              * that under its own localised lines. Otherwise JSON, which the panel (researcher-panel.js
              * opsNotice) reads as { title, message, advice } — a key present but empty means "no such
              * line". A plain message that merely BEGINS with "{" is padded so it cannot pass for JSON. */
-            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE || !!details;
+            const TONES = ["info", "success", "warning", "alert"];
+            const tone = TONES.includes(process.env.FX_TONE) ? process.env.FX_TONE : "info";
+            // Only the legacy look (amber, default heading and last line, no More info) is plain text — so
+            // with info as the default tone an ordinary raise is JSON now, and the live-panel guard below is
+            // what keeps that honest.
+            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE || !!details || tone !== "warning";
             const value = custom
-              ? JSON.stringify({ kind: "maintenance", title, message: msg, advice, ...(details ? { details } : {}) })
+              ? JSON.stringify({ kind: "maintenance", tone, title, message: msg, advice, ...(details ? { details } : {}) })
               : (msg[0] === "{" ? " " + msg : msg);
             const q = (s) => "\x27" + String(s).replace(/\x27/g, "\x27\x27") + "\x27";
             const sql = act === "raise"

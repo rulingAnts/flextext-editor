@@ -308,7 +308,9 @@ This is the part that has caused real outages when done wrong — read
   shared with production. Beta runs the release bytes (`BUILD_TAG` empty, notes written); the
   version badge appends "beta" from the origin (`isBetaHost`, `i18n.js`), `?devreset` is refused
   there as on production, and the researcher panel's estate map has a `beta` entry. `productionWeb`
-  is fast-forwarded from `beta`, so production only receives a commit beta has already run.
+  is fast-forwarded from `beta`, so production only receives a commit beta has already run — except a
+  small, self-contained change that touches nothing shared (Seth, 2026-10-10), which may go staging →
+  `main` → `productionWeb` directly, with `beta` fast-forwarded alongside.
   Production deploys are `deploy-production.yml`, manual-dispatch, **on `productionWeb` only** —
   all seven Cloudflare Workers, no app selection by design.
   ⚠ `sync-satellites.yml` is **RETIRED** (2026-08-20) and was **deleted** from `.github/workflows/` on 2026-09-11 and must NOT be part of a release. Its

@@ -1473,6 +1473,9 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v716', date: '2026-10-10', items: [
+    { k: 'panel.rel.fix.noticeLinks' },
+  ] },
   { v: 'v715', date: '2026-10-10', items: [
     { k: 'panel.rel.new.betaChannel' },
     { k: 'panel.rel.new.opsNotice' },
@@ -8895,13 +8898,22 @@ function opsNotice(raw) {
          * operator's choice to have no such line at all (Seth, 2026-10-10: the heading and the advice
          * are workflow fields, pre-filled with the defaults, editable or blankable). */
         const str = (k) => (typeof o[k] === 'string' ? o[k].trim() : null);
-        // details: a longer explanation, shown COLLAPSED under a "More info" toggle (Seth, 2026-10-10).
-        return { kind: o.kind === 'notice' ? 'notice' : 'maintenance', title: str('title'), message: o.message.trim(), advice: str('advice'), details: str('details') || '' };
+        /* kind "notice" (the first v715 shape) = the operator's own words only: an absent title or
+         * advice is NONE there, not the default line. */
+        const notice = o.kind === 'notice';
+        const own = (k) => (notice ? (str(k) || '') : str(k));
+        /* tone (Seth, 2026-10-10: "That one looks alarming, like something blew up"): info is the calm
+         * default for anything the workflow raises; warning is the amber the plain-text maintenance
+         * banner has always had; success for good news; alert for the real thing. */
+        const tone = OPS_TONES.includes(o.tone) ? o.tone : (notice ? 'info' : 'warning');
+        // details: a longer explanation, shown COLLAPSED under a "More info" toggle.
+        return { kind: notice ? 'notice' : 'maintenance', tone, title: own('title'), message: o.message.trim(), advice: own('advice'), details: str('details') || '' };
       }
     } catch { /* not JSON after all — the plain-text notice below */ }
   }
-  return { kind: 'maintenance', title: null, message: s, advice: null, details: '' };
+  return { kind: 'maintenance', tone: 'warning', title: null, message: s, advice: null, details: '' };
 }
+const OPS_TONES = ['info', 'success', 'warning', 'alert'];
 /* Operator text → HTML: escaped FIRST, then two link forms recognised in the escaped text (Seth,
  * 2026-10-10: the notice "will need to allow hyperlinks" — to the Audio Segmenter, to a help page):
  *   [label](https://…)   and a bare   https://…
@@ -8935,23 +8947,15 @@ function maintenanceBanner() {
   }
   if (msg) {
     const n = opsNotice(msg);
-    if (n.kind === 'notice') {
-      out += `<div class="rp-maint rp-opnotice" role="status">
-        ${n.title ? `<strong>${esc(n.title)}</strong>` : ''}
-        <div>${opsNoticeHtml(n.message)}</div>
-        ${opsNoticeMore(n)}
-        ${n.advice ? `<div class="note">${opsNoticeHtml(n.advice)}</div>` : ''}
-      </div>`;
-    } else {
-      const title = n.title === null ? t('panel.maint.title') : n.title;
-      const advice = n.advice === null ? t('panel.maint.advice') : n.advice;
-      out += `<div class="rp-maint" role="status">
-        ${title ? `<strong>${esc(title)}</strong>` : ''}
-        <div>${opsNoticeHtml(n.message)}</div>
-        ${opsNoticeMore(n)}
-        ${advice ? `<div class="note">${opsNoticeHtml(advice)}</div>` : ''}
-      </div>`;
-    }
+    // null = the key was absent → the panel's own localised line; '' = the operator chose no such line.
+    const title = n.title === null ? t('panel.maint.title') : n.title;
+    const advice = n.advice === null ? t('panel.maint.advice') : n.advice;
+    out += `<div class="rp-maint rp-tone-${n.tone}" role="status">
+      ${title ? `<strong>${esc(title)}</strong>` : ''}
+      <div>${opsNoticeHtml(n.message)}</div>
+      ${opsNoticeMore(n)}
+      ${advice ? `<div class="note">${opsNoticeHtml(advice)}</div>` : ''}
+    </div>`;
   }
   return out;
 }

@@ -295,6 +295,13 @@ git push origin productionWeb # GitHub Pages rebuilds (~1 min)
 git checkout main             # go back to dev
 ```
 
+**Which releases soak on beta (Seth, 2026-10-10):** *"minor features like that, that don't touch other
+things, we could test on staging and push to production without doing beta testing first."* So: a small,
+self-contained change (one app, one surface, nothing shared — a panel colour scheme, a notice field) goes
+staging → `main` → `productionWeb` directly, with `beta` fast-forwarded alongside so the branches never
+diverge. Anything that touches the engine, the data model, exports, sync or more than one app soaks on
+beta first. The test is blast radius, not size.
+
 `git log productionWeb..beta` is what is soaking; `git log beta..main` is what has not reached beta
 yet. The first beta deploy creates the seven `<worker>-beta` Workers by itself (`wrangler deploy
 --name`); their custom domains are attached once in the dashboard afterwards (Worker → Settings →

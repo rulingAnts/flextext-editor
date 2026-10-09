@@ -59,6 +59,8 @@ FLEx import of a v713 .flextext (with the blank-lines line) checked by Seth, 202
 **Testing split (Seth, 2026-10-10):** the Editor and the researcher panel are what this release must get right; the
 Audio Segmenter "is not widely used yet" — its checks wait until after the release ("keep a checklist for what to test
 on audio segmenter, but save that testing for after the release"). Both lists: plans/RELEASE-SMOKE-TEST.md § v713.
+**Next, after this release (Seth, 2026-10-10):** an optional tick to keep a blank line AS a blank line in the exports —
+sketch in plans/BACKLOG.md ("tick a blank line to keep it").
 **Open before release:** whether a device should re-upload, once, a text whose last upload predates v713 and that has
 blank pieces (otherwise field texts uploaded under v709–v712 still lose their untranscribed cuts when moved) — asked,
 not answered yet; not built.

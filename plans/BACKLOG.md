@@ -5,6 +5,36 @@
 > one is the way in.
 
 
+## NEAR FUTURE, AFTER v713: tick a blank line to keep it AS a blank line in the exports (Seth, 2026-10-10)
+
+> "Near future feature: the (optional) ability to check blank lines to include as blank lines in export. But AFTER this
+> release."
+
+**Today (v709–v713).** Every line with nothing in it (`isSilentPhrase`: no words, no text, no translation, nothing
+preserved) is left out of the .flextext and the EAFs; since v713 its times ride in the file's
+`<?flextext-editor v="1" blank-lines="…"?>` instruction, so it comes back on re-import (#111). Right for a pause or a piece
+nobody has transcribed yet — but sometimes a blank line is meant to BE a line in FLEx or ELAN: a turn left untranscribed
+on purpose, a placeholder to fill in FLEx, a line whose numbering must hold.
+
+**Sketch (to confirm before building).**
+- **Data:** `keepBlank: true` on the line's phrase. The 1:1 model is untouched, and the flag rides the stored doc, drafts
+  and undo snapshots as it is. Typing into the line makes it an ordinary line; the flag is then moot (clear it).
+- **Export:** `isSilentPhrase` answers false for a kept line, so it is written as v708 and earlier wrote every blank line —
+  an empty `<phrase>` with its times in the .flextext, an empty annotation in the EAFs — and it is NOT listed in
+  `blank-lines`. On re-import an empty timed phrase IS a kept line, so the flag needs no second record.
+- **UI:** one checkbox, on blank lines only, in ONE place to start (the Gloss tab's "(blank line — nothing to gloss)"
+  placeholder is the obvious one), unticked by default, its words in the tooltip. ⚠ v708's "Line" tick on every Cut-tab
+  piece (branch `gap-lines`, 59514e25) was rolled back as "too much machinery and too buggy" — the lesson is one control
+  in one place, not a mode.
+- **Gating:** optional — a researcher/device setting, off by default, like every other segmenting affordance
+  (individually toggleable per coworker).
+- **Tests:** `isSilentPhrase` with the flag; the serializer writes the empty phrase and leaves it out of `blank-lines`; the
+  EAF annotation; a round trip keeps it kept.
+
+Related: #97 (the export rule; its first design had the inverse flag, `seg.gap`), #107 (the listening page and the PAT
+with blank lines), #111.
+
+
 ## The editor cannot express three kinds of text it will have to (Seth, 2026-09-08)
 
 Raised while designing person-based consent (`plans/consent-person-based.md`), and explicitly parked:

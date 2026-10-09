@@ -560,7 +560,7 @@ These are the ones a tester can see.
       not a lock). Same in the researcher panel's per-device settings.
 - [ ] **Phone:** the dock's controls still fit two rows with Repeat and ✨; no sideways scroll.
 
-## v711 (staged as v710 first) — the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines (2026-10-09)
+## v712 (staged as v710, v711 first) — the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list (2026-10-09)
 
 - [ ] **Round trip:** on a text cut as line / pause / line / pause / line, export the .flextext (v709 leaves the pauses
       out), import it again: Cut, Baseline and Gloss show five lines, the pauses as blank lines at their own times.
@@ -575,4 +575,26 @@ These are the ones a tester can see.
       .flextext, the lameta session and Download all each give a .flextext with no empty phrase and no empty paragraph;
       a file with nothing empty in it downloads byte-for-byte as before.
 - [ ] **Utilities ▸ Convert/Export ▸ .flextext** from such a file: same — the empty lines are gone, nothing else changed.
+
+v712 — from Seth's test of v711:
+- [ ] **The last blank line comes back:** a text whose last line ends before the recording does — even by under a second
+      (anything from about a third of a second) — opens with a blank line after it on Cut, Baseline **and Gloss** (Gloss
+      adds it a moment after the waveforms load), and in the Audio Segmenter as the last row on both sides.
+- [ ] **Audio Segmenter, paired device you configured before v712:** editing words/glosses/translations in place, the +
+      blank-line rows and ♫ (swap a recording you attached yourself) are all available without touching the panel. In the
+      panel those three boxes now show ticked; untick one and save — the device loses it; tick it again — it comes back.
+- [ ] **A blank line stays out of the exports:** in the Segmenter, type a word into a blank line, clear it again, press
+      Done, download .flextext only and ELAN only — no empty line, no empty annotation, for that line or any other.
+- [ ] **Language picker on a narrow window / tablet held upright** (under about 820 px): the analysis-language menu is
+      above the rows on the right; switching to another language or "All languages" works there.
+- [ ] **Undo / redo in the Segmenter:** ↶ ↷ buttons; Ctrl+Z / ⌘Z and **Ctrl+Y** / ⌘⇧Z — also right after changing the
+      playback speed or the language menu. Grabbing a boundary handle and letting go without moving leaves nothing to undo.
+- [ ] **✨ in the Segmenter is on the big player, bottom-right** (no ✨ next to Done any more). On a text nobody has cut:
+      whole recording. After cutting by hand: tap a piece's waveform (or play it) — ✨ cuts only that piece at its pauses,
+      the rows after it move down, the text side does not change; one Undo puts it back. Greyed with a reason when the
+      playhead is in no piece or the piece has no clear pauses.
+- [ ] **Editing a word in place:** Space at the start → an empty pair before it (not the word twice); Space at the end →
+      one after; Space in the middle → the word splits, gloss stays on the first part; Backspace at the start → joins it
+      to the word before (two glosses joined with the gloss break); Backspace in an empty pair → removed, the next word
+      untouched. A word with a FLEx analysis (morphemes) refuses the join and says why.
 

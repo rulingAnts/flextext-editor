@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v711';
+export const ENGINE_VERSION = 'v712';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v711';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'roundtrip v2';
+export const BUILD_TAG = 'roundtrip v3';
 
 const S = {
 en: {
@@ -193,7 +193,7 @@ en: {
   'mg.badSplit': 'Pick a point between two words.',
   'mg.badgeTip': 'Show the matching row on the other side',
   'mg.cutNoSpan': 'The playhead is not inside a piece of audio \u2014 play, or tap the big waveform where you want the cut.',
-  'mg.editTip': 'Tap a word, a gloss or the translation to edit it. In a word, Space at the start adds a pair before it, Space at the end adds one after; Backspace in an empty word removes it.',
+  'mg.editTip': 'Tap a word, a gloss or the translation to edit it. In a word, Space at the start adds a pair before it, Space at the end adds one after, and Space in the middle splits the word in two; Backspace at the start of a word joins it to the one before, and in an empty word removes it.',
   'mg.tapWord': 'word',
   'mg.tapGloss': 'gloss',
   'mg.tapFree': 'free translation',
@@ -203,7 +203,10 @@ en: {
   'mg.noLineCell': 'No line for this audio yet \u2014 Done adds a blank line here, or press + to add one now.',
   'mg.committed': 'Saved. Lines matched: {n}',
   'mg.guessed': 'Cut the recording into {n} pieces at its pauses. Nothing is saved until you press Done.',
-  'mg.guessReplace': 'Guessing the lines will replace the pieces you have cut, and unmatch everything. Go ahead?',
+  'mg.guessPieceTip': 'Cut the piece under the playhead at its pauses. Only that piece changes; the rows after it move down. Undo puts it back.',
+  'mg.guessedPiece': 'Cut this piece into {n} at its pauses. The rows after it moved down \u2014 join or split text lines to match them up again. Undo puts it back.',
+  'mg.joinWordPunct': 'There is punctuation between these two words, so they cannot be joined here.',
+  'mg.joinWordAnalysed': 'This word carries an analysis from FLEx (morphemes, or a gloss in another language), so it cannot be joined here without losing it. Join it in FLEx.',
   'record.welcomeDefault': 'Record {lang} texts here.',
   'record.savedH': 'Your recordings',
   'record.empty': 'No recordings yet. Tap Record to make one.',
@@ -1641,6 +1644,12 @@ internet after the first time.</p>
     ,'panel.rel.fix.gapLines': 'Editor and Audio Segmenter: a text whose timed lines leave pauses between them \u2014 a file exported since v709, or a FLEx or ELAN text with stretches left unannotated \u2014 now opens with a blank line in each pause of a third of a second or more, and before the first line and after the last, so every part of the recording has a line you can play, cut or type into. A blank line still reaches FLEx and ELAN only once something is typed into it.'
     ,'panel.rel.fix.passthroughSilent': 'Researcher panel and Utilities: the .flextext download, the lameta session, Download all (ZIP) and the Convert/Export tool\u2019s .flextext now leave out empty timed lines as well \u2014 for files uploaded by a device that had not yet updated to v709. Nothing else in the file changes.'
     ,'panel.rel.fix.zipLatest': 'Researcher panel, Files\u2026 \u25b8 Download all (ZIP): the current .flextext is at the top of the ZIP under the text\u2019s own name, beside the ELAN and SayMore files made from it; older timestamped copies are inside an \u201colder_versions\u201d folder (no space in the name, so lameta can take it).'
+    ,'panel.rel.new.segPermsOn': 'Audio Segmenter: editing words, glosses and translations in place, adding blank lines, and swapping a recording the coworker attached themselves are now on by default on a paired device too. A researcher can still switch each one off in the device\u2019s settings; settings saved with an earlier panel count as not set, so these come on until you untick them.'
+    ,'panel.rel.new.mgGuessPiece': 'Audio Segmenter: \u2728 is in the bottom-right corner of the big player, as in the Editor. Once anything has been cut it guesses only the piece under the playhead \u2014 cut part of a recording by hand, or cut a long one into pieces, and let \u2728 do the rest one piece at a time. Undo puts it back.'
+    ,'panel.rel.new.mgWordSplitJoin': 'Audio Segmenter: when editing a word in place, Space in the middle of the word splits it into two word/gloss pairs, and Backspace at the start of a word joins it to the one before.'
+    ,'panel.rel.fix.mgUndoKeys': 'Audio Segmenter: Ctrl+Y redoes, as the Redo button says; Ctrl+Z and Ctrl+Y also work after using the language or speed picker; and grabbing a boundary without moving it no longer leaves an undo step that does nothing.'
+    ,'panel.rel.fix.mgLangNarrow': 'Audio Segmenter: the analysis-language picker stays on screen in a narrow window or on a tablet held upright \u2014 it was hidden along with the column headings below 820 pixels wide.'
+    ,'panel.rel.fix.blankEmptyWord': 'Audio Segmenter: a blank line holding an empty word/gloss pair (typed into and cleared again) is no longer written to the FLExText or ELAN files as an empty line, and Done drops word/gloss pairs that were left empty.'
     ,'panel.rel.new.silentExports': 'Exports: a line with no words, no text and no translation \u2014 a pause, noise, an aside left empty \u2014 is no longer written to the FLExText or to the ELAN and SayMore files. FLEx gets no empty line and ELAN no empty annotation: the stretch is simply unannotated, as ELAN itself leaves a pause. Nothing changes in the editor, where such a line stays a real timed span; a line that carries a translation or a note imported from FLEx is always written.'
     ,'panel.rel.new.joinSplitSeparate': 'Device settings: joining and splitting lines are now two separate permissions on each of the Baseline and Gloss tabs \u2014 four switches instead of two \u2014 in the researcher panel\u2019s device settings and project defaults and in the editor\u2019s own Settings tab. A device that has not been updated still follows the old combined switch, which the panel keeps writing as \u201cboth allowed\u201d only when both are. The Cut tab always joins and splits.'
     ,'panel.rel.new.guessLong': 'Editor, Cut tab, and the Audio Segmenter: \u2728 now guesses the lines of a recording of ANY length \u2014 the ten-minute limit is gone. A long recording is first divided at real pauses into stretches of about ten minutes, and each stretch is guessed on its own, with its own background level, so a recording whose conditions change half way through is cut as well at the end as at the start. The same goes for a long piece under the playhead. One Undo still puts the whole guess back.'
@@ -3045,7 +3054,7 @@ id: {
   'mg.badSplit': 'Pilih titik di antara dua kata.',
   'mg.badgeTip': 'Tampilkan baris pasangannya di sisi lain',
   'mg.cutNoSpan': 'Posisi putar tidak berada di dalam potongan audio \u2014 putar, atau ketuk gelombang besar di tempat yang ingin dipotong.',
-  'mg.editTip': 'Ketuk kata, glos, atau terjemahan untuk menyuntingnya. Di dalam kata, Spasi di awal menambah pasangan sebelumnya, Spasi di akhir menambah sesudahnya; Backspace di kata kosong menghapusnya.',
+  'mg.editTip': 'Ketuk kata, glos, atau terjemahan untuk menyuntingnya. Di dalam kata, Spasi di awal menambah pasangan sebelumnya, Spasi di akhir menambah sesudahnya, dan Spasi di tengah membagi kata menjadi dua; Backspace di awal kata menggabungkannya dengan kata sebelumnya, dan di kata kosong menghapusnya.',
   'mg.tapWord': 'kata',
   'mg.tapGloss': 'glos',
   'mg.tapFree': 'terjemahan bebas',
@@ -3055,7 +3064,10 @@ id: {
   'mg.noLineCell': 'Belum ada baris untuk audio ini \u2014 Selesai menambahkan baris kosong di sini, atau tekan + untuk menambahkannya sekarang.',
   'mg.committed': 'Tersimpan. Baris yang cocok: {n}',
   'mg.guessed': 'Rekaman dipotong menjadi {n} bagian pada jedanya. Belum ada yang tersimpan sampai Anda menekan Selesai.',
-  'mg.guessReplace': 'Menebak baris akan mengganti potongan yang sudah Anda buat, dan membatalkan semua pencocokan. Lanjutkan?',
+  'mg.guessPieceTip': 'Potong bagian tempat posisi putar berada, di jeda-jedanya. Hanya bagian itu yang berubah; baris sesudahnya bergeser ke bawah. Urungkan mengembalikannya.',
+  'mg.guessedPiece': 'Bagian ini dipotong menjadi {n} di jeda-jedanya. Baris sesudahnya bergeser ke bawah \u2014 gabung atau bagi baris teks untuk mencocokkannya lagi. Urungkan mengembalikannya.',
+  'mg.joinWordPunct': 'Ada tanda baca di antara kedua kata ini, jadi keduanya tidak bisa digabung di sini.',
+  'mg.joinWordAnalysed': 'Kata ini membawa analisis dari FLEx (morfem, atau glos dalam bahasa lain), jadi tidak bisa digabung di sini tanpa menghilangkannya. Gabungkan di FLEx.',
   'record.welcomeDefault': 'Rekam teks {lang} di sini.',
   'record.savedH': 'Rekaman Anda',
   'record.empty': 'Belum ada rekaman. Ketuk Rekam untuk membuatnya.',
@@ -4287,6 +4299,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.gapLines': 'Editor dan Pemotong Audio: teks yang baris-baris berwaktunya menyisakan jeda di antaranya \u2014 berkas yang diekspor sejak v709, atau teks FLEx atau ELAN dengan bagian yang tidak dianotasi \u2014 kini dibuka dengan baris kosong di setiap jeda sepertiga detik atau lebih, serta sebelum baris pertama dan sesudah baris terakhir, sehingga setiap bagian rekaman punya baris yang bisa diputar, dipotong, atau diketik. Baris kosong tetap baru masuk ke FLEx dan ELAN setelah ada yang diketik di dalamnya.'
     ,'panel.rel.fix.passthroughSilent': 'Panel Peneliti dan Utilitas: unduhan .flextext, sesi lameta, Unduh semua (ZIP), dan .flextext dari alat Konversi/Ekspor kini juga membuang baris kosong yang berwaktu \u2014 untuk berkas yang diunggah perangkat yang belum diperbarui ke v709. Bagian lain dari berkas tidak berubah.'
     ,'panel.rel.fix.zipLatest': 'Panel Peneliti, Berkas\u2026 \u25b8 Unduh semua (ZIP): .flextext yang terbaru ada di bagian atas ZIP dengan nama teksnya sendiri, di samping berkas ELAN dan SayMore yang dibuat darinya; salinan lama yang bertanda waktu ada di dalam folder \u201cversi_lama\u201d (tanpa spasi pada namanya, agar bisa dipakai lameta).'
+    ,'panel.rel.new.segPermsOn': 'Pemotong Audio: menyunting kata, glos, dan terjemahan di tempat, menambah baris kosong, dan mengganti rekaman yang dilampirkan rekan kerja sendiri kini aktif secara bawaan juga di perangkat yang tertaut. Peneliti tetap bisa mematikan masing-masing di pengaturan perangkat; pengaturan yang disimpan dengan panel versi lama dianggap belum diatur, jadi fitur ini aktif sampai Anda menghapus centangnya.'
+    ,'panel.rel.new.mgGuessPiece': 'Pemotong Audio: \u2728 ada di sudut kanan bawah pemutar besar, seperti di Editor. Setelah ada yang dipotong, \u2728 hanya menebak bagian tempat posisi putar berada \u2014 potong sebagian rekaman sendiri, atau potong rekaman panjang menjadi beberapa bagian, lalu biarkan \u2728 mengerjakan sisanya satu per satu. Urungkan mengembalikannya.'
+    ,'panel.rel.new.mgWordSplitJoin': 'Pemotong Audio: saat menyunting kata di tempat, Spasi di tengah kata membaginya menjadi dua pasangan kata/glos, dan Backspace di awal kata menggabungkannya dengan kata sebelumnya.'
+    ,'panel.rel.fix.mgUndoKeys': 'Pemotong Audio: Ctrl+Y mengulangi, seperti yang tertulis pada tombol Ulangi; Ctrl+Z dan Ctrl+Y juga berfungsi setelah memakai pemilih bahasa atau kecepatan; dan memegang batas tanpa menggesernya tidak lagi meninggalkan langkah urungkan yang tidak berbuat apa-apa.'
+    ,'panel.rel.fix.mgLangNarrow': 'Pemotong Audio: pemilih bahasa analisis tetap tampil di jendela sempit atau di tablet yang dipegang tegak \u2014 sebelumnya ikut tersembunyi bersama judul kolom di bawah lebar 820 piksel.'
+    ,'panel.rel.fix.blankEmptyWord': 'Pemotong Audio: baris kosong yang berisi pasangan kata/glos kosong (pernah diketik lalu dikosongkan) tidak lagi ditulis ke berkas FLExText atau ELAN sebagai baris kosong, dan Selesai membuang pasangan kata/glos yang dibiarkan kosong.'
     ,'panel.rel.new.silentExports': 'Ekspor: baris tanpa kata, tanpa teks, dan tanpa terjemahan \u2014 jeda, derau, selingan yang dibiarkan kosong \u2014 tidak lagi ditulis ke FLExText maupun ke berkas ELAN dan SayMore. FLEx tidak menerima baris kosong dan ELAN tidak menerima anotasi kosong: rentang itu dibiarkan tanpa anotasi, seperti ELAN sendiri membiarkan jeda. Tidak ada yang berubah di editor, tempat baris seperti itu tetap rentang waktu yang nyata; baris yang membawa terjemahan atau catatan yang diimpor dari FLEx selalu ditulis.'
     ,'panel.rel.new.joinSplitSeparate': 'Pengaturan perangkat: menggabungkan dan memisahkan baris kini dua izin terpisah di masing-masing tab Ketik dan Gloss \u2014 empat sakelar, bukan dua \u2014 di pengaturan perangkat dan bawaan proyek pada panel peneliti maupun di tab Pengaturan editor sendiri. Perangkat yang belum diperbarui tetap mengikuti sakelar gabungan yang lama, yang terus ditulis panel sebagai \u201ckeduanya diizinkan\u201d hanya kalau keduanya memang diizinkan. Tab Potong selalu bisa menggabungkan dan memisahkan.'
     ,'panel.rel.new.guessLong': 'Editor, tab Potong, dan Pemotong Audio: \u2728 kini menebak baris untuk rekaman dengan panjang BERAPA PUN \u2014 batas sepuluh menit sudah dihapus. Rekaman yang panjang dibagi dulu pada jeda yang nyata menjadi bagian-bagian sekitar sepuluh menit, lalu setiap bagian ditebak sendiri dengan tingkat latarnya sendiri, sehingga rekaman yang kondisinya berubah di tengah jalan terpotong sebaik di akhir seperti di awal. Begitu juga untuk bagian panjang di posisi putar. Satu Urungkan tetap mengembalikan seluruh tebakan.'

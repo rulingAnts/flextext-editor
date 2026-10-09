@@ -8902,10 +8902,22 @@ function opsNotice(raw) {
   }
   return { kind: 'maintenance', title: null, message: s, advice: null, details: '' };
 }
-/* The collapsed "More info" block. Newlines in the operator's text become line breaks AFTER escaping. */
+/* Operator text → HTML: escaped FIRST, then two link forms recognised in the escaped text (Seth,
+ * 2026-10-10: the notice "will need to allow hyperlinks" — to the Audio Segmenter, to a help page):
+ *   [label](https://…)   and a bare   https://…
+ * http(s) only, so nothing else can become a link, and the href is the escaped URL. Newlines become
+ * line breaks. Links open in a new tab; the panel stays where it is. */
+function opsNoticeHtml(text) {
+  const a = (href, label) => `<a href="${href}" target="_blank" rel="noopener">${label}</a>`;
+  return esc(text)
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, label, href) => a(href, label))
+    .replace(/(^|[\s(>])(https?:\/\/[^\s<)]+?)([.,:!?)]*)(?=$|[\s<)])/g, (m, pre, href, trail) => pre + a(href, href) + trail)
+    .replace(/\n/g, '<br>');
+}
+/* The collapsed "More info" block. */
 function opsNoticeMore(n) {
   if (!n.details) return '';
-  return `<details class="rp-maint-more"><summary>${esc(t('panel.maint.more'))}</summary><div>${esc(n.details).replace(/\n/g, '<br>')}</div></details>`;
+  return `<details class="rp-maint-more"><summary>${esc(t('panel.maint.more'))}</summary><div>${opsNoticeHtml(n.details)}</div></details>`;
 }
 function maintenanceBanner() {
   /* Two independent flags (Seth, 2026-08-26): `maintenance` is a banner and nothing else; `freeze`
@@ -8926,18 +8938,18 @@ function maintenanceBanner() {
     if (n.kind === 'notice') {
       out += `<div class="rp-maint rp-opnotice" role="status">
         ${n.title ? `<strong>${esc(n.title)}</strong>` : ''}
-        <div>${esc(n.message)}</div>
+        <div>${opsNoticeHtml(n.message)}</div>
         ${opsNoticeMore(n)}
-        ${n.advice ? `<div class="note">${esc(n.advice)}</div>` : ''}
+        ${n.advice ? `<div class="note">${opsNoticeHtml(n.advice)}</div>` : ''}
       </div>`;
     } else {
       const title = n.title === null ? t('panel.maint.title') : n.title;
       const advice = n.advice === null ? t('panel.maint.advice') : n.advice;
       out += `<div class="rp-maint" role="status">
         ${title ? `<strong>${esc(title)}</strong>` : ''}
-        <div>${esc(n.message)}</div>
+        <div>${opsNoticeHtml(n.message)}</div>
         ${opsNoticeMore(n)}
-        ${advice ? `<div class="note">${esc(advice)}</div>` : ''}
+        ${advice ? `<div class="note">${opsNoticeHtml(advice)}</div>` : ''}
       </div>`;
     }
   }

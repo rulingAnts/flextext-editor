@@ -48,6 +48,14 @@ keeps the phrase) and the round trip (the file opens as lines with holes, like a
 and too buggy" — by reverting its merge (`82ca0bf`); the branch is kept, unmerged. v708 was never released, so the number
 is skipped rather than reused: a device that loaded the v708 preview must see a NEW version string to fetch this shell.
 
+## Filed 2026-10-09 — contributor-friendliness plans (Seth: "put all these as plans to follow up on later")
+
+Issues only, nothing built: **#116** fork-and-run offline dev rig on Mac/Windows/Linux (root `package.json` with wrangler,
+a Node entry point, `DEV_STUBS` in the worker, CONTRIBUTING.md + templates, the dependency surface pinned); **#117**
+fork-safe previews (worker names overridable, routes only from this repo, a contributor's own Cloudflare secrets);
+**#118** GitHub Discussions + a good-first-issue pass. **#98** gained the GitHub-sign-in half (OAuth on the worker,
+post as the user); **#99** (Crowdin) is to proceed phase 0 first. Planned order: #116 → #99 phase 0 → #98.
+
 ## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); production = 6d86abd6 (main = productionWeb = staging); sites-only release, no worker change
 
 Deploy run 37636842031: all seven apps green (editor, researcher, recorder, crowd, PAT, consent, segmenter), each log

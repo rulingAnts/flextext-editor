@@ -350,6 +350,14 @@ This is the part that has caused real outages when done wrong — read
 - Uploads are **queued in IndexedDB and retry forever**, chunked+resumable for big files, with
   Drive's own byte count as the resume truth. Delete flows are **upload-first**: nothing is
   removed until a verified backup exists.
+- **A text's Drive folder holds many copies, and "newest" is never how one is chosen**
+  (`plans/move-upload-guards.md`). Drive's `modifiedTime` is upload time, so a placeholder or a
+  damaged copy that landed last used to win. A move sends the source device's own current copy (or
+  asks, and never sends a damaged one); cleanup is a review that keeps every copy holding more than
+  the copies kept; the title bridge is display-only; automatic backup skips researcher deliveries
+  nobody has touched; and a queued `.flextext` is checked (structure + SHA-256) before it is sent —
+  a damaged copy is rebuilt from the text or held, never deleted. The device check is structural on
+  purpose: it must never refuse the only backup of a text over a pasted control character.
 - Security posture: open signup + rate limit + owner approval tiers; escrowed recovery; optional
   TOTP; security log (`worker/src/seclog.js`) with email alerts. See `notes/connectivity-*.md`.
 

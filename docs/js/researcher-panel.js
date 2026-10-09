@@ -21,7 +21,7 @@ import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
-         loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
+         loosePlan, buildLooseConversion, durationVerdict, linkFlextextBlob } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -4203,6 +4203,20 @@ async function menuFlextextText(wrap) {
   return (await menuFetch(wrap, src.id)).text();
 }
 
+/* ⚠ A .flextext LEAVES THIS MENU READY FOR FLEx. The file in the folder is a device's upload, and
+ * every one written before the media-link fix carries a <media-files> block with NO media-file on
+ * any phrase — so FLEx imported it with every time thrown away and said nothing (151 timed phrases
+ * in one of Seth's texts, 0 kept). Fixing the writer cannot reach a file already in Drive; this can,
+ * on the way out. linkFlextextBlob adds the links and nothing else, and hands back the same Blob
+ * when there is nothing to add, so a file that was already right downloads byte for byte. The name
+ * is the one this menu's packages give the recording: it picks the entry when the block has several
+ * and names the one minted when there is none. */
+function menuLinkedFlextext(wrap, blob) {
+  const src = (wrap && wrap._menuSrc) || {};
+  const af = src.audio;
+  return linkFlextextBlob(blob, mediaNameFor(src.base || 'text', af ? { name: af.name, mime: af.mime } : null));
+}
+
 /* THE RECORDING PACKAGE (locked decision 6): "Recording Package (with consent records)" is a
  * CLIENT-SIDE zip built from whatever the folder actually holds — the source audio, the consent
  * clip, the spoken prompt, the receipt, and the manifest that declares the set. Offered only when
@@ -4355,7 +4369,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
     if (kind === 'flextext') {
       const xml = await menuFlextextText(wrap);
       if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
-      saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext');
+      saveBlobAs(await menuLinkedFlextext(wrap, new Blob([xml], { type: 'application/xml' })), base + '.flextext');
       return;
     }
     const src = await prepareConversionSources(wrap, pkgBase, paint, { kind });
@@ -4789,7 +4803,11 @@ function wireDownloadMenus(scope) {
             : fmtSize(got);
           jobSet(job, msg);
           dlStatus(wrap2, t('panel.dl.fetching', { name: fname }) + ' ' + msg);
-        }, memberDlVia(wrap2), fileCtl.signal).then((blob) => {
+        }, memberDlVia(wrap2), fileCtl.signal).then(async (got) => {
+          // The menu's .flextext row goes out linked for FLEx (menuLinkedFlextext); the recording
+          // and every other file are exactly the bytes Drive holds.
+          const ft = wrap2 && wrap2._menuSrc && wrap2._menuSrc.ft;
+          const blob = (ft && ft.id === df.dataset.drivefile) ? await menuLinkedFlextext(wrap2, got) : got;
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob); a.download = fname;
           document.body.appendChild(a); a.click(); a.remove();

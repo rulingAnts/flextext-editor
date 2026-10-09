@@ -255,8 +255,13 @@ export function openSfmConverter(opts = {}) {
     recount();
   }
 
+  /* mediaName: a file that came out of ELAN carries \ELANBegin/\ELANEnd but never says which
+   * recording they were measured on, and FLEx keeps a phrase's times only when it links to a media
+   * entry (flextext.js, linkPhraseMedia). So the entry is named after the text — no extension, since
+   * nothing says what the file is — and FLEx gets the times rather than silently dropping them. */
   const xmlFor = (tx, fallback) => serializeFlextext(textToDoc(tx, fallback, settings), settings,
-    { producedBy: 'Flextext Editor Suite ' + (ENGINE_VERSION || '') + ' (Toolbox/SFM converter)' });
+    { producedBy: 'Flextext Editor Suite ' + (ENGINE_VERSION || '') + ' (Toolbox/SFM converter)',
+      mediaName: safeName(tx.title || fallback, 'audio') });
 
   function saveOne() {
     const i = +($('[data-a="which"]') || {}).value || 0;

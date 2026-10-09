@@ -502,7 +502,9 @@ Gloss tab gets per-line mini waves, join buttons, and Enter-split on gloss field
 real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 stopped writing SILENT lines (no words, no text, no translation) to the .flextext and the EAFs; that was UNDONE in v714 (Seth, 2026-10-10) — it made texts moved between devices lose their untranscribed segments (#111). Every line is written again, blank ones as an empty phrase with its times. The v709–v713 line of work is parked on a feature branch, to be rethought after 2026-10-11.
 
 - **`flextext` IS the segmentation format — no proprietary sidecar.** Aligned spans export as
-  FLEx-native phrase `begin/end-time-offset` attributes (+ a `media-files` block) AND as visible
+  FLEx-native phrase `begin/end-time-offset` attributes (+ a `media-files` block, and a `media-file`
+  link on EVERY timed phrase — FLEx silently drops a time without one; every writer goes through
+  `linkPhraseMedia`, see DEVELOPERS.md §4) AND as visible
   `note` items (`audio 0:00.000–0:02.000`, `~` = estimated) — NEVER into the baseline text.
   `segmentsFromOffsets()` (flextext.js) derives spans back on open, clamped monotonic. FLEx stores
   the offsets on its Segment objects (ELAN interop); it has no interlinear line for them, so the

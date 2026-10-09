@@ -244,6 +244,20 @@ attributes + `media-files` (the FLEx/ELAN interop mechanism) on export, `segment
 import. There is no proprietary sidecar. Timestamps also emit as visible `note` items
 (`audio 0:01.234–0:05.678`, `~` = estimated) because FLEx has no display line for the raw offsets.
 
+⚠ **A time reaches FLEx only through a `media-file` link.** FieldWorks' importer keeps a phrase's
+offsets only when the phrase names a `media-file` that resolves to a `<media guid>` in the same
+text's single `<media-files>` block; an unlinked time is dropped without a message. Every writer that
+ships a `.flextext` therefore goes through `linkPhraseMedia()` (`flextext.js`): `serializeFlextext`
+calls it on its own output, and the paths that hand over bytes they did not serialize — the panel's
+Files ▾ download, the lameta package, Utilities' "Make files from a .flextext" — call it through
+`linkFlextextBlob()` / `lametaFlextextMedia()`. It links to the text's existing entry (never a second
+block, never a rewritten entry), mints one when the text has none, keeps any link that resolves, and
+returns a file that needs nothing byte for byte. Exports written before this (v716 and earlier) carry
+a block and no links; the panel's Files ▾ download links them on the way out. Two paths deliberately
+do not: **Download all** (the Drive folder's stored bytes, backups included — an archive, not an
+export) and the **writing-system fixer** (its contract is "only the codes you entered change").
+`test/flex-media-link.test.mjs` holds every writer to FLEx's condition on real-shaped timing skeletons.
+
 ### 4.1 Conversions from files the app has never seen (v377)
 
 The researcher panel's **Files ▾** menu builds an ELAN package, a SayMore package, a listening page,

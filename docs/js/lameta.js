@@ -33,9 +33,9 @@
  *
  * Kept PURE — plain data in, plain data out, no DOM, no storage, no i18n, no zip — so the panel,
  * the lameta agent and node tests all build the same bytes. The one import is the document model,
- * for the progress counts.
+ * for the progress counts and the .flextext's media links.
  */
-import { segmentsFromOffsets, analysisLangs, glossIn, freeIn } from './flextext.js';
+import { segmentsFromOffsets, analysisLangs, glossIn, freeIn, linkPhraseMedia } from './flextext.js';
 
 /* ─── VOCABULARIES, from lameta's own bundle ─────────────────────────────────────────────────── */
 export const LAMETA_STATUS = ['Incoming', 'In_Progress', 'Finished', 'Skipped'];
@@ -274,13 +274,17 @@ export function lametaFileName(name) {
 
 /* A .flextext names its recording in <media-files><media location="…"/>. The package renames the
  * recording, so that one attribute has to follow it or FLEx looks for a file that is not there (Seth:
- * "Also, update the flextext file's media reference"). ONLY that attribute changes: the rest of the
- * fetched XML ships byte for byte, which is why the package carries it rather than a re-serialization.
- * A bare file name, because the recording travels in the same folder as the .flextext. */
+ * "Also, update the flextext file's media reference"). That reference has a second half: each timed
+ * phrase's media-file, without which FLEx imports the phrase with its times thrown away — and the
+ * suite's older uploads carry a media-files block with no links at all. So linkPhraseMedia gives
+ * every timed phrase one, to the entry just repointed. Those are the only changes: the rest of the
+ * fetched XML ships byte for byte, which is why the package carries it rather than a
+ * re-serialization. A bare file name, because the recording travels in the same folder. */
 export function lametaFlextextMedia(xml, mediaName) {
   if (!xml || !mediaName) return xml;
-  return String(xml).replace(/<media(?=[\s/>])[^>]*>/g,
+  const repointed = String(xml).replace(/<media(?=[\s/>])[^>]*>/g,
     (tag) => tag.replace(/(\slocation=)(["'])[^"']*\2/, (m, attr, q) => `${attr}${q}${esc(mediaName)}${q}`));
+  return linkPhraseMedia(repointed, { mediaName });
 }
 
 /** `Finished` once the coworker has marked the text done; otherwise it is still being worked on. */

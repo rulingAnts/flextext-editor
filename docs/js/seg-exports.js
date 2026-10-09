@@ -11,7 +11,7 @@
  * carries only real content — baseline text, words, word glosses, free translations, times.
  */
 
-import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn } from './flextext.js';
+import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn, linkPhraseMedia } from './flextext.js';
 
 /* ---------------- shared helpers ---------------- */
 
@@ -1699,6 +1699,27 @@ export function derivedWavName(base) {
   return (sanitizeBase(base) || 'audio') + '.converted-NOT-ARCHIVAL.wav';
 }
 
+/* A .flextext handed over as BYTES this suite did not just serialize — the panel's Drive download,
+ * the Utilities converter's ".flextext" row — still leaves with every timed phrase linked to a
+ * <media> of its text, because FLEx drops the times of any phrase that is not
+ * (flextext.js, linkPhraseMedia). The files that most need it are this suite's own older exports:
+ * they carry a media-files block and not one link. Nothing else is touched, and a file that needs
+ * nothing comes back as the SAME Blob — byte for byte, which is why these paths pass bytes through
+ * rather than re-serializing. Bytes that are not valid UTF-8 are passed through untouched too: a
+ * text decoded with replacement characters must never be written back. And the link is never worth
+ * the download: anything that goes wrong here hands over the file as it was. */
+export async function linkFlextextBlob(blob, mediaName = '') {
+  if (!blob) return blob;
+  try {
+    const xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await blob.arrayBuffer());
+    const out = linkPhraseMedia(xml, { mediaName });
+    return out === xml ? blob : new Blob([out], { type: 'application/xml' });
+  } catch (err) {
+    console.warn('[flextext] media links not added; the file goes out as it was:', err);
+    return blob;
+  }
+}
+
 /* ================================================================================================
  * LOOSE-FILE CONVERSIONS — one .flextext + one recording, picked from disk.
  *
@@ -1760,7 +1781,9 @@ export function loosePlan({ doc = null, audioBytes = 0, isWav = false, hasAudio 
     caps,
     /* ⚠ THE .flextext RIDES BYTE-FOR-BYTE as picked — never re-serialized. A foreign FLEx file may
      * carry elements this app's parser does not model, and serializeFlextext would silently drop
-     * them. Passing the original bytes through is the only honest option. */
+     * them. Passing the original bytes through is the only honest option. The one exception is
+     * additive: a timed phrase with no media-file gets one (linkFlextextBlob), since FLEx would
+     * otherwise import it with its times thrown away. */
     flextext: r(!empty, 'noText'),
     /* ⚠ THE EAF NEEDS TIMES, NOT AUDIO. serializeEaf omits the MEDIA_DESCRIPTOR when mediaName is ''
      * and is otherwise a perfectly legal ELAN file, so a flextext WITH offsets and no recording in
@@ -1845,7 +1868,13 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
     ? { entries: list, zip: true, saveName: zipName, notes }
     : { entries: list, zip: false, saveName: list.length ? list[0].name : '', notes });
 
-  if (kind === 'flextext') return pack([{ name: base + '.flextext', data: flextextBlob }], '');
+  /* The user's own file, with one change when it needs it: timed phrases get the media-file FLEx
+   * keeps their times by (linkFlextextBlob), named for the recording they picked beside it when they
+   * picked one. A file that already has its links comes back as the very Blob it went in as. */
+  if (kind === 'flextext') {
+    const ft = await linkFlextextBlob(flextextBlob, (audio && audio.name) || mediaNameFor(base, null));
+    return pack([{ name: base + '.flextext', data: ft }], '');
+  }
 
   /* ── TEXT-ONLY INTERLINEAR PAGE — the preview's no-audio flavor (the fxpa treatment). Decided by
    * the PLAN so the row the user clicked and the file they get cannot disagree; with no plan in

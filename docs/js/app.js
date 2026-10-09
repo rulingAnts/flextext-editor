@@ -6019,6 +6019,13 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
      * those texts on their next export, with no migration and no re-download. */
     segMediaName = segMedia.derived ? derivedWavName(base) : mediaNameFor(base, segMedia);
   }
+  /* ⚠ THE .flextext ALWAYS NAMES ITS RECORDING, EVEN WITH NONE ON THIS DEVICE. FLEx keeps a phrase's
+   * times only through a media-file link, so a timed text with no media-files block of its own
+   * (audio removed, an aligned file imported without its recording) gets an entry minted, named
+   * by this (flextext.js, linkPhraseMedia). mediaNameFor(base, null) is the title with no
+   * extension — the suite's own name for a recording it knows nothing about. On a text that already
+   * has a block the name only helps pick the entry; it never renames one. */
+  const fallbackMediaName = mediaNameFor(base, media);
   /* LANE B (assign-by-upload rule 4): an UPLOAD is the BARE .flextext — never zipped. The
    * recording + consent artifacts leave on their own Lane A zip the moment a recording is saved
    * (queueMediaUpload), and the panel builds the EAF/SayMore/preview conversions on demand from
@@ -6029,7 +6036,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   if (!opts.full) {
     const uploadMediaName = (hasAligned && media)
       ? (isAudioLocked(rec) ? mediaNameFor(base, media) : segMediaName)
-      : undefined;
+      : fallbackMediaName;
     const bare = serializeDocBlob(rec, uploadMediaName);
     const bstamp = withTimestamp ? ' ' + fileStamp() : '';
     return { blob: bare, filename: `${base}${bstamp}.flextext`, mime: 'application/xml',
@@ -6047,7 +6054,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     anal: settings.analLang || rec.doc.analLang || 'en',
     full: !!opts.full,
   });
-  const xmlBlob = serializeDocBlob(rec, segMediaName || undefined);
+  const xmlBlob = serializeDocBlob(rec, segMediaName || fallbackMediaName);
   const consent = rec.consentClip
     ? await db.getMedia('consent:' + rec.id).catch(() => null)
     : null;
@@ -6102,8 +6109,8 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
 }
 
 // Serialize a doc record to a .flextext XML blob (DOM-free; mirrors exportBlob without the DOM).
-// mediaName (optional) lets aligned segments reference their audio via flextext's native
-// media-files block; timestamps ride as begin/end offsets + note items either way.
+// mediaName names the recording the timed phrases link to through flextext's native media-files
+// block (FLEx keeps no time without that link); timestamps also ride as note items either way.
 function serializeDocBlob(rec, mediaName) {
   const doc = rec.doc;
   doc.title = rec.title || doc.title || 'Untitled';

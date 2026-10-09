@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v715';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'beta-tier v1';
+export const BUILD_TAG = 'beta-tier v2';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -33,11 +33,16 @@ export const BUILD_TAG = 'beta-tier v1';
  * app they are in), by the researcher panel's estate map (so a beta panel links beta apps), and by the
  * editor's ?devreset gate (which must REFUSE on beta: these are real installs holding real work).
  *
- * ⚠ Convention, not configuration: <name>-beta.68mh29kgsd.workers.dev is what `wrangler deploy --name
- * <name>-beta` produces. If the beta Workers ever get custom domains, add them HERE and in
- * researcher-panel.js's ESTATES.beta in the same commit. */
+ * Two shapes, both conventions: <name>-beta.68mh29kgsd.workers.dev is what `wrangler deploy --name
+ * <name>-beta` produces, and beta.flextext.app / beta-<app>.flextext.app are the custom domains
+ * attached to those Workers (Seth, 2026-10-10: "we want the beta worker to have a sub-domain of its
+ * own"). The custom domain is what testers install from — a PWA's identity is its origin — so it is
+ * the one in researcher-panel.js's ESTATES.beta; the workers.dev twin answers additively, as the
+ * production workers.dev hosts do. A new beta hostname goes HERE, in ESTATES.beta and in the worker's
+ * ALLOWED_ORIGINS in the same commit (test/beta-tier.test.mjs ties the three together). */
 export function isBetaHost(host) {
-  return /-beta\.68mh29kgsd\.workers\.dev$/.test(String(host || ''));
+  const h = String(host || '');
+  return /-beta\.68mh29kgsd\.workers\.dev$/.test(h) || /^beta(-[a-z0-9-]+)?\.flextext\.app$/.test(h);
 }
 
 const S = {
@@ -621,7 +626,7 @@ en: {
   'panel.adv.links.cloud': 'Force new site (flextext.app)',
   'panel.adv.links.pages': 'Force old site (github.io)',
   'panel.adv.links.origin': 'Force this same address',
-  'panel.adv.links.beta': 'Force beta site (…-beta.workers.dev)',
+  'panel.adv.links.beta': 'Force beta site (beta.flextext.app)',
   'panel.deprecated.msg': 'This web address for the Researcher app is being retired. Please install it from its new address and sign in there — your account, your coworkers and their texts are stored on the server, so nothing is lost in the move.',
   'panel.deprecated.link': 'Open research.flextext.app',
   'para.ungroupDemoted': 'That group was the HEAD of the group above it. Its members have joined that group as ordinary members, so the group above is now a symmetrical (coordinate) join with no head. Set a new head there if you want one.',
@@ -1653,7 +1658,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
-    ,'panel.rel.new.betaChannel': 'A beta tier: every release now runs for a while on seven beta copies of the apps (addresses ending in -beta.68mh29kgsd.workers.dev, \u201cbeta\u201d shown beside the version) before the same version reaches the production addresses. Beta apps use the same accounts, coworkers and texts as production. If you would like to try releases early, ask for a beta link.'
+    ,'panel.rel.new.betaChannel': 'A beta tier: every release now runs for a while on seven beta copies of the apps (beta.flextext.app and the beta-… addresses, \u201cbeta\u201d shown beside the version) before the same version reaches the production addresses. Beta apps use the same accounts, coworkers and texts as production. If you would like to try releases early, ask for a beta link.'
     ,'panel.rel.fix.revertSilentExports': 'Undone: v709\u2019s leaving blank lines out of the exports. Every line is written to the .flextext and the ELAN files again, blank ones included, as before v709 \u2014 leaving them out made texts moved between devices lose their untranscribed segments. A text uploaded or moved between devices since 9 October may need those segments cut again on the Cut tab.'
     ,'panel.rel.new.silentExports': 'Exports: a line with no words, no text and no translation \u2014 a pause, noise, an aside left empty \u2014 is no longer written to the FLExText or to the ELAN and SayMore files. FLEx gets no empty line and ELAN no empty annotation: the stretch is simply unannotated, as ELAN itself leaves a pause. Nothing changes in the editor, where such a line stays a real timed span; a line that carries a translation or a note imported from FLEx is always written.'
     ,'panel.rel.new.joinSplitSeparate': 'Device settings: joining and splitting lines are now two separate permissions on each of the Baseline and Gloss tabs \u2014 four switches instead of two \u2014 in the researcher panel\u2019s device settings and project defaults and in the editor\u2019s own Settings tab. A device that has not been updated still follows the old combined switch, which the panel keeps writing as \u201cboth allowed\u201d only when both are. The Cut tab always joins and splits.'
@@ -3427,7 +3432,7 @@ id: {
   'panel.adv.links.cloud': 'Paksa situs baru (flextext.app)',
   'panel.adv.links.pages': 'Paksa situs lama (github.io)',
   'panel.adv.links.origin': 'Paksa alamat yang sama ini',
-  'panel.adv.links.beta': 'Paksa situs beta (…-beta.workers.dev)',
+  'panel.adv.links.beta': 'Paksa situs beta (beta.flextext.app)',
   'panel.deprecated.msg': 'Alamat web untuk aplikasi Peneliti ini akan dihentikan. Silakan pasang dari alamat barunya dan masuk di sana — akun Anda, rekan kerja Anda, dan teks mereka tersimpan di server, jadi tidak ada yang hilang saat berpindah.',
   'panel.deprecated.link': 'Buka research.flextext.app',
   'para.ungroupDemoted': 'Kelompok itu adalah HEAD dari kelompok di atasnya. Anggotanya kini bergabung sebagai anggota biasa, sehingga kelompok di atas menjadi gabungan simetris (koordinat) tanpa head. Tetapkan head baru di sana jika Anda menginginkannya.',
@@ -4298,7 +4303,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
-    ,'panel.rel.new.betaChannel': 'Tingkat beta: setiap rilis kini berjalan dulu beberapa waktu di tujuh salinan beta aplikasi (alamat berakhiran -beta.68mh29kgsd.workers.dev, dengan \u201cbeta\u201d di samping nomor versi) sebelum versi yang sama sampai ke alamat produksi. Aplikasi beta memakai akun, rekan kerja, dan teks yang sama dengan produksi. Kalau ingin mencoba rilis lebih awal, mintalah tautan beta.'
+    ,'panel.rel.new.betaChannel': 'Tingkat beta: setiap rilis kini berjalan dulu beberapa waktu di tujuh salinan beta aplikasi (beta.flextext.app dan alamat beta-…, dengan \u201cbeta\u201d di samping nomor versi) sebelum versi yang sama sampai ke alamat produksi. Aplikasi beta memakai akun, rekan kerja, dan teks yang sama dengan produksi. Kalau ingin mencoba rilis lebih awal, mintalah tautan beta.'
     ,'panel.rel.fix.revertSilentExports': 'Dibatalkan: v709 yang tidak menyertakan baris kosong dalam ekspor. Setiap baris kembali ditulis ke .flextext dan berkas ELAN, termasuk yang kosong, seperti sebelum v709 \u2014 tanpanya, teks yang dipindahkan antarperangkat kehilangan segmen yang belum ditranskripsi. Teks yang diunggah atau dipindahkan antarperangkat sejak 9 Oktober mungkin perlu dipotong ulang di tab Potong.'
     ,'panel.rel.new.silentExports': 'Ekspor: baris tanpa kata, tanpa teks, dan tanpa terjemahan \u2014 jeda, derau, selingan yang dibiarkan kosong \u2014 tidak lagi ditulis ke FLExText maupun ke berkas ELAN dan SayMore. FLEx tidak menerima baris kosong dan ELAN tidak menerima anotasi kosong: rentang itu dibiarkan tanpa anotasi, seperti ELAN sendiri membiarkan jeda. Tidak ada yang berubah di editor, tempat baris seperti itu tetap rentang waktu yang nyata; baris yang membawa terjemahan atau catatan yang diimpor dari FLEx selalu ditulis.'
     ,'panel.rel.new.joinSplitSeparate': 'Pengaturan perangkat: menggabungkan dan memisahkan baris kini dua izin terpisah di masing-masing tab Ketik dan Gloss \u2014 empat sakelar, bukan dua \u2014 di pengaturan perangkat dan bawaan proyek pada panel peneliti maupun di tab Pengaturan editor sendiri. Perangkat yang belum diperbarui tetap mengikuti sakelar gabungan yang lama, yang terus ditulis panel sebagai \u201ckeduanya diizinkan\u201d hanya kalau keduanya memang diizinkan. Tab Potong selalu bisa menggabungkan dan memisahkan.'

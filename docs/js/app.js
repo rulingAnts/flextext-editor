@@ -12710,7 +12710,7 @@ function setup() {
     const cloud = /\.flextext\.app$/.test(location.hostname);
     // A beta editor hands off to the BETA panel: same backend, same account, but the tester stays
     // on the tier they chose. (Without this the beta host is "not cloud" and would land on Pages.)
-    const base = isBetaHost(location.hostname) ? 'https://flextext-researcher-beta.68mh29kgsd.workers.dev/'
+    const base = isBetaHost(location.hostname) ? 'https://beta-research.flextext.app/'
       : cloud ? 'https://research.flextext.app/' : 'https://rulingants.github.io/flextext-researcher/';
     location.replace(base + (location.hash || ''));
     return;

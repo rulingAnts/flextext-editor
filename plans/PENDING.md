@@ -21,8 +21,10 @@ Seth, 2026-10-10: *"create beta-version workers on Cloudflare. And introduce tha
 Before pushing to main production, push to beta and leave it there for awhile (and have hopefully some users
 on the beta, including myself and my team)."*
 
-**What it is:** a `beta` branch between `main` and `productionWeb`, and seven separate Workers `<worker>-beta`
-(`https://<worker>-beta.68mh29kgsd.workers.dev`) that `deploy-beta.yml` deploys from that branch — all apps,
+**What it is:** a `beta` branch between `main` and `productionWeb`, and seven separate Workers `<worker>-beta`,
+each under its own custom domain (`beta.flextext.app`; `beta-record`, `beta-research`, `beta-crowd`, `beta-pat`,
+`beta-consent`, `beta-audio-segmenter` `.flextext.app` — Seth, 2026-10-10: "we want the beta worker to have a
+sub-domain of its own"; the `<worker>-beta.68mh29kgsd.workers.dev` twin answers too), that `deploy-beta.yml` deploys from that branch — all apps,
 no selection, `beta` only, through each app's own `deploy.sh` (`wrangler deploy --name <name>-beta`; the name
 is read from `wrangler.toml`). Beta runs production bytes: `BUILD_TAG` is `''`, the release notes are written,
 the cache stamper is exempt, HOLD-BACK holds beta too. The origin is the only thing that says "beta" —
@@ -37,9 +39,12 @@ tester's device. Release flow is now main → ff `beta` → Deploy to beta → s
 2. **Worker deploy** (the ritual: maintenance flag up, rollback id captured, flag down after) — production
    `ALLOWED_ORIGINS` gained the seven beta origins. Additive; nothing else changed in the worker.
 3. `git checkout -b beta main && git push -u origin beta`; Actions → **Deploy to beta** (creates the Workers).
-4. Install from `https://flextext-editor-beta.68mh29kgsd.workers.dev/` etc.; the badge must say `v715 · beta`.
-5. Optional, Seth's dashboard: custom domains for the beta Workers — then add them to `isBetaHost` and
-   `ESTATES.beta` in the same commit. Also the Turnstile widget hostname list if the crowd beta is used.
+4. Seth's dashboard, once per Worker: Workers & Pages → `<worker>-beta` → Settings → Domains & Routes → add
+   the custom domain (`beta.flextext.app` for flextext-editor-beta, `beta-record` for the recorder, `beta-research`,
+   `beta-crowd`, `beta-pat`, `beta-consent`, `beta-audio-segmenter`). The zone is on Cloudflare, so DNS is created
+   for you. Also the Turnstile widget hostname list if the crowd beta is used.
+5. Install from `https://beta.flextext.app/` etc. — the DOMAIN, never the workers.dev twin (a PWA's identity is its
+   origin). The badge must say `v715 · beta`.
 
 ## ▶ v714 — ROLLBACK, 2026-10-10: v709's "leave blank lines out of the exports" is undone; production returns to v707's export behaviour
 

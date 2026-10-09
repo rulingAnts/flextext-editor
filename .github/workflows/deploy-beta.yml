@@ -6,8 +6,9 @@
 # Staging is a test surface that is redeployed many times a day and holds half-finished features;
 # a release candidate needs somewhere real people can INSTALL the app and live on it for a week
 # before the same commit reaches every field device. That is the beta tier: seven separate
-# Cloudflare Workers named <worker>-beta, deployed by each app's own deploy.sh when the branch is
-# `beta`, exactly as productionWeb deploys the production seven.
+# Cloudflare Workers named <worker>-beta (beta.flextext.app and the beta-<app>.flextext.app domains),
+# deployed by each app's own deploy.sh when the branch is `beta`, exactly as productionWeb deploys
+# the production seven.
 #
 # ⚠ NO APP SELECTION, same as production and for the same reason: beta is one estate at one
 # version, or it is not rehearsing a release. ⚠ AND IT ONLY RUNS ON `beta`. Pick that branch in

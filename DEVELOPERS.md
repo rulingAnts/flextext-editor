@@ -301,7 +301,8 @@ This is the part that has caused real outages when done wrong — read
 - **Branches:** feature branch → `staging` (`--no-ff`, deployed on demand to the Cloudflare dev
   site) → after the maintainer's hands-on sign-off, ff into `main` → ff into `beta` → soak → ff
   into `productionWeb`. **The beta tier (2026-10-10)** is seven separate Workers named
-  `<worker>-beta` (`https://<worker>-beta.68mh29kgsd.workers.dev`), deployed by
+  `<worker>-beta`, each under its own custom domain (`beta.flextext.app`, `beta-<app>.flextext.app`;
+  the `<worker>-beta.68mh29kgsd.workers.dev` twin answers too), deployed by
   `deploy-beta.yml` from the `beta` branch only, all apps, no selection — production's twin one step
   earlier. Real people install them; they use the production backend, so accounts and texts are
   shared with production. Beta runs the release bytes (`BUILD_TAG` empty, notes written); the

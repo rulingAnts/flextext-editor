@@ -400,13 +400,17 @@ const ESTATES = {
    * app has a beta twin, so unlike the staging map nothing here borrows a production address.
    * ⚠ Explicit, like the others, for the same standalone-researcher reason. Not flagged `staging`:
    * beta is a real estate — held-back apps stay hidden and ?devreset stays refused. */
+  /* ⚠ The CUSTOM DOMAINS, not the <worker>-beta.workers.dev twins: a PWA's identity is its origin,
+   * so the address a tester installs from is the one that must stay stable, and that is the domain.
+   * Each is attached once in the Cloudflare dashboard to its -beta Worker (the go-live order in
+   * plans/PENDING.md); until then the link 404s honestly rather than installing a second app. */
   beta: {
-    editor: 'https://flextext-editor-beta.68mh29kgsd.workers.dev/',
-    researcher: 'https://flextext-researcher-beta.68mh29kgsd.workers.dev/',
-    recorder: 'https://flextext-recorder-beta.68mh29kgsd.workers.dev/',
-    crowd: 'https://flextext-crowd-beta.68mh29kgsd.workers.dev/',
-    segmenter: 'https://audio-segmenter-beta.68mh29kgsd.workers.dev/',
-    consent: 'https://consent-collector-beta.68mh29kgsd.workers.dev/',
+    editor: 'https://beta.flextext.app/',
+    researcher: 'https://beta-research.flextext.app/',
+    recorder: 'https://beta-record.flextext.app/',
+    crowd: 'https://beta-crowd.flextext.app/',
+    segmenter: 'https://beta-audio-segmenter.flextext.app/',
+    consent: 'https://beta-consent.flextext.app/',
     beta: true,
   },
 };

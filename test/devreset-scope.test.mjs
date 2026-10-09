@@ -44,7 +44,7 @@ console.log('\n…and REFUSED on every origin a field device can be on');
   /* ⚠ If one of these ever flips to true, a forwarded link can wipe a real corpus. */
   for (const h of ['flextext.app', 'www.flextext.app', 'connect.flextext.app', 'research.flextext.app',
                    'crowd.flextext.app', 'pat.flextext.app', 'rulingants.github.io',
-                   'flextext-editor-beta.68mh29kgsd.workers.dev']) {   // the BETA tier: real installs (2026-10-10)
+                   'flextext-editor-beta.68mh29kgsd.workers.dev', 'beta.flextext.app', 'beta-record.flextext.app']) {   // the BETA tier: real installs (2026-10-10)
     ok(allowed(h) === false, `refused on ${h}`);
   }
   ok(allowed('') === false && allowed(undefined) === false, 'and on a missing hostname');

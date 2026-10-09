@@ -16,8 +16,8 @@
  *
  * The rules, in order, and each is load-bearing:
  *   1. localhost      → same-origin dev rig      (a developer must never be handed production)
- *   2. <worker>-beta.68mh29kgsd.workers.dev → the BETA estate (checked BEFORE the next rule, which
- *      would otherwise swallow it — beta is a workers.dev host too)
+ *   2. beta.flextext.app / beta-<app>.flextext.app, or a <worker>-beta.68mh29kgsd.workers.dev twin →
+ *      the BETA estate (checked BEFORE the next rule, which would otherwise swallow the twin)
  *   2b. *.workers.dev / *.pages.dev → the staging map
  *   3. rulingants.github.io → the legacy estate, BY NAME (never by falling through)
  *   4. everything else → the CURRENT estate      (an unknown host is not a legacy host)
@@ -84,15 +84,16 @@ console.log('\n2b. BETA resolves to the BETA apps — and never to staging, whic
 /* The beta Workers are real installs on a soak before a production release. A beta panel that linked
  * staging apps would hand a tester a half-finished feature branch; one that linked production would
  * quietly move them off the tier they chose. Every app has a beta twin, so nothing borrows here. */
-for (const host of ['https://flextext-editor-beta.68mh29kgsd.workers.dev',
+for (const host of ['https://beta.flextext.app', 'https://beta-research.flextext.app',
+                    'https://flextext-editor-beta.68mh29kgsd.workers.dev',
                     'https://flextext-researcher-beta.68mh29kgsd.workers.dev']) {
   const e = estateOf(host);
-  ok(e.editor === 'https://flextext-editor-beta.68mh29kgsd.workers.dev/', `${new URL(host).hostname}\n           -> editor ${e.editor}`);
-  ok(e.researcher === 'https://flextext-researcher-beta.68mh29kgsd.workers.dev/', '  ...and the beta researcher');
-  ok(e.recorder === 'https://flextext-recorder-beta.68mh29kgsd.workers.dev/', '  ...recorder is the beta one (it has a beta Worker, unlike staging)');
-  ok(e.segmenter === 'https://audio-segmenter-beta.68mh29kgsd.workers.dev/', '  ...and the segmenter');
+  ok(e.editor === 'https://beta.flextext.app/', `${new URL(host).hostname}\n           -> editor ${e.editor}`);
+  ok(e.researcher === 'https://beta-research.flextext.app/', '  ...and the beta researcher, by its domain');
+  ok(e.recorder === 'https://beta-record.flextext.app/', '  ...recorder is the beta one (it has a beta Worker, unlike staging)');
+  ok(e.segmenter === 'https://beta-audio-segmenter.flextext.app/', '  ...and the segmenter');
   ok(e.beta === true && !e.staging && !e.local, '  ...flagged beta, and NOT staging (held-back apps stay hidden, ?devreset stays refused)');
-  if (!/flextext-editor-beta/.test(host)) ok(e.editor !== host + '/', '  ⚠ ...and NOT this origin (the standalone-researcher trap)');
+  if (!/^https:\/\/beta\.flextext\.app$/.test(host)) ok(e.editor !== host + '/', '  ⚠ ...and NOT this origin (the standalone-researcher / workers.dev-twin trap)');
 }
 ok(estateOf('https://staging-flextext-editor.68mh29kgsd.workers.dev').beta !== true, 'staging is not beta');
 ok(estateOf('https://beta-flextext-editor.68mh29kgsd.workers.dev').beta !== true,

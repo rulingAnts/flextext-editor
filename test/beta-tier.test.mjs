@@ -44,21 +44,40 @@ test('every app routes the beta branch to a real deploy of <worker>-beta, ahead 
   }
 });
 
-test('the panel\'s beta estate names exactly the hosts those deploys produce', () => {
+/* The beta Workers answer at TWO hostnames each: the workers.dev twin wrangler creates, and the custom
+ * domain Seth attaches in the dashboard (beta.flextext.app for the editor, beta-<app>.flextext.app for
+ * the rest). The domain is what testers install from, so it is the one the panel links; both must be
+ * recognised as beta and both must reach the production worker. */
+const BETA_DOMAINS = {
+  'apps/editor': 'beta.flextext.app', 'apps/researcher': 'beta-research.flextext.app',
+  'apps/recorder': 'beta-record.flextext.app', 'apps/crowd': 'beta-crowd.flextext.app',
+  'paragraph-analysis': 'beta-pat.flextext.app', 'apps/consent': 'beta-consent.flextext.app',
+  'apps/segmenter': 'beta-audio-segmenter.flextext.app',
+};
+
+test('the panel\'s beta estate links the custom domains, one per app it links', () => {
   const panel = read('docs/js/researcher-panel.js');
   const map = (panel.match(/\n  beta: \{([\s\S]*?)\n  \},/) || [])[1] || '';
   assert.ok(map, 'ESTATES.beta exists');
-  const hosts = [...map.matchAll(/https:\/\/([a-z0-9-]+)\.68mh29kgsd\.workers\.dev\//g)].map((m) => m[1]);
-  const expected = APPS.map((a) => workerName(a) + '-beta').filter((n) => n !== 'paragraph-analysis-tool-beta');
-  assert.deepEqual(hosts.sort(), expected.sort(), 'one entry per app the panel links (PAT is not linked by the panel, as on every estate)');
-  for (const h of hosts) assert.ok(isBetaHost(h + '.68mh29kgsd.workers.dev'), `${h} is recognised as beta`);
+  const hosts = [...map.matchAll(/https:\/\/([a-z0-9.-]+)\//g)].map((m) => m[1]);
+  const expected = APPS.filter((a) => a !== 'paragraph-analysis').map((a) => BETA_DOMAINS[a]);
+  assert.deepEqual(hosts.sort(), expected.sort(), 'the six apps the panel links (PAT is not linked by the panel, as on every estate)');
+  for (const h of hosts) assert.ok(isBetaHost(h), `${h} is recognised as beta`);
+  assert.doesNotMatch(map, /workers\.dev/, 'the map names the domains, not the workers.dev twins — the domain is the install origin');
   assert.match(map, /beta: true/, 'flagged beta');
   assert.doesNotMatch(map, /staging: true/, 'and not staging');
-  // The worker's production allow-list carries every one of them, PAT included (its deploy exists even
-  // though the panel does not link it) — a beta app that could not reach the backend would be a beta
-  // of nothing.
-  const prod = read('worker/wrangler.toml').split('[env.staging]')[0].match(/^ALLOWED_ORIGINS\s*=\s*"([^"]+)"/m)[1];
-  for (const a of APPS) assert.ok(prod.includes(`https://${workerName(a)}-beta.68mh29kgsd.workers.dev`), `${a} beta origin allowed on the production worker`);
+  assert.match(read('docs/js/app.js'), /isBetaHost\(location\.hostname\) \? 'https:\/\/beta-research\.flextext\.app\/'/, 'the editor hands ?mode=researcher to the beta panel by its domain');
+});
+
+test('every beta origin — both shapes, PAT included — is on the production worker\'s allow-list', () => {
+  // PAT's beta deploy exists even though the panel does not link it; a beta app that could not reach
+  // the backend would be a beta of nothing.
+  const prod = read('worker/wrangler.toml').split('[env.staging]')[0].match(/^ALLOWED_ORIGINS\s*=\s*"([^"]+)"/m)[1].split(',');
+  for (const a of APPS) {
+    assert.ok(prod.includes(`https://${workerName(a)}-beta.68mh29kgsd.workers.dev`), `${a}: workers.dev twin allowed`);
+    assert.ok(prod.includes(`https://${BETA_DOMAINS[a]}`), `${a}: custom domain allowed`);
+    assert.ok(isBetaHost(`${workerName(a)}-beta.68mh29kgsd.workers.dev`) && isBetaHost(BETA_DOMAINS[a]), `${a}: both shapes read as beta`);
+  }
 });
 
 test('isBetaHost reads the origin convention and nothing else', () => {
@@ -67,7 +86,12 @@ test('isBetaHost reads the origin convention and nothing else', () => {
   assert.equal(isBetaHost('flextext-editor.68mh29kgsd.workers.dev'), false, 'production workers.dev host');
   assert.equal(isBetaHost('staging-flextext-editor.68mh29kgsd.workers.dev'), false, 'staging');
   assert.equal(isBetaHost('beta-flextext-editor.68mh29kgsd.workers.dev'), false, '⚠ a preview alias of a branch named beta is NOT the beta tier');
+  assert.equal(isBetaHost('beta.flextext.app'), true, 'the editor\'s custom domain');
+  assert.equal(isBetaHost('beta-research.flextext.app'), true, 'a satellite\'s custom domain');
   assert.equal(isBetaHost('app.flextext.app'), false);
+  assert.equal(isBetaHost('research.flextext.app'), false, 'production domains are not beta');
+  assert.equal(isBetaHost('betaflextext.app'), false);
+  assert.equal(isBetaHost('beta.flextext.app.evil.com'), false);
   assert.equal(isBetaHost('flextext-editor-beta.68mh29kgsd.workers.dev.evil.com'), false, 'suffix must be at the end');
   assert.equal(isBetaHost(undefined), false, 'tolerates a missing hostname (called during boot)');
 });
@@ -84,7 +108,6 @@ test('the editor refuses ?devreset on beta, hands ?mode=researcher to the beta p
   assert.equal(call('flextext-editor-beta.68mh29kgsd.workers.dev'), false, '⚠ beta does not');
   assert.equal(call('app.flextext.app'), false, 'production never did');
 
-  assert.match(app, /isBetaHost\(location\.hostname\) \? 'https:\/\/flextext-researcher-beta\.68mh29kgsd\.workers\.dev\/'/, 'the researcher hand-off stays on the tier');
   assert.match(app, /if \(isBetaHost\(location\.hostname\)\) ver \+= ' \\u00b7 beta';/, 'the version badge says beta (BUILD_TAG is empty on beta by design)');
 });
 

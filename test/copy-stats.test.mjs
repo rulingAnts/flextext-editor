@@ -1,6 +1,6 @@
 /* WHAT A STORED COPY HOLDS, AND WHETHER IT IS WHOLE — flextextStats / checkFlextextBytes.
  *
- * WHY THIS TEST EXISTS (plans/move-upload-guards.md §1.1): every step that picked one of a text's
+ * WHY THIS TEST EXISTS (plans/move-upload-guards.md §2.1): every step that picked one of a text's
  * Drive copies picked the NEWEST, and Drive's modifiedTime is upload time. An empty placeholder or a
  * queued copy damaged on the device (489 bytes, all NUL, sent after six days in the queue) sorted as
  * newest and was what a move delivered and what cleanup kept. These two functions are the facts the

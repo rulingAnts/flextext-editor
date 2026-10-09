@@ -64,7 +64,7 @@ landed?** If the answer depends on nobody finding the repo, it goes in `notes/` 
 | `onestory-bridge.md` | a `.flextext` + audio sidecar beside a OneStory Editor project — **a brief for an OUTSIDE team.** Nothing built, nobody working on it; two tracks (OSE as-is, and OSE schema changes to negotiate) |
 | `drive-as-truth.md` | text identity (`doc_id` vs `recording_id`), the three origins, and a reconciler so Drive/D1/UI stop drifting — **design note**, supersedes `project-split.md` VII.1 |
 | `history-rewrite-runbook.md` | how to remove a class of content from published history — **prepared, not run**; generic, with the match list kept in `test/threat-language.test.mjs` |
-| `move-upload-guards.md` | move/adopt send the source device's current copy, cleanup keeps every copy with something the kept ones lack, the title bridge is display-only, no automatic backup of untouched deliveries, queued copies checked before sending — **design, not built** |
+| `move-upload-guards.md` | move/adopt send the source device's current copy, cleanup keeps every copy with something the kept ones lack, the title bridge is display-only, no automatic backup of untouched deliveries, queued copies checked before sending — **built on `fix/move-upload-guards` (2026-10-10); G1c and §8 plan only; real-click checks still to do** |
 
 ⚠ `notes/` stays gitignored and is still the right home for working scratch, task briefs, and
 anything with a real name or a real recording in it.

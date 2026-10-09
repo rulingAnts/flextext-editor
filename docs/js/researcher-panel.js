@@ -3945,7 +3945,7 @@ function cleanupCandidates(allFiles) {
   return backups.slice(1);   // keep the newest; the rest are the older copies
 }
 
-/* ── WHAT A COPY HOLDS, COMPARED (plans/move-upload-guards.md §1) ────────────────────────────────
+/* ── WHAT A COPY HOLDS, COMPARED (plans/move-upload-guards.md §2) ────────────────────────────────
  *
  * Cleanup and a move both have to choose among a text's Drive copies, and both used to choose the
  * NEWEST — Drive modifiedTime, which is UPLOAD time. These compare what the copies HOLD instead
@@ -5006,7 +5006,7 @@ function wireDownloadMenus(scope) {
           if (!tx || !tx.inUnassigned) { deps.toast(t('panel.hist.removeFolderNotFiled'), 9000); return; }
           // THIS docId's folder only — never a same-title sibling's (G3). The confirm says so. The
           // removal follows the folder ID wherever it now lives — if the folder was MOVED elsewhere
-          // in Drive, THAT folder is what goes to trash (Seth's advisory, kept in the confirm).
+          // in Drive, THAT folder is what goes to trash (the maintainer's advisory, kept in the confirm).
           const folderIds = [];
           try { const r = await Researcher.listTextFiles(hc.dataset.i, docId); if (r.folderId) folderIds.push(r.folderId); }
           catch { /* a missing folder is simply not removable */ }

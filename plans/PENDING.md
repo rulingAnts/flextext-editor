@@ -17,6 +17,10 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ## ▶ v715 — RELEASED 2026-10-10 (notice fields + beta-tier groundwork); the `beta` branch exists but the beta Workers are NOT yet created
 
+**v716 followed the same night** (notice links inherit the banner colour; four notice tones with `info` as the
+default; a lone `-` in the heading / last-line field means none, because GitHub refills an emptied dispatch field
+from its default). `main`, `beta` and `productionWeb` all sit at v716.
+
 **Shipped straight from `main` with Seth's sign-off** ("Go ahead and ship v715") — the beta Workers and domains did not
 exist yet, so this one release could not soak there. It carried: the operator notice with its own heading / last
 line / collapsed More info / links (the worker cap 500 → 4000 was deployed first, version e7edabfc…; previous

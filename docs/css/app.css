@@ -3253,6 +3253,13 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
   .rp-maint { border-color: #8a6400; background: #2b2310; color: #f0dfae; }
   .rp-maint .note { color: #cbb277; }
 }
+/* An operator NOTICE (v715) — an announcement or an apology, not a warning: the information blue. */
+.rp-maint.rp-opnotice { border-color: #2f6fb0; background: #eef5fc; color: #10304d; }
+.rp-maint.rp-opnotice .note { color: #2c5578; }
+@media (prefers-color-scheme: dark) {
+  .rp-maint.rp-opnotice { border-color: #3d79b8; background: #12263a; color: #cfe3f7; }
+  .rp-maint.rp-opnotice .note { color: #9dbbd8; }
+}
 /* The write-lock banner (ops_flag `freeze`): a restriction, not an advisory — so it reads a shade
    sterner than the amber notice, without shouting "broken" in red. */
 .rp-maint.rp-frozen { border-color: #c4571d; background: #fdf0e7; color: #4a2410; }

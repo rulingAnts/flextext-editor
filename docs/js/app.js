@@ -908,6 +908,46 @@ function docHasNoText(doc) {
   return !getBaselineParagraphs(doc).some((p) => String(p || '').trim());
 }
 
+/* ── G4: NO AUTOMATIC BACKUP OF A DELIVERY NOBODY HAS TOUCHED (plans/move-upload-guards.md) ──────
+ *
+ * Auto-backup sent assigned texts the coworker had never opened, and placeholders still waiting for
+ * their transcription. Each such upload became the NEWEST copy in the text's folder — exactly what
+ * a move and a cleanup then picked, over the real work. An untranscribed delivery holds nothing worth
+ * uploading (the assign-by-upload rule already on record), so the automatic sweep leaves it alone.
+ * ⚠ ONLY THE AUTOMATIC SWEEP. Send, Done, the researcher's upload request and every delete path are
+ * explicit and unchanged — upload-first deletion included. */
+function docHasFree(doc) {
+  return ((doc && doc.paragraphs) || []).some((p) => (p.segments || []).some((sg) => String(sg.free || '').trim()));
+}
+/* The delivered content, for "has anybody changed it?". Not uploadContentSig: opening a delivery in
+ * Audio Segmentation Mode lays down seed spans (one whole-file span, or estimated ones) and a
+ * serialize mints a media guid — neither is anybody's work, and counting them would make every
+ * opened delivery read "changed". Spans a person CUT are counted (docIsUncut is false then). */
+function deliveredContentSig(rec) {
+  try {
+    const doc = (rec && rec.doc) || {};
+    const { segments, mediaGuid, ...rest } = doc;   // mediaGuid is dropped on purpose (see above)
+    const segs = docIsUncut(doc) ? null : (segments || null);
+    return cheapHash(JSON.stringify(rest) + '|' + JSON.stringify(segs) + '|' + (rec.audioId || rec.audioSource || '') + '|' + (rec.title || ''));
+  } catch { return 'x' + Date.now(); }   // unstringifiable → never matches → backs up as before (safe)
+}
+/* Why the automatic sweep should NOT back this text up, or '' to back it up as before. PURE.
+ *   'awaitingTranscript'  a placeholder still waiting for its transcription, with nothing typed or cut
+ *   'asDelivered'         unchanged since it was delivered (deliveredSig, stamped at delivery)
+ *   'noWork'              a delivery from before the stamp existed that holds no work at all
+ * Every case needs: delivered by a researcher (`assigned`), never uploaded from here, and no
+ * recording of its own still to send. A text a person typed into, cut by hand or translated is WORK
+ * and backs up exactly as today. */
+function backupSkipReason(rec) {
+  if (!rec || !rec.assigned || rec.uploadedFileId) return '';
+  if (!isAudioLocked(rec) && (rec.audioSource || rec.audioId)) return '';   // its own recording: as before
+  const doc = rec.doc || { paragraphs: [] };
+  const noWork = docHasNoText(doc) && docIsUncut(doc) && !docHasFree(doc);
+  if (noWork && rec.pendingFlextext) return 'awaitingTranscript';
+  if (rec.deliveredSig && deliveredContentSig(rec) === rec.deliveredSig) return 'asDelivered';
+  return noWork ? 'noWork' : '';
+}
+
 /* WHICH TAB A TEXT OPENS ON (Seth, 2026-08-13):
  *
  *   (1) the last tab the user had open in THIS text — remembered per text, so coming back to a
@@ -4202,6 +4242,8 @@ async function openUrlTask(task, mode = 'interactive') {
     rec.audioLocked = true;
   }
   Object.assign(rec, docStats(rec.doc));
+  // G4: what was delivered, so the automatic sweep can tell an untouched delivery from work.
+  if (rec.assigned) rec.deliveredSig = deliveredContentSig(rec);
   await db.putDoc(rec);
   // Background ('assign') must NOT hijack the user's open editor — only adopt
   // `current` + open the editor in interactive mode. Downloads run either way.
@@ -4276,6 +4318,8 @@ async function tryDownloadFlextext(rec) {
     delete rec.pendingFlextext;
     delete rec.flextextForce;
     Object.assign(rec, docStats(rec.doc));
+    // G4: the transcription IS the delivery — re-stamp, so the arrived text reads "as delivered".
+    if (rec.assigned) rec.deliveredSig = deliveredContentSig(rec);
     await db.putDoc(rec);
     if (current && current.id === rec.id) {
       current = rec;
@@ -5081,6 +5125,7 @@ async function autoBackupSweep() {
     if (!d || !d.modified) continue;
     if (nowT - d.modified < quietMs) continue;                     // still being worked on
     if (d.uploadedModified === d.modified) continue;               // this exact state is on Drive
+    if (backupSkipReason(d)) continue;                             // G4: an untouched delivery holds nothing to back up
     const sig = uploadContentSig(d);
     if (d.uploadedSig && d.uploadedSig === sig) continue;          // content unchanged since last send
     const tried = autoBackupTried.get(d.id);
@@ -5447,6 +5492,12 @@ async function syncGatherInventory() {
       uploadedFileId: d.uploadedFileId || null,
       // G5: the hash of the bytes this device sent as uploadedFileId; the panel compares it with Drive's.
       uploadedSha256: d.uploadedSha256 || null,
+      /* G4: why nothing was backed up — the panel shows "as delivered" / "waiting for its transcription"
+       * instead of "no upload from this device yet", and a move then knows the device holds the copy it
+       * was given (G1). Only on texts never uploaded from here; booleans, absent otherwise. */
+      ...(() => { const why = backupSkipReason(d);
+        return why === 'awaitingTranscript' ? { awaitingTranscript: true }
+          : (why === 'asDelivered' || why === 'noWork') ? { asDelivered: true } : {}; })(),
       // Which mic this take came from + whether it is archive grade (native captures only; null
       // everywhere else). E2EE like the rest of the inventory. Lets a researcher audit provenance
       // long after the fact, and see at a glance whether a deployed USB mic is actually being used

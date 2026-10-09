@@ -74,6 +74,7 @@ async function runMenu(files, manifest, { folderId = 'FOLDER_abc123def' } = {}) 
     ${rolesSrc}
     ${pickSrc}
     ${cleanSrc}
+    const CLEANUP_OFFERED = false;
     return (${menuSrc.replace('async function populateFilesMenu', 'async function')});
   `)(...Object.values(env));
   await fn(wrap);
@@ -246,8 +247,9 @@ console.log('\ncleanup is offered only when there is actually something to clean
     file('Kisah Rusa 2026-08-05.flextext', '', '2026-08-05T00:00:00Z'),
     file('Kisah Rusa 2026-08-01.flextext', '', '2026-08-01T00:00:00Z')];
   const many = await runMenu(pileup, MANIFEST);
-  ok(many.html.includes('data-cleanup'), 'a backup pileup does');
-  ok(many.wrap._cleanupIds && many.wrap._cleanupIds.length === 2, 'and it stages exactly the older copies');
+  /* STOP-GAP (plans/move-upload-guards.md step 0): the one-click newest-only cleanup is withheld
+   * until the review that keeps every copy holding something the kept ones lack replaces it. */
+  ok(!many.html.includes('data-cleanup'), 'a backup pileup offers no one-click cleanup while the stop-gap holds');
 }
 
 console.log('\nthe menu hands the conversion runner what it needs');

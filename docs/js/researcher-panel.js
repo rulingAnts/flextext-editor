@@ -3936,6 +3936,7 @@ function bridgedIds(docId, title) {
  * dangerous possible way for a refactor to go wrong. Explicitly listing what MAY go, rather than
  * subtracting what must stay, means a role this function has never heard of is kept by default.
  * PURE and lifted by test/text-folder-files.test.mjs. */
+const CLEANUP_OFFERED = false;   // stop-gap — see populateFilesMenu
 function cleanupCandidates(allFiles) {
   const rows = (allFiles || []).filter((f) => f && f.id);
   // Newest-first already, but never trust the caller's ordering for a destructive operation.
@@ -4156,7 +4157,12 @@ async function populateFilesMenu(wrap) {
      * 'manage' outright, so this control could only ever fail for them. Deletion and re-parenting
      * may be revisited in a later release; until they are, a member must not see the button. */
     const dead = viaMember ? [] : cleanupCandidates(allFiles);
-    if (dead.length) {
+    /* ⚠ STOP-GAP (2026-10-10, plans/move-upload-guards.md step 0). "Keep only the newest by Drive
+     * modifiedTime" is not "keep the current work": modifiedTime is UPLOAD time, so an empty
+     * placeholder or a damaged queued copy that landed last sorts as newest, and the copies holding
+     * the transcription were the ones offered to the trash. Hidden until the review (G2) that keeps
+     * every copy holding something the kept ones lack replaces this one-click version. */
+    if (dead.length && CLEANUP_OFFERED) {
       wrap._cleanupIds = dead.map((f) => f.id);
       rows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
         <span class="rp-dl-name">${esc(t('panel.dl.cleanup'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.cleanupSub', { n: dead.length }))}</span></button>`);

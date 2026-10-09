@@ -1475,6 +1475,7 @@ const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
   { v: 'v715', date: '2026-10-10', items: [
     { k: 'panel.rel.new.betaChannel' },
+    { k: 'panel.rel.new.opsNotice' },
   ] },
   { v: 'v714', date: '2026-10-10', items: [
     { k: 'panel.rel.fix.revertSilentExports', issue: 111 },
@@ -8871,6 +8872,36 @@ function unassignFolderEcho(ids, est) {
  *
  * The message is operator-authored and arrives over the wire, so it is escaped like any other server
  * string — free, and the habit is what keeps the one that isn't free from slipping through. */
+/* WHAT THE OPERATOR'S MESSAGE SAYS ABOUT ITSELF (v715; Seth, 2026-10-10: "edit the maintenance message
+ * code so that it gives us more flexibility for things like this (so that we can post a non-contradictory
+ * message)"). The v714 apology had to go out under "Maintenance in progress" and "… Your devices and their
+ * texts are unaffected" — the opposite of what it said.
+ *
+ * The flag's value is either PLAIN TEXT — a maintenance notice, framed exactly as it always was — or JSON,
+ * which the maintenance-notice workflow writes when it is asked for more:
+ *     { "kind": "notice" | "maintenance", "title": "…", "message": "…", "advice": "…" }
+ * A `notice` is the operator's own words and nothing else: their title (if any), their message, their
+ * advice line (if any) — no maintenance heading, no maintenance advice. A `maintenance` value with a title
+ * or advice replaces just those. Anything that is not JSON with a message stays plain text, so every value
+ * ever raised reads as it did. Returns null for no notice. */
+function opsNotice(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  if (s[0] === '{') {
+    try {
+      const o = JSON.parse(s);
+      if (o && typeof o.message === 'string' && o.message.trim()) {
+        return {
+          kind: o.kind === 'notice' ? 'notice' : 'maintenance',
+          title: typeof o.title === 'string' ? o.title.trim() : '',
+          message: o.message.trim(),
+          advice: typeof o.advice === 'string' && o.advice.trim() ? o.advice.trim() : '',
+        };
+      }
+    } catch { /* not JSON after all — the plain-text notice below */ }
+  }
+  return { kind: 'maintenance', title: '', message: s, advice: '' };
+}
 function maintenanceBanner() {
   /* Two independent flags (Seth, 2026-08-26): `maintenance` is a banner and nothing else; `freeze`
    * is a banner PLUS the worker-side write lock (423 on every researcher mutation). Both can be up
@@ -8886,11 +8917,20 @@ function maintenanceBanner() {
     </div>`;
   }
   if (msg) {
-    out += `<div class="rp-maint" role="status">
-      <strong>${esc(t('panel.maint.title'))}</strong>
-      <div>${esc(msg)}</div>
-      <div class="note">${esc(t('panel.maint.advice'))}</div>
-    </div>`;
+    const n = opsNotice(msg);
+    if (n.kind === 'notice') {
+      out += `<div class="rp-maint rp-opnotice" role="status">
+        ${n.title ? `<strong>${esc(n.title)}</strong>` : ''}
+        <div>${esc(n.message)}</div>
+        ${n.advice ? `<div class="note">${esc(n.advice)}</div>` : ''}
+      </div>`;
+    } else {
+      out += `<div class="rp-maint" role="status">
+        <strong>${esc(n.title || t('panel.maint.title'))}</strong>
+        <div>${esc(n.message)}</div>
+        <div class="note">${esc(n.advice || t('panel.maint.advice'))}</div>
+      </div>`;
+    }
   }
   return out;
 }

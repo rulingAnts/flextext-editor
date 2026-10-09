@@ -110,7 +110,7 @@ composes an acute accent. Anything hidden from ordinary users belongs here inste
 | `fxProjects()` | researcher panel | **DRY RUN** of the project-folder migration — prints exactly which containers would move under a project folder, and changes nothing. `fxProjects('migrate','Default Project')` applies it; `fxProjects('undo')` previews the reverse and `fxProjects('undo!')` applies it; `fxProjects('rename','New name')` renames the project folder. ⚠ Every verb without a `!` previews, and the server independently defaults to dry — two defaults, so forgetting either is still safe. |
 | `fxDevices()` | researcher panel | Prints what the panel actually received per device — nickname, `estate` (or `(FIELD ABSENT)`), and whether it is flagged legacy. The answer to "why is/isn't this device flagged?". |
 | `fxSettingsAudit(filter?, full?)` | researcher panel | The answer to "are ALL settings shared between researchers?" — for each device (own + shared; `filter` matches nickname or id prefix), reads the local Kr snapshot AND the shared desired-lane copy (`readSettingsLane`, the exact bytes another researcher's seat decrypts), diffs them key-for-key, and names any canonical form field `missingFromLane` (derived from the form's own GROUPS, so "all settings" cannot drift from what the form renders; absent = pushed by an older form, device uses the default). Pass `true` as the second arg for a full per-field table (field → snapshot → lane → agree). A snap≠lane mismatch means one side is STALE — both researchers pushed at different times; since v461 forms always open on the LANE, the device's current truth, so a stale snapshot is history, not a hazard. |
-| `fxLinks('auto' \| 'cloud' \| 'pages' \| 'origin')` | researcher panel | Overrides which estate's URLs the panel PRINTS in invite and crowd share links — for pairing a dev app. `auto` clears it. |
+| `fxLinks('auto' \| 'cloud' \| 'pages' \| 'origin' \| 'beta')` | researcher panel | Overrides which estate's URLs the panel PRINTS in invite and crowd share links — for pairing a dev app, or (`beta`) inviting a beta tester's device onto the `<worker>-beta` apps. `auto` clears it. |
 | `window.__app.syncDispatch(cmd)` | any app, **dev host only** | Runs ONE researcher command through the real device-side handler — the way `sync.js` does after a poll. Exists because the full E2EE push is untestable on the hermetic local rig (no Google, no seeded Kr) and the poll path will not dispatch without a delivered Ki, so a console is the only way to exercise the device handlers in a real browser. Guarded by `isDevHost` (never present on production origins), alongside the other `window.__app` dev hooks. Example — verify the `changeSettings` `relayWorker` guard: `await window.__app.syncDispatch({ type:'changeSettings', settings:{ relayWorker:'https://evil', vernName:'X' } })` refuses `relayWorker`, keeps `vernName`, and toasts both `sync.settingsKeyRefused` and `sync.settingsUpdated`. |
 
 ⚠ `fxLinks` changes the **printed link only, never the stored estate**. The worker stamps every new
@@ -298,8 +298,17 @@ This is the part that has caused real outages when done wrong — read
 - The staging dev site serves its service-worker files with `no-store` via `staging-shell.js`
   (root `wrangler.toml`, `run_worker_first`) so deploys turn over instantly; production keeps
   normal SW-update semantics.
-- **Branches:** feature branch → `staging` (`--no-ff`, auto-built to the Cloudflare dev site) →
-  after the maintainer's hands-on sign-off, ff into `main` → ff into `productionWeb`.
+- **Branches:** feature branch → `staging` (`--no-ff`, deployed on demand to the Cloudflare dev
+  site) → after the maintainer's hands-on sign-off, ff into `main` → ff into `beta` → soak → ff
+  into `productionWeb`. **The beta tier (2026-10-10)** is seven separate Workers named
+  `<worker>-beta`, each under its own custom domain (`beta.flextext.app`, `beta-<app>.flextext.app`;
+  the `<worker>-beta.68mh29kgsd.workers.dev` twin answers too), deployed by
+  `deploy-beta.yml` from the `beta` branch only, all apps, no selection — production's twin one step
+  earlier. Real people install them; they use the production backend, so accounts and texts are
+  shared with production. Beta runs the release bytes (`BUILD_TAG` empty, notes written); the
+  version badge appends "beta" from the origin (`isBetaHost`, `i18n.js`), `?devreset` is refused
+  there as on production, and the researcher panel's estate map has a `beta` entry. `productionWeb`
+  is fast-forwarded from `beta`, so production only receives a commit beta has already run.
   Production deploys are `deploy-production.yml`, manual-dispatch, **on `productionWeb` only** —
   all seven Cloudflare Workers, no app selection by design.
   ⚠ `sync-satellites.yml` is **RETIRED** (2026-08-20) and was **deleted** from `.github/workflows/` on 2026-09-11 and must NOT be part of a release. Its

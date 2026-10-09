@@ -16,13 +16,16 @@
  *
  * The rules, in order, and each is load-bearing:
  *   1. localhost      → same-origin dev rig      (a developer must never be handed production)
- *   2. *.workers.dev / *.pages.dev → same origin (staging serves ./docs at its own root)
+ *   2. beta.flextext.app / beta-<app>.flextext.app, or a <worker>-beta.68mh29kgsd.workers.dev twin →
+ *      the BETA estate (checked BEFORE the next rule, which would otherwise swallow the twin)
+ *   2b. *.workers.dev / *.pages.dev → the staging map
  *   3. rulingants.github.io → the legacy estate, BY NAME (never by falling through)
  *   4. everything else → the CURRENT estate      (an unknown host is not a legacy host)
  *
  * Run: node test/estate-routing.test.mjs
  */
 import { readFileSync } from 'node:fs';
+import { isBetaHost } from '../docs/js/i18n.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 let fail = 0;
@@ -37,8 +40,8 @@ const fnSrc = panel.match(/^export function estateOf\(origin = location\.origin\
 ok(!!estatesSrc, 'ESTATES is findable');
 ok(!!fnSrc, 'estateOf is findable and exported');
 if (!estatesSrc || !fnSrc) { console.log(`\nFAILED (${fail})\n`); process.exit(1); }
-const estateOf = new Function('URL', `var ESTATES = ${estatesSrc[1]}
-  return function estateOf(origin) {\n${fnSrc[1]}\n};`)(URL);
+const estateOf = new Function('URL', 'isBetaHost', `var ESTATES = ${estatesSrc[1]}
+  return function estateOf(origin) {\n${fnSrc[1]}\n};`)(URL, isBetaHost);
 
 console.log('\n1. localhost keeps a developer on the dev rig');
 {
@@ -76,6 +79,25 @@ for (const host of ['https://staging-flextext-editor.68mh29kgsd.workers.dev',
   // The segmenter DOES have a staging Worker, so a staging invite must land on it, not on production.
   ok(e.segmenter === 'https://staging-audio-segmenter.68mh29kgsd.workers.dev/', `  ...segmenter is the STAGING one: ${e.segmenter}`);
 }
+
+console.log('\n2b. BETA resolves to the BETA apps — and never to staging, which its hostname also matches');
+/* The beta Workers are real installs on a soak before a production release. A beta panel that linked
+ * staging apps would hand a tester a half-finished feature branch; one that linked production would
+ * quietly move them off the tier they chose. Every app has a beta twin, so nothing borrows here. */
+for (const host of ['https://beta.flextext.app', 'https://beta-research.flextext.app',
+                    'https://flextext-editor-beta.68mh29kgsd.workers.dev',
+                    'https://flextext-researcher-beta.68mh29kgsd.workers.dev']) {
+  const e = estateOf(host);
+  ok(e.editor === 'https://beta.flextext.app/', `${new URL(host).hostname}\n           -> editor ${e.editor}`);
+  ok(e.researcher === 'https://beta-research.flextext.app/', '  ...and the beta researcher, by its domain');
+  ok(e.recorder === 'https://beta-record.flextext.app/', '  ...recorder is the beta one (it has a beta Worker, unlike staging)');
+  ok(e.segmenter === 'https://beta-audio-segmenter.flextext.app/', '  ...and the segmenter');
+  ok(e.beta === true && !e.staging && !e.local, '  ...flagged beta, and NOT staging (held-back apps stay hidden, ?devreset stays refused)');
+  if (!/^https:\/\/beta\.flextext\.app$/.test(host)) ok(e.editor !== host + '/', '  ⚠ ...and NOT this origin (the standalone-researcher / workers.dev-twin trap)');
+}
+ok(estateOf('https://staging-flextext-editor.68mh29kgsd.workers.dev').beta !== true, 'staging is not beta');
+ok(estateOf('https://beta-flextext-editor.68mh29kgsd.workers.dev').beta !== true,
+   '⚠ a preview alias of a branch CALLED beta (beta-<worker>) is NOT the beta tier — different Worker, different host shape');
 
 console.log('\n3. the LEGACY estate is recognised BY NAME, never by falling through');
 {

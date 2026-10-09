@@ -31,7 +31,8 @@ data. It was WORK, and all of it had to be redone.
 
 | Branch | Purpose |
 |---|---|
-| `main` | **Releasable trunk.** Small same-day changes and finished feature merges. A release is `merge --ff-only main` into `productionWeb`, so main must stay shippable at all times. |
+| `main` | **Releasable trunk.** Small same-day changes and finished feature merges. A release candidate is `merge --ff-only main` into `beta`, so main must stay shippable at all times. |
+| `beta` | **The release soak** (Seth, 2026-10-10: *"Before pushing to main production, push to beta and leave it there for awhile, and have hopefully some users on the beta, including myself and my team."*). Always a fast-forward of `main`. Actions → **Deploy to beta** (no app selection, `beta` only) deploys all seven apps to SEPARATE Workers named `<worker>-beta`, each with its own custom domain — **`beta.flextext.app`** for the editor and `beta-record` / `beta-research` / `beta-crowd` / `beta-pat` / `beta-consent` / `beta-audio-segmenter` `.flextext.app` for the rest (attached once per Worker in the dashboard; the `<worker>-beta.68mh29kgsd.workers.dev` twin answers too). Real people install these from the DOMAIN and live on them; they talk to the PRODUCTION worker (their origins are in its `ALLOWED_ORIGINS`), so a tester keeps their real account and texts. `BUILD_TAG` is `''` and the release notes are already written — beta IS the release, early; the badge reads the origin and appends "beta". ⚠ `productionWeb` is fast-forwarded from `beta`, never from `main`: production only ever receives a commit beta has already run. A hotfix found on beta lands on `main` and comes round again. |
 | `productionWeb` | **The live site.** The ONLY branch that builds on push: a push deploys all seven Cloudflare Workers automatically, and GitHub Pages rebuilds https://rulingants.github.io/flextext-editor/ . ⚠ `sync-satellites.yml` no longer fires on push (v432) — the three Pages mirrors keep SERVING but stopped receiving updates; publish one deliberately with `workflow_dispatch` if ever needed. Never push without Seth's explicit test-drive sign-off. |
 | `staging` | **The dev site.** `main` + in-progress feature merges (`--no-ff`). ⚠ Since 2026-08-20 a `staging` push builds NOTHING — you deploy it deliberately: Actions → **Deploy to staging / preview**, ticking only the apps you are testing. They publish to `https://staging-<worker>.68mh29kgsd.workers.dev/` (editor, researcher, recorder, crowd, paragraph-analysis-tool). ⚠ The **Paragraph Analysis tool is a SEPARATE Worker** and is NOT on the editor origin — check its engine version by curling `/flextext-editor/js/i18n.js` for `ENGINE_VERSION`, not `/sw.js`. ⚠ Because apps are ticked individually, staging's five aliases can sit at DIFFERENT versions; tick everything a change spans. |
 | feature branches | e.g. `segmentation2` (shipped as v158), `seg-exports` (in test). Branch from `main`, merge `--no-ff` into `staging` to test, ff into `main` only when complete + approved. Their own preview estate is still available and is deliberately kept (Seth, 2026-08-20: *"usually not needed, but sometimes needed"*) — run the same staging workflow with that branch selected and it publishes to `<branch>-<worker>…`. |
@@ -276,14 +277,27 @@ section exists as prose as well as a test:
 4. Then clear `BUILD_TAG`, run the suite, and push.
 
 ### Deploy a stable version to production
-Once the change is committed and tested on `main`:
+Once the change is committed and tested on `main` — **via beta, since 2026-10-10**:
 
 ```sh
+# 1. release candidate → beta (BUILD_TAG already '', RELEASES already written: beta runs the release)
+git checkout beta && git merge --ff-only main && git push origin beta
+#    Actions → "Deploy to beta" from branch `beta`. Seth + team live on the -beta apps for a while.
+#    A problem found here → fix on main → ff beta again → redeploy beta. Repeat until it is quiet.
+# 2. beta → production, the SAME commit
 git checkout productionWeb
-git merge --ff-only main      # fast-forward production to the tested main
+git merge --ff-only beta      # ⚠ from beta, not main — production gets only what beta has run
 git push origin productionWeb # GitHub Pages rebuilds (~1 min)
+#    Actions → "Deploy to production" from branch `productionWeb`.
 git checkout main             # go back to dev
 ```
+
+`git log productionWeb..beta` is what is soaking; `git log beta..main` is what has not reached beta
+yet. The first beta deploy creates the seven `<worker>-beta` Workers by itself (`wrangler deploy
+--name`); their custom domains are attached once in the dashboard afterwards (Worker → Settings →
+Domains & Routes), and the production worker must already carry both origin shapes in
+`ALLOWED_ORIGINS` (v715) — backend first, as always. `isBetaHost` (i18n.js), `ESTATES.beta` and that
+allow-list name the hostnames; `test/beta-tier.test.mjs` keeps the three in step.
 
 > **⚠ When a change touches the connectivity backend (the `flextext-r2-worker`
 > Cloudflare Worker or its D1 schema), the editor is NOT the first thing to ship.**

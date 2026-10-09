@@ -7,6 +7,8 @@
 # Branch routing lives HERE, in git (Seth's rule: safety guarded in the workflow, not in
 # dashboard state or AI memory):
 #   productionWeb  → `npx wrangler deploy`                      → https://pat.flextext.app/
+#   beta           → `npx wrangler deploy --name <worker>-beta`
+#                                                   → https://<worker>-beta.68mh29kgsd.workers.dev
 #   anything else  → `npx wrangler versions upload
 #                      --preview-alias <branch>`                → preview version at
 #                     https://<alias>-paragraph-analysis-tool.68mh29kgsd.workers.dev
@@ -47,6 +49,17 @@ BRANCH="${WORKERS_CI_BRANCH:-productionWeb}"
 if [ "$BRANCH" = "productionWeb" ]; then
   echo "== PRODUCTION deploy (branch: $BRANCH) =="
   npx wrangler deploy
+elif [ "$BRANCH" = "beta" ]; then
+  # THE BETA TIER (Seth, 2026-10-10): a real `wrangler deploy`, like production, but to a SEPARATE
+  # Worker named <this worker>-beta — its own origin, its own version history, its own installed
+  # PWAs. Not a preview alias: an alias is a version OF the production Worker, and a beta that real
+  # people install for weeks must not sit in the list `rollback` chooses from. --name creates the
+  # Worker on first deploy, so no dashboard step is needed. The name comes from wrangler.toml so the
+  # two can never disagree.
+  NAME=$(grep -m1 -E '^name = "' wrangler.toml | sed 's/^name = "//;s/"$//')
+  [ -n "$NAME" ] || { echo "FAIL: no name = \"...\" line in wrangler.toml" >&2; exit 1; }
+  echo "== BETA deploy (branch: $BRANCH → Worker: $NAME-beta) =="
+  npx wrangler deploy --name "$NAME-beta"
 else
   # A stable, branch-named preview URL; alias chars: lowercase alphanumerics + hyphens.
   ALIAS=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/^-*//;s/-*$//' | cut -c1-63)

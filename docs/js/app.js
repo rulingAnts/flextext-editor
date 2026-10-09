@@ -8,7 +8,7 @@ import {
   mergePhrases, baselineFromWords,
 } from './flextext.js';
 import * as db from './db.js';
-import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
+import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
 import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
@@ -5387,6 +5387,9 @@ function showAppVersion() {
    * kept after it — the number is still what every bug report, device report and deploy-order rule
    * is written in, so it must not disappear. Production has no tag and reads exactly as before. */
   if (BUILD_TAG) ver = BUILD_TAG + ' \u00b7 ' + ver;
+  /* Beta runs production bytes (no BUILD_TAG), so the badge is the one place that says which app a
+   * tester is in. Read from the origin, not from the build — the same commit serves both tiers. */
+  if (isBetaHost(location.hostname)) ver += ' \u00b7 beta';
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }
   el.textContent = name + ' ' + ver;
@@ -12138,6 +12141,10 @@ function devResetAllowed(h) {
   // Coerce ONCE, before either check — isDevHost calls h.endsWith and would throw on a missing
   // hostname, and a throw here happens during setup(), i.e. it would take the whole boot with it.
   const host = String(h || '');
+  /* ⚠ NOT ON BETA. The beta Workers are *.workers.dev too, but they are real installs holding real,
+   * possibly un-uploaded work — a forwarded ?devreset link must be refused there exactly as on
+   * production. isBetaHost is checked first so the broad workers.dev rule cannot admit it. */
+  if (isBetaHost(host)) return false;
   return isDevHost(host) || /\.workers\.dev$/.test(host);
 }
 // Dev-only hard reset hook: ?devreset runs the same wipe on the hosts above (a no-op elsewhere,
@@ -12701,7 +12708,10 @@ function setup() {
      * GitHub Pages ones run in parallel). Sending a Cloudflare user to the Pages panel would put
      * their researcher account on a different origin from their editor, with its own database. */
     const cloud = /\.flextext\.app$/.test(location.hostname);
-    const base = cloud ? 'https://research.flextext.app/' : 'https://rulingants.github.io/flextext-researcher/';
+    // A beta editor hands off to the BETA panel: same backend, same account, but the tester stays
+    // on the tier they chose. (Without this the beta host is "not cloud" and would land on Pages.)
+    const base = isBetaHost(location.hostname) ? 'https://beta-research.flextext.app/'
+      : cloud ? 'https://research.flextext.app/' : 'https://rulingants.github.io/flextext-researcher/';
     location.replace(base + (location.hash || ''));
     return;
   }

@@ -67,5 +67,13 @@ ok(!originAllows(PROD, 'https://assign-by-upload-flextext-editor.68mh29kgsd.work
    'a preview alias does NOT reach the production worker');
 ok(originAllows(['*'], 'https://anything.example'), 'the bare * still means everything');
 
+console.log('\nthe BETA tier talks to the PRODUCTION worker — every <worker>-beta origin is listed exactly');
+for (const n of ['flextext-editor', 'flextext-recorder', 'flextext-researcher', 'flextext-crowd',
+                 'paragraph-analysis-tool', 'consent-collector', 'audio-segmenter']) {
+  const o = `https://${n}-beta.68mh29kgsd.workers.dev`;
+  ok(originAllows(PROD, o), o);
+  ok(!originAllows(STAGING, o), `  ...and the staging worker refuses it (a beta device on the staging backend fails loudly)`);
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

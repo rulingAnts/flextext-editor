@@ -34,6 +34,13 @@ SW="${1:?usage: stamp-preview-cache.sh <path to built sw.js>}"
 
 BRANCH="${WORKERS_CI_BRANCH:-productionWeb}"
 [ "$BRANCH" = "productionWeb" ] && exit 0
+# ⚠ BETA IS EXEMPT TOO (2026-10-10). The beta Workers are the release REHEARSAL: the same commit, with
+# the same version bump, that productionWeb will fast-forward to. Stamping them would make beta
+# re-download the engine on every deploy where production would not, i.e. beta would stop testing
+# the one thing it exists to test — whether an ordinary bump reaches an ordinary installed app.
+# A beta deploy without a bump is the same mistake as a production one, and is caught the same
+# way (the ritual, not this script).
+[ "$BRANCH" = "beta" ] && exit 0
 
 # The researcher shell is deliberately not offline-cached and has no CACHE line. Nothing to do.
 grep -q '^const CACHE = ' "$SW" || exit 0

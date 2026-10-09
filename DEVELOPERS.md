@@ -231,6 +231,12 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
   including blank lines (a blank line is a real timed span — usually silence). ⚠ In the files written
   for FLEx and ELAN/SayMore a blank line is left OUT (v709, `isSilentPhrase` in `flextext.js`): no empty
   phrase, no empty annotation; the editor keeps it, and a re-import sees a hole between its neighbours.
+  A word with no text, no gloss and nothing preserved (`isEmptyWord`, v712) does not count as content —
+  the Segmenter's in-place editing can leave one on a blank line. On the way back in, every hole of
+  ≥ 350 ms between timed lines and before the first becomes a blank line again (`fillGapLines`, v710),
+  and so does the rest of the recording after the last line once its length is known — `settleTail`
+  in `segment-strips.js`, the ONE tail rule, run by `reconcile` (Cut, Baseline), by the Gloss tab when
+  its peaks land, and by the Segmenter's matcher, all from the same 350 ms (`TAIL_LINE_MIN_MS`, v712).
 - All span edits route through `segments.js` (`boundaryAtPlayhead` / `mergeSegments` /
   `normalizeSegments` / `syncToLines`): spans can never cross; a time is never invented
   (out-of-range → `timePending`); **text is sacred** (a text edit always applies even when the

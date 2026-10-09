@@ -286,10 +286,11 @@ const cover = fn(strips, 'coverTail');
 ok(!!cover, 'there is a step that extends an unfinished tail to the end of the recording');
 ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /last\.attrs/.test(cover),
    '…which never touches a line that has text, nor one whose times were imported');
-ok(/COVER_TOL_MS/.test(cover) && /COVER_TOL_MS = 1000/.test(strips),
-   '…and leaves rounding and encoder priming alone (a second of tolerance)');
-ok(/if \(coverTail\(doc\.segments, paras, known\)\) repaired = true;/.test(fn(strips, 'reconcile')),
-   'reconcile runs it, and a repair it makes is persisted like any other');
+ok(/if \(durationMs - last\.end < TAIL_LINE_MIN_MS\) return false;/.test(cover),
+   '…and leaves rounding and encoder padding alone (the 350 ms tail rule since v712; a second before)');
+ok(/if \(settleTail\(doc, known, d\)\) repaired = true;/.test(fn(strips, 'reconcile'))
+   && /if \(coverTail\(segs, paras, durationMs\)\) return true;/.test(strips),
+   'reconcile runs it (through settleTail), and a repair it makes is persisted like any other');
 const durFor = fn(strips, 'peaksDurationFor');
 ok(/id !== peaksCache\.docId/.test(durFor) && /return 0/.test(durFor),
    'a peaks cache belonging to ANOTHER text can never seed this one\'s spans');

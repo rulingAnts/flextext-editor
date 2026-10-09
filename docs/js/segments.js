@@ -802,15 +802,21 @@ export function gapLinesBetween(segments, opts = {}) {
   return out;
 }
 
-/* The tail — audio after the last line — once the recording's length is known. The tolerance is
- * segment-strips' coverTail's (a second): below it, decoders and players disagree about where a lossy
- * file ends, and a sliver of "line" there would be noise. */
+/* The tail — audio after the last line — once the recording's length is known.
+ *
+ * ⚠ THE SAME 350 ms AS A HOLE BETWEEN LINES (v712). v710 used coverTail's full second, and a final
+ * blank line under a second never came back: Seth, on v711, "Round-trip appears to work, except
+ * final empty segment isn't being drawn. Make sure to also watch for a gap between the final audio
+ * segment in the flextext and the actual end of the audio file." Decoders and players disagree
+ * about where a lossy file ends by tens of milliseconds (encoder padding), well inside 350, so the
+ * gap rule's threshold is safe at the end too — and a rule that differed at the end was the bug. */
+export const TAIL_LINE_MIN_MS = GAP_LINE_MIN_MS;
 export function tailGapLine(segments, durationMs, opts = {}) {
-  const tol = isNum(opts.tolMs) ? opts.tolMs : 1000;
+  const tol = isNum(opts.tolMs) ? opts.tolMs : TAIL_LINE_MIN_MS;
   const segs = segments || [];
   const last = segs[segs.length - 1];
   if (!isNum(durationMs) || !(durationMs > 0) || !isAligned(last)) return null;
-  return durationMs - last.end > tol ? { start: last.end, end: durationMs } : null;
+  return durationMs - last.end >= tol ? { start: last.end, end: durationMs } : null;
 }
 
 /* gapLinesBetween applied to a document's two parallel arrays. `makeLine(prev, next)` builds the

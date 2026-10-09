@@ -14,7 +14,7 @@
 
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
-import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
+import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit, SEG_PERMS, SEG_PERMS_REV_KEY, SEG_PERMS_REV, segmenterPermission } from './typing.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
@@ -780,8 +780,10 @@ const GROUPS = [
      * `settings.allowAudioSwap === true` on a managed device, so with no field to tick it the
      * button was unreachable on every paired device in the field. Found by this audit, 2026-09-09. */
     { k: 'allowAudioSwap', type: 'checkbox' },
-    // Audio Segmenter only (the engine gates read them; other apps ignore them). Both default ON
-    // for an unpaired device — somebody working alone — and are the researcher's to switch off.
+    // Audio Segmenter only (the engine gates read them; other apps ignore them). Since v712 all
+    // three of the Segmenter's own switches — swap above, these two — are ON for a managed device
+    // too, until a researcher unticks them here (Seth, 2026-10-09). typing.js segmenterPermission
+    // has the rule, and why a false saved by an older panel does not count as unticking.
     { k: 'allowBlankLines', type: 'checkbox' },
     { k: 'allowTextEdit', type: 'checkbox' },
   ] },
@@ -1447,10 +1449,16 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v711', date: '2026-10-09', items: [
+  { v: 'v712', date: '2026-10-09', items: [
     { k: 'panel.rel.fix.gapLines' },
     { k: 'panel.rel.fix.zipLatest', issue: 102 },
     { k: 'panel.rel.fix.passthroughSilent', issue: 97 },
+    { k: 'panel.rel.new.segPermsOn' },
+    { k: 'panel.rel.new.mgGuessPiece', issue: 93 },
+    { k: 'panel.rel.new.mgWordSplitJoin' },
+    { k: 'panel.rel.fix.mgUndoKeys' },
+    { k: 'panel.rel.fix.mgLangNarrow' },
+    { k: 'panel.rel.fix.blankEmptyWord', issue: 97 },
   ] },
   { v: 'v709', date: '2026-10-08', items: [
     { k: 'panel.rel.new.silentExports', issue: 97 },
@@ -10613,6 +10621,9 @@ function toFormValues(s) {
       ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
+    // The Audio Segmenter's own three, on unless a v712+ panel switched them off — the ONE rule the
+    // device's gates use (typing.js segmenterPermission), so this form shows what the device will do.
+    else if (SEG_PERMS.includes(f.k)) v[f.k] = segmenterPermission(s, f.k);
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     /* ⚠ THE THREE TYPING DIALS DEFAULT TO 'off', NOT opts[0]. The generic select fallback below
@@ -10687,6 +10698,9 @@ function readForm(box) {
   // keeps the stricter rule from these four switches (app.js linePermission reads them as fallback).
   patch.joinSplitBaseline = legacyJoinSplit(raw.joinBaseline, raw.splitBaseline);
   patch.joinSplitGloss = legacyJoinSplit(raw.joinGloss, raw.splitGloss);
+  /* The marker that makes this form's false a decision (v712): written with the three Audio Segmenter
+   * switches, and only when the form really carried all three — see segmenterPermission. */
+  if (SEG_PERMS.every((k) => typeof raw[k] === 'boolean')) patch[SEG_PERMS_REV_KEY] = SEG_PERMS_REV;
   // appLang 'follow' (or unset) = "don't change this device's language" → never push it (it would
   // clobber a field worker's own toggle choice). Only an explicit en/id is sent (set-with-override).
   if (patch.appLang === 'follow' || !patch.appLang) delete patch.appLang;

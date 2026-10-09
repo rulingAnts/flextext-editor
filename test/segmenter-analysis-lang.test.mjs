@@ -31,7 +31,12 @@ test('the picker appears only when the text carries more than the primary; the c
   assert.match(APP, /const MG_LANG_KEY = 'flextext-mg-lang';/);
   assert.match(APP, /langSel\.onchange = \(\) => \{ mgLangPref = langSel\.value; try \{ localStorage\.setItem\(MG_LANG_KEY, mgLangPref\); \}[^\n]*mgDraw\(\); \};/);
   assert.match(fn(APP, 'mgLangMode'), /if \(mgLangPref === 'all'\) return langs\.length > 1 \? 'all' : 'primary';/, 'All on a one-language text is just the primary');
-  assert.match(APP, /<div class="mg-rowhead-text"><h3 data-i18n="mg\.text">Text<\/h3>\$\{mgLangPickerHtml\(\)\}<\/div>/, 'beside "Text", outside the h3 applyI18n rewrites');
+  assert.match(APP, /const langPick = mgLangPickerHtml\(\);/);
+  assert.match(APP, /<div class="mg-rowhead-text"><h3 data-i18n="mg\.text">Text<\/h3>\$\{langPick\}<\/div>/, 'beside "Text", outside the h3 applyI18n rewrites');
+  // v712 (Seth: "I seem to have lost my language picker"): below 820px the heading row was hidden, picker and all.
+  assert.match(APP, /<div class="mg-rowhead\$\{langPick \? ' mg-has-lang' : ''\}">/, 'the row says when it carries the picker');
+  assert.match(CSS, /@media \(max-width:820px\)\{\s*\.mg-rowhead\{display:none\}[\s\S]{0,200}?\.mg-rowhead\.mg-has-lang\{display:flex;[^}]*\}\s*\.mg-rowhead\.mg-has-lang h3\{display:none\}/,
+    'so on a narrow screen the headings go and the picker stays');
 });
 
 test('the primary row stays editable; every other language is read-only and tagged with its code', () => {

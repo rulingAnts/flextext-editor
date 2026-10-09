@@ -225,7 +225,7 @@ tabs, two of which held 61% of everything under names that did not predict their
 | Section | Settings |
 |---|---|
 | **Tasks** — which steps this device does | Audio Segmentation Mode on/off; **show the Cut tab / the Baseline tab / the Gloss tab**, each separately, so one coworker cuts the audio, another transcribes and a third glosses (never all three off — the panel refuses the save, and the device brings Baseline back rather than leave anyone with nothing); **gloss word by word** — off leaves the Gloss tab showing the line's words and the free translation with no box under each word, for somebody whose job is the translation rather than the analysis (glosses already recorded are kept, just not shown) |
-| **What the coworker may change** | join/split lines on Baseline; join/split on Gloss; join lines that already have text, on the Cut tab; **allow moving line boundaries by dragging** (grips on the strips of all three tabs and movable cut marks on the Cut tab's top player — independent of the texted-lines switch); Backspace/Delete joins lines; delete individual texts ᴾ; "Delete all data" ᴾ; remove a text's recording — the ✕ on the player ᴾ; and three the **Audio Segmenter** alone reads: swap a recording for a different file ᴾ, add blank text lines ᴾ, edit words and glosses in place ᴾ |
+| **What the coworker may change** | join/split lines on Baseline; join/split on Gloss; join lines that already have text, on the Cut tab; **allow moving line boundaries by dragging** (grips on the strips of all three tabs and movable cut marks on the Cut tab's top player — independent of the texted-lines switch); Backspace/Delete joins lines; delete individual texts ᴾ; "Delete all data" ᴾ; remove a text's recording — the ✕ on the player ᴾ; and three the **Audio Segmenter** alone reads: swap a recording for a different file ᴾ, add blank text lines ᴾ, edit words and glosses in place ᴾ — **on by default on a linked device too since v712**, until the researcher unticks them (a box saved unticked by an older panel counts as never set, because the panel used to show and save them unticked without anyone choosing that) |
 | **Typing & keys** | **what Enter does at the end of a line** — move to the next line, or start a split there (splitting is always available mid-line and from the ✂ on the waveform, so "move to the next line" loses nothing and stops an accidental empty line; new devices start on it, devices already in use keep what they had); **the Space bar plays / pauses** — automatic is off on a mobile device, where Space is for typing, and on for a laptop, touch screen or not; **where the cursor lands after playing, on the Gloss tab** — the free translation or the next empty word gloss, chosen by the job; open new recordings on the Cut tab; **start with Repeat on** — whether the player's Repeat button is on when a text opens (with Repeat on, a line's ▶ plays that line again and again until it is paused, and the big ▶ repeats the whole recording; the button turns it on or off at any time) |
 
 ### Recording & consent
@@ -296,7 +296,17 @@ consent" tab is dropped rather than shown empty.
   guessed with its own background level (v707, #93). Once anything has been cut by hand, it guesses
   only the piece under the playhead — if that piece has no words — and leaves every other piece
   alone, so someone who has started by hand can hand the untouched rest to it piece by piece. One
-  Undo puts a guess back.
+  Undo puts a guess back. **The Audio Segmenter has the same ✨ in the same corner** (v712): the whole
+  recording until something has been cut, then the piece under the playhead — any piece, words or
+  not, because audio and text are cut separately there; the audio rows after it move down, and the
+  text side is untouched.
+- **In the Audio Segmenter, Ctrl+Z / ⌘Z undoes and Ctrl+Y / ⌘⇧Z redoes** everywhere except inside a
+  word, gloss or translation you are typing in (there the browser's own undo works on the typing).
+  Editing a word in place: Space at its start or end adds a word/gloss pair, Space in the middle
+  splits the word in two (the gloss stays with the first part), Backspace at its start joins it to
+  the word before (glosses joined with the gloss break), and Backspace in an empty pair removes it.
+  A pair left empty is dropped at Done, and a line with nothing in it is never written to the
+  .flextext or the .eaf.
 - **The top player is the same grammar plus zoom:** a tap places the playhead, the playhead line
   scrubs, dragging anywhere else scrolls the waveform once it is zoomed, pinching zooms (a trackpad
   pinch zooms too). Its thin cut marks show on all three tabs and follow a boundary you drag on a

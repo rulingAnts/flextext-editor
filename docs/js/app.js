@@ -5,12 +5,12 @@ import {
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords,
+  mergePhrases, baselineFromWords, isEmptyWord,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit, SEG_PERMS, segmenterPermission } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -24,7 +24,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine, attachSpanWave, healSpanWave,
-         peaksDurationMs, guessedBoundaries,
+         peaksDurationMs, peaksDurationOf, guessedBoundaries, guessedBoundariesWithin, settleTail,
          growArea, applyEnterKeyHint, initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
          stripSplitAtPlayhead, segProgress, armLine, armedRow} from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
@@ -32,7 +32,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 // MIN_SEGMENT_MS joins an EXISTING import — segments.js is already a SHELL entry in every
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
-import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine, fillGapLines } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine, fillGapLines, TAIL_LINE_MIN_MS, applyGuessedSplitsWithin } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1358,6 +1358,16 @@ function appendBlankLine(doc) {
   doc.paragraphs.push(blankGapLine(null, null));
   return true;
 }
+/* …and the same tail rule for a surface that does not run reconcile — the Gloss tab once its peaks
+ * land (v712). settleTail (segment-strips) is the one implementation; this hands it the text's own
+ * recording length (never another text's peaks) and persists a change like any other heal. */
+const TAIL_DEPS = { getParagraphs: (doc) => getBaselineParagraphs(doc), appendBlankLine: (doc) => appendBlankLine(doc) };
+function settleTailOf(rec) {
+  if (!segmentationEnabled() || !rec || !rec.doc) return false;
+  const changed = settleTail(rec.doc, peaksDurationOf(rec.id), TAIL_DEPS);
+  if (changed) schedulePersist();
+  return changed;
+}
 
 /* ⚠ THE SAME REPAIR, AS A PURE FUNCTION ON ANY DOC — no `current`, no persist, no settings gate.
  *
@@ -2400,9 +2410,17 @@ function switchTab(tab, landing) {
     refreshPlayer();
     if (segmentationEnabled()) {
       (async () => {
+        const glossFor = current && current.id;
         let media = current ? await db.getMedia(current.id).catch(() => null) : null;
         media = await segWorkingMedia(current && current.id, media, current && current.title);
         await ensurePeaks(current && current.id, media && media.blob, (current && playerReadyFor === current.id && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+        /* The tail after the last line, now that the recording's length is known (v712) — the same
+         * settleTail the Cut and Baseline tabs run inside reconcile, which this tab never ran, so a
+         * re-imported text opened here had no last blank line. The row list is rebuilt only while
+         * nobody is typing on this tab; otherwise the new line simply appears at the next render
+         * (it is appended at the END, so no row anyone is in changes its index). */
+        if (current && current.id === glossFor && activeTab === 'gloss' && settleTailOf(current)
+            && !inTextField(document.activeElement)) renderGloss();
         decorateGlossSegments();
       })();
     }
@@ -4943,9 +4961,10 @@ function refreshList() {
 }
 
 function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete === true; }
-// Researcher-controlled: may this device add a blank text line in the matcher? Same shape and
-// default as the two below — on when there is no researcher session.
-function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankLines === true; }
+// Researcher-controlled: may this device add a blank text line in the matcher? On when there is no
+// researcher session, and — since v712 — on for a paired device too unless its researcher switched
+// it off (segmenterPermission in typing.js; the same rule for all three of the Segmenter's own).
+function allowBlankLinesOn() { return !Sync.hasSession() || segmenterPermission(settings, 'allowBlankLines'); }
 /* Researcher-controlled: may this device REMOVE a text's recording (the ✕ on the player dock)?
  * Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on, and a
  * PAIRED device has it off unless the researcher says otherwise (Seth, 2026-09-08: "we don't want
@@ -4958,9 +4977,10 @@ function allowAudioRemoveOn() { return !Sync.hasSession() || settings.allowAudio
  * means yes, so no existing device changes. Off leaves the Gloss tab showing the words and the free
  * translation, which is a complete job for somebody who only translates. */
 function wordGlossOn() { return settings.wordGloss !== false; }
-// Researcher-controlled: may this device swap a text's recording for a different file?
-// Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on.
-function allowAudioSwapOn() { return !Sync.hasSession() || settings.allowAudioSwap === true; }
+// Researcher-controlled: may this device swap a text's recording for a different file? On when
+// working alone, and on for a paired device unless switched off (v712, segmenterPermission). A
+// recording that came from the researcher is never swappable either way (satReplaceAudio).
+function allowAudioSwapOn() { return !Sync.hasSession() || segmenterPermission(settings, 'allowAudioSwap'); }
 // Researcher-controlled: show the coworker a "Done" button on texts (off by default).
 function doneFeatureOn() { return settings.doneEnabled === true; }
 
@@ -7523,6 +7543,9 @@ function deviceSetupValues() {
       ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
+    // Inert here (`off:` — a lone worker always has them), shown as the same shared rule the panel
+    // and the gates use, so the greyed box reads "on", which is what this device does (v712).
+    else if (SEG_PERMS.includes(f.k)) v[f.k] = segmenterPermission(s, f.k);
     else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
     else if (f.k === 'agc') v.agc = SETUP_AGC_OPTS.includes(s.agc) ? s.agc : 'off';
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
@@ -9780,9 +9803,9 @@ const mgSnap = () => ({
   lines: MG.lines.map((l) => ({ ...l, phrases: structuredClone(l.phrases) })),
   selSpan: MG.selSpan, selLine: MG.selLine, pendingWordCut: MG.pendingWordCut || null,
 });
-function mgCapture() {
+function mgCapture(snap) {
   if (!MG) return;
-  mgUndoStack.push(mgSnap());
+  mgUndoStack.push(snap || mgSnap());
   if (mgUndoStack.length > MG_UNDO_MAX) mgUndoStack.shift();
   mgRedoStack = [];                    // a new edit forks the future, as everywhere else
   // An in-place edit captures WITHOUT redrawing (so Tab keeps walking the line), so the buttons
@@ -9878,21 +9901,28 @@ function mgLiveBoundary(i) {
  * dock must NOT, because that drag reads its position from the dock's own width: zooming it
  * mid-gesture would move the ruler the finger is being measured against, and the boundary would
  * jump. The blue seam mark is safe either way and is shown for both. */
+/* ⚠ THE UNDO STEP IS TAKEN AT THE FIRST MOVE, from a snapshot made at pick-up (v712). Capturing at
+ * pick-up itself left a step behind for every grab that never moved — a tap on an edge — so the next
+ * Undo did nothing visible and the one after it undid the wrong thing, which reads as "Undo is broken". */
+let mgDragSnap = null;
 function mgBoundaryDrag(i, ms, phase, src) {
   if (!MG) return;
   if (phase === 'start') {
-    mgCapture(); player?.pause?.();
+    mgDragSnap = mgSnap(); player?.pause?.();
     if (src === 'row') { try { const s = MG.spans[i]; if (s && !s.timePending) player?.boundaryFocus?.('start', s.end); } catch { /* cosmetic */ } }
     try { player?.boundaryLive?.(i); } catch { /* cosmetic */ }
     return;
   }
   if (phase === 'end') {
+    mgDragSnap = null;
     mgDraw();
     if (src === 'row') { try { player?.boundaryFocus?.('end'); } catch { /* cosmetic */ } }
     try { player?.boundaryLive?.(null); } catch { /* cosmetic */ }
     return;
   }
+  const before = mgDragSnap;
   if (mgMoveBoundary(i, ms)) {
+    if (before) { mgCapture(before); mgDragSnap = null; }   // one step for the whole drag
     mgLiveBoundary(i);
     if (src === 'row') { try { const s = MG.spans[i]; if (s) player?.boundaryFocus?.('move', s.end); } catch { /* cosmetic */ } }
   }
@@ -9908,12 +9938,12 @@ function mgBoundaryDrag(i, ms, phase, src) {
 function mgSplitSpan(id) {
   const i = MG.spans.findIndex((s) => s.id === id);
   if (i < 0) return;
-  mgCapture();
   const sp = MG.spans[i];
   const head = player?.playheadMs?.();
   const inside = typeof head === 'number' && head > sp.start && head < sp.end;
   const at = Math.round(inside ? head : (sp.start + sp.end) / 2);
   if (at - sp.start < MIN_SEGMENT_MS || sp.end - at < MIN_SEGMENT_MS) { toast(t('mg.tooShort')); return; }
+  mgCapture();   // after the refusal, as in mgSplitLine: a cut that did nothing leaves no step behind
   const a = { ...sp, id: sp.id + 'a', end: at };
   const b = { ...sp, id: sp.id + 'b', start: at };
   /* The two halves are new spans, so whatever the player was watching is gone — the same rule
@@ -9991,9 +10021,8 @@ function mgSplitLine(id, wordIdx, ftCharIdx) {
   mgDraw();
 }
 
-/* INSERT A BLANK TEXT LINE (researcher setting allowBlankLines, default on with no researcher
- * session — the same shape as allowDeleteOn, and the same reasoning: an unpaired device is somebody
- * working alone).
+/* INSERT A BLANK TEXT LINE (researcher setting allowBlankLines — on when working alone, and since
+ * v712 on for a paired device too unless its researcher switched it off; see segmenterPermission).
  *
  * The mirror of leftover audio. A recording contains things the transcript does not yet: an aside, a
  * cough, a question from the linguist, a passage nobody has written down. Leaving that audio
@@ -10017,7 +10046,7 @@ function mgInsertLine(after) {
   mgDraw();
 }
 
-/* ─── EDIT IN PLACE (researcher setting allowTextEdit; on when working alone) ────────────────
+/* ─── EDIT IN PLACE (researcher setting allowTextEdit; on unless a researcher switched it off, v712) ──
  *
  * Seth, 2026-09-04: "the optional (enable/disable) ability for the user to edit (and add)
  * interlinear word/gloss pairs (maybe by pressing space before or after to add another word/gloss
@@ -10029,7 +10058,8 @@ function mgInsertLine(after) {
  * Backspace in an empty word whose gloss is also empty removes the pair. A plain edit changes the
  * model in place (no redraw, so Tab keeps walking the line); adding or removing a pair redraws.
  * Every change is one undo step and rides the autosaved draft like everything else here. */
-function allowTextEditOn() { return !Sync.hasSession() || settings.allowTextEdit === true; }
+// On for a paired device too since v712 unless its researcher switched it off — see segmenterPermission.
+function allowTextEditOn() { return !Sync.hasSession() || segmenterPermission(settings, 'allowTextEdit'); }
 
 function mgWordStack(ln, w, wi, editable) {
   const stack = document.createElement('span');
@@ -10055,6 +10085,14 @@ function mgWireEditable(el, ln, wi, field) {
   el.classList.add('mg-edit');
   el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
   let was = el.textContent;
+  /* ⚠ SET BEFORE ANY CHANGE THIS BOX MAKES TO ITS OWN LINE, cleared if the change was refused (v712).
+   * Adding, removing, splitting or joining a pair redraws the line, which removes this box — and the
+   * browser fires `blur` on the box AS it is removed (synchronously, still connected: measured in
+   * Chromium), so the blur's commit ran against the NEW line with this box's OLD index. Space at the
+   * start of "boro" made "boro" twice instead of an empty pair before it; Backspace in an empty pair
+   * could write "" over the word that moved into its place. The text has already been taken by then,
+   * so the blur has nothing left to do. */
+  let taken = false;
   el.addEventListener('focus', () => { was = el.textContent; });
   el.addEventListener('pointerdown', (e) => e.stopPropagation());   // not a row pick
   el.addEventListener('keydown', (e) => {
@@ -10066,12 +10104,23 @@ function mgWireEditable(el, ln, wi, field) {
     if (e.key === ' ' && at >= 0 && len > 0 && (at === 0 || at === len)) {
       e.preventDefault();
       mgCommitEdit(el, ln, wi, field);                  // keep what was typed so far
+      taken = true;
       mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after');
       return;
     }
-    if (e.key === 'Backspace' && len === 0) { e.preventDefault(); mgDeleteWord(ln.id, wi); }
+    /* SPACE INSIDE A WORD SPLITS IT; BACKSPACE AT ITS START JOINS IT TO THE ONE BEFORE (v712; Seth,
+     * 2026-10-09, listing what this switch covers: "editing, joining/splitting/inserting glosses
+     * within a text line"). Before this, a space typed mid-word stayed IN the word — one "word" with
+     * a space inside, which FLEx reads as nothing it knows. */
+    if (e.key === ' ' && at > 0 && at < len) { e.preventDefault(); taken = true; mgSplitWord(ln.id, wi, el.textContent, at); return; }
+    if (e.key === 'Backspace' && len === 0) { e.preventDefault(); taken = true; if (!mgDeleteWord(ln.id, wi)) taken = false; return; }
+    if (e.key === 'Backspace' && at === 0 && wi > 0) {
+      e.preventDefault();
+      taken = true;
+      if (!mgJoinWord(ln.id, wi, el.textContent)) taken = false;
+    }
   });
-  el.addEventListener('blur', () => mgCommitEdit(el, ln, wi, field));
+  el.addEventListener('blur', () => { if (!taken) mgCommitEdit(el, ln, wi, field); });
 }
 // Caret position within the editable, or -1 when the selection is not a collapsed caret inside it.
 function mgCaretOffset(el) {
@@ -10142,23 +10191,26 @@ function mgInsertWord(id, wi, where) {
   mgDraw();
   mgFocusWord(id, where === 'before' ? wi : wi + 1);
 }
+// Returns whether it removed the pair (the box's keydown needs to know — see `taken` in mgWireEditable).
 function mgDeleteWord(id, wi) {
   const line = MG && MG.lines.find((l) => l.id === id);
-  if (!line) return;
+  if (!line) return false;
   const ph = mgLinePhrase(line);
   const k = mgRealIndex(ph.words, wi);
-  if (k < 0) return;
+  if (k < 0) return false;
   const w = ph.words[k];
-  if ((w.txt || '') || (w.gls || '')) return;     // only an EMPTY pair goes on Backspace
+  if ((w.txt || '') || (w.gls || '')) return false;     // only an EMPTY pair goes on Backspace
   mgCapture();
   ph.words.splice(k, 1);
   ph.baseline = baselineFromWords(ph.words);
   mgDraw();
   mgFocusWord(id, Math.max(0, wi - 1));
+  return true;
 }
 // After a redraw: put the caret at the end of the wi-th word of the line. A macrotask, not rAF —
 // rAF never fires in a background tab (segment-strips' own lesson).
-function mgFocusWord(id, wi) {
+// `caret` puts it at that offset instead (a split lands at the start of the new word, a join at the seam).
+function mgFocusWord(id, wi, caret) {
   setTimeout(() => {
     const rows = $('#mg-rows');
     const row = rows && rows.querySelector(`.mg-line[data-ln="${CSS.escape(id)}"]`);
@@ -10166,10 +10218,58 @@ function mgFocusWord(id, wi) {
     if (!el) return;
     el.focus();
     try {
-      const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+      const r = document.createRange();
+      const node = el.firstChild;
+      if (Number.isInteger(caret) && node && node.nodeType === 3) { r.setStart(node, Math.min(caret, node.length)); r.collapse(true); }
+      else { r.selectNodeContents(el); r.collapse(Number.isInteger(caret) && caret <= 0); }
       const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
     } catch { /* caret placement is comfort */ }
   }, 0);
+}
+
+/* Split the wi-th word at `at` (an offset into `text`, the box's live text): the left part keeps the
+ * word — its gloss, its guid, anything preserved from an import — and the right part becomes a new
+ * pair with an empty gloss, ready to be glossed. One undo step. */
+function mgSplitWord(id, wi, text, at) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const left = String(text).slice(0, at).trim(), right = String(text).slice(at).trim();
+  if (!left || !right) return;
+  const ph = mgLinePhrase(line);
+  const k = mgRealIndex(ph.words, wi);
+  mgCapture();
+  if (k < 0) ph.words.push(makeWord(left, {}), makeWord(right, {}));   // a blank line's first pair, typed into
+  else { ph.words[k].txt = left; ph.words.splice(k + 1, 0, makeWord(right, {})); }
+  ph.baseline = baselineFromWords(ph.words);
+  mgDraw();
+  mgFocusWord(id, wi + 1, 0);
+}
+
+/* Join the wi-th word onto the one before it — the inverse of the split: the texts run together and
+ * a second gloss follows the first after the device's gloss break (".", "_" or "-", the same
+ * character the Gloss tab uses inside one gloss). ⚠ REFUSED when the second word carries anything
+ * preserved from an import (morphemes, another language's gloss): two analyses cannot be merged
+ * honestly here, and dropping one would lose data — that join belongs in FLEx. Returns whether it
+ * joined. */
+function mgJoinWord(id, wi, text) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return false;
+  const ph = mgLinePhrase(line);
+  const j = mgRealIndex(ph.words, wi - 1), k = mgRealIndex(ph.words, wi);
+  if (j < 0 || k < 0) return false;
+  if (ph.words.slice(j + 1, k).length) { toast(t('mg.joinWordPunct'), 6000); return false; }   // punctuation between
+  const a = ph.words[j], b = ph.words[k];
+  if ((b.preservedXML || []).length) { toast(t('mg.joinWordAnalysed'), 8000); return false; }
+  mgCapture();
+  const seam = String(a.txt || '').length;
+  a.txt = String(a.txt || '') + String(text).trim();
+  const ga = String(a.gls || '').trim(), gb = String(b.gls || '').trim();
+  a.gls = ga && gb ? ga + glossBreakChar(settings.glossBreak) + gb : (ga || gb);
+  ph.words.splice(k, 1);
+  ph.baseline = baselineFromWords(ph.words);
+  mgDraw();
+  mgFocusWord(id, wi - 1, seam);
+  return true;
 }
 
 function mgJoinLine(id) {
@@ -10248,7 +10348,7 @@ async function mgCommit() {
    * whatever wrote it. */
   rec.doc.paragraphs = lines.map((l) => ({
     guid: l.guid || newGuid(),
-    segments: l.phrases.length > 1 ? [mergePhrases(l.phrases)] : l.phrases,
+    segments: (l.phrases.length > 1 ? [mergePhrases(l.phrases)] : l.phrases).map(mgDropEmptyWords),
     ...(l.paraOf == null ? {} : { paraOf: l.paraOf }),
   }));
   // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the
@@ -10292,6 +10392,17 @@ async function mgCommit() {
   sgRenderList();
 }
 
+/* A word/gloss pair given to type into and left empty is not a word (isEmptyWord, flextext.js), and it
+ * goes at Done (v712): a blank line commits as the blank line it is — which isSilentPhrase keeps out
+ * of the FLExText and the EAFs — and a line keeps only the pairs that hold something. In the matcher
+ * itself the empty pair stays, because it is where the next word is typed. */
+function mgDropEmptyWords(ph) {
+  const words = (ph && ph.words) || [];
+  if (!words.some(isEmptyWord)) return ph;
+  const kept = words.filter((w) => !isEmptyWord(w));
+  return { ...ph, words: kept, baseline: baselineFromWords(kept) };
+}
+
 // One "+" row. Icon, not a sentence — the suite's low-literacy rule; the words live in the tooltip.
 function mgInsertRow(after) {
   const row = document.createElement('div');
@@ -10331,9 +10442,14 @@ function mgDraw() {
    * neighbours, which is the only case that matters: nobody confuses line 1 with line 40. */
   const hueAt = (i) => Math.round(i * 137.508) % 360;
 
+  /* ⚠ `mg-has-lang` KEEPS THE PICKER ON A NARROW SCREEN (v712; Seth: "I seem to have lost my language
+   * picker"). Below 820px the two cells stack and the "Audio"/"Text" headings are hidden as
+   * meaningless — and the picker, living inside that heading row, went with them. Only the headings
+   * go now; the row stays for the picker (app.css). */
+  const langPick = mgLangPickerHtml();
   box.innerHTML = `
     ${MG.resumed ? `<p class="mg-resumed"><span></span><button id="mg-fresh" class="link-btn"></button></p>` : ''}
-    <div class="mg-rowhead"><h3 data-i18n="mg.audio">Audio</h3><div class="mg-rowhead-text"><h3 data-i18n="mg.text">Text</h3>${mgLangPickerHtml()}</div></div>
+    <div class="mg-rowhead${langPick ? ' mg-has-lang' : ''}"><h3 data-i18n="mg.audio">Audio</h3><div class="mg-rowhead-text"><h3 data-i18n="mg.text">Text</h3>${langPick}</div></div>
     <ul class="mg-rows" id="mg-rows"></ul>`;
   applyI18n(box);
   const langSel = box.querySelector('#mg-lang');
@@ -10552,6 +10668,7 @@ function mgDraw() {
   const u = $('#mg-undo'), r = $('#mg-redo');
   if (u) u.disabled = !mgUndoStack.length;
   if (r) r.disabled = !mgRedoStack.length;
+  mgSyncGuess(true);
 
   if (rowsEl) rowsEl.scrollTop = keep;
   /* ⚠ ONE HEAL ON A MACROTASK, NOT ONLY ON A FRAME. Every strip here is drawn in the same turn the
@@ -10641,6 +10758,7 @@ function mgStartTicker() {
         const want = mgBoundaryTimes();
         if (p.boundaryCount() !== want.filter(Number.isFinite).length) p.setBoundaries(want);
       }
+      mgSyncGuess(false);   // ✨ is about the piece under the playhead, which moves without a redraw
       host.querySelectorAll('.mg-span').forEach((row) => {
         const sp = MG.spans.find((x) => x.id === row.dataset.sp);
         const wave = row.querySelector('.mg-wave');
@@ -10742,6 +10860,9 @@ async function mgPrepareAudio(docId) {
   if (p.el && p.el.remove) p.el.remove.hidden = true;
   // …but the ✂ is this screen's own: shown while the matcher owns the dock, hidden again by mgClose.
   if (p.el && p.el.cut) { p.el.cut.hidden = false; p.el.cut.onclick = () => mgSplitAtPlayhead(); }
+  // …and so is ✨, in the dock's bottom-right corner as on the editor's Cut tab (v712) — see mgGuess.
+  const guessBtn = $('#btn-guess-splits');
+  if (guessBtn) { guessBtn.hidden = false; guessBtn.onclick = () => mgGuess(); }
   await ensurePeaks(docId, media.blob, (playerReadyFor === docId && p.decodedBuffer) ? p.decodedBuffer() : null, prog);
   if (!live()) return;
   /* Peaks can fail (a decode the browser refuses, memory on a long file) while the dock still
@@ -10763,7 +10884,7 @@ async function mgPrepareAudio(docId) {
     const lastEnd = Math.max(0, ...MG.spans.filter((s) => !s.timePending).map((s) => s.end));
     if (!MG.spans.length) {
       MG.spans = [{ id: 'sp0', start: 0, end: dur, timePending: false, timeEstimated: false }];
-    } else if (dur - lastEnd > 1000) {
+    } else if (dur - lastEnd >= TAIL_LINE_MIN_MS) {
       /* ⚠ THE UNCUT REMAINDER MUST BE ON SCREEN, OR IT CANNOT BE CUT. Reopening a partly-matched
        * text showed only what had already been aligned — Seth's file came back as a single
        * 3-second span with the other 61 seconds nowhere, and no way to reach them, because every
@@ -10772,9 +10893,19 @@ async function mgPrepareAudio(docId) {
        * unsegmented audio should show in the final line … on this particular file that should mean
        * the rest of the audio shows in line two.")
        *
-       * 1s tolerance, the same as coverTail's: a sliver at the end is rounding, not a missing piece. */
+       * TAIL_LINE_MIN_MS (350 ms), the editor's rule for the tail since v712 (settleTail): below it
+       * the end is rounding and encoder padding, not a missing piece.
+       *
+       * ⚠ AND A BLANK LINE BESIDE IT WHEN THE ROWS PAIR ONE TO ONE (v712). That is the round-trip
+       * case — a text whose every line already has its audio, and a recording that goes on after the
+       * last of them (Seth, on v711: "final empty segment isn't being drawn"). The editor gives that
+       * tail a blank line; here it used to arrive as a row of audio with "no line" beside it. When
+       * the counts already differ, the new piece pairs by row number like any other and nothing is
+       * added: matching them up is this screen's job. */
+      const pairedBefore = MG.spans.length === MG.lines.length && !MG.spans[MG.spans.length - 1].timePending;
       MG.spans.push({ id: 'tail', start: lastEnd, end: dur,
                       timePending: false, timeEstimated: false });
+      if (pairedBefore) MG.lines.push({ id: 'ln+tail', guid: newGuid(), phrases: [makeSegment('', [])] });
     }
   }
   // Draggability FIRST, so the marks are built with their grips rather than rebuilt a moment later.
@@ -10790,20 +10921,71 @@ async function mgPrepareAudio(docId) {
  * ⚠ IT TOUCHES ONLY MG.spans, NEVER THE DOCUMENT. cutGuessSplits() rewrites the doc into N spans and
  * N empty paragraphs, 1:1 — right for the Cut tab, and the exact coupling this app exists to avoid,
  * since here the text already exists and its lines must survive. So the guess is a proposal on the
- * audio side alone: nothing is written until Done, and Back discards it.
+ * audio side alone: nothing is written until Done, and Undo puts it back.
  *
- * The two guards are the Cut tab's, for the same reasons: say so when there are no clear pauses
- * rather than silently doing nothing, and ask first if the user has already cut by hand — that work
- * is exactly what this would throw away. A third, the ten-minute refusal, went in v707 (#93): the
- * shared guessedBoundaries() now guesses a long recording in windows, and the matcher's span rows are
- * lazy strips like the editor's, so length costs nothing it did not already pay. */
+ * TWO MODES, ONE BUTTON, AS ON THE EDITOR'S CUT TAB (v712; Seth, 2026-10-09: "add the same
+ * segment-level guess/auto-segment functionality that we added to FlexText Editor to Audio Segmenter
+ * as well (so the user can auto-segment just one selected audio segment, for example if they already
+ * started manually segmenting but want to auto-segment the rest, or if they had to split segments up
+ * to make them small enough to auto-segment)"). While nothing has been cut — the whole-file seed —
+ * ✨ guesses the whole recording, as it always did. Once anything has been cut, it guesses THE PIECE
+ * UNDER THE PLAYHEAD and nothing else: park the playhead in a piece (tap its waveform, or play it),
+ * press ✨. It used to ask, here, before throwing every hand-made cut away; it never has to now,
+ * because it never replaces anything but the one piece, in one undo step.
+ *
+ * ⚠ NO "EMPTY PIECE" RULE, UNLIKE THE CUT TAB. There a piece IS a line, and a line with words cannot
+ * be re-cut; here audio and text are cut independently, so any piece may be guessed — the rows after
+ * it move down by the pieces added, exactly as a ✂ moves them, and the text side is untouched.
+ *
+ * It lives on the dock now, in its bottom-right corner, where the editor put it (v701) — beside the
+ * playhead it is about, and in the same place in both apps. */
+let mgGuessIdx = -2;
+function mgGuessMode() { return !MG || MG.spans.length <= 1 ? 'all' : 'piece'; }
+// The span the playhead is in — the one ✨ would cut — or -1. The last span owns its own end, as in
+// the ticker, so a playhead parked at the very end still names a piece.
+function mgPieceIndex() {
+  const head = player?.playheadMs?.();
+  if (!MG || typeof head !== 'number') return -1;
+  const last = MG.spans.length - 1;
+  return MG.spans.findIndex((sp, i) => !sp.timePending && head >= sp.start && (head < sp.end || (i === last && head <= sp.end)));
+}
+// Why ✨ is grey for that piece; '' when it would cut something.
+function mgPieceBlockedBecause(i) {
+  if (!peaksDurationMs()) return t('cut.no.guessAudio');
+  const sp = MG && MG.spans[i];
+  if (!sp || sp.timePending) return t('cut.no.guessPiecePick');
+  return guessedBoundariesWithin(sp.start, sp.end).length ? '' : t('cut.no.guessPieceNone');
+}
+// The dock button's state: mgDraw forces it, the ticker asks every frame but only works when the
+// mode or the piece under the playhead changes.
+function mgSyncGuess(force) {
+  const g = $('#btn-guess-splits');
+  if (!g || !MG || g.hidden) return;
+  const mode = mgGuessMode();
+  if (mode === 'all') {
+    if (!force && g.dataset.mode === 'all') return;
+    g.dataset.mode = 'all';
+    mgGuessIdx = -2;
+    const why = peaksDurationMs() ? '' : t('cut.no.guessAudio');
+    g.disabled = !!why;
+    g.title = why || t('cut.guessTip');
+    g.setAttribute('aria-label', t('cut.guess'));
+    return;
+  }
+  const i = mgPieceIndex();
+  if (!force && g.dataset.mode === 'piece' && i === mgGuessIdx) return;
+  g.dataset.mode = 'piece';
+  mgGuessIdx = i;
+  const why = mgPieceBlockedBecause(i);
+  g.disabled = !!why;
+  g.title = why || t('mg.guessPieceTip');
+  g.setAttribute('aria-label', t('cut.guessPiece'));
+}
 async function mgGuess() {
   if (!MG) return;
+  if (mgGuessMode() === 'piece') { mgGuessPiece(mgPieceIndex()); return; }
   const dur = peaksDurationMs();
   if (!dur) { toast(t('cut.no.guessAudio'), 6000); return; }
-  // >1 span means real cutting has happened. One whole-file span is the seed, not work.
-  if (MG.spans.length > 1 && !await confirmDialog(t('mg.guessReplace'))) return;
-  if (!MG) return;                      // the dialog is async; the user may have left
   const cuts = guessedBoundaries();
   if (!cuts.length) { toast(t('cut.no.guessNone'), 7000); return; }
   mgCapture();                       // replacing every span at once is the edit most worth undoing
@@ -10814,6 +10996,28 @@ async function mgGuess() {
   MG.selSpan = null;
   player?.clearSpan?.();
   toast(t('mg.guessed').replace('{n}', MG.spans.length), 5000);
+  mgDraw();
+}
+/* ✨ on one piece: span i becomes the pieces its pauses divide it into. The windowed detector over
+ * that stretch alone (guessedBoundariesWithin), and applyGuessedSplitsWithin's rules for what counts
+ * as a cut — no sliver at either edge or between two cuts — so the matcher and the Cut tab cut a
+ * piece the same way. An estimated span's pieces stay estimates: their outer edges are still the
+ * estimate's (the same rule mgJoinSpan follows). */
+function mgGuessPiece(i) {
+  if (!MG) return;
+  const why = mgPieceBlockedBecause(i);
+  if (why) { toast(why, 6000); return; }
+  const sp = MG.spans[i];
+  const r = applyGuessedSplitsWithin([{ start: sp.start, end: sp.end }], [''], 0, guessedBoundariesWithin(sp.start, sp.end));
+  if (!r.ok) { toast(t('cut.no.guessPieceNone'), 6000); return; }
+  mgCapture();                       // ONE undo step for the whole piece
+  const pieces = r.segments.map((x, k) => ({
+    id: `${sp.id}g${k}`, start: x.start, end: x.end, timePending: false, timeEstimated: !!sp.timeEstimated,
+  }));
+  MG.spans.splice(i, 1, ...pieces);
+  MG.selSpan = null;
+  player?.clearSpan?.();             // the span it was watching is gone, as after a ✂
+  toast(t('mg.guessedPiece', { n: pieces.length }), 7000);
   mgDraw();
 }
 
@@ -10830,6 +11034,9 @@ function mgClose() {
   // list, offering to play audio that belonged to whatever was last matched.
   player?.onBoundaryDrag?.(null);   // the dock is shared; leave it as we found it
   if (player?.el?.cut) player.el.cut.hidden = true;
+  const guessBtn = $('#btn-guess-splits');
+  if (guessBtn) { guessBtn.hidden = true; guessBtn.onclick = null; delete guessBtn.dataset.mode; }
+  mgGuessIdx = -2;
   player?.hide?.();
   // hide() destroys the waveform; say so, or the next open of this text skips its load (the
   // editor's own close does the same where refreshPlayer hides).
@@ -10897,7 +11104,6 @@ async function mgOpen(id) {
         <span id="mg-status" class="mg-status"></span>
         <button id="mg-undo" class="icon-btn2" disabled>&#8630;</button>
         <button id="mg-redo" class="icon-btn2" disabled>&#8631;</button>
-        <button id="mg-guess" class="secondary-btn icon-btn2">✨</button>
         <button id="mg-done" class="primary-btn" disabled></button>
       </div>
       <p id="mg-audio-note" class="note seg-loading" hidden role="status" aria-live="polite">
@@ -10908,17 +11114,11 @@ async function mgOpen(id) {
     $('#mg-back').textContent = t('mg.back');
     $('#mg-back').onclick = () => mgClose();
     $('#mg-title').textContent = rec.title || t('untitled');
-    // ✨ not a sentence — same low-literacy rule as the Cut tab's: a glyph, with its words in the
-    // tooltip and the aria-label.
     for (const [id, fn2, key] of [['#mg-undo', mgUndoOnce, 'edit.undo'], ['#mg-redo', mgRedoOnce, 'edit.redo']]) {
       const b = $(id);
       b.title = t(key); b.setAttribute('aria-label', t(key));
       b.onclick = () => fn2();
     }
-    const g = $('#mg-guess');
-    g.title = t('cut.guess');
-    g.setAttribute('aria-label', t('cut.guess'));
-    g.onclick = () => mgGuess();
     $('#mg-done').textContent = t('mg.done');
     $('#mg-done').onclick = () => mgCommit();
   }
@@ -10955,18 +11155,30 @@ function setupSegmenterMode() {
    * this screen — the same reason the Cut tab's keys are document-level — so a handler bound to a
    * row would only work after the user had happened to click one. Guarded by `MG` so it cannot
    * shadow the browser's own undo anywhere else in the app. */
+  /* ⚠ Ctrl+Y REDOES, AND Ctrl+Z IS NOT LOST TO A PICKER (v712; Seth: "Does the audio segmenter app
+   * have undo/redo history built in like the others? Doesn't appear to be working"). The Redo button's
+   * own tooltip says "Redo (Ctrl+Y)", and this handler only knew Shift+Z — so the advertised key did
+   * nothing. And it stood down for ANY focused input or select, so after touching the language picker,
+   * the speed picker or a slider, Undo from the keyboard was dead until something else was clicked.
+   * Only somewhere the user is TYPING keeps the keys (a word, a gloss, the translation — the browser's
+   * own undo is the right one there); a picker or a slider has no undo of its own to protect. */
   document.addEventListener('keydown', (e) => {
     if (!MG) return;
     const el = e.target;
-    // Never steal it from a field the user is typing in (the speaker box, a future text input).
-    if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName || ''))) return;
+    const tag = String((el && el.tagName) || '').toLowerCase();
+    const typing = !!(el && (el.isContentEditable || tag === 'textarea'
+      || (tag === 'input' && !/^(range|checkbox|radio|button|submit|reset|color|file)$/i.test(el.type || ''))));
+    if (typing) return;
     const k = (e.key || '').toLowerCase();
-    // Enter cuts at the playhead, as on the Cut tab — but not when a button has focus, where Enter
-    // is that button's own click (wirePlaybackKeys already swallows it on the play controls).
-    if (e.key === 'Enter' && !(el && /^button$/i.test(el.tagName || ''))) { e.preventDefault(); mgSplitAtPlayhead(); return; }
-    if (k !== 'z' || !(e.metaKey || e.ctrlKey)) return;
-    e.preventDefault();
-    if (e.shiftKey) mgRedoOnce(); else mgUndoOnce();
+    // Enter cuts at the playhead, as on the Cut tab — but not on a control, where Enter is that
+    // control's own (wirePlaybackKeys already swallows it on the play controls).
+    if (e.key === 'Enter') {
+      if (/^(button|select|input|a)$/.test(tag)) return;
+      e.preventDefault(); mgSplitAtPlayhead(); return;
+    }
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (k === 'z') { e.preventDefault(); if (e.shiftKey) mgRedoOnce(); else mgUndoOnce(); return; }
+    if (k === 'y') { e.preventDefault(); mgRedoOnce(); }
   });
   show('segmenter');
 }
@@ -12281,6 +12493,9 @@ function wirePlaybackKeys() {
     // Undo/redo (v323): buttons are primary; keys work when focus is not inside a text field
     // (there the browser's native typing-undo owns Ctrl+Z until the next structural re-render).
     const mod = e.ctrlKey || e.metaKey;
+    // The Audio Segmenter's matcher has its own history and its own handler (setupSegmenterMode); the
+    // editor's ring snapshots current.doc, which the matcher does not edit until Done.
+    if (mod && MG && /^[zy]$/i.test(e.key || '')) return;
     if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) {
       const inField = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
       const wantRedo = e.key === 'y' || e.key === 'Y' || e.shiftKey;

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installMiniXmlDom } from './lib/mini-xml-dom.mjs';
 installMiniXmlDom();
-const { gapLinesBetween, tailGapLine, fillGapLines, GAP_LINE_MIN_MS, GUESS_MIN_GAP_MS } = await import('../docs/js/segments.js');
+const { gapLinesBetween, tailGapLine, fillGapLines, GAP_LINE_MIN_MS, GUESS_MIN_GAP_MS, TAIL_LINE_MIN_MS } = await import('../docs/js/segments.js');
 const { parseFlextext, serializeFlextext, reconcileBaseline, makeDoc, makeSegment, segmentsFromOffsets, isSilentPhrase } = await import('../docs/js/flextext.js');
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -34,11 +34,15 @@ test('gapLinesBetween: a pause of a breath or more between two timed lines, and 
   assert.deepEqual(gapLinesBetween([]), []); assert.deepEqual(gapLinesBetween(null), []);
 });
 
-test('tailGapLine: the rest of the recording, once its length is known, beyond a second of tolerance', () => {
+test('tailGapLine: the rest of the recording, once its length is known, from the gap rule\'s 350 ms (v712)', () => {
   const segs = [{ start: 0, end: 5000 }];
+  assert.equal(TAIL_LINE_MIN_MS, GAP_LINE_MIN_MS, 'one threshold at both ends — the v711 tail used a full second');
   assert.equal(tailGapLine(segs, 0), null, 'length unknown: nothing');
-  assert.equal(tailGapLine(segs, 5900), null, 'within a second: decoders disagree that much');
+  assert.equal(tailGapLine(segs, 5000 + TAIL_LINE_MIN_MS - 1), null, 'under 350 ms: encoder padding and rounding, not a line');
+  assert.deepEqual(tailGapLine(segs, 5000 + TAIL_LINE_MIN_MS), { start: 5000, end: 5000 + TAIL_LINE_MIN_MS }, 'from 350 ms it is a line');
+  assert.deepEqual(tailGapLine(segs, 5700), { start: 5000, end: 5700 }, 'Seth\'s case: a final blank line under a second comes back');
   assert.deepEqual(tailGapLine(segs, 9000), { start: 5000, end: 9000 });
+  assert.equal(tailGapLine(segs, 5900, { tolMs: 1000 }), null, 'a caller may still ask for a wider tolerance');
   assert.equal(tailGapLine([{ timePending: true }], 9000), null);
 });
 
@@ -99,9 +103,14 @@ test('the wiring: every tab heals on entry; the tail is filled once the length i
   assert.match(APP, /healFlatSegments\(rec\.doc\);\n\s+mgLoad\(rec\);/, '…and the Audio Segmenter on opening a text');
   assert.match(fn(APP, 'healGapLines'), /const r = fillGapLines\(doc\.paragraphs, docSegments\(doc\), blankGapLine\);/);
   assert.equal((APP.match(/appendBlankLine: \(doc\) => appendBlankLine\(doc\),/g) || []).length, 2, 'both the Cut and the Baseline deps carry the tail hook');
-  const rec = fn(STRIPS, 'reconcile');
-  assert.match(rec, /if \(coverTail\(doc\.segments, paras, known\)\) repaired = true;\n[\s\S]*?else if \(d\.appendBlankLine && doc\.segments\.length === paras\.length\) \{\n\s+const tail = tailGapLine\(doc\.segments, known, \{ tolMs: COVER_TOL_MS \}\);\n\s+if \(tail && d\.appendBlankLine\(doc\)\) \{ doc\.segments\.push\(\{ start: tail\.start, end: tail\.end \}\); repaired = true; \}/,
-    'the tail line only where coverTail may not stretch the last line, with the same tolerance');
+  assert.match(fn(STRIPS, 'reconcile'), /if \(settleTail\(doc, known, d\)\) repaired = true;/, 'reconcile settles the tail through the one rule');
+  const settle = fn(STRIPS, 'settleTail');
+  assert.match(settle, /if \(!segs\.length \|\| segs\.length !== paras\.length\) return false;/, 'never on a doc that is not 1:1');
+  assert.match(settle, /if \(coverTail\(segs, paras, durationMs\)\) return true;\n\s+if \(!d\.appendBlankLine\) return false;\n\s+const tail = tailGapLine\(segs, durationMs, \{ tolMs: TAIL_LINE_MIN_MS \}\);\n\s+if \(!tail \|\| !d\.appendBlankLine\(doc\)\) return false;\n\s+segs\.push\(\{ start: tail\.start, end: tail\.end \}\);/,
+    'stretch an empty last line, else a blank line of its own — both from the same 350 ms');
+  // v712: the Gloss tab and the Audio Segmenter settle the tail too (only Cut and Baseline did).
+  assert.match(fn(APP, 'settleTailOf'), /const changed = settleTail\(rec\.doc, peaksDurationOf\(rec\.id\), TAIL_DEPS\);/, 'the text\'s OWN recording length, never another text\'s peaks');
+  assert.match(APP, /if \(current && current\.id === glossFor && activeTab === 'gloss' && settleTailOf\(current\)\n\s+&& !inTextField\(document\.activeElement\)\) renderGloss\(\);/, 'the Gloss tab, once its peaks land — re-rendered only while nobody is typing');
   for (const k of ['panel.rel.fix.gapLines', 'panel.rel.fix.zipLatest']) assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, `${k} in EN and ID`);
-  assert.match(PANEL, /\{ v: 'v711', date: '2026-10-09', items: \[\n    \{ k: 'panel\.rel\.fix\.gapLines' \},\n    \{ k: 'panel\.rel\.fix\.zipLatest', issue: 102 \},\n    \{ k: 'panel\.rel\.fix\.passthroughSilent', issue: 97 \},/);
+  assert.match(PANEL, /\{ v: 'v712', date: '2026-10-09', items: \[\n    \{ k: 'panel\.rel\.fix\.gapLines' \},\n    \{ k: 'panel\.rel\.fix\.zipLatest', issue: 102 \},\n    \{ k: 'panel\.rel\.fix\.passthroughSilent', issue: 97 \},/);
 });

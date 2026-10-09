@@ -34,9 +34,42 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v711 — assembled 2026-10-09 on branch `roundtrip-v710` (the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines) — staging, NOT released (Seth: "Let's not release v710 yet. I still need to test it"); production is v709
+## ▶ v712 — assembled 2026-10-09 on branch `roundtrip-v710` (the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list) — staging, NOT released (Seth: "Let's not release v710 yet. I still need to test it"); production is v709
 
-`BUILD_TAG = 'roundtrip v2'` (v710 = 'roundtrip v1' was the first staging build of the same branch; never released, so the number moves on). Three of Seth's asks the same day:
+`BUILD_TAG = 'roundtrip v3'` (v710 = 'roundtrip v1' and v711 = 'roundtrip v2' were earlier staging builds of the same
+branch; never released, so the number moves on). Seth on v711, the same evening: "Round-trip appears to work, except
+final empty segment isn't being drawn. Make sure to also watch for a gap between the final audio segment in the
+flextext and the actual end of the audio file (total duration?)", then four Audio Segmenter items (the 40-minute
+recording one deferred: "Let's put that problem off for a future release"). v712:
+- **Tail:** the tail rule used coverTail's full second, so a final blank line under a second never came back, and only
+  `reconcile` ran it (Cut, Baseline). Now `settleTail` (segment-strips.js, exported) is the one rule — stretch an empty
+  last line, else a blank line of its own — from `TAIL_LINE_MIN_MS` = 350 ms (the gap rule's threshold), run by
+  reconcile, by the Gloss tab once its peaks land (`settleTailOf`, re-rendered only while nobody is typing), and in the
+  matcher, where the tail span now gets a blank text line beside it when the rows already paired one to one.
+- **"All permissions that are specific to the audio segmenter app should be on by default":** `segmenterPermission`
+  (typing.js) for allowTextEdit / allowBlankLines / allowAudioSwap — on unless a v712+ panel switched it off. The panel
+  saved every box (readForm), so a stored `false` from before v712 is the old default written down, not a choice; a
+  v712+ panel writes `segPermsRev: 2` with them, and only then does a false count. Engines older than v712 read
+  `=== true` and are unaffected. "…make sure if they really are blank, they don't export as empty lines": `isEmptyWord`
+  (flextext.js) — an empty word/gloss pair no longer makes a line content (isSilentPhrase, stripSilentPhrasesXml), and
+  Done drops pairs left empty (`mgDropEmptyWords`). His list also named joining/splitting word/gloss pairs: Space mid-word
+  splits the pair, Backspace at a word's start joins it (refused, with a reason, over a FLEx analysis). Found while
+  verifying: the box's blur fires AS a redraw removes it (Chromium, synchronous, still connected), and its commit ran
+  with the old index against the new line — Space at the start of a word made the word twice (pre-v712, since in-place
+  editing shipped); now each in-box change marks the box first (`taken`), regression-tested with a removal that blurs.
+- **Language picker "lost":** below 820 px the matcher hides its heading row, and the picker lived in it. The row now
+  stays (headings hidden) when it carries the picker (`mg-has-lang`).
+- **Undo/redo "doesn't appear to be working":** the matcher's history worked from the buttons and ⌘Z, but Ctrl+Y — what
+  the Redo tooltip promises — did nothing; Ctrl+Z was dead after touching the speed or language picker; a grab that never
+  moved left an undo step that did nothing; a refused ✂ the same. All four fixed; the editor's own ring stands down
+  while the matcher is open.
+- **Per-piece ✨ in the Segmenter:** ✨ moved to the dock's bottom-right corner (as the editor's v701) and has the same two
+  modes: whole recording while nothing is cut, else the piece under the playhead (`mgGuessPiece`, via
+  `guessedBoundariesWithin` + `applyGuessedSplitsWithin`) — any piece, since audio and text are cut independently; one
+  undo step; the "replace everything?" confirm is gone with the behaviour that needed it.
+- test/segmenter-v712.test.mjs runs the real functions; 806 tests.
+
+v710/v711, three of Seth's asks the same day:
 - "On re-import, gaps in duration between paragraphs, phrases, etc, should re-generate empty lines/audio segments in
   flextext editor so that they can be changed" — or "draw empty audio segments in the gaps and ADD flextext
   paragraph/phrase lines whenever text … is typed in. Whichever is the easier and less risky." Built as the first, which

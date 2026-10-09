@@ -22,7 +22,7 @@
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, moveBoundary,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed,
-         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed, tailGapLine } from './segments.js';
+         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed, tailGapLine, TAIL_LINE_MIN_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 import { tidyField } from './typing.js';
 
@@ -898,16 +898,16 @@ function peaksDurationFor(d) {
  *   - the last line has no text, so nothing is being re-timed against words;
  *   - it carries no imported `attrs`, so a FLEx/ELAN alignment that deliberately stops early
  *     (trailing room tone left unannotated) is never overwritten;
- *   - and the shortfall is more than a second, so rounding and encoder priming are left alone.
+ *   - and the shortfall is at least TAIL_LINE_MIN_MS (350 ms), so rounding and encoder padding are
+ *     left alone. (A full second until v712 — see settleTail for why the two ends now share one rule.)
  */
-const COVER_TOL_MS = 1000;
 function coverTail(segments, paras, durationMs) {
   if (!(durationMs > 0) || !segments.length) return false;
   const i = segments.length - 1;
   const last = segments[i];
   if (!isAligned(last) || last.attrs) return false;
   if (String(paras[i] ?? '').trim()) return false;
-  if (durationMs - last.end <= COVER_TOL_MS) return false;
+  if (durationMs - last.end < TAIL_LINE_MIN_MS) return false;
   last.end = durationMs;
   return true;
 }
@@ -948,20 +948,38 @@ function reconcile(doc, d = deps) {
     repaired = true;
   }
   doc.segments = syncToLines(docSegments(doc), paras.length, { duration: known || null });
-  // …and whatever produced them, they must reach the end of the recording. See coverTail.
-  if (coverTail(doc.segments, paras, known)) repaired = true;
-  /* …and when the last line may NOT be stretched — it has words, or an imported alignment that stops
-   * early on purpose — the rest of the recording becomes a blank line of its own instead (v710):
-   * accounted for, and nothing anyone aligned is re-timed. The host adds the paragraph (it owns the
-   * paragraph's shape, see appendBlankLine in app.js); a host without the hook keeps the old rule. */
-  else if (d.appendBlankLine && doc.segments.length === paras.length) {
-    const tail = tailGapLine(doc.segments, known, { tolMs: COVER_TOL_MS });
-    if (tail && d.appendBlankLine(doc)) { doc.segments.push({ start: tail.start, end: tail.end }); repaired = true; }
-  }
+  // …and whatever produced them, they must reach the end of the recording. See settleTail.
+  if (settleTail(doc, known, d)) repaired = true;
   // Persist a seed/heal right away: without this the repair lived only in memory until the next
   // edit, so storage (and everything that syncs from it) kept the broken pending state.
   if (repaired && d.persist) d.persist();
   return doc.segments;
+}
+
+/* THE END OF THE RECORDING, ACCOUNTED FOR — the one rule, for every surface that knows the length.
+ *
+ * An empty last line with no imported alignment simply reaches the end (coverTail). When the last
+ * line may NOT be stretched — it has words, or an imported alignment that stops early on purpose —
+ * the rest of the recording becomes a blank line of its own instead (v710): accounted for, and
+ * nothing anyone aligned is re-timed. The host adds the paragraph (it owns the paragraph's shape, see
+ * appendBlankLine in app.js); a host without the hook only ever stretches.
+ *
+ * ⚠ EXPORTED, AND CALLED BY THE GLOSS TAB AND THE AUDIO SEGMENTER TOO (v712). Until then only
+ * reconcile ran it, i.e. only the Cut and Baseline tabs, so a re-imported text opened on Gloss — or
+ * in the Segmenter — never got its last blank line. Both ends use TAIL_LINE_MIN_MS, the gap rule's
+ * 350 ms; coverTail used a full second, and so did this until v712. Returns whether anything changed;
+ * refuses when the doc is not 1:1 (reconcile repairs that first). */
+export function settleTail(doc, durationMs, d = deps) {
+  if (!doc || !(durationMs > 0) || !d || typeof d.getParagraphs !== 'function') return false;
+  const segs = docSegments(doc);
+  const paras = d.getParagraphs(doc);
+  if (!segs.length || segs.length !== paras.length) return false;
+  if (coverTail(segs, paras, durationMs)) return true;
+  if (!d.appendBlankLine) return false;
+  const tail = tailGapLine(segs, durationMs, { tolMs: TAIL_LINE_MIN_MS });
+  if (!tail || !d.appendBlankLine(doc)) return false;
+  segs.push({ start: tail.start, end: tail.end });
+  return true;
 }
 
 /* ---------------- rendering ---------------- */
@@ -1634,10 +1652,26 @@ export function healSpanWave(canvas) { fixStaleWave(canvas); }
  *
  * Same peaks the waveforms are drawn from, so what it cuts on is what the user can see. */
 export function peaksDurationMs() { return peaksCache.durationMs || 0; }
+// …and the same, but only when the cache is THIS text's — 0 for another's (see peaksDurationFor).
+export function peaksDurationOf(docId) { return docId && peaksCache.docId === docId ? (peaksCache.durationMs || 0) : 0; }
 export function guessedBoundaries() {
   const dur = peaksCache.durationMs || 0;
   if (!peaksCache.peaks || !dur) return [];
   return guessCuts(dur);
+}
+/* …and inside ONE stretch of it — the matcher's ✨ for a single piece (v712), the same windowed
+ * detector the Cut tab's piece guess uses. Cached on the stretch and the peaks generation, as
+ * pieceProbe is: the matcher's ticker asks again whenever the playhead moves into another piece. */
+let withinProbe = { docId: null, gen: -1, start: 0, end: 0, cuts: [] };
+export function guessedBoundariesWithin(startMs, endMs) {
+  const dur = peaksCache.durationMs || 0;
+  if (!peaksCache.peaks || !dur || !(endMs > startMs)) return [];
+  if (withinProbe.docId !== peaksCache.docId || withinProbe.gen !== peaksGen
+      || withinProbe.start !== startMs || withinProbe.end !== endMs) {
+    const cuts = guessSplitsWindowed(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length), startMs, endMs);
+    withinProbe = { docId: peaksCache.docId, gen: peaksGen, start: startMs, end: endMs, cuts };
+  }
+  return withinProbe.cuts.slice();
 }
 
 /* CLICK A WAVEFORM TO POSITION THE PLAYHEAD INSIDE ITS SEGMENT; DRAG TO SCRUB (Seth).

@@ -481,9 +481,20 @@ const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
  * and the Cut and Gloss tabs rely on that); only the files written for FLEx and ELAN leave it out,
  * the way ELAN itself leaves a stretch unannotated. Imported notes and other preserved items make a
  * phrase someone's data, so a phrase carrying any of them is written whatever its text. */
+/* ⚠ AN EMPTY WORD IS NOT A WORD (v712). The Audio Segmenter's in-place editing gives a blank line one
+ * empty word/gloss pair to type into, and a pair that was typed into and cleared again stays in the
+ * model as { txt: '', gls: '' }. Counting that as "has words" wrote the blank line to the FLExText and
+ * the EAFs as an empty line — exactly what Seth asked to rule out when the Segmenter's switches went
+ * on by default ("make sure if they really are blank, they don't export as empty lines"). A word with
+ * no text, no gloss and nothing preserved from an import counts for nothing here. */
+export function isEmptyWord(w) {
+  if (!w) return true;
+  if (String(w.txt || '').trim() || String(w.gls || '').trim()) return false;
+  return !(w.preservedXML || []).length;      // morphemes, pos, another language's gloss: somebody's data
+}
 export function isSilentPhrase(seg) {
   if (!seg) return false;
-  if ((seg.words || []).length) return false;
+  if ((seg.words || []).some((w) => !isEmptyWord(w))) return false;
   if (String(seg.baseline || '').trim() || String(seg.free || '').trim()) return false;
   if ((seg.preItemsXML || []).length) return false;
   if ((seg.postItemsXML || []).some((x) => !OUR_NOTE.test(x))) return false;
@@ -497,7 +508,8 @@ export function isSilentPhrase(seg) {
  * carries. But a device that had not yet updated to v709 uploaded its blank lines as empty timed phrases,
  * and those downloads handed them on. This removes exactly those — string surgery, like
  * lametaFlextextMedia, so every other byte stays as it was:
- *   - a <phrase> holding nothing but an empty txt item, empty <words>, an empty gls item, a segnum, and
+ *   - a <phrase> holding nothing but an empty txt item, empty <words> (or only words left with nothing
+ *     in them, v712), an empty gls item, a segnum, and
  *     our own "audio m:ss.sss–…" note (OUR_NOTE) — isSilentPhrase's "nothing in it", read from the file
  *     instead of the model. Anything else in it (a word, any text, a translation in any language, any
  *     other note or item) keeps the phrase;
@@ -508,6 +520,7 @@ const SILENT_BITS = [
   /<item\b[^>]*\btype="(?:txt|gls)"[^>]*>\s*<\/item>/g,                         // empty txt / gls
   /<item\b[^>]*\btype="segnum"[^>]*(?:\/>|>[^<]*<\/item>)/g,                    // numbering is not content
   /<item\b[^>]*\btype="note"[^>]*>audio ~?\d+:\d\d\.\d{3}[^<]*<\/item>/g,       // our own timing note
+  /<word\b[^>]*\/>/g, /<word\b[^>]*>\s*<\/word>/g,                               // a word left with nothing in it (isEmptyWord)
   /<words\b[^>]*\/>/g, /<words\b[^>]*>\s*<\/words>/g,                            // no words
 ];
 export function stripSilentPhrasesXml(xml) {

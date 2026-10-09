@@ -15,7 +15,16 @@ below touch the worker, where deploy ORDER is the difference between a release a
 ---
 
 
-## ▶ v715 — the BETA TIER, branch `beta-tier` (assembled 2026-10-10) — on staging for review, NOT in main
+## ▶ v715 — RELEASED 2026-10-10 (notice fields + beta-tier groundwork); the `beta` branch exists but the beta Workers are NOT yet created
+
+**Shipped straight from `main` with Seth's sign-off** ("Go ahead and ship v715") — the beta Workers and domains did not
+exist yet, so this one release could not soak there. It carried: the operator notice with its own heading / last
+line / collapsed More info / links (the worker cap 500 → 4000 was deployed first, version e7edabfc…; previous
+357a9940…), and the beta plumbing, inert on production hosts. The `beta` branch was created AT this commit, so from
+here on `productionWeb` is fast-forwarded from `beta` as the table in CLAUDE.md says. **Still to do for beta to open:**
+steps 3–5 below (Deploy to beta creates the Workers; Seth attaches the seven domains; install from the domain).
+
+### as assembled (kept for the record)
 
 Seth, 2026-10-10: *"create beta-version workers on Cloudflare. And introduce that into our release process.
 Before pushing to main production, push to beta and leave it there for awhile (and have hopefully some users

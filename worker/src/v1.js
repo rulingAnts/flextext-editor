@@ -3810,11 +3810,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     let maintenance = null, freeze = null;
     try {
       const flag = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('maintenance').first();
-      if (flag && flag.value) maintenance = String(flag.value).slice(0, 500);
+      /* 4000, not 500 (2026-10-10): the v714 apology was 577 characters, bilingual, and the old cap cut
+       * it mid-sentence on every panel; and since v715 the value may be JSON (title + message + advice),
+       * which a cap would turn into unparseable text. The panel escapes it; the size is the only risk. */
+      if (flag && flag.value) maintenance = String(flag.value).slice(0, 4000);
       // The write lock's banner rides the same poll (see the freeze gate at the top of handleV1):
       // the panel shows it proactively rather than letting the first refused write break the news.
       const fz = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('freeze').first();
-      if (fz && fz.value) freeze = String(fz.value).slice(0, 500);
+      if (fz && fz.value) freeze = String(fz.value).slice(0, 4000);
     } catch { /* table absent (pre-migration) or read failed — no notice, never an error */ }
     const approved = isApproved(r, env);
     const operator = isOperator(r.drive_email, env);

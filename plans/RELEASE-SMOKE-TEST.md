@@ -562,51 +562,75 @@ These are the ones a tester can see.
 
 ## v713 (staged as v710–v712 first) — a moved text keeps every cut (#111); the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list (2026-10-09/10)
 
-v713 — #111, a text moved between devices:
-- [ ] **Brian's steps:** on a paired device, cut a text into pieces, type the baseline on only SOME of them (leave several
-      untranscribed pieces in a row, including at the end), Save and upload. In the panel, Remove it from the device (or
-      move it to Unassigned), then move it back. Open it: every piece is there at its own times — the untranscribed ones
-      as blank lines, not merged into one — on Cut, Baseline and Gloss, and in the Audio Segmenter.
+Seth, 2026-10-10: the FlexText Editor and the researcher panel are what must be right for this release; the Audio
+Segmenter "is not widely used yet" — "keep a checklist for what to test on audio segmenter, but save that testing for
+after the release." So two lists: BEFORE RELEASE (Editor + panel) and AFTER RELEASE (Audio Segmenter).
+
+### Before release — FlexText Editor and researcher panel
+
+#111, a text moved between devices (Editor):
+- [ ] **Brian's steps:** on a device running staging v713, cut a text into pieces, type the baseline on only SOME of them
+      (leave several untranscribed pieces in a row, including at the end), and upload — AFTER the device shows v713 (a
+      text uploaded earlier and unchanged since is not uploaded again; its Drive copy has no record of its blank pieces).
+      In the panel, Remove it from the device (or move it to Unassigned), then move it back. Open it: every piece is there
+      at its own times — the untranscribed ones as blank lines, not merged into one — on Cut, Baseline and Gloss.
 - [ ] **A text cut and not typed at all**, moved the same way: it comes back as all its pieces, not as one line.
-- [ ] **FLEx still sees no empty lines:** Panel ▸ Files… ▸ .flextext of that text imports into FLEx with only the lines
-      that have words, and FLEx raises no error about the file. (Open the file in a text editor: the blank pieces' times
-      are in one `<?flextext-editor … blank-lines="…"?>` line near the end of the text.)
+- [x] **FLEx still sees no empty lines:** a v713 .flextext with the `<?flextext-editor … blank-lines="…"?>` line imports
+      into FLEx with only the lines that have words. (Seth, 2026-10-10: "FLEx import successful with no ill effects that I
+      can see.")
 - [ ] **ELAN** opens the .eaf with no empty annotations, as in v709.
+- [ ] **A fully transcribed text** (no blank pieces): its export has no `flextext-editor` line and is otherwise as v709 wrote it.
 
-
-- [ ] **Round trip:** on a text cut as line / pause / line / pause / line, export the .flextext (v709 leaves the pauses
-      out), import it again: Cut, Baseline and Gloss show five lines, the pauses as blank lines at their own times.
-- [ ] **A FLEx/ELAN text with unannotated pauses** opens with a blank line in each pause of a third of a second or more,
-      one before the first line if the recording starts later, and one after the last once the audio has loaded.
+Blank lines on re-import, and the end of the recording (Editor):
+- [ ] **Round trip:** on a text cut as line / pause / line / pause / line, export the .flextext, import it again: Cut,
+      Baseline and Gloss show five lines, the pauses as blank lines at their own times.
+- [ ] **A FLEx/ELAN text with unannotated pauses** (no `flextext-editor` line) opens with a blank line in each pause of a
+      third of a second or more, one before the first line if the recording starts later, and one after the last once the
+      audio has loaded.
+- [ ] **The last blank line comes back:** a text whose last line ends before the recording does — even by under a second
+      (anything from about a third of a second) — opens with a blank line after it on Cut, Baseline **and Gloss** (Gloss
+      adds it a moment after the waveforms load, and never while you are typing a gloss).
 - [ ] **Type into a blank line**, export: that line is now in the .flextext and the EAF; the untouched blank lines are not.
 - [ ] **A FLEx text with phrases grouped in paragraphs** keeps its paragraphs on export after the blank lines appear.
-- [ ] **The classic editor** (segmentation off) shows no blank lines.
-- [ ] **Panel ▸ Files… ▸ Download all (ZIP)** on a text with several device backups: the root holds `<title>.flextext`;
-      the timestamped copies are in `older_versions/` (`versi_lama/` in Indonesian) — no space in the folder name.
+- [ ] **The classic editor** (segmentation off) shows no blank lines, and its exports have no `flextext-editor` line.
+- [ ] **Done — send… ▸ Save to file:** the zip's .flextext carries the `flextext-editor` line when there are blank pieces;
+      its .eaf opens in ELAN with no empty annotations.
+
+Researcher panel:
+- [ ] **Files… ▸ Download all (ZIP)** on a text with several device backups: the root holds `<title>.flextext`; the
+      timestamped copies are in `older_versions/` (`versi_lama/` in Indonesian) — no space in the folder name.
 - [ ] **A text uploaded by a device still on v707 or earlier** (blank lines saved as empty timed phrases): Files… ▸
       .flextext, the lameta session and Download all each give a .flextext with no empty phrase and no empty paragraph;
       a file with nothing empty in it downloads byte-for-byte as before.
 - [ ] **Utilities ▸ Convert/Export ▸ .flextext** from such a file: same — the empty lines are gone, nothing else changed.
+- [ ] **ELAN / SayMore files built by the panel** open with no empty annotations.
+- [ ] **Device settings:** open a device's settings, save, reopen — no error, values as saved. (The three Audio Segmenter
+      boxes now show ticked by default — expected, and inert on an Editor device.)
+- [ ] **About this version** shows the v713 notes, linking #111, #102, #97 and #93.
+- [ ] **Move / Unassigned** still work. Known and untouched here: #113 — after Remove from device the Unassigned folder
+      disappears until the panel is reloaded.
 
-v712 — from Seth's test of v711:
-- [ ] **The last blank line comes back:** a text whose last line ends before the recording does — even by under a second
-      (anything from about a third of a second) — opens with a blank line after it on Cut, Baseline **and Gloss** (Gloss
-      adds it a moment after the waveforms load), and in the Audio Segmenter as the last row on both sides.
-- [ ] **Audio Segmenter, paired device you configured before v712:** editing words/glosses/translations in place, the +
-      blank-line rows and ♫ (swap a recording you attached yourself) are all available without touching the panel. In the
-      panel those three boxes now show ticked; untick one and save — the device loses it; tick it again — it comes back.
-- [ ] **A blank line stays out of the exports:** in the Segmenter, type a word into a blank line, clear it again, press
-      Done, download .flextext only and ELAN only — no empty line, no empty annotation, for that line or any other.
+### After release — Audio Segmenter (deferred, Seth 2026-10-10)
+
+- [ ] **#111 in the Segmenter:** a text moved back to a device (as above) opens in the matcher with every piece, on both
+      sides, at its own times.
+- [ ] **Blank lines on open:** the pauses between timed lines, and the audio after the last one, appear as rows with a
+      blank text line beside them when the rows already paired one to one.
+- [ ] **Paired device you configured before v712:** editing words/glosses/translations in place, the + blank-line rows and
+      ♫ (swap a recording you attached yourself) are all available without touching the panel. In the panel those three
+      boxes show ticked; untick one and save — the device loses it; tick it again — it comes back. ♫ never offers to
+      replace a recording the researcher sent.
+- [ ] **A blank line stays out of the exports:** type a word into a blank line, clear it again, press Done, download
+      .flextext only and ELAN only — no empty line, no empty annotation, for that line or any other.
 - [ ] **Language picker on a narrow window / tablet held upright** (under about 820 px): the analysis-language menu is
       above the rows on the right; switching to another language or "All languages" works there.
-- [ ] **Undo / redo in the Segmenter:** ↶ ↷ buttons; Ctrl+Z / ⌘Z and **Ctrl+Y** / ⌘⇧Z — also right after changing the
-      playback speed or the language menu. Grabbing a boundary handle and letting go without moving leaves nothing to undo.
-- [ ] **✨ in the Segmenter is on the big player, bottom-right** (no ✨ next to Done any more). On a text nobody has cut:
-      whole recording. After cutting by hand: tap a piece's waveform (or play it) — ✨ cuts only that piece at its pauses,
-      the rows after it move down, the text side does not change; one Undo puts it back. Greyed with a reason when the
-      playhead is in no piece or the piece has no clear pauses.
+- [ ] **Undo / redo:** ↶ ↷ buttons; Ctrl+Z / ⌘Z and **Ctrl+Y** / ⌘⇧Z — also right after changing the playback speed or the
+      language menu. Grabbing a boundary handle and letting go without moving leaves nothing to undo.
+- [ ] **✨ is on the big player, bottom-right** (no ✨ next to Done any more). On a text nobody has cut: whole recording.
+      After cutting by hand: tap a piece's waveform (or play it) — ✨ cuts only that piece at its pauses, the rows after it
+      move down, the text side does not change; one Undo puts it back. Greyed with a reason when the playhead is in no
+      piece or the piece has no clear pauses.
 - [ ] **Editing a word in place:** Space at the start → an empty pair before it (not the word twice); Space at the end →
       one after; Space in the middle → the word splits, gloss stays on the first part; Backspace at the start → joins it
       to the word before (two glosses joined with the gloss break); Backspace in an empty pair → removed, the next word
       untouched. A word with a FLEx analysis (morphemes) refuses the join and says why.
-

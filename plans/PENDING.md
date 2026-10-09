@@ -54,6 +54,14 @@ every line was blank, and drops the field once used. Verified in the rig: a text
 pieces in a row at the end), saved to file, imported again — 15 lines, every time identical, in the Editor and the
 Segmenter. test/blank-lines-pi.test.mjs; the test DOM learned processing instructions. Status note posted on #111.
 Seth: this also moves toward #104 (a data model, with .flextext as one export of it) — "Let's not do that JUST yet."
+FLEx import of a v713 .flextext (with the blank-lines line) checked by Seth, 2026-10-10: "successful with no ill effects".
+
+**Testing split (Seth, 2026-10-10):** the Editor and the researcher panel are what this release must get right; the
+Audio Segmenter "is not widely used yet" — its checks wait until after the release ("keep a checklist for what to test
+on audio segmenter, but save that testing for after the release"). Both lists: plans/RELEASE-SMOKE-TEST.md § v713.
+**Open before release:** whether a device should re-upload, once, a text whose last upload predates v713 and that has
+blank pieces (otherwise field texts uploaded under v709–v712 still lose their untranscribed cuts when moved) — asked,
+not answered yet; not built.
 
 v712 (the same evening as v711). Seth on v711, the same evening: "Round-trip appears to work, except
 final empty segment isn't being drawn. Make sure to also watch for a gap between the final audio segment in the

@@ -508,8 +508,13 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   the offsets on its Segment objects (ELAN interop); it has no interlinear line for them, so the
   note line is the visible carrier — that's why both are written. ⚠ Since v717 estimates are per
   EDGE (`guess`, segments.js), the `~` is READ BACK on import, a `time-estimates` processing
-  instruction carries the guessed edges whatever the note setting, and a line whose live span has no
-  time is written with NO offsets (never its stale imported ones) — plans/time-gaps-and-estimates.md.
+  instruction carries the guessed edges whatever the note setting (OUR round trips only — FLEx drops
+  it, so through FLEx the `~` note is the carrier), and a line whose live span has no time is written
+  with NO offsets (never its stale imported ones) — except a line the model could not place that
+  nobody changed (`fileTimes`: nested ELAN phrases, a sliver, an older build's clamp), which writes
+  the file's own back (P4). Every export reads a pre-v717 record's estimates back on a COPY
+  (`spansForExport`), so no path — upload from the list, auto-backup, Gloss with the banner off —
+  can send its guesses out as times. plans/time-gaps-and-estimates.md.
 - **`doc.segments` is the working state** (time spans, one per paragraph), edited ONLY through
   `segments.js` (never invent a time; out-of-range → `timePending`; text is sacred). ALIGNMENT
   EDITS NEVER TOUCH TEXT: the ⇥ set-boundary control and the seeds write `doc.segments` only, so
@@ -557,8 +562,16 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     2026-08-16 lesson). The classic box's `applyBaseline` on a timed text takes
     `reconcileBaselineWithOrigins` → `segmentsFollowLines`; the positional `syncToLines` is the last
     resort for a doc whose spans already disagreed with its lines, and it sets `rec.timeSync` so the
-    banner turns red. Before a time-model change reaches staging, run `tools/corpus-timing.mjs` over
-    the real files (local, read-only, counts only — DEVELOPERS.md §8).
+    banner turns red (an Undo takes the flag back with the edit). Pairing is by shared WORDS first,
+    even when the line counts match; only a gap the words leave pairs in order. A line MOVED past
+    others keeps its words but not its time — the recording's order is fixed. The box has its own
+    focus-session Undo in every mode, segmentation on or off. Before a time-model change reaches
+    staging, run `tools/corpus-timing.mjs` over the real files (local, read-only, counts only —
+    DEVELOPERS.md §8).
+  - **Opening is not an edit, all the way to Drive.** A pre-v717 doc is read back on open
+    (`enterEditor` → `readBackOnOpen`, and `mgLoad` for the Segmenter) before any tab draws it; a
+    record that was in sync with Drive when opened stays in sync across that read-back and the quiet
+    writes (`keepInSync`), until the first real edit.
 
 ## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 

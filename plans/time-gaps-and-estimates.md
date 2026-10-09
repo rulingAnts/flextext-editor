@@ -67,7 +67,8 @@ isPlaced(s)           = isAligned(s) && !isPlaceholder(s)          // real or es
 
 Rules:
 
-- **C0. Two edges are never guesses:** the first line's start and the last line's end. No operation ever interpolates them; they come only from the file, the user, 0 or D.
+- **C0. No operation makes a guess of the first line's start or the last line's end.** Nothing interpolates them; they come only from the file, the user, 0 or D.
+  - *(v717 review)* C0 governs where guesses are MADE, not which positions may hold one: delete the first line of an estimated text and the new first line's start is still the interpolated value it was, so it stays a guess. Enforcing C0 by position after every operation laundered exactly that guess.
   - So a recording made in the app keeps solid first and last lines, as in v714.
 - **Placeholder status depends on values, not on a flag.**
   - Copying a span with `{...s}` is harmless: once the values change, the copy is no longer a placeholder. This is the fix for adversarial case 10.
@@ -85,6 +86,8 @@ Rules:
     - an edge that is C0;
     - an edge that touches a neighbour within 1 ms where that neighbour is not an estimate.
   - So a legacy fraction-split piece keeps its outer edges real, and a v714 seed counts as guessed on its interior edges.
+  - *(v717 review)* A **lone** estimate (neither neighbour is one) has every non-C0 edge guessed: a start pushed by normalize is the guess at exactly the edge that meets its real neighbour. Where the phrase still carries the file's offsets, the edge that differs from them is the guess (`readLegacyEstimates`).
+  - *(v717 review)* A span whose flag no live guessed edge explains was written by an older build (a rollback to v716 copies `[null, null]` along and sets its own flag) and is migrated the same way, never read as real.
 
 ## 3. Decisions and reasons
 
@@ -95,11 +98,11 @@ Rules:
 | D3 | **Untimed lines are spread only within their own room.** The room runs from the previous placed end (or 0) to the next placed start (or D). The lines become placeholders. If the room is less than k × 400 ms, they stay ⋯ with a "no room" mark. | This is Seth's B2 rule. Placed lines are never read for change. A guess becomes stored only through a user's edit. |
 | D4 | **The all-untimed seed is the same rule with one room, [0, D].** It gives exactly v714's values, `round(kD/N)`. | The 131 untimed files look the same as today, but nothing is written and nothing is exported. |
 | D5 | **Import reads estimate markers back**, in this order: per-edge processing-instruction (PI) entry, then the `~` note, then an equal-length pattern from the file. The note or pattern counts only when its times equal the file's offsets and the current span within 1 ms. | Fixes E78, E19 and the 4 partly estimated files (257 lines). The equality check means an edited time is never re-flagged (case 11). |
-| D6 | **Estimates are exported with offsets, the `~` note (when notes are on), and a PI that carries each guessed edge, regardless of `timeNotes`.** | Keeps every user cut through a device move (#111), and keeps the estimate status across our own round trips. FLEx and ELAN strip PIs harmlessly, as proven in v713. |
+| D6 | **Estimates are exported with offsets, the `~` note (when notes are on), and a PI that carries each guessed edge, regardless of `timeNotes`.** | Keeps every user cut through a device move (#111), and keeps the estimate status across our own round trips. FLEx and ELAN drop PIs without error (v713) — so the PI survives only our own round trips. *(v717 review)* Through FLEx only the `~` note survives (read back per line, conservatively); with notes off nothing does except the equal-length rule. A device with segmentation off passes the file's PI through with its offsets. |
 | D7 | **A one-line text keeps v714's real whole-file span, written quietly.** | A single line over one recording is a fact. Recording-mode transcription depends on it, and `exportBlob` may not have a decoded length available. |
-| D8 | **The export writes offsets only from the live span** (when `segTimes` is on). A pending line or placeholder is written with no begin/end offsets and no "audio" note. With `segTimes` off, offsets pass through as in v714. | Ends the stale pass-through: no overlapping offsets (both-miss 3), no stale times on a line the Segmenter left without audio (`mgCommit`), and no guessed offsets reaching EAF through `phraseRows` (case 4). |
+| D8 | **The export writes offsets only from the live span** (when `segTimes` is on). A pending line or placeholder is written with no begin/end offsets and no "audio" note. With `segTimes` off, offsets pass through as in v714. *(v717 review)* One exception, for P4: a line the model could not place but nobody changed (`fileTimes` — a phrase nested in the one before, a sliver under 120 ms, a tail an older build clamped to a short decode) writes the file's own offsets back while its phrase still carries exactly them; the EAF uses them only where the tier stays ordered. | Ends the stale pass-through: no overlapping offsets (both-miss 3), no stale times on a line the Segmenter left without audio (`mgCommit`), and no guessed offsets reaching EAF through `phraseRows` (case 4). |
 | D9 | **Stored times are never clamped to the decoded length.** `normalizeSegments` drops the duration clamp, and drawing and playback clip at use. Ends more than 350 ms past D raise a "right recording?" banner. | T53's 87,818 ms end survives any edit (case 18). E19' last line keeps its estimate status (case 19). |
-| D10 | **Text edits in the plain text box move the times with the lines** (`reconcileBaseline` origins). Mismatched sections between unchanged lines pair by shared words, not by position. | Closes the open 2026-08-16-class hole (cases 1 and 8). |
+| D10 | **Text edits in the plain text box move the times with the lines** (`reconcileBaseline` origins). Mismatched sections between unchanged lines pair by shared words, not by position. *(v717 review)* Word evidence first even when the counts match; only a gap the evidence leaves pairs in order (a line rewritten in place). A line moved past others keeps its words but not its time (`moved`): the recording's order is fixed. | Closes the open 2026-08-16-class hole (cases 1 and 8). |
 | D11 | **A seam with a gap moves only the edge being dragged.** | A 10 ms nudge must not swallow a 1.2 s pause (case 13). |
 | D12 | **EAF, CSV and SayMore exports:** placeholders and pending lines are written without times; estimates keep their values, since EAF has no estimate marker. | Writing guessed edges as unaligned EAF slots needs a manual check in ELAN first, so it is deferred (§10). |
 | D13 | **The Audio Segmenter agrees with the editor:**<br>• in a partly timed text, untimed rows get the same spread, so no tail span is invented after them;<br>• its whole-file starting span is a placeholder;<br>• **Done** writes placeholders back as untimed. | Fixes case 3, and fixes v714's false "line 1 = whole recording" after an untouched Done. |
@@ -238,7 +241,7 @@ Rules:
 
 - **Where:** `test/fixtures/timing/`.
 - **Skeletons already built:** elan40, e19, t151, l29 (14 Aug, damaged), l29-13aug, e78, t53, t18. They are in `plan-work/minimal-design/skel`, made by `skeleton.mjs`.
-- **To add:** an all-untimed 60-line FLEx skeleton ("Burung Lawan Ular MTT").
+- **To add:** an all-untimed 60-line FLEx skeleton (U60).
 - **Recording lengths for each skeleton** come from `v713-audit/durations.json`, entered as constants: T53 m4a 87,755, E19 45,990, ELAN40 125.5 s.
 
 ### 6.3 Existing tests to update (everything else must stay green, 777/777)

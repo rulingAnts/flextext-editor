@@ -75,10 +75,14 @@ export async function listDocs() {
          * reading segCount for it made a text with 30 typed lines and no cuts report itself as
          * fully segmented. Counted here from the record the cursor has already deserialized, so it
          * costs nothing, and counted ALIGNED-only because a timePending span is a placeholder for
-         * a cut nobody has made yet. */
+         * a cut nobody has made yet. ⚠ And a text whose spans are ALL estimates counts as uncut
+         * (v717 — app.js docIsUncut's rule): an even spread is a guess at where lines might go, not
+         * segmenting anyone did. `timeEstimated` is the derived copy every v717 operation keeps equal
+         * to isEstimate, so this projection needs no import. */
         const segs = (doc && Array.isArray(doc.segments)) ? doc.segments : [];
-        const spanCount = segs.filter((s) => s && !s.timePending
-          && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start).length;
+        const aligned = segs.filter((s) => s && !s.timePending
+          && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start);
+        const spanCount = aligned.every((s) => s.timeEstimated) ? 0 : aligned.length;
         out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext, pendingAudio: pendingAudio || '',
           consentSpeaker: consentSpeaker || '', consentReceipt: consentReceipt || null,
           consentClip: consentClip || '', spanCount,

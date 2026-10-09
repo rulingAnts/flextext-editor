@@ -347,6 +347,11 @@ export function normStage(v) {
   return s ? null : '';
 }
 
+const alignedCount = (spans) => {
+  const aligned = (spans || []).filter((s) => s && typeof s.start === 'number' && !s.timePending);
+  return aligned.every((s) => s.timeEstimated) ? 0 : aligned.length;
+};
+
 /** Counts behind the derived stages, from the document model alone. */
 export function textProgress(doc, analLang = '') {
   const prim = analLang || (doc && doc.analLang) || 'en';
@@ -363,7 +368,8 @@ export function textProgress(doc, analLang = '') {
   return {
     lines: paras.length, phrases: segs.length, words: words.length,
     transcribed: segs.filter(hasText).length,
-    aligned: spans.filter((s) => s && typeof s.start === 'number' && !s.timePending).length,
+    // A text whose times are ALL estimates is not aligned yet (v717 — db.js spanCount's rule).
+    aligned: alignedCount(spans),
     gloss, free,
   };
 }

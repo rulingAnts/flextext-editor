@@ -506,7 +506,10 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   `note` items (`audio 0:00.000–0:02.000`, `~` = estimated) — NEVER into the baseline text.
   `segmentsFromOffsets()` (flextext.js) derives spans back on open, clamped monotonic. FLEx stores
   the offsets on its Segment objects (ELAN interop); it has no interlinear line for them, so the
-  note line is the visible carrier — that's why both are written.
+  note line is the visible carrier — that's why both are written. ⚠ Since v717 estimates are per
+  EDGE (`guess`, segments.js), the `~` is READ BACK on import, a `time-estimates` processing
+  instruction carries the guessed edges whatever the note setting, and a line whose live span has no
+  time is written with NO offsets (never its stale imported ones) — plans/time-gaps-and-estimates.md.
 - **`doc.segments` is the working state** (time spans, one per paragraph), edited ONLY through
   `segments.js` (never invent a time; out-of-range → `timePending`; text is sacred). ALIGNMENT
   EDITS NEVER TOUCH TEXT: the ⇥ set-boundary control and the seeds write `doc.segments` only, so

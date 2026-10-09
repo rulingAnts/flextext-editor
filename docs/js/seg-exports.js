@@ -12,18 +12,25 @@
  */
 
 import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn } from './flextext.js';
+// Pure, imports nothing: where an estimate is decided, once (per edge, v717).
+import { isEstimate } from './segments.js';
 
 /* ---------------- shared helpers ---------------- */
 
 const isAligned = (s) => !!s && typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending;
 
 // One phrase per paragraph is the segmentation-mode invariant (flat mode); walk paragraphs and
-// pair phrase i with time segment i. Span precedence per phrase (audit find — a multi-phrase
-// paragraph, e.g. merged in ELAN, exported every phrase as PENDING even though each carried its
-// own offsets): 1) the LIVE app span when aligned (newest truth for single-phrase paragraphs),
-// 2) the phrase's own begin/end-time-offset attributes (imported alignment), 3) pending.
+// pair phrase i with time segment i. Span per phrase (audit find — a multi-phrase paragraph, e.g.
+// merged in ELAN, exported every phrase as PENDING even though each carried its own offsets):
+//   · a single-phrase paragraph takes the LIVE app span, and nothing else (v717, D8/D12 — case 4):
+//     it used to fall back to the phrase's own begin/end-time-offset whenever the live span had no
+//     time, so a line the Segmenter left without audio went to ELAN with its stale imported times;
+//   · a multi-phrase paragraph takes each phrase's own offsets (no live span pairs with a phrase);
+//   · a doc with no live time model at all (doc.segments missing or empty) reads the offsets, which
+//     are then the only times there are.
 function phraseRows(doc) {
   const segs = Array.isArray(doc.segments) ? doc.segments : [];
+  const live = segs.length > 0;
   const rows = [];
   let i = 0;
   for (const para of doc.paragraphs || []) {
@@ -31,8 +38,8 @@ function phraseRows(doc) {
       const b = parseInt(phrase.attrs && phrase.attrs['begin-time-offset'], 10);
       const e = parseInt(phrase.attrs && phrase.attrs['end-time-offset'], 10);
       const own = (Number.isFinite(b) && Number.isFinite(e) && e > b) ? { start: b, end: e } : null;
-      const live = para.segments.length === 1 ? (segs[i] || null) : null;
-      rows.push({ phrase, span: (live && isAligned(live)) ? live : (own || live) });
+      const single = para.segments.length === 1;
+      rows.push({ phrase, span: (single && live) ? (segs[i] || null) : own });
     }
     i++;
   }
@@ -75,7 +82,7 @@ export function buildFxpa(doc, opts = {}) {
     if (isAligned(r.span)) {
       line.start = Math.round(r.span.start);
       line.end = Math.round(r.span.end);
-      if (r.span.timeEstimated) line.timeEstimated = true;
+      if (isEstimate(r.span)) line.timeEstimated = true;
     }
     line.words = (t.words || []).map((w) => {
       const o = { txt: w.txt || '' };
@@ -424,7 +431,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   const body = rows.map((r) => {
     const t = r.phrase;
     const timed = isAligned(r.span);
-    const est = timed && r.span.timeEstimated ? '~' : '';
+    const est = timed && isEstimate(r.span) ? '~' : '';
     // Times still shown text-only when the doc carries them — they are data, not controls.
     const time = timed ? `${est}${fmtClock(r.span.start)}–${fmtClock(r.span.end)}` : '';
     const words = (t.words || []).map((w) => w.punct

@@ -95,6 +95,14 @@ test('textProgress counts lines, phrases, words, transcription, alignment and ea
   assert.deepEqual(p.free, { id: { n: 7, total: 20 } });
   const empty = textProgress(mkDoc({ text: false }));
   assert.equal(empty.transcribed, 0); assert.equal(empty.words, 0); assert.deepEqual(empty.gloss, { id: { n: 0, total: 0 } });
+  // v717: times that are ALL estimates (here our `~` notes) are not alignment — db.js spanCount's rule.
+  const guessed = mkDoc({ timed: 3 });
+  guessed.paragraphs.slice(0, 3).forEach((p, i) => {
+    p.segments[0].postItemsXML = [`<item type="note" lang="id">audio ~0:0${i}.000–0:0${i}.900</item>`];
+  });
+  assert.equal(textProgress(guessed).aligned, 0, 'an even spread of guesses is not segmenting anyone did');
+  guessed.paragraphs[2].segments[0].postItemsXML = [];
+  assert.equal(textProgress(guessed).aligned, 3, 'one measured line, and every timed line counts');
 });
 
 test('deriveStages: nothing begun is nothing written; the 95% bar; in_progress below it', () => {

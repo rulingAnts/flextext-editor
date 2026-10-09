@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { moveBoundary, MIN_SEGMENT_MS } from '../docs/js/segments.js';
+import { moveBoundary, MIN_SEGMENT_MS, edgeGuessed } from '../docs/js/segments.js';
 
 const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
@@ -34,6 +34,14 @@ test('moveBoundary refuses what it cannot know', () => {
   assert.equal(moveBoundary([{ start: 0, end: 120 }, { start: 120, end: 240 }], 0, 130).reason, 'room', 'no room to move: each side is already exactly the floor');
   const est = [{ start: 0, end: 1000 }, { start: 1000, end: 2000, timeEstimated: true }];
   assert.equal('timeEstimated' in moveBoundary(est, 0, 1200).segments[1], false, 'a seam placed by hand is no longer a guess');
+  /* Per edge (v717): the dragged edge becomes real on both sides; the FAR edge of a span keeps its
+   * guess when it meets another estimate, so the line stays dashed until that seam is placed too. */
+  const pair = [{ start: 0, end: 1000 }, { start: 1000, end: 2000, guess: [1000, 2000] }, { start: 2000, end: 3000, guess: [2000, null] }];
+  const r = moveBoundary(pair, 0, 1200);
+  assert.deepEqual([edgeGuessed(r.segments[1], 0), edgeGuessed(r.segments[1], 1)], [false, true]);
+  assert.equal(r.segments[1].timeEstimated, true, 'still an estimate: its far edge is still a guess');
+  const r2 = moveBoundary(r.segments, 1, 2100);
+  assert.ok(!r2.segments.some((s) => s.timeEstimated), 'placing that seam too makes both lines real');
 });
 
 test('the Player numbers marks by SEAM, so a line without a time mid-text cannot shift the drag onto the wrong seam', () => {

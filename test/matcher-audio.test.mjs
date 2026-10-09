@@ -118,8 +118,9 @@ console.log('\nevery foreign .flextext is normalised where it ENTERS the library
     ok(!!src && /normalizePhraseLines\(doc\)/.test(src), `${name} normalises before storing`);
   }
   // The export surfaces need no such call: phraseRows already refuses the paragraph-indexed span
-  // when a paragraph holds several phrases, falling back to each phrase's own offsets.
-  ok(/para\.segments\.length === 1 \? \(segs\[i\] \|\| null\) : null/.test(read('docs/js/seg-exports.js')),
+  // when a paragraph holds several phrases, falling back to each phrase's own offsets. (v717: and a
+  // single-phrase paragraph takes ONLY its live span — no fallback to stale offsets, D8.)
+  ok(/const single = para\.segments\.length === 1;\s*\n\s*rows\.push\(\{ phrase, span: \(single && live\) \? \(segs\[i\] \|\| null\) : own \}\);/.test(read('docs/js/seg-exports.js')),
      'and the export path was already phrase-aware, so it is deliberately left alone');
 }
 
@@ -169,8 +170,10 @@ ok(/have\.has\(d\.id\)/.test(state),
    'sgStateOf asks the media keys (gating Open on mediaName disabled every text on a real device)');
 ok(/spanCount/.test(code(state)) && !/segCount/.test(code(state)),
    'and counts spanCount, not segCount (a 30-line transcript with no cuts reported itself fully segmented)');
-ok(/const spanCount = segs\.filter/.test(dbjs) && /!s\.timePending/.test(dbjs),
+ok(/const aligned = segs\.filter/.test(dbjs) && /!s\.timePending/.test(dbjs),
    'spanCount is computed in the projection from doc.segments, aligned spans only');
+ok(/const spanCount = aligned\.every\(\(s\) => s\.timeEstimated\) \? 0 : aligned\.length;/.test(dbjs),
+   'and a text whose spans are ALL estimates counts as uncut — docIsUncut\'s rule (v717)');
 ok(/d\.pendingAudio \? 'coming'/.test(state),
    'a recording still downloading reads as arriving, not as "no recording" — that would send a user to attach a file already on its way');
 

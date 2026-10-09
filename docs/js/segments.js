@@ -5,13 +5,18 @@
  * part of the feature that can silently corrupt field data, so it must be the part that is easiest
  * to test exhaustively.
  *
- * WHAT A SEGMENT IS: `{ start, end, timePending?, timeEstimated? }`, milliseconds.
+ * WHAT A SEGMENT IS: `{ start, end, timePending?, timeEstimated?, guess?, estSource? }`, milliseconds.
  *   - `timePending: true`  — the user made a break but there was no valid time for it (they scrubbed
  *     backwards, or there was no room between neighbours). The TEXT still exists; the segment simply
  *     carries no time until they set one. NEVER fabricate a time to avoid this state.
- *   - `timeEstimated: true` — the time was interpolated (e.g. a gloss-tab split with the playhead
- *     elsewhere) rather than chosen by the user. Playable, but rendered dashed so the user knows it
- *     is a guess they can correct.
+ *   - `guess: [gs|null, ge|null]` (v717) — the value of each EDGE that is a guess (interpolated, nudged,
+ *     detected by ✨, or read back as an estimate from a file). An edge counts as a guess only while
+ *     its value is still within 1 ms of the recorded one, so any real edit clears it with no flag to
+ *     remember. `[null, null]` says "both edges are real", explicitly — see readLegacyEstimates.
+ *   - `timeEstimated: true` — a DERIVED copy of isEstimate(span), re-derived after every operation, so
+ *     v714, the .fxpa, PAT and a rollback keep reading the one flag they know. Rendered dashed.
+ *   - `estSource` — where the guess came from ('note' | 'marker' | 'pattern' | 'edit' | 'legacy'),
+ *     for the tooltip only.
  *
  * ⚠ THE INVARIANT THAT MATTERS: aligned segments must be strictly increasing and non-overlapping.
  * That is not merely our internal tidiness — ELAN REQUIRES aligned annotations within a tier to be
@@ -52,21 +57,192 @@ export function audioTierReachable(seg, playheadMs) {
   return playheadMs >= seg.start && playheadMs <= seg.end;
 }
 
-function blank(seg) {
-  // Preserve any non-time fields a caller attached (e.g. phraseIndex) while clearing the times.
-  const out = { ...seg, timePending: true };
-  delete out.start; delete out.end; delete out.timeEstimated;
+/* Clear a segment's times IN PLACE, preserving any non-time fields a caller attached (e.g.
+ * phraseIndex). ⚠ In place by deletion: the old `Object.assign(seg, blank(seg))` added timePending
+ * but could not REMOVE keys, so a demoted segment kept its stale start/end and its estimate flag. */
+function blankInPlace(seg) {
+  delete seg.start; delete seg.end; delete seg.timeEstimated; delete seg.guess; delete seg.estSource;
+  seg.timePending = true;
+  return seg;
+}
+
+/* =================================================================================================
+ * PER-EDGE GUESSES (v717 — plans/time-gaps-and-estimates.md §2).
+ *
+ * ⚠ WHY AN EDGE AND NOT A SPAN. `timeEstimated` was one flag for a whole span, and every operation
+ * had to decide what happened to it — and each decided differently. A seam dragged by hand deleted the
+ * flag on the right-hand span only, so a guessed FAR edge became "real"; a merge kept it if either
+ * half had it, so a real outer edge became a guess; a split cleared it on the second half. Those
+ * guesses then went into exports as times (E78 and E19 are made of them). Recording the guessed VALUE
+ * of each edge makes every one of those questions answer itself: an edge is a guess while it still
+ * holds the value that was guessed, and the moment anyone places it, it is not.
+ *
+ * ⚠ C0 — TWO EDGES ARE NEVER GUESSES: the first line's start and the last line's end. No operation
+ * interpolates them; they come from the file, the user, 0 or the recording's end. A recording made in
+ * the app therefore keeps solid first and last lines, as it always has.
+ * ============================================================================================== */
+export const GUESS_TOL_MS = 1;
+
+/** Is this edge (0 = start, 1 = end) still the guessed value? */
+export function edgeGuessed(s, side) {
+  const g = s && Array.isArray(s.guess) ? s.guess[side ? 1 : 0] : null;
+  if (!isNum(g)) return false;
+  const v = side ? s.end : s.start;
+  return isNum(v) && Math.abs(v - g) <= GUESS_TOL_MS;
+}
+
+/** At least one edge is a guess. A span from before v717 (no `guess` field) is what its flag says. */
+export function isEstimate(s) {
+  if (!isAligned(s)) return false;
+  if (!Array.isArray(s.guess)) return !!s.timeEstimated;
+  return edgeGuessed(s, 0) || edgeGuessed(s, 1);
+}
+
+const copySpan = (s) => {
+  if (!s) return { timePending: true };
+  const o = { ...s };
+  if (Array.isArray(s.guess)) o.guess = s.guess.slice(0, 2);
+  return o;
+};
+// The guess pair a span carries, treating an unmigrated estimate as guessed at both edges.
+const guessOf = (s) => {
+  if (!s) return null;
+  if (Array.isArray(s.guess)) return s.guess;
+  return isAligned(s) && s.timeEstimated ? [s.start, s.end] : null;
+};
+
+/* WHICH EDGES OF A SPAN KNOWN TO BE AN ESTIMATE ARE THE GUESSES — for a span whose source said only
+ * "estimated" (a `~` note, an equal-length run, a v714 flag). Every edge, except a C0 edge and an edge
+ * that meets (within 1 ms) a neighbour that is NOT an estimate: the neighbour's edge is real, and they
+ * are one seam. So a legacy fraction-split piece keeps its outer edges real, and a v714 seed is
+ * guessed on its interior edges. `isEst(j)` says which neighbours are estimates.
+ *
+ * ⚠ If that leaves NO edge guessed (a lone `~` line between two real ones that it meets on both
+ * sides — a start pushed by normalize in v714 looks like that), every non-C0 edge is guessed instead:
+ * the source said "estimate", and P4 is that a file's own marks go back out as they came in. */
+export function estimateEdges(segs, i, isEst = (j) => isEstimate(segs[j])) {
+  const s = segs[i], n = segs.length;
+  const meetsReal = (j, v) => j >= 0 && j < n && isAligned(segs[j]) && !isEst(j)
+    && Math.abs(v - (j < i ? segs[j].end : segs[j].start)) <= GUESS_TOL_MS;
+  const first = i === 0, last = i === n - 1;
+  let gs = !first && !meetsReal(i - 1, s.start);
+  let ge = !last && !meetsReal(i + 1, s.end);
+  if (!gs && !ge) { gs = !first; ge = !last; }
+  return [gs ? s.start : null, ge ? s.end : null];
+}
+
+// Stale guesses dropped, `timeEstimated` re-derived. In place; pending spans are left alone.
+function settle(s) {
+  if (!isAligned(s)) return s;
+  if (Array.isArray(s.guess)) s.guess = [edgeGuessed(s, 0) ? s.guess[0] : null, edgeGuessed(s, 1) ? s.guess[1] : null];
+  if (isEstimate(s)) s.timeEstimated = true;
+  else { delete s.timeEstimated; delete s.estSource; }
+  return s;
+}
+// C0, enforced by position: whatever a file or an operation said, these two edges are real.
+function holdOuterEdges(out) {
+  const first = out[0], last = out[out.length - 1];
+  if (first && Array.isArray(first.guess) && first.guess[0] != null) first.guess = [null, first.guess[1]];
+  if (last && Array.isArray(last.guess) && last.guess[1] != null) last.guess = [last.guess[0], null];
+}
+// A pre-v717 estimate (the flag, no `guess`) given explicit edges, using its neighbours. In place.
+function migrateAt(segs, k) {
+  const s = segs[k];
+  if (!isAligned(s) || Array.isArray(s.guess) || !s.timeEstimated) return;
+  s.guess = estimateEdges(segs, k);
+  if (!s.estSource) s.estSource = 'legacy';
+}
+
+/* The array as the per-edge model reads it: COPIES, pre-v717 estimates migrated (each judged against
+ * its neighbours as they were, before any of them changed), C0 held, the flag re-derived. Every
+ * operation below starts here, so a legacy span never reaches one of the primitives unmigrated. */
+export function withGuesses(segments) {
+  const out = (segments || []).map(copySpan);
+  const legacy = out.map((s) => isAligned(s) && !Array.isArray(s.guess) && !!s.timeEstimated);
+  if (legacy.some(Boolean)) {
+    const was = out.map((s) => isEstimate(s));
+    out.forEach((s, k) => {
+      if (!legacy[k]) return;
+      s.guess = estimateEdges(out, k, (j) => was[j]);
+      if (!s.estSource) s.estSource = 'legacy';
+    });
+  }
+  holdOuterEdges(out);
+  out.forEach(settle);
   return out;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * THE THREE PRIMITIVES. Every operation in this file — and the Audio Segmenter's verbs — goes
+ * through these, so the per-edge rules live in exactly one place.
+ * ------------------------------------------------------------------------------------------- */
+
+/* Move the seam between segs[i] and segs[i+1] to t, IN PLACE (the drag surfaces move the live
+ * objects their rows and tickers hold). `edge`: 'seam' moves both sides, 'end' only segs[i].end,
+ * 'start' only segs[i+1].start (D11). The placed edge is no longer a guess, on whichever side it
+ * moved; the other edges keep whatever they were. Clamping is moveBoundary's job, not this one's. */
+export function placeSeam(segs, i, t, edge = 'seam') {
+  const a = segs && segs[i], b = segs && segs[i + 1];
+  if (!a || !b || !isNum(t)) return segs;
+  migrateAt(segs, i); migrateAt(segs, i + 1);
+  if (edge !== 'start') { a.end = t; if (Array.isArray(a.guess)) a.guess = [a.guess[0], null]; }
+  if (edge !== 'end') { b.start = t; if (Array.isArray(b.guess)) b.guess = [null, b.guess[1]]; }
+  settle(a); settle(b);
+  return segs;
+}
+
+/* Divide one aligned span at `at` → [first, second]. `real: true` — the user placed this point (the
+ * playhead); `real: false` — we chose it (nudged, a word fraction, ✨), so it is a guess on both
+ * sides. The outer edges keep exactly the guesses the span had. Non-time fields ride with both. */
+export function splitSpanAt(cur, at, opts = {}) {
+  const real = opts.real !== false;
+  const g = guessOf(cur);
+  const first = copySpan(cur), second = copySpan(cur);
+  first.end = at; second.start = at;
+  if (g || !real) {
+    first.guess = [g ? g[0] : null, real ? null : at];
+    second.guess = [real ? null : at, g ? g[1] : null];
+  }
+  if (!real) first.estSource = second.estSource = opts.source || 'edit';
+  return [settle(first), settle(second)];
+}
+
+/* Join two neighbouring spans into one. The start side's guess comes from `a` and the end side's
+ * from `b`, so a guessed INNER boundary simply disappears with the boundary — the old rule ("an
+ * estimate if either half was") made a real join of two estimated halves a guess for ever. A merge
+ * with a pending side keeps whatever time IS known. */
+export function mergeSpanPair(a, b) {
+  const A = isAligned(a), B = isAligned(b);
+  if (!A && !B) return { timePending: true };
+  const ga = A ? guessOf(a) : null, gb = B ? guessOf(b) : null;
+  let m, g = null;
+  if (A && B) { m = { start: a.start, end: b.end }; if (ga || gb) g = [ga ? ga[0] : null, gb ? gb[1] : null]; }
+  else if (A) { m = { start: a.start, end: a.end }; if (ga) g = ga.slice(0, 2); }
+  else { m = { start: b.start, end: b.end }; if (gb) g = gb.slice(0, 2); }
+  if (g) {
+    m.guess = g;
+    const src = (g[0] != null ? (A ? a : b).estSource : null) || (g[1] != null ? (B ? b : a).estSource : null);
+    if (src) m.estSource = src;
+  }
+  return settle(m);
 }
 
 /* ---------------------------------------------------------------------------------------------
  * normalizeSegments — the one place crossing is prevented.
  *
  * Guarantees on the returned array (same length as the input, order never changed):
+ *   0. pre-v717 estimates carry explicit per-edge guesses (withGuesses), and every segment's
+ *      `timeEstimated` equals isEstimate() on the way out;
  *   1. every aligned segment has `end >= start + MIN_SEGMENT_MS`, else it becomes `timePending`;
  *   2. aligned segments are strictly increasing and non-overlapping in time;
- *   3. `first.start >= 0` and `last.end <= duration` (when a duration is known);
+ *   3. `first.start >= 0`;
  *   4. anything that cannot satisfy the above becomes `timePending` rather than being invented.
+ *
+ * ⚠ NO DURATION CLAMP ANY MORE (v717, D9; `opts.duration` is accepted and ignored). A stored time is
+ * never cut to fit the DECODED length: decoders disagree by tens of milliseconds between devices
+ * (T53's m4a decodes 63 ms shorter than its last line's end), and clamping meant every edit on that
+ * device shortened the last line for good and stripped an estimate's last edge. Drawing and playback
+ * clip at the point of use instead.
  *
  * ⚠ ORDER IS NEVER REARRANGED. Segment order is owned by the text (segment N belongs to line N), so
  * sorting by time here would silently re-associate text with the wrong audio — far worse than an
@@ -78,17 +254,15 @@ function blank(seg) {
  * untouched recording; the master is never rewritten. (Level normalization exists in this app only
  * as the `norm` recording setting, which archival defaults turn OFF.) */
 export function normalizeSegments(segments, opts = {}) {
-  const duration = isNum(opts.duration) ? opts.duration : null;
   const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
-  const out = (segments || []).map((s) => (s ? { ...s } : { timePending: true }));
+  // Pass 0 — copies, with pre-v717 estimates migrated to per-edge guesses.
+  const out = withGuesses(segments);
 
-  // Pass 1 — per-segment sanity. Clamp into [0, duration] and demote anything too short/invalid.
+  // Pass 1 — per-segment sanity: no negative start, and demote anything too short/invalid.
   for (const seg of out) {
-    if (!isAligned(seg)) { Object.assign(seg, blank(seg)); continue; }
+    if (!isAligned(seg)) { blankInPlace(seg); continue; }
     if (seg.start < 0) seg.start = 0;
-    if (duration !== null && seg.end > duration) seg.end = duration;
-    if (duration !== null && seg.start > duration) { Object.assign(seg, blank(seg)); continue; }
-    if (seg.end - seg.start < minMs) Object.assign(seg, blank(seg));
+    if (seg.end - seg.start < minMs) blankInPlace(seg);
   }
 
   // Pass 2 — monotonicity, forwards. Each aligned segment must start at or after the previous
@@ -99,13 +273,16 @@ export function normalizeSegments(segments, opts = {}) {
     if (!isAligned(seg)) continue;
     if (prevEnd !== null && seg.start < prevEnd) {
       seg.start = prevEnd;
-      if (seg.end - seg.start < minMs) { Object.assign(seg, blank(seg)); continue; }
-      // A start we had to move is no longer the user's chosen time — say so.
-      seg.timeEstimated = true;
+      if (seg.end - seg.start < minMs) { blankInPlace(seg); continue; }
+      // A start we had to move is no longer the user's chosen time — say so, on that edge.
+      seg.guess = [seg.start, Array.isArray(seg.guess) ? seg.guess[1] : null];
+      seg.estSource = 'edit';
     }
     prevEnd = seg.end;
   }
 
+  holdOuterEdges(out);
+  out.forEach(settle);
   return out;
 }
 
@@ -117,26 +294,34 @@ export function normalizeSegments(segments, opts = {}) {
  * them BEYOND other boundaries they run into. Like they have to stay in sequence." The clamp is
  * against the NEIGHBOURING SEGMENTS, the constraint in the form that cannot be got wrong: the seam
  * may not pass its own segment's start nor the next segment's end, and must leave a real segment
- * (minMs) on each side. Both sides of the seam move together, so no gap and no overlap can appear
- * and normalizeSegments has nothing to repair. A seam next to a segment without a time is refused
- * rather than guessed. The text is untouched: moving a seam changes when a line is heard, never
- * which words it holds. Returns { ok, segments (a NEW array), t } or { ok: false, reason }.
+ * (minMs) on each side. A seam next to a segment without a time is refused rather than guessed. The
+ * text is untouched: moving a seam changes when a line is heard, never which words it holds.
+ *
+ * ⚠ A SEAM WITH A GAP MOVES ONLY THE EDGE BEING DRAGGED (v717, D11). Where the two spans meet (1 ms
+ * or less apart) both sides move together, as they always have, so no gap and no overlap can appear.
+ * Where there is a pause between them — every ELAN-made text has one at most seams — moving both
+ * sides meant a 10 ms nudge of one line's end swallowed a 1.2 s pause into the next line. Then only
+ * `opts.edge` moves: 'end' (segs[i].end, within [a.start + minMs, b.start]; the default, as a dock
+ * mark is the end edge) or 'start' (segs[i+1].start, within [a.end, b.end − minMs]).
+ *
+ * The placed edge stops being a guess (placeSeam); the far edges keep theirs. Returns
+ * { ok, segments (a NEW array), t, edge } — `edge` is what actually moved ('seam' | 'end' | 'start')
+ * so a drag can apply the same thing to its live objects with placeSeam — or { ok: false, reason }.
  * ------------------------------------------------------------------------------------------- */
 export function moveBoundary(segments, i, ms, opts = {}) {
   const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
   const a = segments ? segments[i] : null, b = segments ? segments[i + 1] : null;
   if (!isAligned(a) || !isAligned(b)) return { ok: false, reason: 'pending' };
   if (!isNum(ms)) return { ok: false, reason: 'time' };
-  const lo = a.start + minMs;
-  const hi = b.end - minMs;
+  const edge = b.start - a.end <= GUESS_TOL_MS ? 'seam' : (opts.edge === 'start' ? 'start' : 'end');
+  const lo = edge === 'start' ? a.end : a.start + minMs;
+  const hi = edge === 'end' ? b.start : b.end - minMs;
   if (hi <= lo) return { ok: false, reason: 'room' };
   const t = Math.round(Math.min(hi, Math.max(lo, ms)));
-  if (t === a.end && t === b.start) return { ok: false, reason: 'same' };
-  const out = segments.map((s) => ({ ...s }));
-  out[i].end = t;
-  out[i + 1].start = t;
-  delete out[i + 1].timeEstimated;   // a seam placed by hand is the user's chosen time, not a guess
-  return { ok: true, segments: out, t };
+  if ((edge === 'start' || t === a.end) && (edge === 'end' || t === b.start)) return { ok: false, reason: 'same' };
+  const out = withGuesses(segments);
+  placeSeam(out, i, t, edge);
+  return { ok: true, segments: out, t, edge };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -148,9 +333,8 @@ export function moveBoundary(segments, i, ms, opts = {}) {
  * ------------------------------------------------------------------------------------------- */
 export function boundaryAtPlayhead(segments, index, playheadMs, opts = {}) {
   const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
-  const src = segments || [];
-  const cur = src[index];
-  const out = src.map((s) => ({ ...s }));
+  const out = withGuesses(segments);
+  const cur = out[index];
 
   // Splitting an unaligned segment can only produce unaligned halves — there is no time to divide.
   if (!cur || !isAligned(cur) || !isNum(playheadMs)) {
@@ -175,8 +359,8 @@ export function boundaryAtPlayhead(segments, index, playheadMs, opts = {}) {
      * text, that'll really add up."
      *
      * A boundary moved by less than minMs is a far smaller lie than a line with no time at all, and
-     * timeEstimated is exactly how this file already says "we moved this, it is not your chosen
-     * time" (see normalizeSegments pass 2). So a position inside the segment is clamped into range.
+     * a guessed edge is exactly how this file says "we moved this, it is not your chosen time" (see
+     * normalizeSegments pass 2). So a position inside the segment is clamped into range.
      *
      * ⚠ THE TWO CASES THAT STILL REFUSE, both covered by segments-ordering:
      *   · a position OUTSIDE the segment entirely (the user scrubbed away, or past the media end) —
@@ -192,15 +376,9 @@ export function boundaryAtPlayhead(segments, index, playheadMs, opts = {}) {
     nudged = true;
   }
 
-  const first = { ...cur, end: at };
-  const second = { ...cur, start: at, end: cur.end };
-  /* The second half's start IS the boundary, so it does not inherit the original's estimated flag —
-   * it is whatever we just decided it to be. ⚠ This delete has to come BEFORE the nudge marking
-   * below, or it would wipe it straight back off again. */
-  delete second.timeEstimated;
-  // ...but a boundary we had to move inward is not the user's chosen time, on either side of it.
-  if (nudged) { first.timeEstimated = true; second.timeEstimated = true; }
-  out.splice(index, 1, first, second);
+  /* The playhead is a real edge on both sides of the new boundary; a boundary we had to move inward
+   * is not the user's chosen time, on either side of it. The outer edges keep what they were. */
+  out.splice(index, 1, ...splitSpanAt(cur, at, { real: !nudged }));
   return normalizeSegments(out, opts);
 }
 
@@ -216,22 +394,11 @@ export function boundaryAtPlayhead(segments, index, playheadMs, opts = {}) {
  * ------------------------------------------------------------------------------------------- */
 export function mergeSegments(segments, i, opts = {}) {
   const src = segments || [];
-  if (i < 0 || i + 1 >= src.length) return src.map((s) => ({ ...s }));
-  const a = src[i];
-  const b = src[i + 1];
-
-  let merged;
-  if (isAligned(a) && isAligned(b)) merged = { start: a.start, end: b.end };
-  else if (isAligned(a)) merged = { start: a.start, end: a.end };
-  else if (isAligned(b)) merged = { start: b.start, end: b.end };
-  else merged = { timePending: true };
-
-  // The merged span inherits "estimated" if either side was a guess — the result is no more
-  // trustworthy than its least trustworthy half.
-  if (merged.start !== undefined && (a.timeEstimated || b.timeEstimated)) merged.timeEstimated = true;
-
-  const out = src.map((s) => ({ ...s }));
-  out.splice(i, 2, merged);
+  if (i < 0 || i + 1 >= src.length) return src.map(copySpan);
+  const out = withGuesses(src);
+  // The merged span is an estimate only if one of its OUTER edges is a guess (mergeSpanPair): the
+  // boundary that was a guess is gone, and a real edge does not become a guess by being joined.
+  out.splice(i, 2, mergeSpanPair(out[i], out[i + 1]));
   return normalizeSegments(out, opts);
 }
 
@@ -240,17 +407,17 @@ export function mergeSegments(segments, i, opts = {}) {
  *
  * Time source, in priority order (see the plan's two-step rule):
  *   1. `opts.playheadMs` when it falls INSIDE the segment — an exact, user-chosen boundary.
- *   2. otherwise interpolate from `opts.fraction` (0..1, e.g. wordsBefore/wordsTotal) and mark the
- *      result `timeEstimated` so the UI can render it dashed.
+ *   2. otherwise interpolate from `opts.fraction` (0..1, e.g. wordsBefore/wordsTotal) and record the
+ *      new boundary as a GUESS on both sides, so the UI renders it dashed.
  * Interpolating is not a fabricated claim: ELAN itself interpolates unaligned annotations for
  * display. This just makes that explicit and labels it.
  * ------------------------------------------------------------------------------------------- */
 export function splitSegment(segments, i, opts = {}) {
   const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
   const src = segments || [];
-  if (i < 0 || i >= src.length) return src.map((s) => ({ ...s }));
-  const cur = src[i];
-  const out = src.map((s) => ({ ...s }));
+  if (i < 0 || i >= src.length) return src.map(copySpan);
+  const out = withGuesses(src);
+  const cur = out[i];
 
   if (!isAligned(cur)) {
     out.splice(i + 1, 0, { timePending: true });
@@ -281,10 +448,7 @@ export function splitSegment(segments, i, opts = {}) {
     return normalizeSegments(out, opts);
   }
 
-  const first = { ...cur, end: at };
-  const second = { ...cur, start: at, end: cur.end };
-  if (estimated) { first.timeEstimated = true; second.timeEstimated = true; }
-  out.splice(i, 1, first, second);
+  out.splice(i, 1, ...splitSpanAt(cur, at, { real: !estimated }));
   return normalizeSegments(out, opts);
 }
 
@@ -304,6 +468,52 @@ export function syncToLines(segments, lineCount, opts = {}) {
   const n = Math.max(0, lineCount | 0);
   while (out.length < n) out.push({ timePending: true });
   if (out.length > n) out.length = n;
+  return normalizeSegments(out, opts);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * segmentsFollowLines — the times for a text edit we DID observe line by line (v717, D10).
+ *
+ * ⚠ THE 2026-08-16 LESSON, CLOSED FOR THE PLAIN TEXT BOX. That box edits text only, and syncToLines
+ * then paired the new lines with the old times BY POSITION: insert one line after line 6 and every
+ * later line played the line before it, and the export wrote those times out as fact. Text and times
+ * have to move together at the same index. reconcileBaselineWithOrigins (flextext.js) says, for every
+ * new line, which old line(s) it came from; this builds the time list from that and nothing else:
+ *   kept / exact / edit → that old line's span, as it was;
+ *   join                → the old spans folded with mergeSpanPair (the inner seams disappear);
+ *   split               → the old span divided by WORD fraction, the inner edges guessed;
+ *   new                 → { timePending } — never a neighbour's time.
+ * Then normalizeSegments. Returns a NEW array, one span per origin; the inputs are not mutated.
+ * ------------------------------------------------------------------------------------------- */
+export function segmentsFollowLines(oldSegs, origins, opts = {}) {
+  const old = withGuesses(oldSegs);
+  const at = (k) => (Number.isInteger(k) && k >= 0 && k < old.length ? old[k] : null);
+  const clamp01 = (f) => (isNum(f) ? Math.min(1, Math.max(0, f)) : null);
+  const out = (origins || []).map((o) => {
+    const kind = o && o.kind;
+    if (kind === 'kept' || kind === 'exact' || kind === 'edit') {
+      const s = at(o.from);
+      return s ? copySpan(s) : { timePending: true };
+    }
+    if (kind === 'join') {
+      const list = (Array.isArray(o.from) ? o.from : []).map(at).filter(Boolean);
+      return list.length ? list.slice(1).reduce((m, s) => mergeSpanPair(m, s), copySpan(list[0])) : { timePending: true };
+    }
+    if (kind === 'split') {
+      const s = at(o.from);
+      const f0 = clamp01(o.frac && o.frac[0]), f1 = clamp01(o.frac && o.frac[1]);
+      if (!isAligned(s) || f0 === null || f1 === null || f1 <= f0) return { timePending: true };
+      const len = s.end - s.start;
+      const g = guessOf(s) || [null, null];
+      const start = f0 === 0 ? s.start : Math.round(s.start + f0 * len);
+      const end = f1 === 1 ? s.end : Math.round(s.start + f1 * len);
+      const piece = { start, end, guess: [f0 === 0 ? g[0] : start, f1 === 1 ? g[1] : end] };
+      const src = (f0 > 0 || f1 < 1) ? 'edit' : s.estSource;
+      if (src) piece.estSource = src;
+      return settle(piece);
+    }
+    return { timePending: true };
+  });
   return normalizeSegments(out, opts);
 }
 
@@ -672,10 +882,13 @@ export function guessSplitsWindowed(peaks, msPerBucket, startMs, endMs, opts = {
  * whole-file applyGuessedSplits refuses any document with text in it; this refuses only a texted
  * piece. Boundaries closer than minMs to the piece's edges or to each other are dropped rather
  * than minting a sliver. Same { ok, reason, segments, paragraphs } shape as cutAtPlayhead, so a
- * caller cannot apply half of it; `added` is how many boundaries went in. */
+ * caller cannot apply half of it; `added` is how many boundaries went in.
+ *
+ * The detector's boundaries are GUESSES (v717): each piece is an estimate on its inner edges, and the
+ * piece's own outer edges keep whatever they were. */
 export function applyGuessedSplitsWithin(segments, paragraphs, i, boundaries, opts = {}) {
   const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
-  const segs = (segments || []).map((s) => ({ ...s }));
+  const segs = withGuesses(segments);
   const paras = (paragraphs || []).slice();
   const fail = (reason) => ({ ok: false, reason, index: i, segments: segs, paragraphs: paras, added: 0 });
   if (!Number.isInteger(i) || i < 0 || i >= segs.length) return fail('outside');
@@ -690,9 +903,9 @@ export function applyGuessedSplitsWithin(segments, paragraphs, i, boundaries, op
   }
   if (!cuts.length) return fail('none');
   const pieces = [];
-  let start = cur.start;
-  for (const c of cuts) { pieces.push({ ...cur, start, end: c }); start = c; }
-  pieces.push({ ...cur, start, end: cur.end });
+  let rest = cur;
+  for (const c of cuts) { const [piece, after] = splitSpanAt(rest, c, { real: false }); pieces.push(piece); rest = after; }
+  pieces.push(rest);
   segs.splice(i, 1, ...pieces);
   paras.splice(i, 1, ...pieces.map(() => ''));
   const out = normalizeSegments(segs, opts);
@@ -762,4 +975,80 @@ export function splitPlan(tiers, placed) {
   const have = placed || {};
   const missing = (tiers || []).filter((t) => !Object.prototype.hasOwnProperty.call(have, t));
   return { missing, complete: missing.length === 0 };
+}
+
+/* =================================================================================================
+ * timingReport — what the one timing banner says about a text (v717, P6: one banner per text; marks
+ * on individual lines only for the exceptions). PURE: the spans, the line texts, the recording's
+ * decoded length, and whether this session already had to fall back to positional pairing.
+ *
+ * Signals, each { kind, level, … }, most severe first:
+ *   red      'timeSync'  — a text edit's lines could not be followed and syncToLines paired by position;
+ *            'dense'     — a line with ≥ 2 words and ≤ 100 ms per word (`lines`, `first`). Only lines
+ *                          with at least one REAL edge: a span both of whose edges are guesses says
+ *                          nothing about how fast anyone spoke (case 17);
+ *            'tailShort' — an editor-made text (every line timed, contiguous from 0) whose recording
+ *                          runs ≥ 1 s past its last line (`ms`). Lines can only lose the tail like that
+ *                          by being shifted against their audio (the damaged L29 exports);
+ *            'pastEnd'   — the last time is more than 350 ms past the recording's end (`ms`): the
+ *                          right recording? (Below that it is decoder spread — T53 is 63 ms over.)
+ *   amber    'partly'    — some lines have a time and these (`lines`) do not;
+ *   estimate 'estimated' — `n` lines are estimates, `bySource` counts them by where the guess came from;
+ *   info     'noTimes'   — nothing in the text has a time yet.
+ * `level` is the most severe item's; `sig` changes whenever what the banner would say changes, so a
+ * dismissal can be remembered against it and the banner come back when the text changes under it.
+ * ============================================================================================== */
+export const TIMING_DENSE_MS_PER_WORD = 100;
+export const TIMING_TAIL_SHORT_MS = 1000;
+export const TIMING_PAST_END_MS = 350;
+const TIMING_RANK = { red: 4, amber: 3, estimate: 2, info: 1 };
+
+export function timingReport(spans, texts, opts = {}) {
+  const segs = Array.isArray(spans) ? spans : [];
+  const lines = Array.isArray(texts) ? texts : [];
+  const n = Math.max(segs.length, lines.length);
+  const D = isNum(opts.durationMs) && opts.durationMs > 0 ? opts.durationMs : null;
+  const items = [];
+  const aligned = Array.from({ length: n }, (_, k) => isAligned(segs[k]));
+  const words = (k) => String(lines[k] || '').split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+
+  if (opts.timeSync) items.push({ kind: 'timeSync', level: 'red' });
+  if (n && !aligned.some(Boolean)) items.push({ kind: 'noTimes', level: 'info', n });
+  else if (n) {
+    const dense = [];
+    for (let k = 0; k < n; k++) {
+      if (!aligned[k]) continue;
+      const s = segs[k];
+      if (Array.isArray(s.guess) ? edgeGuessed(s, 0) && edgeGuessed(s, 1) : !!s.timeEstimated) continue;
+      const w = words(k), ms = s.end - s.start;
+      if (w >= 2 && ms / w <= TIMING_DENSE_MS_PER_WORD) dense.push({ line: k, words: w, ms });
+    }
+    if (dense.length) items.push({ kind: 'dense', level: 'red', lines: dense.map((d) => d.line), first: dense[0] });
+
+    const timed = segs.filter(isAligned);
+    const lastEnd = Math.max(...timed.map((s) => s.end));
+    if (D && aligned.every(Boolean) && segs[0].start <= GUESS_TOL_MS
+        && segs.every((s, k) => k === 0 || Math.abs(s.start - segs[k - 1].end) <= GUESS_TOL_MS)) {
+      const tail = D - segs[n - 1].end;
+      if (tail >= TIMING_TAIL_SHORT_MS) items.push({ kind: 'tailShort', level: 'red', ms: Math.round(tail) });
+    }
+    if (D && lastEnd - D > TIMING_PAST_END_MS) items.push({ kind: 'pastEnd', level: 'red', ms: Math.round(lastEnd - D) });
+
+    const untimed = [];
+    for (let k = 0; k < n; k++) if (!aligned[k]) untimed.push(k);
+    if (untimed.length) items.push({ kind: 'partly', level: 'amber', n: untimed.length, lines: untimed });
+
+    const bySource = {};
+    let est = 0;
+    for (let k = 0; k < n; k++) {
+      if (!isEstimate(segs[k])) continue;
+      est++;
+      const src = segs[k].estSource || (Array.isArray(segs[k].guess) ? 'edit' : 'legacy');
+      bySource[src] = (bySource[src] || 0) + 1;
+    }
+    if (est) items.push({ kind: 'estimated', level: 'estimate', n: est, total: n, bySource });
+  }
+  items.sort((a, b) => TIMING_RANK[b.level] - TIMING_RANK[a.level]);
+  const sig = items.map((it) => [it.kind, it.n ?? '', (it.lines || []).join('.'), it.ms ?? ''].join(':')).join('|');
+  return { level: items.length ? items[0].level : '', items, sig };
 }

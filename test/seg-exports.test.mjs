@@ -163,6 +163,24 @@ console.log('flextext — timestamps in notes + native offsets, never the baseli
   doc3.segments = [{ timePending: true }, { timePending: true }, { timePending: true }];
   const xml3 = serializeFlextext(doc3, { vernLang: 'fau', analLang: 'id' });
   ok(!xml3.includes('begin-time-offset') && !xml3.includes('>audio '), 'all-pending doc emits no offsets and no notes');
+  // v717 D8: a pending line that still CARRIES imported offsets and our note writes neither.
+  const doc4 = segDoc();
+  doc4.paragraphs[1].segments[0].attrs = { ...doc4.paragraphs[1].segments[0].attrs, 'begin-time-offset': '2000', 'end-time-offset': '4000' };
+  doc4.paragraphs[1].segments[0].postItemsXML = ['<item type="note" lang="id">audio 0:02.000–0:04.000</item>'];
+  doc4.segments[1] = { timePending: true };
+  const xml4 = serializeFlextext(doc4, { vernLang: 'fau', analLang: 'id' });
+  const phrases4 = [...xml4.matchAll(/<phrase\b[^>]*>[\s\S]*?<\/phrase>/g)].map((m) => m[0]);
+  ok(phrases4.length === 3 && !/begin-time-offset/.test(phrases4[1]) && !/>audio /.test(phrases4[1])
+     && /begin-time-offset="4000"/.test(phrases4[2]), 'D8: a pending line drops its stale offsets and note (the live span decides)');
+  // v717: the `~` comes from isEstimate, per edge, and the estimated edges ride in a processing instruction.
+  const est = serializeFlextext(segDoc(), { vernLang: 'fau', analLang: 'id' }, { timeNotes: false });
+  const g3 = segDoc().paragraphs[2].segments[0].attrs.guid;
+  ok(!est.includes('>audio ') && /<\?flextext-editor v="2" time-estimates="[^"]+"\?>/.test(est), 'the estimate is recorded even with the notes off');
+  ok(/time-estimates="[0-9a-f-]+@~4000-6000"/.test(est), 'per edge: the pre-v717 flag on the LAST line is its start (its end is the recording\'s, C0)');
+  ok(!!g3, 'segDoc phrases carry guids');
+  const real = segDoc();
+  real.segments[2] = { start: 4000, end: 6000, guess: [null, null], timeEstimated: true };
+  ok(!serializeFlextext(real, { vernLang: 'fau', analLang: 'id' }).includes('~'), 'an explicitly real span is written without `~`, whatever a stale flag says');
 }
 
 console.log('flextext IMPORT — segmentsFromOffsets (flextext as THE segmentation format, no sidecar)');
@@ -362,6 +380,10 @@ console.log('adversarial audit regressions (2026-08-03)');
   d3.paragraphs[1].segments[0].attrs = { 'begin-time-offset': '1000', 'end-time-offset': '2000' };
   const s3 = segmentsFromOffsets(d3);
   ok(s3[1].timePending === true, 'F3: unsalvageable overlapping span demotes to pending, never crosses');
+  d3.segments = s3;
+  const x3 = serializeFlextext(d3, { vernLang: 'fau', analLang: 'id' });
+  ok((x3.match(/begin-time-offset=/g) || []).length === 1 && x3.includes('begin-time-offset="0" end-time-offset="3000"'),
+     'F3 (v717): …and the demoted line is exported untimed, so the export cannot overlap either');
 
   // F6: a multi-phrase paragraph (merged in ELAN) exports each phrase's OWN offsets, not pending.
   const d6 = makeDoc({ vernLang: 'fau', analLang: 'id' });

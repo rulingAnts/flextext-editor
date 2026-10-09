@@ -216,7 +216,7 @@ A text ("doc") is:
 ```
 { title, paragraphs: [ { guid, segments: [ phrase ] } ], segments: [ span ], … }
 phrase = { attrs, baseline, words: [ { txt, gls, punct, … } ], free, pre/postItemsXML }
-span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
+span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   (+ derived timeEstimated, estSource)
 ```
 - `paragraphs[].segments` are FLEx *phrases* (text structure). `doc.segments` are *time spans*.
 - **A word gloss (`gls`) never contains whitespace.** Two reasons, and the second is the
@@ -238,11 +238,25 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
   damaged by construction.
 - **Round-trip policy** (`flextext.js` header): anything the app doesn't edit (morphemes, notes,
   unknown items/attrs, media-files) is preserved as XML fragments and re-emitted.
+- **Estimates are per EDGE (v717, `plans/time-gaps-and-estimates.md` §2).** `guess` holds the value
+  of each edge that is a guess (nudged, interpolated, ✨, or read back from a file); an edge stays a
+  guess only while it still holds that value, so placing it clears it. `timeEstimated` is a derived
+  copy (`isEstimate`), kept for v714, `.fxpa` and PAT. The first line's start and the last line's end
+  are never guesses. Every operation goes through three primitives — `placeSeam`, `splitSpanAt`,
+  `mergeSpanPair` — and a seam with a pause between its lines moves only the dragged edge.
+  `normalizeSegments` no longer clamps to the decoded length: drawing and playback clip at use.
+- **The text box keeps times with their lines (v717).** `reconcileBaselineWithOrigins` says where each
+  new line came from (kept / exact / edit / join / split / new, paired only within the stretch between
+  unchanged lines) and `segmentsFollowLines` builds the times from that — never by position.
 
 **`.flextext` is the canonical time-alignment carrier** — phrase `begin/end-time-offset`
 attributes + `media-files` (the FLEx/ELAN interop mechanism) on export, `segmentsFromOffsets()` on
 import. There is no proprietary sidecar. Timestamps also emit as visible `note` items
 (`audio 0:01.234–0:05.678`, `~` = estimated) because FLEx has no display line for the raw offsets.
+Since v717 the `~` is read back on import, and every estimated phrase is also listed, per edge, in a
+`<?flextext-editor v="2" time-estimates="GUID@~S-E …"?>` processing instruction (written whenever
+times are, notes on or off; matched back by guid AND times). A line whose live span has no time is
+written with no offsets at all — the export never falls back to a phrase's stale imported times.
 
 ### 4.1 Conversions from files the app has never seen (v377)
 

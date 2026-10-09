@@ -197,7 +197,8 @@ after I confirm that it looks like it worked and nothing broke."**
 
 The order, every time:
 
-1. Actions → **Maintenance notice** → `raise`. Its three fields — heading, message, last line — are pre-filled
+1. Actions → **Maintenance notice** → `raise`. Its fields — heading, message, last line, and an optional
+   collapsed "More info" text — are pre-filled
    with the defaults ("Maintenance in progress" / "Please avoid making changes…"); edit or blank any of them
    (v715: a changed heading or last line needs the live panel ≥ v715, and the workflow checks that itself).
 2. Actions → **Deploy worker**.

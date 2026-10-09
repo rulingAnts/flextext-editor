@@ -3248,6 +3248,9 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
   border: 1px solid #d99a00; background: #fff8e6; color: #4a3800;
 }
 .rp-maint strong { display: block; margin-bottom: 2px; }
+.rp-maint details.rp-maint-more { margin-top: 6px; }
+.rp-maint details.rp-maint-more summary { cursor: pointer; font-weight: 600; }
+.rp-maint details.rp-maint-more > div { margin-top: 4px; }
 .rp-maint .note { margin-top: 4px; color: #6b5600; }
 @media (prefers-color-scheme: dark) {
   .rp-maint { border-color: #8a6400; background: #2b2310; color: #f0dfae; }

@@ -46,6 +46,10 @@ on:
         required: false
         type: string
         default: "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected."
+      details:
+        description: "More info (raise only, optional): a longer explanation shown collapsed under a 'More info' toggle. Use \\n for a line break."
+        required: false
+        type: string
 jobs:
   flag:
     runs-on: ubuntu-latest
@@ -64,6 +68,7 @@ jobs:
           FX_TITLE: ${{ inputs.title }}
           FX_MSG: ${{ inputs.message }}
           FX_ADVICE: ${{ inputs.advice }}
+          FX_DETAILS: ${{ inputs.details }}
         run: |
           node -e '
             const act = process.env.FX_ACTION || "status";
@@ -75,13 +80,15 @@ jobs:
             const title = (process.env.FX_TITLE || "").trim();
             const advice = (process.env.FX_ADVICE || "").trim();
             const msg = (process.env.FX_MSG || "").trim() || DEFAULT_MSG;
+            // A dispatch field is one line; \\n typed into it becomes a real line break in the collapsed text.
+            const details = (process.env.FX_DETAILS || "").replace(/\\n/g, "\n").trim();
             /* Plain text while the heading and the last line are the defaults: every panel version shows
              * that under its own localised lines. Otherwise JSON, which the panel (researcher-panel.js
              * opsNotice) reads as { title, message, advice } — a key present but empty means "no such
              * line". A plain message that merely BEGINS with "{" is padded so it cannot pass for JSON. */
-            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE;
+            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE || !!details;
             const value = custom
-              ? JSON.stringify({ kind: "maintenance", title, message: msg, advice })
+              ? JSON.stringify({ kind: "maintenance", title, message: msg, advice, ...(details ? { details } : {}) })
               : (msg[0] === "{" ? " " + msg : msg);
             const q = (s) => "\x27" + String(s).replace(/\x27/g, "\x27\x27") + "\x27";
             const sql = act === "raise"
@@ -107,7 +114,7 @@ jobs:
           live=$(curl -fsS --max-time 20 https://research.flextext.app/sw.js | grep -oE "const VERSION = 'v[0-9]+'" | grep -oE '[0-9]+' | head -1 || true)
           echo "live researcher panel: v${live:-?}"
           if [ -z "$live" ] || [ "$live" -lt 715 ]; then
-            echo "::error::The live researcher panel is v${live:-unknown}; a custom heading or last line needs v715 or later (it is stored as JSON, which an older panel prints raw). Release the panel first, or leave those two fields at their defaults."
+            echo "::error::The live researcher panel is v${live:-unknown}; a custom heading, last line or More-info text needs v715 or later (it is stored as JSON, which an older panel prints raw). Release the panel first, or leave those two fields at their defaults."
             exit 1
           fi
 

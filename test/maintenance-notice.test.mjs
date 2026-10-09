@@ -104,10 +104,11 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
     return panel.slice(i + 1, panel.indexOf('\n}\n', i) + 2); };
   const render = (value, freeze = '') => new Function('value', 'freeze', `
     const Researcher = { maintenance: () => value, freeze: () => freeze };
-    const T = { 'panel.maint.title': 'Maintenance in progress', 'panel.maint.advice': 'Please avoid making changes.', 'panel.freeze.title': 'Locked', 'panel.freeze.advice': 'Read only.' };
+    const T = { 'panel.maint.title': 'Maintenance in progress', 'panel.maint.advice': 'Please avoid making changes.', 'panel.maint.more': 'More info', 'panel.freeze.title': 'Locked', 'panel.freeze.advice': 'Read only.' };
     const t = (k) => T[k] || k;
     const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     ${src('opsNotice')}
+    ${src('opsNoticeMore')}
     ${src('maintenanceBanner')}
     return maintenanceBanner();`)(value, freeze);
   const plain = render('Backend work tonight.');
@@ -127,6 +128,11 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
   ok(/<strong>Sorry<\/strong>/.test(blanked) && !/Please avoid making changes|class="note"/.test(blanked), 'advice "" = no last line at all');
   const headless = render(JSON.stringify({ kind: 'maintenance', title: '', message: 'Just the message.', advice: '' }));
   ok(!/<strong>/.test(headless) && !/Maintenance in progress|class="note"/.test(headless) && /Just the message\./.test(headless), 'title "" and advice "" = the message alone');
+  /* "More info" (Seth, 2026-10-10): a summary up front, the long version collapsed behind a toggle. */
+  const more = render(JSON.stringify({ kind: 'maintenance', title: 'Sorry', message: 'Short version.', advice: '', details: 'Long <version>\nwith two lines.' }));
+  ok(/<details class="rp-maint-more"><summary>More info<\/summary>/.test(more), 'details render as a collapsed <details> with the localised "More info" summary');
+  ok(/Long &lt;version&gt;<br>with two lines\./.test(more), '…escaped, with newlines as line breaks');
+  ok(!/<details/.test(plain) && !/<details/.test(headless), 'no details, no toggle');
   ok(/\{not json/.test(render('{not json')), 'text that only looks like JSON is shown as the plain notice it is');
   const noMsg = render(JSON.stringify({ kind: 'notice' }));
   ok(!/rp-opnotice/.test(noMsg) && /\{&quot;kind&quot;/.test(noMsg),
@@ -145,8 +151,10 @@ console.log('\nthe workflow owns all three lines, pre-filled with the panel\'s o
   ok(def('title') === 'Maintenance in progress' && def('title') === en('panel.maint.title'), `title default is the panel\'s own heading: "${def('title')}"`);
   ok(!!def('advice') && def('advice') === en('panel.maint.advice'), 'advice default is the panel\'s own advice line, word for word');
   ok(!!def('message'), 'the message is pre-filled too');
-  ok(/const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE;/.test(yml), 'plain text while heading and advice are the defaults — older panels keep working');
-  ok(/JSON\.stringify\(\{ kind: "maintenance", title, message: msg, advice \}\)/.test(yml), 'otherwise JSON with all three keys present (empty = that line dropped)');
+  ok(/const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details;/.test(yml), 'plain text while heading and advice are the defaults and there is no More-info — older panels keep working');
+  ok(/JSON\.stringify\(\{ kind: "maintenance", title, message: msg, advice, \.\.\.\(details \? \{ details \} : \{\}\) \}\)/.test(yml), 'otherwise JSON with all three keys present (empty = that line dropped), plus details when given');
+  ok(/^      details:/m.test(yml) && /const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details;/.test(yml), 'a More-info text is a fourth field, and makes the value structured');
+  ok(i18n.split("'panel.maint.more':").length - 1 === 2, 'the "More info" summary label exists in both languages');
   ok(/if: steps\.compose\.outputs\.structured == '1'/.test(yml) && /-lt 715/.test(yml) && /research\.flextext\.app\/sw\.js/.test(yml),
      '⚠ a custom heading or advice is refused while the LIVE panel is older than v715 (it would print the JSON raw)');
   ok(!/^\s*kind:/m.test(yml.split('jobs:')[0]), 'no "kind" input — the three text fields are the whole interface');

@@ -8895,11 +8895,17 @@ function opsNotice(raw) {
          * operator's choice to have no such line at all (Seth, 2026-10-10: the heading and the advice
          * are workflow fields, pre-filled with the defaults, editable or blankable). */
         const str = (k) => (typeof o[k] === 'string' ? o[k].trim() : null);
-        return { kind: o.kind === 'notice' ? 'notice' : 'maintenance', title: str('title'), message: o.message.trim(), advice: str('advice') };
+        // details: a longer explanation, shown COLLAPSED under a "More info" toggle (Seth, 2026-10-10).
+        return { kind: o.kind === 'notice' ? 'notice' : 'maintenance', title: str('title'), message: o.message.trim(), advice: str('advice'), details: str('details') || '' };
       }
     } catch { /* not JSON after all — the plain-text notice below */ }
   }
-  return { kind: 'maintenance', title: null, message: s, advice: null };
+  return { kind: 'maintenance', title: null, message: s, advice: null, details: '' };
+}
+/* The collapsed "More info" block. Newlines in the operator's text become line breaks AFTER escaping. */
+function opsNoticeMore(n) {
+  if (!n.details) return '';
+  return `<details class="rp-maint-more"><summary>${esc(t('panel.maint.more'))}</summary><div>${esc(n.details).replace(/\n/g, '<br>')}</div></details>`;
 }
 function maintenanceBanner() {
   /* Two independent flags (Seth, 2026-08-26): `maintenance` is a banner and nothing else; `freeze`
@@ -8921,6 +8927,7 @@ function maintenanceBanner() {
       out += `<div class="rp-maint rp-opnotice" role="status">
         ${n.title ? `<strong>${esc(n.title)}</strong>` : ''}
         <div>${esc(n.message)}</div>
+        ${opsNoticeMore(n)}
         ${n.advice ? `<div class="note">${esc(n.advice)}</div>` : ''}
       </div>`;
     } else {
@@ -8929,6 +8936,7 @@ function maintenanceBanner() {
       out += `<div class="rp-maint" role="status">
         ${title ? `<strong>${esc(title)}</strong>` : ''}
         <div>${esc(n.message)}</div>
+        ${opsNoticeMore(n)}
         ${advice ? `<div class="note">${esc(advice)}</div>` : ''}
       </div>`;
     }

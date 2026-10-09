@@ -17,11 +17,12 @@ test('no app carries a HOLD-BACK marker: every app deploys on productionWeb', ()
 
 test('the consent app keeps the (inert) guard in both scripts, ahead of any build or deploy', () => {
   const DEPLOY = readFileSync(new URL('apps/consent/deploy.sh', root), 'utf8');
-  const g = DEPLOY.indexOf('[ "${WORKERS_CI_BRANCH:-productionWeb}" = "productionWeb" ] && [ -f HOLD-BACK ]');
+  // Held from BETA too: beta rehearses the release, so an app that will not ship must not be on it.
+  const g = DEPLOY.indexOf('{ [ "${WORKERS_CI_BRANCH:-productionWeb}" = "productionWeb" ] || [ "${WORKERS_CI_BRANCH:-}" = "beta" ]; } && [ -f HOLD-BACK ]');
   assert.ok(g > 0 && g < DEPLOY.indexOf('bash build.sh') && g < DEPLOY.indexOf('\n  npx wrangler deploy'));
   assert.match(DEPLOY.slice(g, g + 400), /exit 0/, 'a held app is not a failed one');
   const BUILD = readFileSync(new URL('apps/consent/build.sh', root), 'utf8');
-  const b = BUILD.indexOf('[ "$BRANCH" = "productionWeb" ] && [ -f HOLD-BACK ]');
+  const b = BUILD.indexOf('{ [ "$BRANCH" = "productionWeb" ] || [ "$BRANCH" = "beta" ]; } && [ -f HOLD-BACK ]');
   assert.ok(b > 0 && b < BUILD.indexOf('rm -rf public'));
   assert.match(BUILD.slice(b, b + 400), /exit 1/, 'a raw wrangler deploy is refused while held');
 });

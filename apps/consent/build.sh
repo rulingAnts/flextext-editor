@@ -13,7 +13,7 @@ BRANCH="${WORKERS_CI_BRANCH:-}"
 # before reaching this script; this second guard is for the case the structural guard below also
 # covers — a dashboard command reset to raw `npx wrangler deploy`, which would run this build hook
 # directly and then publish. A build that FAILS publishes nothing, so here the exit is non-zero.
-if [ "$BRANCH" = "productionWeb" ] && [ -f HOLD-BACK ]; then
+if { [ "$BRANCH" = "productionWeb" ] || [ "$BRANCH" = "beta" ]; } && [ -f HOLD-BACK ]; then
   echo "REFUSING TO BUILD: the consent collector is HELD BACK from production (apps/consent/HOLD-BACK)." >&2
   echo "Delete that file to release it. The live site is unchanged." >&2
   exit 1

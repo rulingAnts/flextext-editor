@@ -1,0 +1,45 @@
+# Deploy the BETA tier. Manual, deliberate, and ALL SEVEN APPS, always — production's twin, one
+# step earlier.
+#
+# WHY IT EXISTS (Seth, 2026-10-10): "Before pushing to main production, push to beta and leave it
+# there for awhile (and have hopefully some users on the beta, including myself and my team)."
+# Staging is a test surface that is redeployed many times a day and holds half-finished features;
+# a release candidate needs somewhere real people can INSTALL the app and live on it for a week
+# before the same commit reaches every field device. That is the beta tier: seven separate
+# Cloudflare Workers named <worker>-beta, deployed by each app's own deploy.sh when the branch is
+# `beta`, exactly as productionWeb deploys the production seven.
+#
+# ⚠ NO APP SELECTION, same as production and for the same reason: beta is one estate at one
+# version, or it is not rehearsing a release. ⚠ AND IT ONLY RUNS ON `beta`. Pick that branch in
+# the Run-workflow dropdown; anything else is refused before a Worker is touched.
+#
+# The release path is now: main → `git merge --ff-only main` into beta → this workflow → soak →
+# `git merge --ff-only beta` into productionWeb → Deploy to production. A hotfix found on beta lands
+# on main and comes round again; productionWeb only ever receives a commit beta has already run.
+#
+# This does NOT deploy the connectivity Worker (worker/) — beta apps talk to the PRODUCTION worker,
+# which is what lets a beta tester keep their real researcher account and real texts. Their origins
+# are in the production worker's ALLOWED_ORIGINS for that reason.
+name: Deploy to beta
+
+on:
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: refuse anything that is not beta
+        if: github.ref_name != 'beta'
+        run: |
+          echo "::error::Beta deploys only from the beta branch (got '${{ github.ref_name }}'). Fast-forward beta to the release candidate first."
+          exit 1
+      - run: echo "Deploying beta — all seven apps, to the <worker>-beta Workers."
+
+  deploy:
+    needs: guard
+    uses: ./.github/workflows/deploy-apps.yml
+    with:
+      apps: '["apps/editor","apps/researcher","apps/recorder","apps/crowd","paragraph-analysis","apps/consent","apps/segmenter"]'
+      branch: beta
+    secrets: inherit

@@ -38,18 +38,19 @@ const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fa
 const reusable = read('../.github/workflows/deploy-apps.yml');
 const staging  = read('../.github/workflows/deploy-staging.yml');
 const prod     = read('../.github/workflows/deploy-production.yml');
+const beta     = read('../.github/workflows/deploy-beta.yml');
 
 console.log('\nnothing deploys on push — the whole reason these exist');
 {
-  for (const [name, src] of [['deploy-apps', reusable], ['deploy-staging', staging], ['deploy-production', prod]]) {
+  for (const [name, src] of [['deploy-apps', reusable], ['deploy-staging', staging], ['deploy-production', prod], ['deploy-beta', beta]]) {
     // The `on:` block only, so the word "push" in prose can't satisfy or break this.
     const on = src.slice(src.indexOf('\non:'), src.indexOf('\njobs:'));
     ok(!/^\s*push:/m.test(on), `${name} has no push trigger`);
     ok(!/^\s*schedule:/m.test(on), `${name} has no schedule — nothing fires on its own`);
   }
   ok(/workflow_call:/.test(reusable), 'the reusable one is callable only by the other two');
-  ok(/workflow_dispatch:/.test(staging) && /workflow_dispatch:/.test(prod),
-     'both entry points are manual');
+  ok(/workflow_dispatch:/.test(staging) && /workflow_dispatch:/.test(prod) && /workflow_dispatch:/.test(beta),
+     'all three entry points are manual');
 }
 
 console.log('\nthe deploy goes through deploy.sh, which owns the branch routing');
@@ -75,6 +76,18 @@ console.log('\nstaging picks apps and can never reach production');
      '⚠ it refuses to run on productionWeb outright, not merely by convention');
   ok(/No apps ticked/.test(staging), 'ticking nothing is a clear error, not an empty success');
   ok(/branch: \$\{\{ github\.ref_name \}\}/.test(staging), 'it deploys the branch you selected');
+  ok(/github\.ref_name == 'beta'[\s\S]{0,200}exit 1/.test(staging),
+     '⚠ and it refuses the beta branch too — a preview alias called beta-<worker> would be a second, wrong beta');
+}
+
+console.log('\nBETA is production\'s twin: every app, no choice, only from the beta branch');
+{
+  const on = beta.slice(beta.indexOf('\non:'), beta.indexOf('\njobs:'));
+  ok(!/inputs:/.test(on) && !/type: boolean/.test(beta), 'no inputs, no per-app checkboxes');
+  ok(/github\.ref_name != 'beta'[\s\S]{0,200}exit 1/.test(beta), 'it refuses any ref that is not beta');
+  ok(/branch: beta/.test(beta), 'and hard-codes the branch it passes to deploy.sh');
+  const list = (f) => (f.match(/apps: '(\[[^']*\])'/) || [])[1];
+  ok(!!list(beta) && list(beta) === list(prod), 'its app list is byte-identical to production\'s — one estate at one version');
 }
 
 console.log('\nproduction offers NO choice — a partial release is impossible by construction');

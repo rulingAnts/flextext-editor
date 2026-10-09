@@ -15,6 +15,8 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const app = readFileSync(join(root, 'docs/js/app.js'), 'utf8');
 
+import { isBetaHost } from '../docs/js/i18n.js';
+
 let failures = 0;
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${msg}`); if (!cond) failures++; };
 
@@ -22,7 +24,7 @@ const ok = (cond, msg) => { console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${msg}`); 
  * stub isDevHost, so these are the function's ACTUAL answers, not a regex's opinion of them. */
 const src = (app.match(/function devResetAllowed\(h\) \{[\s\S]*?\n\}/) || [''])[0];
 const isDevHostSrc = (app.match(/function isDevHost\(h\) \{[\s\S]*?\n\}/) || [''])[0];
-const allowed = new Function(`${isDevHostSrc}\n${src}\nreturn devResetAllowed;`)();
+const allowed = new Function('isBetaHost', `${isDevHostSrc}\n${src}\nreturn devResetAllowed;`)(isBetaHost);
 
 console.log('the wipe is reachable where testing happens');
 {
@@ -41,7 +43,8 @@ console.log('\n…and REFUSED on every origin a field device can be on');
 {
   /* ⚠ If one of these ever flips to true, a forwarded link can wipe a real corpus. */
   for (const h of ['flextext.app', 'www.flextext.app', 'connect.flextext.app', 'research.flextext.app',
-                   'crowd.flextext.app', 'pat.flextext.app', 'rulingants.github.io']) {
+                   'crowd.flextext.app', 'pat.flextext.app', 'rulingants.github.io',
+                   'flextext-editor-beta.68mh29kgsd.workers.dev']) {   // the BETA tier: real installs (2026-10-10)
     ok(allowed(h) === false, `refused on ${h}`);
   }
   ok(allowed('') === false && allowed(undefined) === false, 'and on a missing hostname');

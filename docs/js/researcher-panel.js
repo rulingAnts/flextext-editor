@@ -15,7 +15,7 @@
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
 import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
-import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
+import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES, isBetaHost } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
@@ -394,6 +394,21 @@ const ESTATES = {
     consent: 'https://staging-consent-collector.68mh29kgsd.workers.dev/',
     staging: true,
   },
+  /* THE BETA ESTATE (Seth, 2026-10-10) — seven separate Workers, <worker>-beta, deployed from the
+   * `beta` branch (deploy-beta.yml) and installed by real people for the soak before a production
+   * release. Same production backend, same accounts and texts; only the app bytes are ahead. Every
+   * app has a beta twin, so unlike the staging map nothing here borrows a production address.
+   * ⚠ Explicit, like the others, for the same standalone-researcher reason. Not flagged `staging`:
+   * beta is a real estate — held-back apps stay hidden and ?devreset stays refused. */
+  beta: {
+    editor: 'https://flextext-editor-beta.68mh29kgsd.workers.dev/',
+    researcher: 'https://flextext-researcher-beta.68mh29kgsd.workers.dev/',
+    recorder: 'https://flextext-recorder-beta.68mh29kgsd.workers.dev/',
+    crowd: 'https://flextext-crowd-beta.68mh29kgsd.workers.dev/',
+    segmenter: 'https://audio-segmenter-beta.68mh29kgsd.workers.dev/',
+    consent: 'https://consent-collector-beta.68mh29kgsd.workers.dev/',
+    beta: true,
+  },
 };
 
 /* Which estate is THIS panel part of?
@@ -421,6 +436,8 @@ export function estateOf(origin = location.origin) {
              crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/',
              segmenter: origin + '/audio-segmenter/', consent: origin + '/consent-collector/', local: true };
   }
+  // Beta BEFORE staging: it is also a *.workers.dev host, and the staging rule would swallow it.
+  if (isBetaHost(host)) return ESTATES.beta;
   // Staging / preview builds get an EXPLICIT map, never a guess from the current origin.
   if (/\.(workers|pages)\.dev$/.test(host)) return ESTATES.staging;
   // The LEGACY estate, by name. Everything else is the current one.
@@ -526,7 +543,10 @@ function basesFor(estate) {
  * sessionStorage, not localStorage: it survives the reloads a dev pairing needs, and dies with the
  * tab, so it can never persist into a later real session. */
 const LINK_OVERRIDE_KEY = 'flextext-rp-link-estate';
-const LINK_MODES = ['auto', 'cloud', 'pages', 'origin'];
+/* 'beta' prints the beta estate's addresses — the way a beta tester's device is invited. It is an
+ * OVERRIDE like the others, never automatic: a researcher working from the beta panel still prints
+ * production links by default, because the coworkers in their list are real field devices. */
+const LINK_MODES = ['auto', 'cloud', 'pages', 'origin', 'beta'];
 function linkMode() {
   try { const v = sessionStorage.getItem(LINK_OVERRIDE_KEY); return LINK_MODES.includes(v) ? v : 'auto'; }
   catch { return 'auto'; }
@@ -548,6 +568,7 @@ function linkOverride() {
   if (m === 'cloud') return ESTATES.cloud;
   if (m === 'pages') return ESTATES.pages;
   if (m === 'origin') return sameOriginBases();
+  if (m === 'beta') return ESTATES.beta;
   return null;
 }
 // Hidden by default; ⌃⌥E reveals it. Auto-revealed whenever an override is already active.
@@ -561,6 +582,7 @@ function advancedPicker() {
     <select id="rp-adv-links" aria-label="${esc(t('panel.adv.links.label'))}">
       ${opt('auto', t('panel.adv.links.auto'))}${opt('cloud', t('panel.adv.links.cloud'))}
       ${opt('pages', t('panel.adv.links.pages'))}${opt('origin', t('panel.adv.links.origin'))}
+      ${opt('beta', t('panel.adv.links.beta'))}
     </select></span>`;
 }
 // A record with no estate at all is pre-migration data seen by a newer client: treat it as legacy,
@@ -1030,7 +1052,7 @@ export function initResearcherPanel(d) {
     window.fxLinks = (mode) => {
       if (mode === undefined) {
         advancedShown = true; route();
-        return `links: ${linkMode()} — call fxLinks('auto'|'cloud'|'pages'|'origin') to change. ` +
+        return `links: ${linkMode()} — call fxLinks('auto'|'cloud'|'pages'|'origin'|'beta') to change. ` +
                `Affects the URLs printed in invite/share links only, never where a device is registered.`;
       }
       if (!LINK_MODES.includes(mode)) return `unknown mode ${JSON.stringify(mode)} — use ${LINK_MODES.join(' | ')}`;
@@ -1447,6 +1469,9 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v715', date: '2026-10-10', items: [
+    { k: 'panel.rel.new.betaChannel' },
+  ] },
   { v: 'v714', date: '2026-10-10', items: [
     { k: 'panel.rel.fix.revertSilentExports', issue: 111 },
   ] },

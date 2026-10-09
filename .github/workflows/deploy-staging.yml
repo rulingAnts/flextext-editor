@@ -1,5 +1,5 @@
 # Deploy ONE OR MORE apps from the branch you pick, as a preview alias. Nothing here can reach
-# production: deploy.sh routes any branch that is not `productionWeb` to
+# production (or beta — see deploy-beta.yml): deploy.sh routes any branch that is not `productionWeb` to
 # `wrangler versions upload --preview-alias <branch>`, and this workflow REFUSES to run on
 # productionWeb at all, so there are two independent reasons a mistake here is not a release.
 #
@@ -60,6 +60,14 @@ jobs:
         if: github.ref_name == 'productionWeb'
         run: |
           echo "::error::This workflow never deploys productionWeb. Use 'Deploy to production' for that."
+          exit 1
+      # `beta` has its own Workers and its own workflow. Running THIS one from beta would upload a
+      # preview alias called beta-<worker> onto the PRODUCTION Workers — a second, wrong "beta" that
+      # resolves and looks right. One tier, one path.
+      - name: refuse beta
+        if: github.ref_name == 'beta'
+        run: |
+          echo "::error::This workflow never deploys the beta branch. Use 'Deploy to beta' for that."
           exit 1
       - id: pick
         run: |

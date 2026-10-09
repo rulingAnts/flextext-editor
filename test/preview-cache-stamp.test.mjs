@@ -28,6 +28,8 @@ ok(existsSync(new URL('stamp-preview-cache.sh', root)), 'stamp-preview-cache.sh 
 ok(/BRANCH="\$\{WORKERS_CI_BRANCH:-productionWeb\}"/.test(sh),
    'it defaults to productionWeb, so a local build is treated as production and left alone');
 ok(/\[ "\$BRANCH" = "productionWeb" \] && exit 0/.test(sh), 'and productionWeb exits immediately');
+ok(/\[ "\$BRANCH" = "beta" \] && exit 0/.test(sh),
+   'and so does beta — it rehearses production, so it must update the way production does (by bump, not by stamp)');
 
 console.log('\nit changes the cache KEY only — never VERSION or ENGINE');
 ok(/const CACHE = \[\^;\]\*/.test(sh) || /const CACHE = \[\^;\]\*\)/.test(sh) || sh.includes("const CACHE = [^;]*"),

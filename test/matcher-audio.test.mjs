@@ -153,7 +153,7 @@ const load0 = fn(app, 'mgLoad');
 ok(/docSegments\(rec\.doc\)/.test(load0),
    'mgLoad reads doc.segments (a top-level rec.segments found NOTHING on any text the Cut tab made — an empty left pane on every real document)');
 const commit0 = asyncFn(app, 'mgCommit');
-ok(/rec\.doc\.segments = lines\.map\(\(l, i\) =>/.test(commit0),
+ok(/rec\.doc\.segments = withGuesses\(lines\.map\(\(l, i\) =>/.test(commit0),
    'mgCommit writes doc.segments (writing rec.segments meant the toast said "saved" and the alignment did not change)');
 ok(!/\brec\.segments\b/.test(code(commit0)) && !/\brec\.segments\b/.test(code(load0)),
    'and neither touches a top-level rec.segments at all');
@@ -217,12 +217,13 @@ ok(/player\?\.clearSpan\?\.\(\)/.test(split), 'the span watcher is cleared: the 
 console.log('\ncommitting collapses to the index-locked model the rest of the suite reads');
 const commit = asyncFn(app, 'mgCommit');
 ok(!!commit, 'mgCommit exists');
-ok(/const sp = MG\.spans\[i\];/.test(commit) && /return sp\.timeEstimated \? \{ start: sp\.start, end: sp\.end, timeEstimated: true \}/.test(commit),
+ok(/const sp = MG\.spans\[i\];/.test(commit) && /const out = \{ start: sp\.start, end: sp\.end \};/.test(commit),
    'row i\'s line takes row i\'s span, exactly — one piece of audio per line, by position');
 ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
    'a row with no real audio is written timePending');
-ok(/timeEstimated: true/.test(commit), 'an estimated boundary is written back as estimated, not promoted to a measurement');
-ok(/rec\.doc\.paragraphs = lines\.map/.test(commit) && /rec\.doc\.segments = lines\.map/.test(commit),
+ok(/if \(Array\.isArray\(sp\.guess\)\) \{ out\.guess = sp\.guess\.slice\(0, 2\);/.test(commit) && /else if \(sp\.timeEstimated\) out\.timeEstimated = true;/.test(commit),
+   'an estimated boundary is written back as estimated, not promoted to a measurement — per EDGE since v717 (guess rides; withGuesses re-derives the flag)');
+ok(/rec\.doc\.paragraphs = lines\.map/.test(commit) && /rec\.doc\.segments = withGuesses\(lines\.map/.test(commit),
    'segments and paragraphs come out of the SAME padded list, same length and order — segments[i] IS paragraph i');
 
 console.log('\ndragging a boundary — and it can never pass its neighbours');
@@ -231,12 +232,15 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
    * they have to stay in sequence." */
   const mv = fn(app, 'mgMoveBoundary');
   ok(!!mv, 'mgMoveBoundary exists');
-  ok(/const lo = a\.start \+ MIN_SEGMENT_MS;/.test(mv) && /const hi = b\.end - MIN_SEGMENT_MS;/.test(mv),
-     'clamped against the NEIGHBOURING SPANS — the ordering constraint in the form that cannot be got wrong');
-  ok(/Math\.min\(hi, Math\.max\(lo, ms\)\)/.test(mv), 'so a drag stops at the neighbour instead of passing it');
-  ok(/if \(hi <= lo\) return false;/.test(mv), 'and refuses outright when there is no room between them');
-  ok(/if \(t === a\.end\) return false;/.test(mv), 'a drag that does not move it does not churn the display');
-  ok(/a\.end = t;\s*\n\s*b\.start = t;/.test(mv), 'both sides of the join move together — no gap, no overlap');
+  /* v717: the editor's rule, not a copy of it — segments.js dragSeam (moveBoundary judged against the
+   * spans at pick-up, placeSeam on the live ones). Its clamp, its no-room refusal, its "nothing moved"
+   * null and the seam-vs-pause rule are tested there (time-drag-undo.test.mjs). */
+  ok(/if \(!a \|\| !b \|\| a\.timePending \|\| b\.timePending\) return false;/.test(mv),
+     'a boundary next to a piece with no audio is refused, not guessed');
+  ok(/return !!dragSeam\(MG\.spans, before \|\| \[\{ \.\.\.a \}, \{ \.\.\.b \}\], i, ms, edge\);/.test(mv),
+     'clamped against the NEIGHBOURING SPANS by the shared rule — and false when nothing moved, so a drag at the stop does not churn the display');
+  ok(/mgDragFrom = MG\.spans\[i\] && MG\.spans\[i \+ 1\]\s*\n\s*\? \{ before: \[\{ \.\.\.MG\.spans\[i\] \}, \{ \.\.\.MG\.spans\[i \+ 1\] \}\], edge:/.test(fn(app, 'mgBoundaryDrag')),
+     'the spans are copied at pick-up, so a pause cannot turn into a seam half-way through a drag');
 
   const drag = fn(app, 'mgBoundaryDrag');
   ok(/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag), 'ONE undo per drag, captured at pick-up');

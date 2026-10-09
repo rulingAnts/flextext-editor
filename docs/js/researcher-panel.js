@@ -714,9 +714,9 @@ export function wireIconPicks(root) {
  * to which settings are specific to unpaired devices and which settings are only applicable to
  * paired devices"). Nothing is hidden on the strength of this; the rule of the repo is that a
  * control which cannot act says why:
- *   • PAIRED ONLY — ten fields are inert on a device working alone. Six because the engine gate
+ *   • PAIRED ONLY — eleven fields are inert on a device working alone. Seven because the engine gate
  *     short-circuits (`!Sync.hasSession() || settings.X === true`: allowDelete, deleteAllEnabled,
- *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit — a lone worker always has
+ *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner — a lone worker always has
  *     these, so the switch could only lie), and four because they wait on an upload that cannot
  *     happen with no researcher Drive behind it (autoDel, autoBackup, autoBackupMins, doneEnabled).
  *     They appear on the unpaired tab greyed, each carrying its reason: the `off:` notes over in
@@ -791,6 +791,10 @@ const GROUPS = [
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
     // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
     { k: 'adjustBoundaries', type: 'checkbox', note: 'panel.f.adjustBoundariesNote' },
+    /* The timing banner (v717, plans/time-gaps-and-estimates.md D15): one message per text when its
+     * times are estimates, missing, or out of step with the recording. Every new segmenting control is
+     * the researcher's to switch: on for a lone worker, off on a managed device until switched on. */
+    { k: 'timingBanner', type: 'checkbox', note: 'panel.f.timingBannerNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.

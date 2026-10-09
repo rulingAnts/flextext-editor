@@ -324,6 +324,30 @@ export function moveBoundary(segments, i, ms, opts = {}) {
   return { ok: true, segments: out, t, edge };
 }
 
+/* ONE STEP OF A DRAG: moveBoundary judged against the two spans AS THEY WERE AT PICK-UP (`before`, a
+ * copy of [segs[bi], segs[bi+1]] taken when the finger went down), then applied to the LIVE objects
+ * with placeSeam — the rows and tickers hold them by reference. `edge` is the grabbed handle's side.
+ *
+ * ⚠ WHY THE PICK-UP COPY AND NOT THE LIVE SPANS. Whether a seam is a seam or a pause decides which
+ * edges move (D11), and the drag itself changes that answer: pull a line's end up against the next
+ * line's start and, judged live, the next move is a "seam" — which then drags the neighbour's start
+ * back across the pause it was never asked to touch. The mode and the clamp are fixed at pick-up.
+ * Returning to the starting point puts the edge back exactly. Returns { t, edge } or null. */
+export function dragSeam(live, before, bi, ms, edge) {
+  const a = live && live[bi], b = live && live[bi + 1];
+  if (!a || !b || !Array.isArray(before) || before.length < 2) return null;
+  const r = moveBoundary(before, 0, ms, { edge });
+  let t, how;
+  if (r.ok) { t = r.t; how = r.edge; }
+  else if (r.reason === 'same') {
+    how = before[1].start - before[0].end <= GUESS_TOL_MS ? 'seam' : (edge === 'start' ? 'start' : 'end');
+    t = how === 'start' ? before[1].start : before[0].end;
+  } else return null;
+  if ((how === 'start' || a.end === t) && (how === 'end' || b.start === t)) return null;
+  placeSeam(live, bi, t, how);
+  return { t, edge: how };
+}
+
 /* ---------------------------------------------------------------------------------------------
  * boundaryAtPlayhead — "the user pressed Enter at time t between line i and line i+1".
  *

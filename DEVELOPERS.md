@@ -183,7 +183,7 @@ every caller knows the setting it wants, never which tab happens to hold it.
 
 | Marker | Meaning |
 |---|---|
-| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Ten fields; six whose engine gate reads `!Sync.hasSession() \|\| settings.X === true`, four that wait on an upload that cannot happen. |
+| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Eleven fields; seven whose engine gate reads `!Sync.hasSession() \|\| settings.X === true` (v717 added `timingBanner`), four that wait on an upload that cannot happen. |
 | `only: 'segmenter'` | the field appears in that mode's Settings tab only (`setupGroupsFor`) |
 | `standalone: true` | exists on the unlinked surface alone — `consentAudioFile`, the picked file where the panel pushes a Drive URL |
 | `type: 'action'` | a **button**, not a setting (`archivalDefaults`) — excluded from collect/fill |
@@ -245,6 +245,14 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
   are never guesses. Every operation goes through three primitives — `placeSeam`, `splitSpanAt`,
   `mergeSpanPair` — and a seam with a pause between its lines moves only the dragged edge.
   `normalizeSegments` no longer clamps to the decoded length: drawing and playback clip at use.
+- **What the editor shows of it (v717).** Every strip surface (Baseline, Cut, Gloss, the Segmenter)
+  wears the same three classes from `segment-strips.js` `timeStateClass`: `seg-pending` (dotted, ⋯),
+  `seg-est` (dashed, from `isEstimate` — never the bare flag) and `seg-check` (red bar: a line the
+  report flags). Above the dock, ONE banner per text (`renderTimingBanner`, worded from
+  `timingReport`) with Details, Show and Dismiss; researcher-switchable as `timingBanner`. Drags go
+  through `dragSeam` with the grabbed edge, judged against the spans at pick-up. Opening a text saves
+  nothing but a seed, heal or tail cover, and those quietly (`saveQuiet`, no `modified` stamp). Drawing,
+  playback (`playEnd`) and the dock's marks clip at the recording's end; the stored time never does.
 - **The text box keeps times with their lines (v717).** `reconcileBaselineWithOrigins` says where each
   new line came from (kept / exact / edit / join / split / new, paired only within the stretch between
   unchanged lines) and `segmentsFollowLines` builds the times from that — never by position.

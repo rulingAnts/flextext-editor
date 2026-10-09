@@ -545,8 +545,14 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     the setting-based guard read the hidden empty textarea and WIPED the doc's text.
   - Strip/gloss waveform canvases redraw via ResizeObserver + the existing tickers — a draw that
     races layout bakes a tiny buffer that CSS stretches into a blank slab.
-  - `reconcile()`'s seeds/heals persist immediately; peaks failures `console.warn` instead of
-    vanishing.
+  - `reconcile()`'s seeds/heals persist immediately — and QUIETLY since v717 (`persistQuiet` →
+    app.js `saveQuiet`, no `modified` stamp: opening a text is not an edit, and a stamp re-uploads a
+    text already on Drive); peaks failures `console.warn` instead of vanishing.
+  - **The timing banner (v717)** — one message per text above the dock (estimates, lines with no time,
+    "lines and audio look out of step"), worded from `timingReport`; it changes nothing, its Dismiss is a
+    quiet `rec.timingAck`, and it is researcher-switchable (`timingBanner`, the `allowBlankLines`
+    shape). Every drag surface goes through `dragSeam` with the grabbed EDGE, judged against the spans
+    at pick-up — across a pause only that edge moves.
 
 ## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 

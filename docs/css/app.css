@@ -1597,6 +1597,7 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
 .rp-tag-notdone { background: var(--panel); color: var(--muted); }  /* Done feature on, not yet finished */
 .rp-tag-assigning { background: #ece3f7; color: #5b3d8a; }       /* assignment sent, not picked up */
 .rp-tag-assignTaken { background: #d8ecdc; color: #1f5c33; }     /* device has it and is fetching */
+.rp-tag-asDelivered, .rp-tag-awaitingTranscript { background: var(--panel); color: var(--muted); }   /* G4: nothing owed */
 /* A text the device has not reported yet: present, clearly provisional — never struck through, which
    would read as "being removed" (rp-pending-del above means exactly that). */
 .rp-pending-assign { opacity: .72; }
@@ -1712,6 +1713,10 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
 .rp-hist-links .rp-dl { display: inline-block; }
 /* Cleanup entry: visually a caution, not a download. */
 .rp-dl-clean .rp-dl-name { color: #8a4b10; }
+/* The move modal's copy section (G1): what will be sent, or why a device cannot be sent to yet. */
+.rp-move-copy { margin: 8px 0 12px; }
+.rp-move-copy .rp-move-warn { color: var(--warn); }   /* --warn has a dark-mode value */
+.rp-move-copies { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 /* The cleanup review (G2): a row that will go to the trash reads quieter than one that stays. */
 .rp-clean-trash td { opacity: .7; }
 /* In-flight move chip + the clickable done tag. */

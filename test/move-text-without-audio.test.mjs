@@ -98,7 +98,9 @@ test('the consent-clip comment says exactly what each commit path would have don
   assert.match(movSrc, /a device-to-device move sends\s*\* `idOf\(src\.audio\)` and would have assigned the clip AS the recording/);
   assert.match(movSrc, /adopt sends the role-tagged\s*\* `picks\.audio` and would have assigned the text with NO recording/);
   assert.match(panel, /audioFileId: idOf\(src\.audio\)/, 'and that is what the move commit really sends');
-  assert.match(panel, /audioFileId: \(picks\.audio \|\| \{\}\)\.id \|\| null,/, 'and what adopt really sends');
+  // Adopt no longer re-lists at commit (G1, plans/move-upload-guards.md): it reuses the gate's own
+  // sources, so the role-tagged recording is `src.picks.audio` — the same file as before.
+  assert.match(panel, /audioFileId: \(src\.picks\.audio \|\| \{\}\)\.id \|\| null,/, 'and what adopt really sends');
 });
 
 test('a recording that is declared but absent still refuses', async () => {
@@ -220,10 +222,14 @@ test('moveTextModal: a current device refused because of the TEXT is not called 
   // And a device that really IS too old still says so.
   assert.equal(blockedSub({ nickname: 'Old phone', _canReceive: false }), 'TOO-OLD(Old phone)');
 
-  assert.match(mv, /groupedDestinations\(insts, homeProject, opt, \(x\) => deviceOk && x\._canReceive, true, blockedSub\)/,
+  /* G1 / finding 9 (plans/move-upload-guards.md): a device that already HOLDS the text is a third
+   * refusal, with its own words — `_holds` joins canPick and blockedSub names it first. */
+  assert.match(mv, /groupedDestinations\(insts, homeProject, opt, \(x\) => deviceOk && x\._canReceive && !x\._holds, true, blockedSub\)/,
     'the grouped list is given blockedSub');
-  assert.match(mv, /deviceOk && x\._canReceive \? '' : blockedSub\(x\)/,
+  assert.match(mv, /deviceOk && x\._canReceive && !x\._holds \? '' : blockedSub\(x\)/,
     'and the flat (no-projects) fallback uses the same words');
+  assert.equal(blockedSub({ nickname: 'Phone', _canReceive: true, _holds: true }), 'panel.move.holdsCopy',
+    'a device already holding the text says so — never "too old", never "see the note"');
   assert.doesNotMatch(mv, /x\._canReceive \? '' : tooOldLabel\(x\)/,
     'the flat fallback no longer prints the version for every disabled reason');
 });

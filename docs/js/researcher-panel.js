@@ -2925,6 +2925,7 @@ async function renderDashboard(prefetched) {
       } else if (mv.stage === 'removing' && instanceReported(mv.from) && !findInventoryItem(mv.from, docId)) {
         transitions.push(['done', docId]);
         deps.toast(t('panel.move.done', { title: mv.title || '?' }), 6000);
+        flagNewerAfterMove(docId, { ...mv });   // fire-and-forget: did newer work follow the moved copy?
       }
     }
     if (transitions.length) {
@@ -5264,6 +5265,10 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         const queued = !!p && p.seq > maxAck;
         const taken  = !!p && p.seq <= maxAck;
         let disp = us;
+        /* G4: a delivery nobody has touched is not "no upload yet" — there is nothing to upload. The
+         * device reports which (booleans, read only as conditions; DISP below stays a fixed set). */
+        if (us === 'local' && d.awaitingTranscript) disp = 'awaitingTranscript';
+        else if (us === 'local' && d.asDelivered) disp = 'asDelivered';
         if (p && p.kind === 'upload') disp = queued ? 'requested' : 'slow';
         // A synthesized assign row has no reported state of its own — it IS the pending state.
         if (d.__assigning) disp = queued ? 'assigning' : 'assignTaken';
@@ -5277,7 +5282,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * is the note below. If a just-uploaded confirmation is ever wanted, it needs a real
          * writer first — the string is not the missing half. */
         // SECURITY: disp must stay within this fixed literal set — see the note above.
-        const DISP = ['local', 'uploaded', 'changed', 'uploading', 'requested', 'slow', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
+        const DISP = ['local', 'uploaded', 'changed', 'uploading', 'requested', 'slow', 'assigning', 'assignTaken', 'asDelivered', 'awaitingTranscript'].includes(disp) ? disp : 'local';
         // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
         const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
                         slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
@@ -5340,7 +5345,11 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
             ? ` <span class="rp-tag rp-tag-moving" title="${esc(t('panel.move.srcChipWhy', { from: instanceNick(mv.from) }))}">${esc(t('panel.move.srcChip'))}</span>`
               + (memberCtx ? '' : ` <button class="link-btn rp-cancel" data-iact="clear-move" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.clearBtn'))}</button>`)
             : '';
-        const moveBtn = (memberCtx || !d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
+        /* `uploading && queued`, not `uploading` (G1): a QUEUED upload can be withdrawn with its own
+         * Cancel, so one pending command per text still holds. Once the device has TAKEN it there is no
+         * Cancel — and a device that took "send your copy" and then lost signal would hide Move for
+         * good, the one way out the move modal offers for exactly that device. */
+        const moveBtn = (memberCtx || !d.id || mv || d.__assigning || deleting || (uploading && queued) || wiped) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
         /* A move is NOTHING MORE than a pending assignment and a pending removal, each cancellable
          * on its own (Seth, 2026-08-19) — so no move-specific control exists. The removal wears the
@@ -7608,6 +7617,289 @@ async function moveSources(fromId, docId, title) {
            ok: !!(manifest && (audio || !declaresAudio) && (picks.flextext || !declaresFlextext) && (audio || picks.flextext)) };
 }
 
+/* ── WHICH COPY A MOVE SENDS (plans/move-upload-guards.md G1) ────────────────────────────────────
+ *
+ * A move used to send the NEWEST .flextext in the text's folder, and the source's own report was
+ * never consulted: a device that had changes Drive did not have yet lost them to the destination
+ * (its release then uploaded them AFTER, into the folder, where nobody looked), and a device holding
+ * a placeholder sent the placeholder over the transcription. A 25-line text went back to its 4-line
+ * state; a text cut into 32 lines was replaced by an empty one. The copy is now chosen from FACTS:
+ * what the source device says it holds, and what each copy actually contains. */
+
+/* Every LIVE install's item for this text, the most recently seen first. An instance can run more
+ * than one install (a PWA and an APK on one handset), each with its own storage; a wiped install or
+ * one still pending has nothing to say, and a long-dormant one only an old report — so the freshest
+ * report is the one a move trusts. */
+function deviceItems(instanceId, docId) {
+  const out = [];
+  for (const it of (lastData && lastData.instances) || []) {
+    if (it.instance_id !== instanceId) continue;
+    for (const ins of it.installs || []) {
+      if (!ins || ins.status === 'pending' || ins.wipe_state === 'confirmed') continue;
+      const items = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : [];
+      const d = items.find((x) => x && x.id === docId);
+      if (d) out.push({ item: d, seenAt: ins.last_seen_at || 0 });
+    }
+  }
+  return out.sort((a, b) => b.seenAt - a.seenAt);
+}
+
+/* Does this device already hold the text? Then an assign of it is a silent no-op on the device
+ * (openUrlTask matches the existing doc and keeps it), the panel would believe the move delivered,
+ * and the source's release would then remove the newer copy (finding 9). So it is not a destination. */
+function instanceHoldsDoc(x, docId) {
+  return (x.installs || []).some((ins) => ins && ins.wipe_state !== 'confirmed' && ins.inventory
+    && Array.isArray(ins.inventory.items) && ins.inventory.items.some((d) => d && d.id === docId));
+}
+
+/* The file a move or an adopt DELIVERED to this device, from this browser's history (the 'assigned'
+ * event carries it since this change). For an untouched delivery that file IS what the device holds. */
+function deliveredFileId(instanceId, docId) {
+  let best = null;
+  try {
+    for (const e of loadHistory(Researcher.currentAccountId())) {
+      if (e && e.kind === 'assigned' && e.docId === docId && e.instanceId === instanceId && e.fileId
+          && (!best || (e.at || 0) >= (best.at || 0))) best = e;
+    }
+  } catch { /* best effort — never relied on */ }
+  return best ? String(best.fileId) : '';
+}
+
+/* The rows that can carry a text: role-tagged source flextexts, bare .flextext backups, and legacy
+ * .zip bundles (the WORKER extracts those; the panel reads no zips). Newest first. */
+function moveCopyRows(files) {
+  return (files || []).filter((f) => f && f.id && (isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES)
+    || (/\.zip$/i.test(String(f.name || '')) && !hasRole(f, PROTECTED_ROLES))))
+    .slice().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+}
+
+/* THE DECISION — pure, lifted by test/move-copy-choice.test.mjs.
+ *
+ * In:  source       { item, seenAt } — the freshest live install's report, or null
+ *      files        the text's own-folder listing (G3)
+ *      stats        copyStats' Map, which also holds the LOOKUP BY ID of a device copy the listing
+ *                   did not show (Drive's search lags; a copy can sit in an old "Title (n)" folder)
+ *      deliveredId  deliveredFileId(), '' when this browser does not know it
+ *      adopt        no source device at all (an Unassigned or crowd text)
+ * Out: { decision, file, candidates, flavor, path, note }
+ *
+ *   send             send `file` (null = no text copy exists; the recording moves alone)
+ *   pick             copies disagree in a way that matters — the researcher chooses, nothing preselected
+ *   needsUpload      the device has work Drive does not ('changed', or 'local' = never sent)
+ *   wait             the device is sending now
+ *   lastCopyMissing  the device's last upload is not in Drive (looked up by id, not only listed)
+ *   damaged          the device's last upload holds nothing usable, or no usable copy exists at all
+ *   noReport         the device has not reported this text
+ *
+ * ⚠ WHEN A MOVE STOPS TO ASK, AND WHY ONLY THEN. Only CONTENT measures count (STAT_CONTENT): a join
+ * makes the pre-join copy look "longer" by lines, and asking about that — or worse, sending it —
+ * would undo the coworker's join. It asks when:
+ *   (a) the copy to send holds nothing and another copy holds something;
+ *   (b) another copy is a DIFFERENT text (guid) with more words or characters — the "device holds a
+ *       fresh placeholder, Drive holds the transcription" case;
+ *   (c) with no device to trust (adopt, or an untouched delivery), any copy is richer in content;
+ *   (d) a copy NEWER than the device's last upload is richer — the report is stale, or someone else
+ *       wrote after it.
+ * A same-text copy OLDER than the device's own and richer is ordinary editing (glosses cleared, junk
+ * words deleted): the device's current state is what moves, and the panel says so in a note instead
+ * of asking. A damaged copy is never sent; an unchecked one is sent only when it is the device's own
+ * copy, and says it could not be checked. */
+function chooseMoveCopy({ source, files, stats, deliveredId, adopt }) {
+  const copies = moveCopyRows(files);
+  const entryOf = (f) => (f && stats && stats.get(f.id)) || { state: 'unchecked', why: 'cap' };
+  const usable = (f) => !['damaged', 'missing'].includes(entryOf(f).state);
+  const ok = (f) => entryOf(f).state === 'ok';
+  const st = (f) => entryOf(f).stats;
+  const newer = (a, b) => String(a.modified || '') > String(b.modified || '');
+  const candidates = copies.filter(usable).sort((a, b) => (ok(b) - ok(a))
+    || ((ok(a) && ok(b)) ? (st(b).words - st(a).words) : 0) || String(b.modified).localeCompare(String(a.modified)));
+  const result = (decision, extra) => ({ decision, file: null, candidates, flavor: '', path: '', note: '', ...(extra || {}) });
+
+  let chosen = null, path = 'adopt';
+  if (!adopt) {
+    if (!source || !source.item) return result('noReport');
+    const d = source.item;
+    if (d.asDelivered || d.awaitingTranscript) {
+      path = 'delivered';
+      chosen = (deliveredId && copies.find((x) => x.id === deliveredId && usable(x))) || null;
+    } else {
+      path = 'device';
+      if (d.uploadState === 'uploading') return result('wait');
+      if (d.uploadState !== 'uploaded') return result('needsUpload', { flavor: d.uploadState === 'changed' ? 'changed' : 'local' });
+      const id = String(d.uploadedFileId || '');
+      if (!id) return result('needsUpload', { flavor: 'local' });
+      chosen = copies.find((x) => x.id === id) || null;
+      if (!chosen) {
+        // Not in the listing: the caller looked it up by id. Found and readable → it exists (an old
+        // duplicate folder, or a listing that lags); anything else → missing.
+        if (entryOf({ id }).state !== 'ok') return result('lastCopyMissing');
+        chosen = { id, name: '', modified: '', notListed: true };
+      }
+      const e = entryOf(chosen);
+      if (e.state === 'damaged' || e.state === 'missing') return result('damaged', { file: chosen });
+      // The device reports the SHA-256 of the bytes it sent (G5); Drive lists its own. Different
+      // means the copy changed on the way, which is damage the content check might not see.
+      if (d.uploadedSha256 && chosen.sha256 && d.uploadedSha256 !== chosen.sha256) return result('damaged', { file: chosen });
+    }
+  }
+  if (!chosen) chosen = copies.find(ok) || copies.find(usable) || null;
+  if (!chosen) return copies.length ? result('damaged') : result('send', { path });
+
+  const sc = ok(chosen) ? st(chosen) : null;
+  const others = copies.filter((x) => x !== chosen && x.id !== chosen.id && ok(x));
+  if (!sc) return result('send', { file: chosen, path, note: 'unchecked' });
+  const richer = (x) => statsRicher(st(x), sc, STAT_CONTENT);
+  const ask = (!statsHaveContent(sc) && others.some((x) => statsHaveContent(st(x))))
+    || others.some((x) => st(x).guid !== sc.guid && ((st(x).words || 0) > (sc.words || 0) || (st(x).chars || 0) > (sc.chars || 0)))
+    || (path !== 'device' && others.some(richer))
+    || (path === 'device' && others.some((x) => newer(x, chosen) && richer(x)));
+  if (ask) return result('pick', { path, suggested: chosen });
+  const olderRicher = path === 'device' ? others.find(richer) : null;
+  return result('send', { file: chosen, path, note: olderRicher ? 'olderRicher' : '', richer: olderRicher || null });
+}
+
+/* Fetch what the decision needs and decide. The copy that will be SENT is never capped (copyStats
+ * `need`); the rest are compared within copyStats' caps, and "not checked" never triggers a send of
+ * the unknown copy over a known one. */
+async function resolveMoveCopy({ fromId, docId, src, adopt, onProgress, signal }) {
+  const source = adopt ? null : (deviceItems(fromId, docId)[0] || null);
+  const deliveredId = adopt ? '' : deliveredFileId(fromId, docId);
+  const copies = moveCopyRows(src.all);
+  const need = [];
+  const devId = source && source.item && source.item.uploadedFileId ? String(source.item.uploadedFileId) : '';
+  if (devId) need.push(devId);
+  if (deliveredId) need.push(deliveredId);
+  if (copies[0]) need.push(copies[0].id);
+  // A device copy the listing does not show is LOOKED UP by id before anyone calls it missing.
+  const lookups = devId && !copies.some((f) => f.id === devId) ? [{ id: devId, name: 'device-copy.flextext', size: 0 }] : [];
+  const stats = await copyStats([...lookups, ...copies], { need, onProgress, signal });
+  return { ...chooseMoveCopy({ source, files: src.all, stats, deliveredId, adopt }), stats, source, deliveredId };
+}
+
+/* The copy section of the Move / adopt modal. Paints the decision into `box` and returns
+ * `pickFile()` → { ok, file, why }: ok=false means a DEVICE destination cannot be sent to yet, and
+ * `why` is the sentence to show. Unassigned never consults it — it sends nothing to a device. */
+function paintCopyChoice(box, choice, ctx) {
+  const dev = ctx.device || '?';
+  const entry = (f) => (choice.stats && choice.stats.get(f.id)) || { state: 'unchecked' };
+  const when = (f) => (f && f.modified ? histWhen(Date.parse(f.modified)) : t('panel.move.whenUnknown'));
+  const counts = (f) => { const s = entry(f).stats; return s && entry(f).state === 'ok'
+    ? { lines: s.textLines, words: s.words, timed: s.timed } : null; };
+  const newestId = (moveCopyRows(ctx.files)[0] || {}).id || '';
+  const devId = choice.source && choice.source.item ? String(choice.source.item.uploadedFileId || '') : '';
+  const labelsOf = (f) => [
+    f.id === devId && choice.path === 'device' ? t('panel.move.copyDevice', { device: dev }) : '',
+    f.id === choice.deliveredId ? t('panel.move.copyDelivered', { device: dev }) : '',
+    f.id === newestId ? t('panel.move.copyNewest') : '',
+  ].filter(Boolean).join(' · ');
+  const rowText = (f) => { const c = counts(f);
+    return (c ? t('panel.move.copyRow', { when: when(f), ...c }) : t('panel.move.copyRowUnchecked', { when: when(f) }))
+      + (labelsOf(f) ? ' — ' + labelsOf(f) : ''); };
+  const radios = (list) => list.length
+    ? list.map((f) => `<label class="rp-tile"><input type="radio" name="rp-move-copy" value="${esc(f.id)}">
+        <span class="rp-tile-name">${esc(f.name || t('panel.move.copyUnnamed'))}</span><span class="rp-tile-sub">${esc(rowText(f))}</span></label>`).join('')
+    : `<p class="note">${esc(t('panel.move.noDriveCopy'))}</p>`;
+  const picked = () => {
+    const v = (box.querySelector('input[name="rp-move-copy"]:checked') || {}).value;
+    return v ? choice.candidates.find((f) => f.id === v) || null : null;
+  };
+  const d = choice.decision;
+  if (d === 'send') {
+    const f = choice.file;
+    const from = choice.path === 'device'
+      ? t('panel.move.fromDevice', { device: dev, ago: lastSeen((choice.source || {}).seenAt) })
+      : choice.path === 'delivered' ? t('panel.move.fromDelivered', { device: dev }) : t('panel.move.fromBest');
+    const c = f ? counts(f) : null;
+    const line = !f ? t('panel.move.willSendNoText')
+      : (c ? t('panel.move.willSend', { name: f.name || t('panel.move.copyUnnamed'), when: when(f), ...c })
+           : t('panel.move.willSendUnchecked', { name: f.name || t('panel.move.copyUnnamed'), when: when(f) })) + ' (' + from + ')';
+    const extra = choice.note === 'olderRicher' && choice.richer
+      ? `<p class="note rp-move-warn">${esc(t('panel.move.olderRicher', { device: dev, words: (entry(choice.richer).stats || {}).words || 0,
+          now: (entry(f).stats || {}).words || 0, when: when(choice.richer) }))}</p>` : '';
+    box.innerHTML = `<p class="note rp-move-send">${esc(line)}</p>${extra}`;
+    return { pickFile: () => ({ ok: true, file: f }) };
+  }
+  if (d === 'pick') {
+    box.innerHTML = `<p class="note rp-move-warn">${esc(t('panel.move.pickCopy'))}</p><div class="rp-move-copies">${radios(choice.candidates)}</div>`;
+    return { pickFile: () => { const f = picked(); return f ? { ok: true, file: f } : { ok: false, why: t('panel.move.pickFirst') }; } };
+  }
+  const item = (choice.source && choice.source.item) || {};
+  const reason = d === 'needsUpload'
+    ? t(choice.flavor === 'changed' ? 'panel.move.notOnDrive' : 'panel.move.neverSent', { device: dev, when: lastSeen(item.modified) })
+    : d === 'wait' ? t('panel.move.sendingNow', { device: dev })
+    : d === 'lastCopyMissing' ? t('panel.move.lastCopyMissing', { device: dev })
+    : d === 'damaged' ? t(choice.file ? 'panel.move.lastCopyDamaged' : 'panel.move.allDamaged', { device: dev })
+    : t('panel.move.noReport', { device: dev });
+  const canAsk = !!ctx.onAsk && ['needsUpload', 'lastCopyMissing', 'damaged'].includes(d) && !!choice.source;
+  /* ⚠ THE WAY OUT EXISTS ON EVERY REFUSAL THAT HAS A COPY TO OFFER — a lost, broken or long-offline
+   * device is exactly when a move is most needed, and "is sending now" can mean a queue that has
+   * been stuck for days. It costs a deliberate pick and says what is left behind. */
+  const alt = choice.candidates.filter((f) => !choice.file || f.id !== choice.file.id);
+  const hatch = d !== 'noReport' && alt.length > 0;
+  box.innerHTML = `<p class="note rp-move-warn">${esc(reason)}</p>
+    ${canAsk ? `<button type="button" class="secondary-btn" data-copy="ask">${esc(t('panel.move.askSend', { device: dev }))}</button>` : ''}
+    ${hatch ? `<button type="button" class="link-btn" data-copy="drive">${esc(t('panel.move.useDrive'))}</button>
+    <div class="rp-move-hatch" hidden>
+      ${choice.source ? `<p class="note rp-move-warn">${esc(t('panel.move.useDriveWarn', { device: dev }))}</p>` : ''}
+      <div class="rp-move-copies">${radios(alt)}</div></div>`
+      : (d === 'noReport' ? '' : `<p class="note">${esc(t('panel.move.noDriveCopy'))}</p>`)}`;
+  const askBtn = box.querySelector('[data-copy="ask"]');
+  if (askBtn) askBtn.onclick = () => busy(askBtn, () => ctx.onAsk(item));
+  const hatchBtn = box.querySelector('[data-copy="drive"]');
+  if (hatchBtn) hatchBtn.onclick = () => { box.querySelector('.rp-move-hatch').hidden = false; hatchBtn.hidden = true; };
+  return { pickFile: () => {
+    const open = hatchBtn && hatchBtn.hidden;
+    const f = open ? picked() : null;
+    if (f) return { ok: true, file: f };
+    return { ok: false, why: open ? t('panel.move.pickFirst') : reason };
+  } };
+}
+
+/* "Ask {device} to send its copy": the row's own upload request, so the row reads "request sent…",
+ * the outcome sweep retires the marker when a NEW uploadedFileId arrives, and while it is merely
+ * queued it can be withdrawn. The researcher then chooses Move again — an automatic continue days
+ * later would surprise (plans/move-upload-guards.md §8.4). */
+async function askDeviceToSend(fromId, docId, item, m) {
+  const device = instanceNick(fromId);
+  try {
+    const r1 = await Researcher.triggerUpload(fromId, docId);
+    pendingCmds.set(docId, { seq: r1.seq, kind: 'upload', instanceId: fromId, prevFileId: (item && item.uploadedFileId) || '', at: Date.now() });
+    savePending(Researcher.currentAccountId());
+    if (m) m.close();
+    deps.toast(t('panel.move.askSent', { device }), 9000);
+    renderDashboard(lastData || undefined);
+  } catch (e) { errToast(e); }
+}
+
+/* AFTER A MOVE COMPLETES: did the source send newer work into the folder on its way out?
+ *
+ * The release is upload-FIRST, so a device that changed the text after the copy was chosen (offline
+ * for days, a stale report, the Drive-copy escape hatch) uploads those changes as it lets go — into
+ * the folder, while the destination works on the older copy. Holding the text on the device instead
+ * (G1c) is a maintainer decision and not built; this is the flag: one listing per finished move, a
+ * toast, and a History row the researcher can come back to. A file counts only if it landed after
+ * the move started, is not the copy that was sent, has different bytes, and is not a backup the
+ * DESTINATION itself reports. Best effort — it never blocks or changes anything. */
+async function flagNewerAfterMove(docId, mv) {
+  if (!mv || !mv.to) return;
+  try {
+    const r = await Researcher.listTextFiles(mv.to, docId);
+    const files = r.files || [];
+    const sent = files.find((f) => f.id === mv.sentFileId) || null;
+    const destIds = deviceFileIds(docId);
+    const newer = files.filter((f) => isFlextextName(f) && !hasRole(f, PROTECTED_ROLES) && f.id !== mv.sentFileId
+      && Date.parse(f.modified) > (mv.at || 0) && !destIds.has(f.id) && !(sent && sent.sha256 && f.sha256 === sent.sha256))
+      .sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+    if (!newer.length) return;
+    const from = instanceNick(mv.from), to = instanceNick(mv.to);
+    deps.toast(t('panel.move.newerAfter', { title: mv.title || '?', from, to,
+      when: mv.sentModified ? histWhen(Date.parse(mv.sentModified)) : t('panel.move.whenUnknown') }), 15000);
+    recordEvents(Researcher.currentAccountId(), [{ kind: 'submitted', at: Date.parse(newer[0].modified) || Date.now(),
+      instanceId: mv.from, installId: '', device: from, docId, title: mv.title || '', audioUrl: '',
+      fileId: newer[0].id, afterMove: true }]);
+  } catch { /* best effort — a finished move is never undone by a failed check */ }
+}
+
 /* ── DESTINATIONS, GROUPED BY PROJECT ─────────────────────────────────────────────────────────────
  *
  * Seth, 2026-08-20: a text CAN be moved to a device in another project, but "it's clear in both the
@@ -7777,6 +8069,9 @@ async function moveTextModal(fromId, docId, title) {
   // the source is never removed — but wedged). Devices auto-update, so this resolves itself.
   const insts = ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
   for (const x of insts) x._canReceive = engOf(x) >= 138;
+  // ⚠ A device that already holds the text is not a destination (finding 9): its assign would be a
+  // silent no-op, and the source's release would then remove the newer copy.
+  for (const x of insts) x._holds = instanceHoldsDoc(x, docId);
 
   /* The device gate, run ONLY when a device could be a destination at all. `why` is the reason no
    * device is selectable, shown in place of the ordinary intro so the modal never presents a row of
@@ -7795,32 +8090,55 @@ async function moveTextModal(fromId, docId, title) {
       : src.declaredMissing ? 'panel.move.manifestIncomplete' : 'panel.move.nothingToMove';
   }
   const deviceOk = !why;
-  const firstOk = deviceOk ? insts.find((y) => y._canReceive) : null;
+  const firstOk = deviceOk ? insts.find((y) => y._canReceive && !y._holds) : null;
 
   const opt = (value, label, sub, disabled, checked) => tileOpt('rp-move-to', value, label, sub, disabled, checked);
   const homeProject = projectOfInstance(fromId);
+  const copyCtl = new AbortController();   // cancels the copy check when the modal closes
   /* ⚠ A DISABLED TILE NAMES ITS OWN REASON (#89, Brian Plimley, 2026-10-01). canPick below is
    * `deviceOk && x._canReceive` — two different refusals in one boolean — and the tile used to
    * print tooOldLabel for both, so a current device read "too old" whenever the TEXT was the
    * problem. The version label belongs to the version gate alone; a text refusal points at the
-   * note above, which carries the actual cause (`why`). Used by the flat fallback too. */
-  const blockedSub = (x) => (!x._canReceive ? tooOldLabel(x) : t('panel.move.textBlocked'));
-  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive, true, blockedSub);
+   * note above, which carries the actual cause (`why`). Used by the flat fallback too.
+   * A THIRD refusal since G1: a device that already holds the text (`_holds`), named first. */
+  const blockedSub = (x) => (x._holds ? t('panel.move.holdsCopy') : !x._canReceive ? tooOldLabel(x) : t('panel.move.textBlocked'));
+  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive && !x._holds, true, blockedSub);
 
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
-    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', deviceOk && x._canReceive ? '' : blockedSub(x),
-                           !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
+    ${deviceOk ? `<div class="rp-move-copy"><p class="note">${esc(t('panel.move.checking', { i: 0, n: '…' }))}</p></div>` : ''}
+    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', deviceOk && x._canReceive && !x._holds ? '' : blockedSub(x),
+                           !deviceOk || !x._canReceive || x._holds, deviceOk && x === firstOk)).join('')}
     ${grouped ? '' : opt('__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
     ${grouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
     <button class="primary-btn" data-m="go">${esc(t('panel.move.go'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
-    <div class="rp-adm-say" id="rp-move-say" hidden></div>`);
+    <div class="rp-adm-say" id="rp-move-say" hidden></div>`, false, () => copyCtl.abort());
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  /* G1 — WHICH COPY GOES, decided inside the open modal so a slow link shows its progress here
+   * instead of behind a frozen button. The gate above has already passed or failed; this only
+   * decides what a DEVICE destination receives. Unassigned never waits for it. */
+  let copyUi = null;
+  if (deviceOk) {
+    const box = m.el.querySelector('.rp-move-copy');
+    resolveMoveCopy({ fromId, docId, src, adopt: false, signal: copyCtl.signal,
+      onProgress: (i, n) => { box.innerHTML = `<p class="note">${esc(t('panel.move.checking', { i, n }))}</p>`; } })
+      .then((choice) => { copyUi = paintCopyChoice(box, choice, { device: instanceNick(fromId), files: src.all,
+        onAsk: (item) => askDeviceToSend(fromId, docId, item, m) }); })
+      .catch((err) => { if (!(err && (err.cancelled || err.name === 'AbortError'))) box.innerHTML = `<p class="note rp-adm-err">${esc(t('panel.dl.zipFailed'))}</p>`; });
+  }
   m.el.querySelector('[data-m="go"]').addEventListener('click', async (e) => {
     const to = (m.el.querySelector('input[name="rp-move-to"]:checked') || {}).value;
     if (!to) return;
+    // A device destination needs a copy that may be sent (G1); Unassigned sends nothing to a device.
+    const copyPick = to.startsWith('__unassigned') ? null
+      : (copyUi ? copyUi.pickFile() : { ok: false, why: t('panel.move.stillChecking') });
+    if (copyPick && !copyPick.ok) {
+      const sayEl = m.el.querySelector('#rp-move-say');
+      sayEl.hidden = false; sayEl.className = 'rp-adm-say rp-adm-err'; sayEl.textContent = copyPick.why;
+      return;
+    }
     // ⚠ The second gate: a cross-project move must be said out loud before it happens.
     if (!to.startsWith('__unassigned') && !(await confirmCrossProject(to, homeProject))) return;
     // Filing into ANOTHER project's box is a cross-project act too, and says so by name.
@@ -7880,7 +8198,13 @@ async function moveTextModal(fromId, docId, title) {
          * here — a legacy text's only flextext may still be inside an uploaded zip, and it is the
          * WORKER that extracts it server-side (storeZipEntry). The panel no longer reads zips. */
         const idOf = (f) => (f && f.id) || null;
-        const fields = { to, flextextFileId: idOf(src.picks.flextext), extractFromZipId: idOf(src.picks.bundle),
+        /* ⚠ THE CHOSEN COPY, NEVER `src.picks.flextext` (G1). picks.flextext is the NEWEST .flextext by
+         * upload time — what sent a stale or empty copy over the work. `picks` still drives the
+         * manifest gate unchanged. Exactly one of the two ids is sent: a fallback from a .flextext
+         * to an older zip would be a silent substitution. */
+        const sendFile = copyPick.file || null;
+        const isZip = !!sendFile && /\.zip$/i.test(String(sendFile.name || ''));
+        const fields = { to, flextextFileId: isZip ? null : idOf(sendFile), extractFromZipId: isZip ? idOf(sendFile) : null,
                          audioFileId: idOf(src.audio) };
         stage('panel.move.stepFolder');
         const r = await Researcher.moveText(fromId, docId, fields);
@@ -7897,9 +8221,12 @@ async function moveTextModal(fromId, docId, title) {
         stage('panel.move.stepAssign', { device: toName });
         await Researcher.assign(to, docId, assignFields);
         recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: toName, docId, title,
-          audioUrl: assignFields.audioUrl || '', flextextUrl: assignFields.flextextUrl || '' })]);
+          audioUrl: assignFields.audioUrl || '', flextextUrl: assignFields.flextextUrl || '', fileId: idOf(sendFile) || '' })]);
         stage('panel.move.stepRecord');
-        await saveMoves((cur) => { cur[docId] = { from: fromId, to, title, at: Date.now(), stage: 'assigned' }; return cur; });
+        // sentFileId/sentModified (additive; the moves map is E2EE account settings): what went, so
+        // cleanup protects it while in flight and the finish can tell whether newer work followed.
+        await saveMoves((cur) => { cur[docId] = { from: fromId, to, title, at: Date.now(), stage: 'assigned',
+          sentFileId: idOf(sendFile) || '', sentModified: (sendFile && sendFile.modified) || '' }; return cur; });
         m.close();
         deps.toast(t('panel.move.sent', { device: toName }), 6000);
         renderDashboard();
@@ -8795,8 +9122,10 @@ async function adoptTextModal(docId, title, opts = {}) {
   const textBlocked = () => t('panel.move.textBlocked');
   const adoptGrouped = groupedDestinations(insts, homeProject, adoptOpt, () => deviceOk, !!opts.unassign, textBlocked);
 
+  const copyCtl = new AbortController();   // cancels the copy check when the modal closes
   const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.unassigned.moveIntro' : why))}</p>
+    ${deviceOk ? `<div class="rp-move-copy"><p class="note">${esc(t('panel.move.checking', { i: 0, n: '…' }))}</p></div>` : ''}
     ${adoptGrouped || insts.map((x, i) => tileOpt('rp-adopt-to', x.instance_id, x.nickname || '?', deviceOk ? '' : textBlocked(), !deviceOk, deviceOk && i === 0)).join('')}
     ${opts.unassign && !adoptGrouped ? tileOpt('rp-adopt-to', '__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyCrowd'), false, !deviceOk) : ''}
     ${opts.unassign && adoptGrouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
@@ -8804,9 +9133,21 @@ async function adoptTextModal(docId, title, opts = {}) {
     <div class="modal-actions">
       <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
       <button class="primary-btn" data-m="go">${esc(t('panel.move.btn'))}</button>
-    </div>`);
+    </div>`, false, () => copyCtl.abort());
   const say = m.el.querySelector('.rp-adm-say');
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  /* G1 — the copy to send, chosen from what the copies HOLD. No device holds this text, so there is
+   * no report to trust: the newest readable copy goes unless another holds more content, and then the
+   * researcher chooses (nothing preselected). The history's delivered file id is a label only — it is
+   * one upload behind on exactly the release-then-adopt path (plans/move-upload-guards.md F2). */
+  let copyUi = null;
+  if (deviceOk) {
+    const box = m.el.querySelector('.rp-move-copy');
+    resolveMoveCopy({ fromId: null, docId, src, adopt: true, signal: copyCtl.signal,
+      onProgress: (i, n) => { box.innerHTML = `<p class="note">${esc(t('panel.move.checking', { i, n }))}</p>`; } })
+      .then((choice) => { copyUi = paintCopyChoice(box, choice, { device: '', files: src.all }); })
+      .catch((err) => { if (!(err && (err.cancelled || err.name === 'AbortError'))) box.innerHTML = `<p class="note rp-adm-err">${esc(t('panel.dl.zipFailed'))}</p>`; });
+  }
   m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
     const to = (m.el.querySelector('input[name="rp-adopt-to"]:checked') || {}).value;
     if (!to) return;
@@ -8823,13 +9164,16 @@ async function adoptTextModal(docId, title, opts = {}) {
         renderDashboard();
         return;
       }
-      // The text's own Drive files supply the content, exactly as a move does.
-      const files = (await Researcher.listTextFiles(to, docId).catch(() => null)) || { files: [] };
-      const picks = pickSourceFiles(files.files || []);
+      /* The copy chosen above (G1), never "the newest .flextext" re-listed here — that is the pick
+       * that delivered stale and empty copies. The recording is the role-tagged original, as before. */
+      const copyPick = copyUi ? copyUi.pickFile() : { ok: false, why: t('panel.move.stillChecking') };
+      if (!copyPick.ok) { say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = copyPick.why; return; }
+      const sendFile = copyPick.file || null;
+      const isZip = !!sendFile && /\.zip$/i.test(String(sendFile.name || ''));
       const r = await Researcher.adoptText(to, docId, {
-        flextextFileId: (picks.flextext || {}).id || null,
-        audioFileId: (picks.audio || {}).id || null,
-        extractFromZipId: (picks.bundle || {}).id || null,
+        flextextFileId: sendFile && !isZip ? sendFile.id : null,
+        audioFileId: (src.picks.audio || {}).id || null,
+        extractFromZipId: isZip ? sendFile.id : null,
       });
       if (!r.flextextUrl && !r.audioUrl) {
         say.hidden = false; say.className = 'rp-adm-say rp-adm-err';
@@ -8842,7 +9186,7 @@ async function adoptTextModal(docId, title, opts = {}) {
       const sent = await Researcher.assign(to, docId, fields);
       const nick = (insts.find((x) => x.instance_id === to) || {}).nickname || '?';
       recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: nick, docId, title,
-        audioUrl: fields.audioUrl || '', flextextUrl: fields.flextextUrl || '' })]);
+        audioUrl: fields.audioUrl || '', flextextUrl: fields.flextextUrl || '', fileId: (sendFile && sendFile.id) || '' })]);
       // Same pending marker any assignment gets, so the text is visible while the device fetches it.
       // `fromProject` keeps the source project's Unassigned card listing it until it truly arrives —
       // see the capture at the top of this function and unassignedHomeProject below.
@@ -9486,7 +9830,8 @@ function historyModal() {
       const audio = /^https?:\/\//.test(e.audioUrl || '') ? e.audioUrl : '';
       const up = driveLink(e.fileId);
       const by = kind === 'deleted' && e.by === 'researcher' ? ' ' + t('panel.hist.byResearcher')
-               : kind === 'deleted' ? ' ' + t('panel.hist.byDevice') : '';
+               : kind === 'deleted' ? ' ' + t('panel.hist.byDevice')
+               : kind === 'submitted' && e.afterMove ? ' ' + t('panel.hist.afterMove') : '';
       return `<li class="rp-hist-row rp-hist-${kind}">
         <div class="rp-hist-head">
           <span class="rp-tag rp-hist-k rp-hist-k-${kind}">${esc(t('panel.hist.kind.' + kind))}</span>

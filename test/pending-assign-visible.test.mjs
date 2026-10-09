@@ -128,7 +128,8 @@ console.log('\nthe move path deliberately does NOT double up');
   const moveBlock = panel.slice(moveStart, panel.indexOf('\nfunction ', moveStart + 10));
   /* The marker moved OFF this browser in v391 — an in-flight move belongs to the account, so any
    * panel can see it and finish it. It is still recorded at exactly this point in the flow. */
-  ok(/saveMoves\(\(cur\) => \{ cur\[docId\] = \{ from: fromId, to, title, at: Date\.now\(\), stage: 'assigned' \}; return cur; \}\)/.test(moveBlock),
+  // G1 adds sentFileId/sentModified after `stage` — what went, for cleanup and the after-move check.
+  ok(/saveMoves\(\(cur\) => \{ cur\[docId\] = \{ from: fromId, to, title, at: Date\.now\(\), stage: 'assigned',[\s\S]{0,160}?\}; return cur; \}\)/.test(moveBlock),
      'a move still records its own marker, now in the account store');
   ok(!/kind: 'assign'/.test(moveBlock),
      'and does NOT also set a pendingCmds assign — one wait, one marker');

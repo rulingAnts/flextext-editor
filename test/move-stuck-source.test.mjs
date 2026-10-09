@@ -74,7 +74,7 @@ test('while a move is open, the row that is NOT the source says so and can clear
   assert.match(row, /\(memberCtx \? '' :/, 'though a member, who may not move texts, is offered no clear');
   // the gate itself is unchanged: an open record still hides Move, which is correct while it is open
   const gate = PANEL.slice(PANEL.indexOf('const moveBtn ='), PANEL.indexOf('const moveBtn =') + 260);
-  assert.match(gate, /\(memberCtx \|\| !d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| uploading \|\| wiped\)/,
+  assert.match(gate, /\(memberCtx \|\| !d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| \(uploading && queued\) \|\| wiped\)/,
     'Move stays hidden while a move is genuinely in flight');
 });
 

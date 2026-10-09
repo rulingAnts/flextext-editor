@@ -203,8 +203,12 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
      'and the causes are named separately — a missing manifest is not an incomplete one, and neither is an empty one');
 
   // The commit path must not re-derive what the gate already resolved.
-  ok(/idOf\(src\.picks\.flextext\)/.test(mv) && /idOf\(src\.audio\)/.test(mv),
-     'the assignment reuses the resolved sources rather than listing the folder a second time');
+  /* G1 (plans/move-upload-guards.md): the flextext is the COPY CHOSEN in the modal (copyPick), never
+   * src.picks.flextext — that is "the newest by upload time", the pick that sent stale and empty
+   * copies over the work. The recording is still the gate's own resolved file. */
+  ok(/const sendFile = copyPick\.file \|\| null;/.test(mv) && /idOf\(src\.audio\)/.test(mv)
+     && !/idOf\(src\.picks\.flextext\)/.test(mv),
+     'the assignment sends the chosen copy and reuses the resolved recording, listing nothing a second time');
 
   /* ⚠ THE GATE MUST NOT REACH UNASSIGNED. A device destination is an ASSIGNMENT and needs source
    * material; Unassigned assigns nothing — from a crowd recorder it is a Drive re-parent, from a

@@ -200,8 +200,12 @@ console.log('\none pending command per text — never remove AND upload at once 
      'no Upload control while the text is being removed (incl. the DEVICE-reported pendingDelete)');
   ok(/: uploading \? ''/.test(panel),
      'no Remove control while an upload is queued — uploadDelete would upload the same text twice');
-  ok(/const moveBtn = \(memberCtx \|\| !d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| uploading \|\| wiped\) \? ''/.test(panel),
-     'and no Move either, for the same reason');
+  /* G1 (plans/move-upload-guards.md): Move is withheld while an upload is QUEUED — it has its own
+   * Cancel, so one pending command per text still holds — but not once the device has TAKEN it:
+   * then there is no Cancel, and a device that took "send your copy" and lost signal would hide the
+   * one way out the move modal offers (move the copy already in Drive). */
+  ok(/const moveBtn = \(memberCtx \|\| !d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| \(uploading && queued\) \|\| wiped\) \? ''/.test(panel),
+     'and no Move while that upload is still queued, for the same reason');
   // `deleting` must be computed BEFORE the buttons, or the guards above silently read undefined.
   const iDel = panel.indexOf("const deleting = !!d.pendingDelete");
   const iUp  = panel.indexOf("const up = d.__assigning");

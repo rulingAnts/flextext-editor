@@ -141,7 +141,7 @@ console.log('\na wiped device is a record, not a control surface');
     [/const canSetDone = engNum >= 138 && !wiped && mAssign;/, 'the Done toggle'],   // mAssign = assignTexts cap (v456); the !wiped half is what this pin protects
     [/: \(deleting \|\| wiped\) \? ''/, 'Upload'],
     [/const del = \(!d\.id \|\| d\.__assigning \|\| wiped\) \? ''/, 'the delete control'],
-    [/\|\| uploading \|\| wiped\) \? ''/, 'Move'],
+    [/\|\| \(uploading && queued\) \|\| wiped\) \? ''/, 'Move'],
   ]) ok(re.test(panel), `${what} is withheld once the device has erased itself`);
   // The Drive copies are real and salvaging them is why the row is still shown at all.
   ok(/Files ▾ downloads deliberately stay live/.test(panel), 'but the downloads deliberately stay');

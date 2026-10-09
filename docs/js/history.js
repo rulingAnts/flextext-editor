@@ -116,12 +116,16 @@ export function diffInventory(prev, items, ctx) {
 }
 
 /** Build the 'assigned' event recorded at the moment the researcher sends an assignment. */
-export function assignedEvent({ instanceId, device, docId, title, audioUrl, flextextUrl, at }) {
+/* `fileId` (move-upload-guards F3): the Drive file a move or an adopt actually SENT. For a text the
+ * device has not touched since, that file IS what the device holds — which is how the next move of
+ * it, and cleanup, know which copy that is. Omitted ('') where the delivery had no single file. */
+export function assignedEvent({ instanceId, device, docId, title, audioUrl, flextextUrl, at, fileId }) {
   return {
     kind: 'assigned', at: at || Date.now(),
     instanceId: instanceId || '', installId: '', device: device || '',
     docId: String(docId || ''), title: String(title || ''),
     audioUrl: audioUrl || '', flextextUrl: flextextUrl || '',
+    ...(fileId ? { fileId: String(fileId) } : {}),
   };
 }
 

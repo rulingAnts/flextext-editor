@@ -85,7 +85,7 @@ console.log('\nit cannot be dismissed, and it is escaped');
   const fn = panel.slice(panel.indexOf('function maintenanceBanner'), panel.indexOf('function assignedDocIds'));
   ok(!/dismiss|data-close|localStorage/.test(fn),
      'no dismiss control — a banner you can hide is one you hide before making changes anyway');
-  ok(/esc\(n\.message\)/.test(fn) && /esc\(n\.title/.test(fn) && /esc\(fz\)/.test(fn), 'every operator string is escaped like any other server string');
+  ok(/opsNoticeHtml\(n\.message\)/.test(fn) && /esc\(n\.title/.test(fn) && /esc\(fz\)/.test(fn) && /^function opsNoticeHtml\(text\) \{[\s\S]*?return esc\(text\)/m.test(panel), 'every operator string is escaped like any other server string (opsNoticeHtml escapes FIRST, then links)');
   /* Two banners since the freeze flag (2026-08-26), so "renders nothing when unset" is now
    * structural: an empty accumulator, every banner chunk behind its own if, nothing appended
    * unconditionally. */
@@ -108,6 +108,7 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
     const t = (k) => T[k] || k;
     const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     ${src('opsNotice')}
+    ${src('opsNoticeHtml')}
     ${src('opsNoticeMore')}
     ${src('maintenanceBanner')}
     return maintenanceBanner();`)(value, freeze);
@@ -133,6 +134,15 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
   ok(/<details class="rp-maint-more"><summary>More info<\/summary>/.test(more), 'details render as a collapsed <details> with the localised "More info" summary');
   ok(/Long &lt;version&gt;<br>with two lines\./.test(more), '…escaped, with newlines as line breaks');
   ok(!/<details/.test(plain) && !/<details/.test(headless), 'no details, no toggle');
+  /* Hyperlinks (Seth, 2026-10-10): [label](https://…) and bare https://… become links; nothing else does. */
+  const linked = render(JSON.stringify({ kind: 'maintenance', title: 'T', message: 'Open the [Audio Segmenter](https://audio-segmenter.flextext.app/) or https://app.flextext.app/.', advice: '', details: 'See https://github.com/rulingAnts/flextext-editor/issues/111 (details).' }));
+  ok(/<a href="https:\/\/audio-segmenter\.flextext\.app\/" target="_blank" rel="noopener">Audio Segmenter<\/a>/.test(linked), '[label](url) becomes a link that opens in a new tab');
+  ok(/<a href="https:\/\/app\.flextext\.app\/" target="_blank" rel="noopener">https:\/\/app\.flextext\.app\/<\/a>\./.test(linked), 'a bare URL becomes a link, and its trailing full stop stays outside');
+  ok(/issues\/111" target="_blank" rel="noopener">https:\/\/github\.com\/rulingAnts\/flextext-editor\/issues\/111<\/a> \(details\)\./.test(linked), '…in the More-info text too, with the closing bracket outside');
+  const unsafe = render(JSON.stringify({ kind: 'maintenance', message: 'x [y](javascript:alert(1)) <a href="https://e.com">z</a> [q](https://e.com/" onclick="x)' }));
+  ok(!/javascript:/.test(unsafe.replace(/&quot;/g, '')) || !/<a href="javascript/.test(unsafe), 'a javascript: label-link is NOT a link');
+  ok(!/<a href="https:\/\/e\.com">z<\/a>/.test(unsafe) && /&lt;a href=/.test(unsafe), 'raw HTML in the text stays escaped text');
+  ok(/href="https:\/\/e\.com\/&quot;" target/.test(unsafe) && !/" onclick="/.test(unsafe), 'a quote inside a URL stays an entity inside the href, so it cannot close the attribute');
   ok(/\{not json/.test(render('{not json')), 'text that only looks like JSON is shown as the plain notice it is');
   const noMsg = render(JSON.stringify({ kind: 'notice' }));
   ok(!/rp-opnotice/.test(noMsg) && /\{&quot;kind&quot;/.test(noMsg),

@@ -106,8 +106,9 @@ returns every install's item for the docId. `findInventoryItem` stays for its ex
 `textLines`, `words`, `glossed`, `freeLines`, `timed`); `strictlyRicher(a, b)` additionally needs
 `a` > `b` in at least one. Cleanup trashes a copy a kept copy DOMINATES (so an exact tie goes, as
 today); a move only stops to ask when another copy is STRICTLY RICHER (a tie is not worth a
-question). A copy that has more of ANYTHING than every copy kept is never dominated. Different guid = a different version of the text (for example a fresh
-placeholder that replaced the delivered doc): never compared, each keeps its own best.
+question). A copy that has more of ANYTHING than every copy kept is never dominated. Different
+guid = a different version of the text (for example a fresh placeholder that replaced the delivered
+doc): never compared, each keeps its own best.
 
 ⚠ It is a COUNT comparison. Two copies with equal counts and different wording compare as equal —
 the older one is then trashable, exactly as today, and still recoverable for 30 days. The UI words
@@ -140,9 +141,9 @@ best-effort). Output: `{ decision, file, candidates, why }`.
 | `uploading` | `wait` | "{device} is sending its copy now — try Move again when it shows uploaded ✓" |
 | adopt (no source device) | history fileId if listed and `ok`, else newest `ok` copy | "Will send: …" |
 
-Then, for any `send`: if another checked `ok` copy is strictly richer than the chosen one, or has a different guid
-and more lines with text or more words (the "device holds a fresh placeholder, Drive holds the
-transcription" case), the decision becomes `pick`: the modal lists the candidates (date, lines with
+Then, for any `send`: if another checked `ok` copy is strictly richer than the chosen one, or has a
+different guid and more lines with text or more words (the "device holds a fresh placeholder, Drive
+holds the transcription" case), the decision becomes `pick`: the modal lists the candidates (date, lines with
 text, words, timed, and which is "{device}'s current copy" / "newest in Drive"), **with no
 preselection**, and Move stays disabled for device destinations until one is chosen. This fires
 only in the anomaly case, so the ordinary move costs no extra click.
@@ -281,8 +282,8 @@ built for pre-v137 texts split across two folders. Its four callers:
 
 Nothing a move can use is lost: the move gate requires a manifest, and manifests arrived with v336
 (2026-08-12), after the v137 identity fix — so in practice a split legacy text was never movable,
-and the bridge only ever added foreign files to a manifest-gated text. Same-title texts are common (one recording assigned twice, numbered
-recording names), which is how the confirmed case happened.
+and the bridge only ever added foreign files to a manifest-gated text. Same-title texts are common
+(one recording assigned twice, numbered recording names), which is how the confirmed case happened.
 
 Tests: `test/bridge-display-only.test.mjs` — static: `moveSources` and the histclean handler never
 call `bridgedIds`; `populateFilesMenu` computes `pickSourceFiles` and `cleanupCandidates` over

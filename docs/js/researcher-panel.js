@@ -8891,16 +8891,15 @@ function opsNotice(raw) {
     try {
       const o = JSON.parse(s);
       if (o && typeof o.message === 'string' && o.message.trim()) {
-        return {
-          kind: o.kind === 'notice' ? 'notice' : 'maintenance',
-          title: typeof o.title === 'string' ? o.title.trim() : '',
-          message: o.message.trim(),
-          advice: typeof o.advice === 'string' && o.advice.trim() ? o.advice.trim() : '',
-        };
+        /* null = the key is ABSENT → the panel's own (localised) default line. An EMPTY string is the
+         * operator's choice to have no such line at all (Seth, 2026-10-10: the heading and the advice
+         * are workflow fields, pre-filled with the defaults, editable or blankable). */
+        const str = (k) => (typeof o[k] === 'string' ? o[k].trim() : null);
+        return { kind: o.kind === 'notice' ? 'notice' : 'maintenance', title: str('title'), message: o.message.trim(), advice: str('advice') };
       }
     } catch { /* not JSON after all — the plain-text notice below */ }
   }
-  return { kind: 'maintenance', title: '', message: s, advice: '' };
+  return { kind: 'maintenance', title: null, message: s, advice: null };
 }
 function maintenanceBanner() {
   /* Two independent flags (Seth, 2026-08-26): `maintenance` is a banner and nothing else; `freeze`
@@ -8925,10 +8924,12 @@ function maintenanceBanner() {
         ${n.advice ? `<div class="note">${esc(n.advice)}</div>` : ''}
       </div>`;
     } else {
+      const title = n.title === null ? t('panel.maint.title') : n.title;
+      const advice = n.advice === null ? t('panel.maint.advice') : n.advice;
       out += `<div class="rp-maint" role="status">
-        <strong>${esc(n.title || t('panel.maint.title'))}</strong>
+        ${title ? `<strong>${esc(title)}</strong>` : ''}
         <div>${esc(n.message)}</div>
-        <div class="note">${esc(n.advice || t('panel.maint.advice'))}</div>
+        ${advice ? `<div class="note">${esc(advice)}</div>` : ''}
       </div>`;
     }
   }

@@ -120,14 +120,40 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
   const bare = render(JSON.stringify({ kind: 'notice', message: 'Just this.' }));
   ok(!/<strong>/.test(bare) && /Just this\./.test(bare) && !/class="note"/.test(bare), 'a notice with no title or advice is just the message');
   const titled = render(JSON.stringify({ kind: 'maintenance', title: 'Drive is slow', message: 'Uploads may lag.' }));
-  ok(/<strong>Drive is slow<\/strong>/.test(titled) && /Please avoid making changes\./.test(titled), 'a titled maintenance notice keeps the standard advice');
+  ok(/<strong>Drive is slow<\/strong>/.test(titled) && /Please avoid making changes\./.test(titled), 'a titled maintenance notice keeps the standard advice when advice is ABSENT');
+  /* The workflow's three fields (Seth, 2026-10-10): a key PRESENT but empty is the operator blanking that
+   * line; absent is the default. So the v714 apology can go out with a title of its own and NO advice. */
+  const blanked = render(JSON.stringify({ kind: 'maintenance', title: 'Sorry', message: 'Some texts need re-cutting.', advice: '' }));
+  ok(/<strong>Sorry<\/strong>/.test(blanked) && !/Please avoid making changes|class="note"/.test(blanked), 'advice "" = no last line at all');
+  const headless = render(JSON.stringify({ kind: 'maintenance', title: '', message: 'Just the message.', advice: '' }));
+  ok(!/<strong>/.test(headless) && !/Maintenance in progress|class="note"/.test(headless) && /Just the message\./.test(headless), 'title "" and advice "" = the message alone');
   ok(/\{not json/.test(render('{not json')), 'text that only looks like JSON is shown as the plain notice it is');
   const noMsg = render(JSON.stringify({ kind: 'notice' }));
   ok(!/rp-opnotice/.test(noMsg) && /\{&quot;kind&quot;/.test(noMsg),
      'JSON without a message is not a notice — it is shown as plain text, never silently dropped');
   ok(/&lt;b&gt;x&lt;\/b&gt;/.test(render(JSON.stringify({ kind: 'notice', title: '<b>x</b>', message: 'm' }))), 'a notice title is escaped');
-  ok(render('') === '', 'no flag: no banner');
   ok(/Locked/.test(render(JSON.stringify({ kind: 'notice', message: 'm' }), 'frozen')), 'the write-lock banner still leads');
+  ok(render('') === '', 'no flag: no banner');
+}
+
+console.log('\nthe workflow owns all three lines, pre-filled with the panel\'s own defaults');
+{
+  const yml = rd('.github/workflows/maintenance-notice.yml');
+  const i18n = rd('docs/js/i18n.js');
+  const def = (k) => (yml.match(new RegExp(`      ${k}:\\n(?:        .*\\n)*?        default: "([^"]*)"`)) || [])[1];
+  const en = (k) => (i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`)) || [])[1];
+  ok(def('title') === 'Maintenance in progress' && def('title') === en('panel.maint.title'), `title default is the panel\'s own heading: "${def('title')}"`);
+  ok(!!def('advice') && def('advice') === en('panel.maint.advice'), 'advice default is the panel\'s own advice line, word for word');
+  ok(!!def('message'), 'the message is pre-filled too');
+  ok(/const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE;/.test(yml), 'plain text while heading and advice are the defaults — older panels keep working');
+  ok(/JSON\.stringify\(\{ kind: "maintenance", title, message: msg, advice \}\)/.test(yml), 'otherwise JSON with all three keys present (empty = that line dropped)');
+  ok(/if: steps\.compose\.outputs\.structured == '1'/.test(yml) && /-lt 715/.test(yml) && /research\.flextext\.app\/sw\.js/.test(yml),
+     '⚠ a custom heading or advice is refused while the LIVE panel is older than v715 (it would print the JSON raw)');
+  ok(!/^\s*kind:/m.test(yml.split('jobs:')[0]), 'no "kind" input — the three text fields are the whole interface');
+  const on = yml.slice(yml.indexOf('\non:'), yml.indexOf('\njobs:'));
+  ok(!/^\s*(push|schedule):/m.test(on), 'manual only, no push or schedule trigger');
+  ok(/slice\(0, 4000\)/.test(worker) && !/slice\(0, 500\)/.test(worker.slice(worker.indexOf('let maintenance = null'), worker.indexOf('const approved = isApproved'))),
+     'the worker passes 4000 characters through (500 cut the bilingual v714 apology mid-sentence, and would cut any JSON)');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

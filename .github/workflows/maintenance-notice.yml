@@ -2,6 +2,9 @@
 # so nobody has to remember it or dig it out of a chat log at the moment they need it.
 #
 # What it does: sets or clears the `maintenance` row in the `ops_flag` table (worker/migrate-ops-flag.sql).
+# Since v715 all three lines of the banner are the operator's (Seth, 2026-10-10): `title`, `message` and
+# `advice` are pre-filled with the defaults and can be edited or blanked. Left at the defaults, the message
+# is stored as plain text and behaves exactly as it always did.
 # The worker returns it on GET /v1/researcher, which the researcher dashboard already polls every 12s,
 # so the banner appears and disappears within one tick. No deploy, no release.
 #
@@ -21,10 +24,28 @@ on:
         type: choice
         default: status
         options: [status, raise, clear]
-      message:
-        description: "Notice text (only used by 'raise'; leave blank for the default)"
+      # ⚠ ALL THREE LINES OF THE BANNER ARE YOURS (Seth, 2026-10-10: "the heading and the 'please avoid…'
+      # footer should be text specified in the workflow … default, but customizable"). Each field is
+      # pre-filled with the default; edit it, or blank it to drop that line. While title and advice are
+      # still exactly the defaults the message is stored as PLAIN TEXT, which every panel version shows
+      # under its own (localised) heading and advice — byte-identical to before. Change either and the
+      # three are stored as JSON, which needs the live panel at v715 or later: the guard step below reads
+      # the live panel's version and refuses rather than let an older panel print a JSON blob.
+      title:
+        description: "Heading (raise only). Blank = no heading."
         required: false
         type: string
+        default: "Maintenance in progress"
+      message:
+        description: "Message (raise only)"
+        required: false
+        type: string
+        default: "Backend maintenance is in progress. You may see an outage or a glitch."
+      advice:
+        description: "Last line (raise only). Blank = no last line."
+        required: false
+        type: string
+        default: "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected."
 jobs:
   flag:
     runs-on: ubuntu-latest
@@ -37,26 +58,58 @@ jobs:
       # the run or store a truncated notice. Doubling quotes is the SQL-standard escape, and doing it
       # in node keeps the message out of shell word-splitting entirely.
       - name: Compose the statement
+        id: compose
         env:
           FX_ACTION: ${{ inputs.action }}
+          FX_TITLE: ${{ inputs.title }}
           FX_MSG: ${{ inputs.message }}
+          FX_ADVICE: ${{ inputs.advice }}
         run: |
           node -e '
             const act = process.env.FX_ACTION || "status";
-            const dflt = "Backend maintenance is in progress. You may see an outage or a glitch — "
-                       + "please avoid making changes in the researcher panel until this notice disappears. "
-                       + "Your devices and their texts are not affected.";
-            const msg = (process.env.FX_MSG || "").trim() || dflt;
+            /* The same words as the panel (i18n panel.maint.title / .advice, English), so "left as it was"
+             * is detectable: test/maintenance-notice.test.mjs pins the two to i18n.js. */
+            const DEFAULT_TITLE = "Maintenance in progress";
+            const DEFAULT_ADVICE = "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected.";
+            const DEFAULT_MSG = "Backend maintenance is in progress. You may see an outage or a glitch.";
+            const title = (process.env.FX_TITLE || "").trim();
+            const advice = (process.env.FX_ADVICE || "").trim();
+            const msg = (process.env.FX_MSG || "").trim() || DEFAULT_MSG;
+            /* Plain text while the heading and the last line are the defaults: every panel version shows
+             * that under its own localised lines. Otherwise JSON, which the panel (researcher-panel.js
+             * opsNotice) reads as { title, message, advice } — a key present but empty means "no such
+             * line". A plain message that merely BEGINS with "{" is padded so it cannot pass for JSON. */
+            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE;
+            const value = custom
+              ? JSON.stringify({ kind: "maintenance", title, message: msg, advice })
+              : (msg[0] === "{" ? " " + msg : msg);
             const q = (s) => "\x27" + String(s).replace(/\x27/g, "\x27\x27") + "\x27";
             const sql = act === "raise"
-              ? `INSERT OR REPLACE INTO ops_flag (key,value,updated_at) VALUES (${q("maintenance")},${q(msg)},strftime(${q("%s")},${q("now")})*1000);`
+              ? `INSERT OR REPLACE INTO ops_flag (key,value,updated_at) VALUES (${q("maintenance")},${q(value)},strftime(${q("%s")},${q("now")})*1000);`
               : act === "clear"
               ? `DELETE FROM ops_flag WHERE key=${q("maintenance")};`
               : `SELECT key, value, updated_at FROM ops_flag WHERE key=${q("maintenance")};`;
             require("fs").writeFileSync("/tmp/ops-flag.sql", sql + "\n");
-            console.log("action:", act);
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "structured=" + (act === "raise" && custom ? "1" : "0") + "\n");
+            console.log("action:", act, "| custom heading/advice:", custom, "| value length:", value.length);
             console.log(sql);
           '
+
+      # ⚠ A STRUCTURED NOTICE ON A PANEL THAT CANNOT READ IT IS WORSE THAN NO NOTICE: v714 and earlier
+      # print the value verbatim, so researchers would see a JSON blob under "Maintenance in progress".
+      # The live panel version is one GET away (its sw.js, served with no-store and CORS *), so read it
+      # and refuse. The legacy GitHub Pages panel is not checked: it stopped receiving updates at v432,
+      # carries a deprecation banner, and would otherwise block this for ever.
+      - name: "Refuse a custom heading or advice the live panel cannot read"
+        if: steps.compose.outputs.structured == '1'
+        run: |
+          set -euo pipefail
+          live=$(curl -fsS --max-time 20 https://research.flextext.app/sw.js | grep -oE "const VERSION = 'v[0-9]+'" | grep -oE '[0-9]+' | head -1 || true)
+          echo "live researcher panel: v${live:-?}"
+          if [ -z "$live" ] || [ "$live" -lt 715 ]; then
+            echo "::error::The live researcher panel is v${live:-unknown}; a custom heading or last line needs v715 or later (it is stored as JSON, which an older panel prints raw). Release the panel first, or leave those two fields at their defaults."
+            exit 1
+          fi
 
       - name: "Apply to the LIVE database"
         env:

@@ -211,6 +211,7 @@ export class DriveUpload {
       docModified: this.rec.docModified,
       docSig: this.rec.docSig,     // content signature of the queued bundle (proof-of-backup)
       docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
+      sha256: this.rec.sha256 || '',   // G5: hash of the bytes sent (Lane B text), stamped as uploadedSha256
     });
   }
 

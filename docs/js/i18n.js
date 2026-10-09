@@ -380,6 +380,9 @@ en: {
   'upload.paused': 'Upload paused — {pct}% sent. It will continue from here.',
   'upload.error': 'Upload problem: {msg}',
   'upload.done': 'Uploaded to Google Drive: {name}',
+  /* G5 (plans/move-upload-guards.md): a copy is checked when it is queued and again before it is sent. */
+  'upload.buildFailed': 'This text could not be prepared for sending. It is still saved on this device.',
+  'upload.damagedHeld': 'A queued copy was damaged and could not be sent. The text is still on this device; it will be tried again later.',
   'upload.retry': 'Retry',
   'upload.cancel': 'Cancel the upload',
   'upload.more': '{n} more waiting',
@@ -3291,6 +3294,8 @@ id: {
   'upload.paused': 'Pengiriman dijeda — {pct}% sudah terkirim. Nanti dilanjutkan dari sini.',
   'upload.error': 'Masalah pengiriman: {msg}',
   'upload.done': 'Terkirim ke Google Drive: {name}',
+  'upload.buildFailed': 'Teks ini tidak dapat disiapkan untuk dikirim. Teks tetap tersimpan di perangkat ini.',
+  'upload.damagedHeld': 'Salinan dalam antrean rusak dan tidak dapat dikirim. Teks tetap ada di perangkat ini; nanti akan dicoba lagi.',
   'upload.retry': 'Coba lagi',
   'upload.cancel': 'Batalkan pengiriman',
   'upload.more': '{n} lagi menunggu',

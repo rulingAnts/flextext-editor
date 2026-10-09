@@ -5,7 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords,
+  mergePhrases, baselineFromWords, checkFlextextBytes,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
@@ -5086,7 +5086,7 @@ async function autoBackupSweep() {
     const tried = autoBackupTried.get(d.id);
     if (tried && tried.sig === sig && nowT - tried.at < 30 * 60000) continue;
     autoBackupTried.set(d.id, { sig, at: nowT });
-    await uploadDocById(d.id);                                     // one-at-a-time pump takes it from here
+    await uploadDocById(d.id, { auto: true });                     // one-at-a-time pump takes it from here
   }
 }
 
@@ -5406,6 +5406,9 @@ async function syncGatherInventory() {
    * an original is "<key>:<slot>" and would not match a doc id. */
   const stillUploading = new Set();
   for (const it of await listPendingUploads().catch(() => [])) {
+    // G5: a held damaged copy is not "still uploading" — it would pin the text at 'uploading' for
+    // good, which is what blocks a move ("is sending now") on a queue that will never send.
+    if (it && it.rec && it.rec.damaged) continue;
     const id = (it && it.rec && it.rec.docId) || (it && it.docId) || '';
     if (id) stillUploading.add(id);
   }
@@ -5442,6 +5445,8 @@ async function syncGatherInventory() {
         ? 'uploading'
         : (backed ? ((d.uploadedModified === d.modified || (d.uploadedSig && d.uploadedSig === uploadContentSig(d))) ? 'uploaded' : 'changed') : 'local'),
       uploadedFileId: d.uploadedFileId || null,
+      // G5: the hash of the bytes this device sent as uploadedFileId; the panel compares it with Drive's.
+      uploadedSha256: d.uploadedSha256 || null,
       // Which mic this take came from + whether it is archive grade (native captures only; null
       // everywhere else). E2EE like the rest of the inventory. Lets a researcher audit provenance
       // long after the fact, and see at a glance whether a deployed USB mic is actually being used
@@ -6121,11 +6126,35 @@ function docFilename(rec) {
 
 // Queue a doc for upload BY ID — works whether or not it is the open doc, so a researcher
 // can trigger an upload remotely (triggerUpload command) without the coworker pressing Upload.
-async function uploadDocById(docId) {
+/* `opts.auto` — the automatic sweep, which must stay silent; `opts.rebuilds` — how many times the
+ * send-time check has already rebuilt this text's queued copy (G5's cap rides in the record). */
+async function uploadDocById(docId, opts = {}) {
   const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
   if (!rec) return false;
   const bundle = await buildBundleFor(rec, true); // Lane B bare flextext; timestamped: Drive never overwrites
+  /* G5 (plans/move-upload-guards.md): CHECK WHAT IS QUEUED, AND REMEMBER ITS HASH. A queued copy sat
+   * six days in IndexedDB and reached Drive as 489 bytes of NUL — and, being newest, became the copy a
+   * move or a cleanup would pick. The hash taken here is what pumpUploads checks again before sending.
+   * ⚠ STRUCTURAL ONLY (checkFlextextBytes): a fresh build is never refused for an awkward character —
+   * this is the only backup of someone's work. A build that fails is not queued; an explicit send
+   * says so, the automatic sweep stays silent and tries again after its back-off. A researcher's
+   * remove-after-upload intent (pendingUpDel) is left in place: the text is never deleted without a
+   * confirmed upload, and the next send or sweep retries it. */
+  let sha256 = '';
+  if (/\.flextext$/i.test(String(bundle.filename || ''))) {
+    let buf = null;
+    try { buf = await bundle.blob.arrayBuffer(); } catch { buf = null; }
+    const chk = buf ? checkFlextextBytes(new TextDecoder().decode(buf)) : { ok: false, reason: 'unreadable' };
+    if (!chk.ok) {
+      console.warn('upload: a freshly built copy failed its check and was not queued:', docId, chk.reason);
+      if (!opts.auto) toast(t('upload.buildFailed'), 9000);
+      return false;
+    }
+    sha256 = await bytesSha256(buf);
+  }
   await db.putMedia('upload:' + docId, {
+    sha256,                                   // G5: what pumpUploads re-checks before the bytes leave
+    rebuilds: opts.rebuilds || 0,             // G5: send-time rebuilds so far (capped)
     blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
     total: bundle.blob.size, sent: 0,
     // Wire identity: upload.js sends rec.docId when present, else its queue key. Lane B's key IS
@@ -6521,7 +6550,13 @@ function uploadState(docId) {
           // too (if this doc is open) — else the next persist() would write
           // `current` back and silently drop these markers.
           const stamp = (d) => {
-            if (st.fileId) d.uploadedFileId = st.fileId;
+            if (st.fileId) {
+              d.uploadedFileId = st.fileId;
+              /* G5: the SHA-256 of the bytes just sent, so the panel can compare it with the one Drive
+               * lists and tell a copy damaged on the way. Always rewritten with the id — a stale hash
+               * beside a new id would read as damage. '' when the queued record carried none. */
+              d.uploadedSha256 = st.sha256 || '';
+            }
             if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
             // What's on Drive is the QUEUED content — stamp its sig, not the doc's current one
             // (an edit mid-upload must read as "changed", not get certified by its own upload).
@@ -6573,6 +6608,67 @@ function uploadState(docId) {
   };
 }
 
+/* ── G5: A QUEUED COPY IS CHECKED BEFORE IT LEAVES (plans/move-upload-guards.md) ───────────────── */
+async function bytesSha256(buf) {
+  try {
+    const d = await crypto.subtle.digest('SHA-256', buf);
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return ''; }   // no subtle crypto (an insecure context): the structural check still runs
+}
+/* Lane B only — the bare .flextext. Recordings (Lane A, 'media:' keys) are not hashed: a whole-file
+ * digest of a long WAV is exactly the memory spike the field phones cannot afford. */
+function isQueuedText(key, rec) {
+  return !String(key).startsWith('media:') && (rec && rec.lane) !== 'media' && /\.flextext$/i.test(String((rec && rec.name) || ''));
+}
+const QUEUE_CHECK_WHOLE = 64 * 1024 * 1024;
+/* → { ok, reason, blob }. Whole-file up to 64 MB (every real .flextext): size, structure, and the hash
+ * taken at queue time; `blob` is an in-memory copy of exactly the checked bytes. Above that, only the
+ * head is checked and the stored blob is sent as before. A record from an older engine carries no
+ * hash and gets the structural check alone. */
+async function verifyQueuedText(rec) {
+  if ((rec.total || rec.blob.size || 0) > QUEUE_CHECK_WHOLE) {
+    let head = '';
+    try { head = new TextDecoder().decode(await rec.blob.slice(0, 65536).arrayBuffer()); } catch { return { ok: false, reason: 'unreadable' }; }
+    if (head.indexOf('\u0000') >= 0) return { ok: false, reason: 'nul' };
+    return { ok: true, reason: '', blob: null };
+  }
+  let buf = null;
+  try { buf = await rec.blob.arrayBuffer(); } catch { buf = null; }
+  if (!buf) return { ok: false, reason: 'unreadable' };
+  if (rec.total != null && buf.byteLength !== rec.total) return { ok: false, reason: 'size' };
+  const chk = checkFlextextBytes(new TextDecoder().decode(buf));
+  if (!chk.ok) return { ok: false, reason: chk.reason };
+  if (rec.sha256) {
+    const h = await bytesSha256(buf);
+    if (h && h !== rec.sha256) return { ok: false, reason: 'hash' };
+  }
+  return { ok: true, reason: '', blob: new Blob([buf], { type: rec.mime || 'application/xml' }) };
+}
+/* A queued copy failed its check. The text still exists → rebuild its copy from what it holds NOW
+ * (uploadDocById overwrites the record; a half-done chunked session is simply abandoned), at most
+ * QUEUE_REBUILD_MAX times — storage that keeps damaging what it stores must not loop on battery.
+ * Otherwise HOLD it: ⚠ NEVER deleteMedia. A held copy whose text still exists shows in the tray and
+ * is re-read after a back-off (a read can fail once and work later); one whose text is gone holds
+ * nothing to send and nothing anyone can act on, so it is kept out of the tray rather than shown as
+ * a failure the coworker cannot fix. */
+const QUEUE_REBUILD_MAX = 2;
+const DAMAGED_RETRY_MS = 6 * 3600000;
+async function rebuildOrHoldQueued(key, rec, reason) {
+  const docId = rec.docId || key;
+  const doc = await db.getDoc(docId).catch(() => null);
+  const n = rec.rebuilds || 0;
+  console.warn('upload: a queued copy failed its check:', docId, reason);
+  if (doc && n < QUEUE_REBUILD_MAX) {
+    uploadView.delete(key);                    // release the claim; uploadDocById re-queues the text
+    try { if (await uploadDocById(docId, { auto: true, rebuilds: n + 1 })) return; } catch { /* fall through to hold */ }
+  }
+  await db.putMedia('upload:' + key, { ...rec, damaged: reason, damagedAt: Date.now(), damagedOrphan: !doc }).catch(() => {});
+  if (doc) uploadView.set(key, { name: rec.name, status: 'error', error: t('upload.damagedHeld') });
+  else uploadView.delete(key);
+  renderUploadQueue();
+  pumpUploads();
+}
+
 // Start the next waiting upload if nothing is currently uploading or paused.
 // Claims the slot synchronously (status -> 'uploading') so re-entrant calls
 // can't double-start, then fetches the blob and launches.
@@ -6606,13 +6702,25 @@ function pumpUploads() {
   const [docId, v] = next;
   uploadView.set(docId, { ...v, status: 'uploading', indeterminate: true });
   renderUploadQueue();
-  db.getMedia('upload:' + docId).then((rec) => {
+  db.getMedia('upload:' + docId).then(async (rec) => {
     // The slot may have been cancelled/deleted during this async read — only
     // proceed if the entry is still present and still ours to upload.
     const cur = uploadView.get(docId);
     if (!cur || cur.status !== 'uploading') return;
     if (!rec || !rec.blob) { // record vanished — drop it
       uploadView.delete(docId); renderUploadQueue(); pumpUploads(); return;
+    }
+    /* G5: a queued TEXT is checked before it leaves, and the bytes that pass are the bytes sent —
+     * the checked buffer becomes the upload body, so a second read of the stored blob (which the
+     * repo has seen fail once and work later) can never put different bytes on the wire. */
+    if (isQueuedText(docId, rec)) {
+      const v = await verifyQueuedText(rec);
+      const again = uploadView.get(docId);
+      if (!again || again.status !== 'uploading') return;            // cancelled or paused meanwhile
+      if (!v.ok) { await rebuildOrHoldQueued(docId, rec, v.reason); return; }
+      if (v.blob) rec.blob = v.blob;
+      // A held copy that now reads whole goes out as an ordinary upload (its retries are no longer slow).
+      if (rec.damaged) { delete rec.damaged; delete rec.damagedAt; delete rec.damagedOrphan; }
     }
     new DriveUpload(docId, rec, uploadState(docId)).start();
   }).catch(() => {
@@ -6635,6 +6743,20 @@ async function retryPendingUploads() {
   const ids = new Set(pending.map((p) => p.docId));
   for (const { docId, rec } of pending) {
     const v = uploadView.get(docId);
+    /* G5: a HELD damaged copy is not an ordinary failure. Its text gone → kept, never shown (it holds
+     * nothing to send). Its text still here → shown as an error and re-read only after a back-off,
+     * with one more rebuild allowed — never reset to 'waiting' every 90 s like a dropped connection. */
+    if (rec.damaged) {
+      if (rec.damagedOrphan) { uploadView.delete(docId); continue; }
+      const due = paired && Date.now() - (rec.damagedAt || 0) > DAMAGED_RETRY_MS;
+      if (due) {
+        await db.putMedia('upload:' + docId, { ...rec, rebuilds: QUEUE_REBUILD_MAX - 1, damagedAt: Date.now() }).catch(() => {});
+        uploadView.set(docId, { name: rec.name, status: 'waiting' });
+      } else if (!v || v.status !== 'uploading') {
+        uploadView.set(docId, { name: rec.name, status: 'error', error: t('upload.damagedHeld') });
+      }
+      continue;
+    }
     if (!v) uploadView.set(docId, { name: rec.name, status: rec.paused ? 'paused' : 'waiting' });
     // The error→waiting reset IS the retry, so it is the thing an unpaired device withholds.
     else if (v.status === 'error' && paired) uploadView.set(docId, { ...v, status: 'waiting' });

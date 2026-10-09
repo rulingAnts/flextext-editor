@@ -121,7 +121,8 @@ ok(/isAudioLocked\(rec\)/.test(swap) && /sat\.audioLocked/.test(swap),
    'swapping refuses a recording that came from a researcher task link');
 /* ⚠ Replacing the audio MUST clear the alignment: every span is a pair of times into the OLD
  * recording, and against a different file they are not approximately right, they are meaningless. */
-ok(/fresh\.doc\.segments = \[\]/.test(swap), 'and it clears the cuts, which are times into the old recording');
+ok(/forgetAlignment\(fresh\.doc\)/.test(swap),
+   'and it clears the cuts, which are times into the old recording — doc.segments AND the offsets an import carries (forgetAlignment)');
 ok(/sat\.replaceLosesCuts/.test(swap) && /confirmDialog/.test(swap), 'saying so BEFORE doing it, with the count');
 ok(/deleteMedia\('segwav:' \+ id\)/.test(swap),
    'the derived WAV working copy goes too — it is a conversion of the OLD file and would keep being preferred');

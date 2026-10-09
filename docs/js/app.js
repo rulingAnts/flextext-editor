@@ -4,8 +4,8 @@ import {
   parseFlextext, serializeFlextext, makeDoc, makeWord, makeSegment,
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
-  surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords,
+  surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, wsFixerFile,
+  mergePhrases, baselineFromWords, placeRecordingEntry, removeRecordingEntry, forgetAlignment,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
@@ -2469,8 +2469,11 @@ function getPlayer() {
         playerReadyFor = null;   // the decoded buffer no longer corresponds to ANY stored audio
         delete current.pendingAudio;
         delete current.audioSource;
+        // The app's own entry goes with the recording; an entry the text arrived with stays — it is
+        // FLEx's, and still names the recording the text's times were measured on.
+        removeRecordingEntry(current.doc, { guid: current.mediaGuid, adopted: !!current.mediaAdopted });
         delete current.mediaGuid;
-        current.doc.mediaXML = [];
+        delete current.mediaAdopted;
         await persist();
         refreshPlayer();
       },
@@ -2596,13 +2599,18 @@ async function refreshPlayer() {
   }
 }
 
-// Ensure the exported flextext references the attached audio.
-function ensureMediaRef(rec, name, sourceUrl) {
-  if (!rec.mediaGuid) rec.mediaGuid = mkGuid();
+/* Ensure the exported flextext references the attached audio. ⚠ It never replaces a block the text
+ * arrived with: placeRecordingEntry (flextext.js) adopts the imported entry for the recording, or adds
+ * one beside it, and the writers link every timed phrase to rec.mediaGuid. Replacing the block threw
+ * FLEx's own entry away the moment an assigned recording finished downloading. opts.replacing: a
+ * DIFFERENT file is taking the old one's place (satReplaceAudio), so an adopted entry — which names
+ * the old file — is not reused. */
+function ensureMediaRef(rec, name, sourceUrl, opts = {}) {
   const location = sourceUrl && isProbablyUrl(sourceUrl) ? sourceUrl : (name || 'audio');
-  rec.doc.mediaXML = [
-    `<media-files offset-type="milliseconds">\n  <media guid="${esc(rec.mediaGuid)}" location="${esc(location)}" />\n</media-files>`,
-  ];
+  const r = placeRecordingEntry(rec.doc, { guid: rec.mediaGuid, adopted: !!rec.mediaAdopted, name: name || '',
+    location, replacing: !!opts.replacing });
+  rec.mediaGuid = r.guid;
+  if (r.adopted) rec.mediaAdopted = true; else delete rec.mediaAdopted;
 }
 
 // Transcriber-initiated: pick an audio file, get a new text with the
@@ -5921,7 +5929,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() });
+  const xml = serializeFlextext(current.doc, settings, { mediaGuid: current.mediaGuid, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -6110,13 +6118,14 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
 
 // Serialize a doc record to a .flextext XML blob (DOM-free; mirrors exportBlob without the DOM).
 // mediaName names the recording the timed phrases link to through flextext's native media-files
-// block (FLEx keeps no time without that link); timestamps also ride as note items either way.
+// block (FLEx keeps no time without that link), and rec.mediaGuid is that recording's entry when the
+// app wrote or adopted one (ensureMediaRef); timestamps also ride as note items either way.
 function serializeDocBlob(rec, mediaName) {
   const doc = rec.doc;
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
-  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() })], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName, mediaGuid: rec.mediaGuid, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() })], { type: 'application/xml' });
 }
 
 function docFilename(rec) {
@@ -8141,7 +8150,7 @@ function wireFileExporter() {
      * carries offsets — the same call the panel and the editor already make on import. */
     doc.segments = segmentsFromOffsets(doc) || [];
     st.doc = doc;
-    st.ftBlob = f;                                  // byte-for-byte; never re-serialized
+    st.ftBlob = f;                                  // never re-serialized; the .flextext row adds only media links (linkFlextextBlob)
     st.ftName = f.name;
     st.base = sanitizeBase(doc.title || f.name.replace(/\.[^.]+$/, '')) || 'text';
     if (parsed.texts.length > 1) say(t('exp.multiText', { n: parsed.texts.length }), 'warn');
@@ -8420,15 +8429,17 @@ function setupResearch() {
     const mappings = $$('#wscheck-rows .ws-newcode')
       .filter(inp => inp.value.trim())
       .map(inp => ({ selector: inp.dataset.selector, fromLang: inp.dataset.fromLang, toLang: inp.value.trim() }));
-    const xml = '<?xml version="1.0" encoding="utf-8"?>\n' +
-      remapWritingSystems(wsState.dom, mappings).replace(/^<\?xml[^>]*\?>\s*/i, '');
+    // The file goes out ready for FLEx: codes remapped AND every timed phrase linked to its recording
+    // (wsFixerFile). `linked` keeps the toast true — "as-is" only when nothing at all was added.
+    const { xml, linked } = wsFixerFile(remapWritingSystems(wsState.dom, mappings),
+      mediaNameFor(wsState.filename.replace(/\.(flextext|xml|txt)$/i, ''), null));
     const blob = new Blob([xml], { type: 'application/xml' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = wsState.filename.replace(/(\.flextext|\.xml)?$/i, (m) => m || '.flextext');
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    toast(mappings.length ? t('toast.corrected') : t('toast.noChanges'));
+    toast(mappings.length ? t('toast.corrected') : t(linked ? 'toast.noChangesLinked' : 'toast.noChanges'));
   });
 }
 
@@ -9179,7 +9190,11 @@ async function satReplaceAudio(id) {
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
   if (isAudioLocked(rec)) { toast(t('sat.audioLocked'), 8000); return; }
-  const spans = docSegments(rec.doc).filter((x) => x && !x.timePending).length;
+  /* Every cut counts — including the times an imported text still carries only on its phrases (one
+   * not opened since it arrived has no doc.segments yet). Counting doc.segments alone said "no cuts"
+   * about those, asked nothing, and left the times in place to come back on the next open. */
+  const held = docSegments(rec.doc).length ? docSegments(rec.doc) : (segmentsFromOffsets(rec.doc) || []);
+  const spans = held.filter((x) => x && !x.timePending).length;
   if (spans && !await confirmDialog(t('sat.replaceLosesCuts').replace('{n}', spans))) return;
   const f = await pickOneFile('audio/*,.mp3,.wav,.m4a,.flac,.ogg');
   if (!f) return;
@@ -9192,12 +9207,15 @@ async function satReplaceAudio(id) {
   /* The derived WAV working copy is a conversion OF THE OLD FILE and would otherwise keep being
    * used in preference to the new one — segWorkingMedia looks it up by key, not by content. */
   await db.deleteMedia('segwav:' + id).catch(() => {});
-  if (spans) fresh.doc.segments = [];
+  // ALL of the old recording's times go: the spans, the offsets and media-file links an imported
+  // file carries on its phrases, and our "audio 0:01.234–…" notes (flextext.js, forgetAlignment).
+  // Clearing doc.segments alone let the next open rebuild every span from the offsets.
+  forgetAlignment(fresh.doc);
   fresh.audioSource = 'local:' + f.name;
   fresh.audioLocked = false;
   delete fresh.pendingAudio;
   delete fresh.audioError;
-  ensureMediaRef(fresh, f.name, '');
+  ensureMediaRef(fresh, f.name, '', { replacing: true });
   fresh.modified = Date.now();
   await db.putDoc(fresh);
   // The player may still be holding the old recording for this doc.
@@ -13142,7 +13160,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() }); },
+  exportXml() { return serializeFlextext(current.doc, settings, { mediaGuid: current.mediaGuid, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

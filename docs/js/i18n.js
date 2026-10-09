@@ -746,6 +746,7 @@ en: {
   'toast.storageFull': 'This device is running out of storage space, so the recording or text could not be saved. Delete some photos/videos or unused apps to free up space — the app will try again.',
   'toast.corrected': 'Corrected file downloaded.',
   'toast.noChanges': 'No changes entered — downloaded as-is.',
+  'toast.noChangesLinked': 'No codes changed. The timed lines were linked to their recording, so FLEx keeps their times.',
 
   'player.play': 'Play / pause',
   'player.back3': 'Back 3 seconds',
@@ -864,7 +865,7 @@ en: {
   'exp.sub.preview': 'plays line by line, audio embedded — works offline',
   'exp.sub.previewText': 'the text as a readable page — words, glosses, free translations; no recording embedded',
   'exp.sub.fxpa': 'for pat.flextext.app; text-only when unaligned',
-  'exp.sub.flextext': 'saved back exactly as you gave it — nothing re-written',
+  'exp.sub.flextext': 'your file as you gave it, plus the recording link FLEx needs on each timed line to keep its times',
   'exp.noAlignAudio': 'This flextext has no audio alignment, so the recording you chose cannot be embedded or segmented — the timed exports stay unavailable and the page builds as text only. If you expected timings, check you picked the right .flextext.',
   'exp.phase.converting': 'converting the recording to WAV…',
   'exp.phase.annotations': 'writing the annotations…',
@@ -3550,6 +3551,7 @@ id: {
   'toast.storageFull': 'Ruang penyimpanan perangkat ini hampir habis, jadi rekaman atau teks tidak bisa disimpan. Hapus beberapa foto/video atau aplikasi yang tidak dipakai — aplikasi ini akan mencoba lagi.',
   'toast.corrected': 'File yang sudah diperbaiki telah diunduh.',
   'toast.noChanges': 'Tidak ada perubahan — file diunduh apa adanya.',
+  'toast.noChangesLinked': 'Tidak ada kode yang diubah. Baris berwaktu ditautkan ke rekamannya, supaya FLEx tetap menyimpan waktunya.',
 
   'player.play': 'Putar / jeda',
   'player.back3': 'Mundur 3 detik',
@@ -3658,7 +3660,7 @@ id: {
   'exp.sub.preview': 'memutar baris demi baris, audio tertanam — bekerja luring',
   'exp.sub.previewText': 'teks sebagai halaman yang bisa dibaca — kata, glosa, terjemahan bebas; tanpa rekaman tertanam',
   'exp.sub.fxpa': 'untuk pat.flextext.app; hanya teks bila belum selaras',
-  'exp.sub.flextext': 'disimpan persis seperti yang Anda berikan — tidak ditulis ulang',
+  'exp.sub.flextext': 'file Anda seperti yang Anda berikan, ditambah tautan rekaman yang dibutuhkan FLEx pada setiap baris berwaktu agar waktunya tetap tersimpan',
   'exp.noAlignAudio': 'Flextext ini belum punya penyelarasan audio, jadi rekaman yang Anda pilih tidak bisa ditanam atau disegmentasi — ekspor berwaktu tetap tidak tersedia dan halamannya dibuat hanya teks. Jika Anda mengharapkan waktu, periksa apakah .flextext yang dipilih sudah benar.',
   'exp.phase.converting': 'mengubah rekaman menjadi WAV…',
   'exp.phase.annotations': 'menulis anotasi…',

@@ -18,7 +18,7 @@ import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wire
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES, isBetaHost } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets, wsFixerFile } from './flextext.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict, linkFlextextBlob } from './seg-exports.js';
@@ -9642,11 +9642,14 @@ function wsCheckModal() {
     if (!wsState) return;
     const mappings = Array.from(m.el.querySelectorAll('#wsc-rows .ws-newcode')).filter((i) => i.value.trim())
       .map((i) => ({ selector: i.dataset.selector, fromLang: i.dataset.fromLang, toLang: i.value.trim() }));
-    const xml = '<?xml version="1.0" encoding="utf-8"?>\n' + remapWritingSystems(wsState.dom, mappings).replace(/^<\?xml[^>]*\?>\s*/i, '');
+    // Same tool as the editor's (app.js #btn-wsapply): codes remapped and every timed phrase linked
+    // to its recording, so FLEx keeps the times (wsFixerFile); `linked` keeps the toast true.
+    const { xml, linked } = wsFixerFile(remapWritingSystems(wsState.dom, mappings),
+      mediaNameFor(wsState.filename.replace(/\.(flextext|xml|txt)$/i, ''), null));
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
     a.download = wsState.filename.replace(/(\.flextext|\.xml)?$/i, (mm) => mm || '.flextext'); a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    deps.toast(mappings.length ? t('toast.corrected') : t('toast.noChanges'));
+    deps.toast(mappings.length ? t('toast.corrected') : t(linked ? 'toast.noChangesLinked' : 'toast.noChanges'));
   };
 }
 
@@ -9705,7 +9708,7 @@ function fileExporterModal() {
     const doc = parsed.texts[0];
     // Times come from the FILE. segmentsFromOffsets returns null (not []) when nothing carries them.
     doc.segments = segmentsFromOffsets(doc) || [];
-    st.doc = doc; st.ftBlob = f; st.ftName = f.name;      // the blob is passed through byte-for-byte
+    st.doc = doc; st.ftBlob = f; st.ftName = f.name;      // never re-serialized; the .flextext row adds only media links
     st.base = sanitizeBase(doc.title || f.name.replace(/\.[^.]+$/, '')) || 'text';
     if (parsed.texts.length > 1) say(t('exp.multiText', { n: parsed.texts.length }), 'warn');
     render();

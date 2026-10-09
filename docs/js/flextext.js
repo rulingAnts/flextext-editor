@@ -469,6 +469,10 @@ function indentFragment(xml, pad) {
   return xml.split('\n').map(l => pad + l.trim()).join('\n');
 }
 
+// This suite's own visible time note ("audio 0:01.234–0:05.678", '~' = estimated): deduped on round trips,
+// and dropped with the cuts when a recording is swapped (forgetAlignment).
+const OUR_TIME_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
+
 export function serializeFlextext(doc, settings = {}, opts = {}) {
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
@@ -520,7 +524,6 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? doc.segments : [];
   const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
-  const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
    *
    * The engine holds one line per PHRASE. Emitting one <paragraph> per line is the DEFAULT and is
@@ -623,7 +626,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       if (timed && opts.timeNotes !== false) {
         lines.push(`            <item type="note" lang="${esc(anal)}">audio ${span.timeEstimated ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
       }
-      for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
+      for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_TIME_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
       lines.push('          </phrase>');
       }
     }
@@ -655,13 +658,21 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   /* flextext's native media reference — every timed phrase names a <media guid> of THIS text's
    * block, or FLEx imports it with no times at all. One function decides it for this writer and for
    * every writer that ships a .flextext it did not serialize (see linkPhraseMedia). opts.mediaName is
-   * the recording this file goes out with, when the caller knows one: it picks among an imported
-   * block's entries and names the entry minted when there is no block. The minted guid is kept on
-   * the doc (doc.mediaGuid) so every export of one text names its recording the same way, and a
-   * re-import into FLEx merges into one media entry instead of adding another each time. */
+   * the recording this file goes out with, when the caller knows one; opts.mediaGuid is the entry the
+   * app wrote or adopted for that recording (rec.mediaGuid — placeRecordingEntry), and wins over any
+   * name.
+   *
+   * ⚠ NOTHING IS WRITTEN BACK ONTO THE DOC. An entry minted here takes a guid DERIVED from the text's
+   * own guid (mediaGuidForText), so every export of one text names its recording the same way and a
+   * FLEx re-import merges into one entry instead of adding one per export — with the doc unchanged.
+   * The first version stored a fresh guid on the doc instead, and an upload never saves the copy it
+   * serialized: every background upload minted another guid, and the content signature taken after
+   * the export (uploadedSig) never again matched the stored doc, so marking the text done sent it to
+   * Drive once more. A doc.mediaGuid an older engine did store is still honoured, so the files it
+   * already wrote keep naming their entry. */
   return linkPhraseMedia(lines.join('\n') + '\n', {
     mediaName: opts.mediaName,
-    mint: () => doc.mediaGuid || (doc.mediaGuid = newGuid()),
+    mediaGuid: opts.mediaGuid || doc.mediaGuid || '',
   });
 }
 
@@ -669,17 +680,21 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
  *
  * ⚠ A TIME WITHOUT A media-file DOES NOT REACH FLEx. FieldWorks' interlinear importer copies a
  * phrase's begin/end-time-offset onto its Segment ONLY when the phrase also carries a non-empty
- * media-file (BIRDInterlinearImporter.AddELANInfoToSegment), and it resolves that value with
- * ObjectRepository.GetObject(new Guid(media-file)) against the <media guid> entries of the SAME
- * text's <media-files>, which it creates first (SetTextMetaAndMergeMedia — "media files need to be
- * processed before the paragraphs, as segments could reference these parts"). Hence two rules:
+ * media-file (BIRDInterlinearImporter.AddELANInfoToSegment). It creates the <media> entries of the
+ * text's <media-files> first (SetTextMetaAndMergeMedia — "media files need to be processed before
+ * the paragraphs, as segments could reference these parts"), then resolves each media-file with
+ * ObjectRepository.GetObject(new Guid(media-file)) — a lookup across the WHOLE PROJECT, not only
+ * this text. So:
  *   - a timed phrase with no media-file is imported with its times silently dropped;
- *   - a media-file naming a guid the text does not carry cannot resolve, so it is never written —
- *     it is relinked like a missing one.
+ *   - a media-file naming one of this text's entries is imported with its times;
+ *   - a media-file naming anything else either finds some OTHER object the project already holds —
+ *     the times then hang on whatever recording that is — or finds nothing, and GetObject throws:
+ *     the WHOLE IMPORT ABORTS. Neither is ever wanted, so such a link is never written; it is
+ *     relinked to the text's own entry like a missing one.
  * FLEx's model also holds ONE media container per text (Text.MediaFilesOA; FlexInterlinear.cs reads
- * a single `mediafiles` member), so a second <media-files> block is never added: a new <media> goes
- * inside the block the text already has, and a file that arrives with several has them merged into
- * its first, every entry kept.
+ * a single `mediafiles` member, so a second <media-files> is never read, and a link into one fails
+ * as above). A second block is therefore never added: a new <media> goes inside the block the text
+ * already has, and a file that arrives with several has their entries moved into its first.
  *
  * ⚠ HOW THIS WAS MISSED FOR SO LONG. The serializer minted links only for a doc with NO block of
  * its own — and every text recorded, attached or delivered in the app HAS one (ensureMediaRef puts
@@ -689,13 +704,18 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
  * the files looked right.
  *
  * WHAT IT DOES, per <interlinear-text>, and only where a phrase is timed or linked:
- *   (d) a media-file that resolves is kept, whatever else the text holds;
- *   (b) a block with entries: unlinked phrases link to the entry for THIS recording — the one whose
- *       location names opts.mediaName (file name, then name without extension), else the entry the
- *       text's other phrases already point at, else its first. Entries are never dropped, renamed
- *       or re-guided;
- *   (a) no entries at all: one is minted — guid from opts.mint (the serializer passes the doc's own,
- *       stable one), location opts.mediaName — inside the existing block, or as the text's block;
+ *   (d) a media-file that resolves to one of the text's entries is kept. Guids are compared the way
+ *       .NET's Guid parser reads them (case, braces, hyphens make no different guid), and a link is
+ *       then respelled exactly like its entry: when the project already holds an entry's guid, the
+ *       importer gives the entry a new one and rewrites the phrase references by plain string
+ *       equality, so a link spelled any other way would be left pointing at the old object;
+ *   (b) a block with entries: unlinked phrases link to the entry for THIS recording — opts.mediaGuid
+ *       when the caller knows it, else the one whose location names opts.mediaName (file name, then
+ *       name without extension), else the entry the text's other phrases already point at, else its
+ *       first (pickMediaEntry). Entries are never dropped, renamed or re-guided;
+ *   (a) no entries at all: one is minted inside the existing block, or as the text's block. Its guid
+ *       is opts.mediaGuid, else DERIVED from the text's own guid (mediaGuidForText) — one text
+ *       always mints the same entry, whichever writer, device or day — else a fresh one;
  *   (c) no entries and no recording name: the same, located 'audio'. The times are the data; the
  *       location is only a label FLEx stores and never opens, so a placeholder that keeps every time
  *       beats a refusal that keeps none. Callers that know the text pass a better one: the app
@@ -704,27 +724,80 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
  *       beats a wrong one.
  *
  * STRING IN, STRING OUT, and nothing else touched: the writers that ship a .flextext someone else
- * wrote (the panel's Drive download, the lameta package, Utilities' "Make files from a .flextext")
- * hand over those bytes deliberately rather than re-serializing them — our parser does not model
- * everything FLEx writes — so the links are added the same way: attributes on <phrase> tags, a
- * <media> inside the block. A file that already satisfies FLEx comes back byte for byte. */
+ * wrote (the panel's Drive download, the lameta package, Utilities' "Make files from a .flextext",
+ * the writing-system fixer) hand over those bytes deliberately rather than re-serializing them — our
+ * parser does not model everything FLEx writes — so the links are added the same way: attributes on
+ * <phrase> tags, a <media> inside the block. A file that already satisfies FLEx comes back byte for
+ * byte. Two things keep that honest on any input:
+ *   - the scan runs on a copy with comments, CDATA and processing instructions blanked out (same
+ *     length, so every index lines up), so markup quoted inside a comment is never taken for real;
+ *   - every edit is applied in ONE pass, so the cost is linear in the file. The first version
+ *     rebuilt the whole string once per phrase: 2,000 phrases took 0.4 s and 30,000 two minutes. */
 const TAG_BODY = '(?:[^>"\']|"[^"]*"|\'[^\']*\')*';   // quote-aware, so a '>' inside a value cannot end a tag
 const PHRASE_TAG = new RegExp(`<phrase(?=[\\s/>])${TAG_BODY}>`, 'g');
 const MEDIA_TAG = new RegExp(`<media(?=[\\s/>])${TAG_BODY}>`, 'g');
 const MEDIA_FILES_OPEN = new RegExp(`<media-files(?=[\\s/>])${TAG_BODY}>`, 'g');
 const TEXT_OPEN = new RegExp(`<interlinear-text(?=[\\s/>])${TAG_BODY}>`, 'g');
+const NOT_MARKUP = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>/g;
 
+// The scan copy: comments, CDATA and PIs blanked to spaces, line breaks kept, every index unchanged.
+const maskNonMarkup = (s) => s.replace(NOT_MARKUP, (m) => m.replace(/[^\r\n]/g, ' '));
+
+const ATTR_RES = new Map();
 function tagAttr(tag, name) {
-  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(tag);
+  let re = ATTR_RES.get(name);
+  if (!re) ATTR_RES.set(name, (re = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`)));
+  const m = re.exec(tag);
   return m ? unescXml(m[1] ?? m[2]) : null;   // unescXml: below, with the analysis-language readers
 }
 
 // Set one attribute on a start tag: in place when present, else appended before '>' or '/>'.
+const SET_RES = new Map();
 function setTagAttr(tag, name, value) {
-  const re = new RegExp(`(\\s${name}\\s*=\\s*)(?:"[^"]*"|'[^']*')`);
+  let re = SET_RES.get(name);
+  if (!re) SET_RES.set(name, (re = new RegExp(`(\\s${name}\\s*=\\s*)(?:"[^"]*"|'[^']*')`)));
   if (re.test(tag)) return tag.replace(re, (m, lead) => `${lead}"${esc(value)}"`);
   const end = /\s*\/?>$/.exec(tag);
   return `${tag.slice(0, end.index)} ${name}="${esc(value)}"${tag.slice(end.index)}`;
+}
+
+// The end tag of `name` at or after `from` — whitespace before '>' allowed, as XML allows it.
+const CLOSE_RES = new Map();
+function closeTag(s, name, from) {
+  let re = CLOSE_RES.get(name);
+  if (!re) CLOSE_RES.set(name, (re = new RegExp(`</${name}\\s*>`, 'g')));
+  re.lastIndex = from;
+  const m = re.exec(s);
+  return m ? { at: m.index, end: m.index + m[0].length } : null;
+}
+
+/* A guid compared the way .NET's Guid(string) reads it — case, {braces} or (parentheses) and hyphens
+ * do not make a different guid. Anything that is not a guid compares as its trimmed, lower-cased
+ * self (FLEx cannot read it either; it is still never mistaken for a different value). */
+function guidKey(s) {
+  let t = String(s ?? '').trim().toLowerCase();
+  if (/^\{.*\}$|^\(.*\)$/.test(t)) t = t.slice(1, -1).trim();
+  const hex = t.replace(/-/g, '');
+  return /^[0-9a-f]{32}$/.test(hex) ? hex : t;
+}
+
+/* The media guid minted for a text that has no entry: a pure function of the text's own guid, so
+ * one text always names its recording the same way, from any writer on any device, with nothing
+ * stored. FNV-1a in four separately seeded 32-bit lanes, each finished with murmur3's fmix32, laid
+ * out as an RFC 9562 version-8 ("custom") guid. What it has to do is give one text one entry and two
+ * texts two — not hide anything. '' when the text has no guid to derive from. */
+export function mediaGuidForText(textGuid) {
+  const key = guidKey(textGuid);
+  if (!key) return '';
+  const hex = [0x811c9dc5, 0x9e3779b9, 0x2545f491, 0x6c8e9cf5].map((seed, lane) => {
+    const name = `flextext-media:${lane}:${key}`;
+    let h = seed >>> 0;
+    for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+    return (h >>> 0).toString(16).padStart(8, '0');
+  }).join('');
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 /* A location's FILE NAME for comparison: a URL loses its query and fragment (a Drive relay link
@@ -739,80 +812,117 @@ function mediaFileKey(loc) {
 }
 const mediaStemKey = (loc) => mediaFileKey(loc).replace(/\.[a-z0-9]{1,5}$/, '');
 
+/* Which entry is "the recording" — one rule for the writers (linkTextMedia) and for the app adopting
+ * an imported entry (placeRecordingEntry): the guid the caller knows, else the entry whose location
+ * names the recording (file name, then name without extension), else the one the text's phrases link
+ * to most, else the first. entries carry .key (guidKey); links are guidKeys. */
+function pickMediaEntry(entries, { mediaGuid = '', mediaName = '', links = [] } = {}) {
+  if (!entries.length) return null;
+  const g = mediaGuid ? guidKey(mediaGuid) : '';
+  const want = mediaName ? mediaFileKey(mediaName) : '';
+  const wantStem = mediaName ? mediaStemKey(mediaName) : '';
+  const tally = new Map();
+  for (const k of links) tally.set(k, (tally.get(k) || 0) + 1);
+  const usual = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
+  return (g && entries.find((e) => e.key === g))
+    || (want && entries.find((e) => mediaFileKey(e.location) === want))
+    || (wantStem && entries.find((e) => mediaStemKey(e.location) === wantStem))
+    || (usual && entries.find((e) => e.key === usual[0]))
+    || entries[0];
+}
+
 // Where to put new lines so they line up with a closing tag on its own line, or null when inline.
 function lineStartBefore(s, at) {
   const nl = s.lastIndexOf('\n', at - 1);
   return /^[ \t]*$/.test(s.slice(nl + 1, at)) ? { at: nl + 1, pad: s.slice(nl + 1, at) } : null;
 }
 
-function linkTextMedia(sec, opts) {
+/* Every <media-files> block in `s` (positions found on its scan copy), each with its <media> entries:
+ * .tag the start tag, .el the WHOLE element — through its </media> when it is written with one, so
+ * an entry moved between blocks never leaves its end tag behind (that made a well-formed file
+ * malformed). A block whose end tag cannot be found is skipped: malformed, left to whoever wrote it. */
+function mediaBlocks(s, scan) {
+  const blocks = [];
+  for (const m of scan.matchAll(MEDIA_FILES_OPEN)) {
+    if (blocks.length && m.index < blocks[blocks.length - 1].end) continue;
+    const openEnd = m.index + m[0].length;
+    const selfClosing = /\/>$/.test(m[0]);
+    const close = selfClosing ? null : closeTag(scan, 'media-files', openEnd);
+    if (!selfClosing && !close) continue;
+    const media = [];
+    if (!selfClosing) {
+      for (const x of scan.slice(openEnd, close.at).matchAll(MEDIA_TAG)) {
+        const at = openEnd + x.index;
+        let elEnd = at + x[0].length;
+        if (!/\/>$/.test(x[0])) { const c = closeTag(scan, 'media', elEnd); if (c && c.end <= close.at) elEnd = c.end; }
+        const tag = s.slice(at, at + x[0].length);
+        const guid = (tagAttr(tag, 'guid') || '').trim();
+        media.push({ tag, el: s.slice(at, elEnd), guid, key: guidKey(guid), location: tagAttr(tag, 'location') || '' });
+      }
+    }
+    blocks.push({ start: m.index, open: s.slice(m.index, openEnd), close: selfClosing ? -1 : close.at,
+      end: selfClosing ? openEnd : close.end, selfClosing, media });
+  }
+  return blocks;
+}
+
+function linkTextMedia(sec, scan, opts, ctx) {
   const EOL = sec.includes('\r\n') ? '\r\n' : '\n';   // added lines follow the file's own endings
   const phrases = [];
-  for (const m of sec.matchAll(PHRASE_TAG)) {
-    const tag = m[0];
+  for (const m of scan.matchAll(PHRASE_TAG)) {
+    const tag = sec.slice(m.index, m.index + m[0].length);
     const mf = (tagAttr(tag, 'media-file') || '').trim();
     phrases.push({ start: m.index, tag, mf,
       timed: tagAttr(tag, 'begin-time-offset') != null || tagAttr(tag, 'end-time-offset') != null });
   }
   if (!phrases.some((p) => p.timed || p.mf)) return sec;   // nothing here needs a recording
 
-  const blocks = [];
-  for (const m of sec.matchAll(MEDIA_FILES_OPEN)) {
-    const selfClosing = /\/>$/.test(m[0]);
-    const close = selfClosing ? -1 : sec.indexOf('</media-files>', m.index + m[0].length);
-    if (!selfClosing && close < 0) continue;   // malformed; leave it to whoever wrote it
-    const end = selfClosing ? m.index + m[0].length : close + '</media-files>'.length;
-    const inner = selfClosing ? '' : sec.slice(m.index + m[0].length, close);
-    blocks.push({ start: m.index, open: m[0], end, close, selfClosing,
-      media: [...inner.matchAll(MEDIA_TAG)].map((x) => ({ tag: x[0], guid: (tagAttr(x[0], 'guid') || '').trim(),
-        location: tagAttr(x[0], 'location') || '' })) });
-  }
+  const blocks = mediaBlocks(sec, scan);
   const entries = [];
-  const known = new Map();   // lower-cased guid → the guid as its <media> spells it
-  for (const b of blocks) {
+  const known = new Map();   // guidKey → the guid as its <media> spells it
+  blocks.forEach((b, bi) => {
     for (const e of b.media) {
-      if (!e.guid || known.has(e.guid.toLowerCase())) continue;
-      known.set(e.guid.toLowerCase(), e.guid);
-      entries.push({ ...e, from: b });
+      /* A later block's entry that repeats an earlier one exactly — same guid, same location — says
+       * nothing new and is the one thing a merge drops. One with the same guid and ANOTHER location
+       * is moved like any entry (every entry kept); FLEx then treats it as it treats a guid written
+       * twice in one block. Only the first spelling of a guid is ever a link target. */
+      if (bi > 0 && entries.some((x) => x.key === e.key && x.location === e.location)) { e.same = true; continue; }
+      if (!e.key || known.has(e.key)) continue;
+      known.set(e.key, e.guid);
+      entries.push(e);
     }
-  }
-  /* GetObject parses the guid, so case does not decide whether a link resolves. But the importer's
-   * re-guiding of a media entry that already exists in the project rewrites phrase references by
-   * plain string equality, so a link spelled differently from its entry is respelled to match it —
-   * the same reference, never a different entry. */
-  const resolves = (p) => !!p.mf && known.has(p.mf.toLowerCase());
-  const needs = phrases.filter((p) => (resolves(p) ? known.get(p.mf.toLowerCase()) !== p.mf : (p.timed || p.mf)));
-  if (!needs.length && blocks.length <= 1) return sec;
+  });
+  const resolves = (p) => !!p.mf && known.has(guidKey(p.mf));
+  const needs = phrases.filter((p) => (resolves(p) ? known.get(guidKey(p.mf)) !== p.mf : (p.timed || p.mf)));
+  // A link into a LATER block resolves only once that block's entries are in the first.
+  const firstKeys = new Set(blocks.length ? blocks[0].media.map((e) => e.key) : []);
+  const intoLater = phrases.some((p) => resolves(p) && !firstKeys.has(guidKey(p.mf)));
+  if (!needs.length && !intoLater) return sec;
 
   let target = null;
   let mint = null;
   if (entries.length) {
-    const want = opts.mediaName ? mediaFileKey(opts.mediaName) : '';
-    const wantStem = opts.mediaName ? mediaStemKey(opts.mediaName) : '';
-    const tally = new Map();
-    for (const p of phrases) if (resolves(p)) tally.set(p.mf.toLowerCase(), (tally.get(p.mf.toLowerCase()) || 0) + 1);
-    const usual = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
-    target = (want && entries.find((e) => mediaFileKey(e.location) === want))
-      || (wantStem && entries.find((e) => mediaStemKey(e.location) === wantStem))
-      || (usual && entries.find((e) => e.guid.toLowerCase() === usual[0]))
-      || entries[0];
-  } else if (needs.length) {
-    const guid = String((opts.mint && opts.mint()) || newGuid());
+    target = pickMediaEntry(entries, { mediaGuid: opts.mediaGuid, mediaName: opts.mediaName,
+      links: phrases.filter(resolves).map((p) => guidKey(p.mf)) });
+  } else {
+    // One text, one minted entry; a file of several texts never gives two of them the same guid.
+    const guid = [opts.mediaGuid, mediaGuidForText(ctx.textGuid)].find((g) => g && !ctx.used.has(guidKey(g))) || newGuid();
+    ctx.used.add(guidKey(guid));
     mint = `<media guid="${esc(guid)}" location="${esc(opts.mediaName || 'audio')}"/>`;
     target = { guid };
   }
 
-  const edits = [];   // { start, end, text } on sec, applied back to front
+  const edits = [];   // { start, end, text } on sec — non-overlapping, applied in one pass below
   for (const p of needs) {
-    const guid = resolves(p) ? known.get(p.mf.toLowerCase()) : target.guid;
+    const guid = resolves(p) ? known.get(guidKey(p.mf)) : target.guid;
     edits.push({ start: p.start, end: p.start + p.tag.length, text: setTagAttr(p.tag, 'media-file', guid) });
   }
 
-  // Media tags that must live in the first block: the minted one, and every entry of a later block.
+  // Media elements that must live in the first block: every entry of a later block, and the minted one.
   const first = blocks[0];
   const moving = [];
   for (const b of blocks.slice(1)) {
-    for (const e of entries) if (e.from === b) moving.push(e.tag);
+    for (const e of b.media) if (!e.same) moving.push(e.el);
     const ls = lineStartBefore(sec, b.start);
     const eol = /^\r?\n/.exec(sec.slice(b.end, b.end + 2));
     edits.push(ls && eol ? { start: ls.at, end: b.end + eol[0].length, text: '' } : { start: b.start, end: b.end, text: '' });
@@ -836,30 +946,154 @@ function linkTextMedia(sec, opts) {
           text: `${EOL}${tail[1]}  <media-files offset-type="">${EOL}${moving.map((t) => `${tail[1]}    ${t}`).join(EOL)}${EOL}${tail[1]}  </media-files>` }
       : { start: sec.length, end: sec.length, text: `<media-files offset-type="">${moving.join('')}</media-files>` });
   }
-  edits.sort((a, b) => b.start - a.start);
-  let out = sec;
-  for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
-  return out;
+  edits.sort((a, b) => a.start - b.start);
+  const out = [];
+  let pos = 0;
+  for (const e of edits) { out.push(sec.slice(pos, e.start), e.text); pos = e.end; }
+  out.push(sec.slice(pos));
+  return out.join('');
 }
 
 /* Make every timed phrase of a .flextext name a <media> of its own text (see the block above).
- * opts.mediaName: the recording the file goes out with, if known. opts.mint: () => guid for an
- * entry that has to be created (default: a fresh one). Returns the XML unchanged when nothing
- * needs a link. */
+ * opts.mediaName: the recording the file goes out with, if known. opts.mediaGuid: the entry to link
+ * to when the text has it, and the guid to mint under when it has none (a single-text file's — the
+ * serializer's). Returns the XML unchanged when nothing needs a link. */
 export function linkPhraseMedia(xml, opts = {}) {
   const src = String(xml ?? '');
   if (!/time-offset|media-file\b/.test(src)) return src;
-  let out = '';
+  const scan = maskNonMarkup(src);
+  const ctx = { used: new Set(), textGuid: '' };
+  const out = [];
   let pos = 0;
-  for (const m of src.matchAll(TEXT_OPEN)) {
+  for (const m of scan.matchAll(TEXT_OPEN)) {
     if (m.index < pos || /\/>$/.test(m[0])) continue;
     const bodyStart = m.index + m[0].length;
-    const close = src.indexOf('</interlinear-text>', bodyStart);
-    if (close < 0) break;
-    out += src.slice(pos, bodyStart) + linkTextMedia(src.slice(bodyStart, close), opts);
-    pos = close;
+    const close = closeTag(scan, 'interlinear-text', bodyStart);
+    if (!close) break;
+    ctx.textGuid = tagAttr(src.slice(m.index, bodyStart), 'guid') || '';
+    out.push(src.slice(pos, bodyStart),
+      linkTextMedia(src.slice(bodyStart, close.at), scan.slice(bodyStart, close.at), opts, ctx));
+    pos = close.at;
   }
-  return out + src.slice(pos);
+  out.push(src.slice(pos));
+  return out.join('');
+}
+
+/* ---------------- The recording a device attaches (app.js ensureMediaRef) ----------------
+ *
+ * A recording made, attached, downloaded with an assignment, paired at import or swapped in on a
+ * device is written into its text's media block HERE, and only here.
+ *
+ * ⚠ A TEXT THAT ARRIVED WITH AN ENTRY OF ITS OWN KEEPS IT. ensureMediaRef used to replace the whole
+ * block with one of its own, so a FLEx text assigned with its recording lost FLEx's entry the moment
+ * the recording finished downloading: every phrase was relinked to a new guid, and each trip through
+ * a device added another media entry to the FLEx project the text came from. So:
+ *   - the entry the app wrote itself (state.guid, not adopted) has its location brought up to date,
+ *     and nothing else in the block changes — for a text that only ever had the app's entry, that is
+ *     exactly the block this has always written;
+ *   - a text whose block holds entries the app did not write ADOPTS one (pickMediaEntry: the one this
+ *     recording's name points at, else the one its phrases link to, else the first) and the block is
+ *     not touched at all. That entry IS the recording the text's times were measured on, and it is
+ *     FLEx's to name;
+ *   - SWAPPING the recording for another file (state.replacing) never repoints an adopted entry — it
+ *     describes the old file — so the new file gets an entry of its own, added INSIDE the block
+ *     beside the old one: never a second block, never an entry dropped;
+ *   - a text with no entries gets one, in the shape this has always written — under the SAME guid
+ *     the writers mint for a text with no entry (mediaGuidForText, or the doc.mediaGuid an older
+ *     engine stored), so a text exported before its recording was attached and after it names one
+ *     entry, not two. (A guid the block already holds is never reused for a second entry.)
+ * doc.mediaXML is updated in place. Returns { guid, adopted } for the record (rec.mediaGuid,
+ * rec.mediaAdopted), which the writers then link to (serializeFlextext's opts.mediaGuid). */
+export function placeRecordingEntry(doc, { guid = '', adopted = false, name = '', location = 'audio', replacing = false,
+  mint = () => doc.mediaGuid || mediaGuidForText(doc.textAttrs && doc.textAttrs.guid) } = {}) {
+  const frags = Array.isArray(doc.mediaXML) ? doc.mediaXML : (doc.mediaXML = []);
+  const found = [];   // { fi, e } — every entry of every block the doc holds
+  frags.forEach((xml, fi) => {
+    const s = String(xml);
+    for (const b of mediaBlocks(s, maskNonMarkup(s))) for (const e of b.media) if (e.key) found.push({ fi, e });
+  });
+  const own = guid ? found.find((f) => f.e.key === guidKey(guid)) : null;
+  if (own && !adopted) {
+    const s = String(frags[own.fi]);
+    const at = s.indexOf(own.e.tag);
+    frags[own.fi] = s.slice(0, at) + setTagAttr(own.e.tag, 'location', location) + s.slice(at + own.e.tag.length);
+    return { guid, adopted: false };
+  }
+  if (own && !replacing) return { guid, adopted: true };
+  if (found.length && !replacing) {
+    const links = [];
+    for (const p of doc.paragraphs || []) for (const sg of p.segments || []) {
+      const mf = sg.attrs && sg.attrs['media-file'];
+      if (mf) links.push(guidKey(mf));
+    }
+    const pick = pickMediaEntry(found.map((f) => f.e), { mediaName: name, links });
+    return { guid: pick.guid, adopted: true };
+  }
+  let g = String((guid && !adopted && !own) ? guid : (mint() || ''));
+  if (!g || found.some((f) => f.e.key === guidKey(g))) g = newGuid();
+  const tag = `<media guid="${esc(g)}" location="${esc(location)}" />`;
+  const fi = frags.findIndex((x) => mediaBlocks(String(x), maskNonMarkup(String(x))).length);
+  if (fi < 0) {
+    frags.splice(0, frags.length, `<media-files offset-type="milliseconds">\n  ${tag}\n</media-files>`);
+  } else {
+    const s = String(frags[fi]);
+    const [b] = mediaBlocks(s, maskNonMarkup(s));
+    const ls = b.selfClosing ? null : lineStartBefore(s, b.close);
+    frags[fi] = b.selfClosing
+      ? s.slice(0, b.start) + b.open.replace(/\s*\/>$/, '>') + `\n  ${tag}\n</media-files>` + s.slice(b.end)
+      : ls ? s.slice(0, ls.at) + `${ls.pad}  ${tag}\n` + s.slice(ls.at)
+        : s.slice(0, b.close) + tag + s.slice(b.close);
+  }
+  return { guid: g, adopted: false };
+}
+
+/* The inverse, for the player's Remove (app.js): the app's OWN entry goes with the recording, and a
+ * block left with no entries goes with it — a block with none makes FLEx's import throw. An ADOPTED
+ * entry stays: it is the text's, from FLEx, and still describes the recording its times were
+ * measured on; only the device's copy of the audio is gone. */
+export function removeRecordingEntry(doc, { guid = '', adopted = false } = {}) {
+  if (!guid || adopted || !Array.isArray(doc.mediaXML)) return;
+  const key = guidKey(guid);
+  doc.mediaXML = doc.mediaXML.map((xml) => {
+    const s = String(xml);
+    const scan = maskNonMarkup(s);
+    let out = s;
+    for (const b of mediaBlocks(s, scan).reverse()) {
+      const e = b.media.find((x) => x.key === key);
+      if (!e) continue;
+      if (b.media.length === 1) { out = out.slice(0, b.start) + out.slice(b.end); continue; }
+      const at = s.indexOf(e.el, b.start);
+      const ls = lineStartBefore(s, at);
+      const eol = /^\r?\n/.exec(s.slice(at + e.el.length, at + e.el.length + 2));
+      out = ls && eol ? out.slice(0, ls.at) + out.slice(at + e.el.length + eol[0].length)
+        : out.slice(0, at) + out.slice(at + e.el.length);
+    }
+    return out;
+  }).filter((x) => x.trim());
+}
+
+/* SWAPPING A TEXT'S RECORDING THROWS AWAY ITS CUTS — ALL OF THEM (app.js satReplaceAudio). Every time
+ * a text holds is a time INTO THE OLD RECORDING: doc.segments, and also the begin/end-time-offset an
+ * imported file carries on its phrases, the media-file linking those to the old entry, and the
+ * "audio 0:01.234–0:05.678" notes this suite writes. Clearing only doc.segments left the rest, and
+ * the next open rebuilt every span from the offsets (segmentsFromOffsets): the stale cuts were back,
+ * now on the new recording — and with every timed phrase linked, they would have reached FLEx as
+ * times into it. Text, glosses and every other item are untouched. Returns how many phrases had
+ * times. */
+export function forgetAlignment(doc) {
+  let n = 0;
+  doc.segments = [];
+  for (const p of doc.paragraphs || []) {
+    for (const s of p.segments || []) {
+      const a = s.attrs || {};
+      if (a['begin-time-offset'] != null || a['end-time-offset'] != null) n++;
+      delete a['begin-time-offset'];
+      delete a['end-time-offset'];
+      delete a['media-file'];
+      if (Array.isArray(s.postItemsXML)) s.postItemsXML = s.postItemsXML.filter((x) => !OUR_TIME_NOTE.test(x));
+    }
+  }
+  return n;
 }
 
 /* ---------------- Baseline reconciliation ----------------
@@ -1335,6 +1569,21 @@ export function remapWritingSystems(dom, mappings) {
     }
   }
   return new XMLSerializer().serializeToString(dom);
+}
+
+/* What the writing-system fixer downloads — the editor's Utilities (#btn-wsapply) and the panel's
+ * wsCheckModal are the same tool twice, and both call this. The tool exists to get a file ready for
+ * FLEx, so the file it hands over must be one FLEx keeps the times of: the remapped document
+ * (remapWritingSystems' output) with its XML declaration, and every timed phrase linked to its
+ * recording (linkPhraseMedia). Without the links, the suite's own older exports — a media block and
+ * not one media-file — came out "corrected" and still lost every time on import. mediaName: the
+ * recording's name when nothing better is known (the callers pass the file's own name, no
+ * extension); it only names an entry minted for a text that has none. `linked` says whether links
+ * were added, so the toast never claims the file went out as it came in when it did not. */
+export function wsFixerFile(serialized, mediaName = '') {
+  const body = String(serialized ?? '').replace(/^<\?xml[^>]*\?>\s*/i, '');
+  const out = linkPhraseMedia(body, { mediaName });
+  return { xml: '<?xml version="1.0" encoding="utf-8"?>\n' + out, linked: out !== body };
 }
 
 /* ── EVERY ANALYSIS LANGUAGE A TEXT CARRIES (Seth, 2026-09-05: "we need to be able to select

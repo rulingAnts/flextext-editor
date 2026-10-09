@@ -245,17 +245,27 @@ import. There is no proprietary sidecar. Timestamps also emit as visible `note` 
 (`audio 0:01.234–0:05.678`, `~` = estimated) because FLEx has no display line for the raw offsets.
 
 ⚠ **A time reaches FLEx only through a `media-file` link.** FieldWorks' importer keeps a phrase's
-offsets only when the phrase names a `media-file` that resolves to a `<media guid>` in the same
-text's single `<media-files>` block; an unlinked time is dropped without a message. Every writer that
-ships a `.flextext` therefore goes through `linkPhraseMedia()` (`flextext.js`): `serializeFlextext`
-calls it on its own output, and the paths that hand over bytes they did not serialize — the panel's
-Files ▾ download, the lameta package, Utilities' "Make files from a .flextext" — call it through
-`linkFlextextBlob()` / `lametaFlextextMedia()`. It links to the text's existing entry (never a second
-block, never a rewritten entry), mints one when the text has none, keeps any link that resolves, and
-returns a file that needs nothing byte for byte. Exports written before this (v716 and earlier) carry
-a block and no links; the panel's Files ▾ download links them on the way out. Two paths deliberately
-do not: **Download all** (the Drive folder's stored bytes, backups included — an archive, not an
-export) and the **writing-system fixer** (its contract is "only the codes you entered change").
+offsets only when the phrase names a `media-file`; it creates the text's `<media>` entries from its one
+`<media-files>` block first (a second block is never read), then looks each link up across the whole
+project. An unlinked time is dropped without a message; a link to the text's own entry keeps its
+times; a link to anything else lands on whatever object the project holds with that guid, or finds
+none and aborts the whole import. Every writer that ships a `.flextext` therefore goes through
+`linkPhraseMedia()` (`flextext.js`): `serializeFlextext` calls it on its own output, and the paths
+that hand over bytes they did not serialize — the panel's Files ▾ download, the lameta package,
+Utilities' "Make files from a .flextext", the writing-system fixer — call it through
+`linkFlextextBlob()` / `lametaFlextextMedia()` / `wsFixerFile()`. It links to the text's existing
+entry (never a second block; entries never dropped, renamed or re-guided), mints one when the text
+has none — under a guid derived from the text's own (`mediaGuidForText`), so every export of a text
+names the same entry and an export never changes the doc — keeps any link that resolves (respelled
+like its entry, since FLEx re-guids by exact string), and returns a file that needs nothing byte for
+byte. On the device, `ensureMediaRef` (app.js → `placeRecordingEntry`) no longer replaces a block the
+text arrived with: a recording that lands for an imported text ADOPTS its entry (`rec.mediaAdopted`),
+a swapped-in file gets its own entry inside the same block, and the player's Remove takes only the
+app's own entry (`removeRecordingEntry`). Swapping a recording also clears every old time, not just
+`doc.segments` (`forgetAlignment`), so the stale offsets cannot come back on the next open.
+Exports written before this (v716 and earlier) carry a block and no links; the panel's Files ▾
+download and the writing-system fixer link them on the way out. One path deliberately does not:
+**Download all** (the Drive folder's stored bytes, backups included — an archive, not an export).
 `test/flex-media-link.test.mjs` holds every writer to FLEx's condition on real-shaped timing skeletons.
 
 ### 4.1 Conversions from files the app has never seen (v377)

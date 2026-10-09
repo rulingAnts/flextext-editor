@@ -184,7 +184,7 @@ console.log('\nwhat actually comes out');
 
   const ft = await buildLooseConversion({ kind: 'flextext', base: 'Story', flextextBlob: blob(5) });
   ok(!ft.zip && ft.saveName === 'Story.flextext' && ft.entries[0].data.size === 5,
-     'and the .flextext passes through byte-for-byte — never re-serialized');
+     'and a .flextext that needs no media links passes through byte-for-byte — never re-serialized');
 }
 
 /* v380 (Seth, 2026-08-16): the preview's text-only flavor — "a similar mode for preview html that we

@@ -293,14 +293,6 @@ function parseInterlinearText(itEl, version, prefs = {}) {
     }
   }
 
-  // The blank lines the writer left out, by their times (BLANK_LINES_PI): the heal puts them back.
-  // A processing instruction is not an element, so it never reaches the switch above.
-  for (const node of Array.from(itEl.childNodes || [])) {
-    if (!node || node.nodeType !== 7 || node.target !== BLANK_LINES_PI) continue;
-    const pieces = parseBlankLinesPi(node.data);
-    if (pieces.length) doc.blankLines = (doc.blankLines || []).concat(pieces);
-  }
-
   // Determine writing systems: prefer <languages>, fall back to usage.
   const vernFromLangs = doc.languages.find(l => l.vernacular);
   if (vernFromLangs) doc.vernLang = vernFromLangs.lang;
@@ -477,123 +469,6 @@ function indentFragment(xml, pad) {
   return xml.split('\n').map(l => pad + l.trim()).join('\n');
 }
 
-// Our own audio-timing note item (`audio 0:00.000–0:02.000`), so a round trip never carries it twice
-// and so a phrase holding nothing BUT that note counts as empty (isSilentPhrase).
-const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
-
-/* A SILENT PHRASE — no words, no baseline text, no free translation, nothing preserved from an
- * import that is somebody's data — is a cut piece of audio the transcriber left empty: a pause, noise,
- * an aside. Seth, 2026-10-08: "Silent segments exported (or saved) as flextext and especially eaf
- * should not be included in the export … not as empty lines in FLEx or empty annotations in
- * ELAN/SayMore." The EDITOR keeps every such line (it is a real timed span, 1:1 with doc.segments,
- * and the Cut and Gloss tabs rely on that); only the files written for FLEx and ELAN leave it out,
- * the way ELAN itself leaves a stretch unannotated. Imported notes and other preserved items make a
- * phrase someone's data, so a phrase carrying any of them is written whatever its text. */
-/* ⚠ AN EMPTY WORD IS NOT A WORD (v712). The Audio Segmenter's in-place editing gives a blank line one
- * empty word/gloss pair to type into, and a pair that was typed into and cleared again stays in the
- * model as { txt: '', gls: '' }. Counting that as "has words" wrote the blank line to the FLExText and
- * the EAFs as an empty line — exactly what Seth asked to rule out when the Segmenter's switches went
- * on by default ("make sure if they really are blank, they don't export as empty lines"). A word with
- * no text, no gloss and nothing preserved from an import counts for nothing here. */
-export function isEmptyWord(w) {
-  if (!w) return true;
-  if (String(w.txt || '').trim() || String(w.gls || '').trim()) return false;
-  return !(w.preservedXML || []).length;      // morphemes, pos, another language's gloss: somebody's data
-}
-export function isSilentPhrase(seg) {
-  if (!seg) return false;
-  if ((seg.words || []).some((w) => !isEmptyWord(w))) return false;
-  if (String(seg.baseline || '').trim() || String(seg.free || '').trim()) return false;
-  if ((seg.preItemsXML || []).length) return false;
-  if ((seg.postItemsXML || []).some((x) => !OUR_NOTE.test(x))) return false;
-  return true;
-}
-
-/* ⚠ …BUT ITS TIMES ARE KEPT, WHERE FLEX AND ELAN DO NOT LOOK (v713, #111; Seth, 2026-10-10: "Keep the
- * upload clean and record the blank pieces' times inside the file, as a hidden XML instruction that
- * FLEx and ELAN ignore").
- *
- * The .flextext a device uploads is also how a text MOVES: the researcher sends it to another device
- * (or back to the same one) and that device rebuilds the text from it. Leaving the silent lines out
- * left their cuts out too — Brian, #111: a text cut into pieces, half of them transcribed, came back
- * with only the transcribed ones; from v712 the audio came back as blank lines, but a run of
- * untranscribed pieces came back as ONE. So the serializer writes, inside <interlinear-text>, one
- * XML processing instruction listing every blank line it left out, start–end in milliseconds, `~`
- * for an estimated span:
- *
- *     <?flextext-editor v="1" blank-lines="0-4000 9000-12000 ~12000-16000"?>
- *
- * A processing instruction is XML's own place for one application's data (XML 1.0 §2.6): it is not
- * an element, so it is not part of what the schema governs — the file still validates against FLEx's
- * FlexInterlinear.xsd with it in (checked with xmllint, 2026-10-10) — and readers that do not know
- * the target skip it. On re-import parseInterlinearText reads it into `doc.blankLines`, and the heal
- * (fillGapLines' `pieces`, via app.js healGapLines) puts every blank line back at its own times. A
- * file that has been through FLEx or ELAN loses the instruction and falls back to the 350 ms rule.
- *
- * (A step toward #104 — a data model with .flextext as one export of it, not the store — which is
- * deliberately NOT started: Seth, "Let's not do that JUST yet.") */
-export const BLANK_LINES_PI = 'flextext-editor';
-export function blankLinesPi(pieces) {
-  const list = (pieces || []).filter((p) => p && Number.isFinite(p.start) && Number.isFinite(p.end) && p.end > p.start);
-  if (!list.length) return '';
-  const spans = list.map((p) => `${p.est ? '~' : ''}${Math.max(0, Math.round(p.start))}-${Math.round(p.end)}`).join(' ');
-  return `<?${BLANK_LINES_PI} v="1" blank-lines="${spans}"?>`;
-}
-// The pieces a processing instruction's data names ('v="1" blank-lines="…"'), in the order written.
-export function parseBlankLinesPi(data) {
-  const m = String(data ?? '').match(/\bblank-lines="([^"]*)"/);
-  if (!m) return [];
-  const out = [];
-  for (const tok of m[1].trim().split(/\s+/)) {
-    const t = tok.match(/^(~?)(\d+)-(\d+)$/);
-    if (!t) continue;
-    const start = +t[2], end = +t[3];
-    if (end > start) out.push({ start, end, ...(t[1] ? { est: true } : {}) });
-  }
-  return out;
-}
-
-/* THE SAME RULE FOR A FILE THAT IS HANDED OVER AS IT CAME (v711; Seth, 2026-10-09: "ALL flextext exports
- * on ALL export options have our v709 export fix right?"). Three researcher-panel downloads — Files… ▸
- * .flextext, the lameta session, Download all — and the Utilities converter pass a .flextext on AS IT WAS
- * UPLOADED OR PICKED, on purpose: re-serializing somebody's file through our parser risks losing what it
- * carries. But a device that had not yet updated to v709 uploaded its blank lines as empty timed phrases,
- * and those downloads handed them on. This removes exactly those — string surgery, like
- * lametaFlextextMedia, so every other byte stays as it was:
- *   - a <phrase> holding nothing but an empty txt item, empty <words> (or only words left with nothing
- *     in them, v712), an empty gls item, a segnum, and
- *     our own "audio m:ss.sss–…" note (OUR_NOTE) — isSilentPhrase's "nothing in it", read from the file
- *     instead of the model. Anything else in it (a word, any text, a translation in any language, any
- *     other note or item) keeps the phrase;
- *   - and a <paragraph> left with no phrase in it, since serializeFlextext writes none.
- * A file with nothing to remove comes back as the SAME string. */
-const SILENT_BITS = [
-  /<item\b[^>]*\btype="(?:txt|gls)"[^>]*\/>/g,                                  // self-closing txt / gls
-  /<item\b[^>]*\btype="(?:txt|gls)"[^>]*>\s*<\/item>/g,                         // empty txt / gls
-  /<item\b[^>]*\btype="segnum"[^>]*(?:\/>|>[^<]*<\/item>)/g,                    // numbering is not content
-  /<item\b[^>]*\btype="note"[^>]*>audio ~?\d+:\d\d\.\d{3}[^<]*<\/item>/g,       // our own timing note
-  /<word\b[^>]*\/>/g, /<word\b[^>]*>\s*<\/word>/g,                               // a word left with nothing in it (isEmptyWord)
-  /<words\b[^>]*\/>/g, /<words\b[^>]*>\s*<\/words>/g,                            // no words
-];
-export function stripSilentPhrasesXml(xml) {
-  const src = String(xml ?? '');
-  if (!src.includes('<phrase')) return src;
-  const silent = (inner) => {
-    if (inner == null) return true;                                             // <phrase …/>
-    let rest = inner;
-    for (const re of SILENT_BITS) rest = rest.replace(re, '');
-    return !rest.trim();
-  };
-  let changed = false;
-  const out = src.replace(/[ \t]*<phrase\b[^>]*?(?:\/>|>([\s\S]*?)<\/phrase>)[ \t]*(?:\r?\n)?/g, (m, inner) => {
-    if (!silent(inner)) return m;
-    changed = true;
-    return '';
-  });
-  if (!changed) return src;
-  return out.replace(/[ \t]*<paragraph\b[^>]*>\s*(?:<phrases\b[^>]*\/>|<phrases\b[^>]*>\s*<\/phrases>)\s*<\/paragraph>[ \t]*(?:\r?\n)?/g, '');
-}
-
 export function serializeFlextext(doc, settings = {}, opts = {}) {
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
@@ -645,6 +520,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? doc.segments : [];
   const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
+  const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
     ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
   /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
@@ -680,14 +556,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const emit = canGroup ? runs : doc.paragraphs.map((para, i) => ({ guid: para.guid, lines: [i] }));
 
   let pi = -1;
-  const blanks = [], written = [];   // the times of the blank lines left out, and of the lines written (BLANK_LINES_PI)
   for (const run of emit) {
-    /* ⚠ A SILENT PHRASE IS NOT WRITTEN (Seth, 2026-10-08) — see isSilentPhrase — and a paragraph with
-     * nothing left in it is not written either (`mark` rewinds it). FLEx gets only the lines that say
-     * something; on a round trip the stretch comes back as a hole between the neighbouring phrases'
-     * offsets, which is exactly how an ELAN file with an unannotated stretch already arrives. */
-    const mark = lines.length;
-    let emitted = 0;
     lines.push(`      <paragraph guid="${esc(run.guid)}">`);
     lines.push('        <phrases>');
     for (const li of run.lines) {
@@ -696,10 +565,6 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     for (const seg of para.segments) {
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
-      // Left out, but its time is kept — see BLANK_LINES_PI.
-      if (isSilentPhrase(seg)) { if (timed) blanks.push({ start: span.start, end: span.end, est: !!span.timeEstimated }); continue; }
-      if (timed) written.push(span);
-      emitted++;
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
       // the stale copies or the phrase would carry the attribute twice (invalid XML). media-file
       // is filtered ONLY when we mint our own guid: an imported doc keeps its media-files block
@@ -766,18 +631,8 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     }
     lines.push('        </phrases>');
     lines.push('      </paragraph>');
-    if (!emitted) lines.length = mark;   // every phrase in it was silent: the paragraph is not written
   }
   lines.push('    </paragraphs>');
-  /* The blank lines left out above, by their times (BLANK_LINES_PI) — and any a parsed file brought in
-   * that no heal has used yet (a text moved here and uploaded again before anybody opened it), unless a
-   * line written in this file now covers that time. Only where this file carries times at all. */
-  if (opts.segTimes !== false) {
-    const meets = (a, list) => list.some((b) => a.start < b.end && b.start < a.end);
-    const carried = (doc.blankLines || []).filter((b) => !meets(b, written) && !meets(b, blanks));
-    const instr = blankLinesPi([...blanks, ...carried].sort((a, b) => a.start - b.start));
-    if (instr) lines.push('    ' + instr);
-  }
   // languages element. Authored docs SKIP doc.languages (that's the stale snapshot
   // frozen at creation) and emit purely from the live settings; imported docs emit
   // their own languages first, with the settings only as gap-fillers.

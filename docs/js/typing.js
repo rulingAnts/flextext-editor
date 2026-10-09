@@ -801,30 +801,3 @@ export function linePermissions(s, tab) {
 }
 /** What a v707+ writer stores in the OLD combined key: both halves allowed, and nothing less. */
 export function legacyJoinSplit(join, split) { return join !== false && split !== false; }
-
-/* ─────────────────────────────────────────────────────────────────────────────────────────────
- * THE AUDIO SEGMENTER'S OWN PERMISSIONS ARE ON BY DEFAULT (v712; Seth, 2026-10-09: "All permissions
- * that are specific to the audio segmenter app should be on by default"): editing words, glosses and
- * free translations in place, adding blank lines, and swapping a recording the coworker attached
- * themselves (a researcher's recording is never swappable — isAudioLocked).
- *
- * Until v712 a PAIRED device had all three off unless the researcher ticked them, and the panel's
- * form showed them unticked — and then SAVED that false along with everything else (readForm writes
- * every field). So a stored false from before v712 is not a decision anybody made; it is the old
- * default, written down. Telling the two apart needs a marker: a v712+ panel writes
- * SEG_PERMS_REV_KEY alongside the values, and only then does a false mean "switched off".
- *   - true                    ⇒ on;
- *   - unset                   ⇒ on (the new default);
- *   - false, no marker        ⇒ on (an old panel's default, not a choice);
- *   - false, marker present   ⇒ off (a v712+ researcher unticked it).
- * An engine older than v712 reads `=== true`, so it keeps exactly the behaviour it had, whatever
- * this writes. An unpaired device never asks — its gates short-circuit on !Sync.hasSession(). Pure,
- * so the panel's form, the device's form and the engine cannot disagree. */
-export const SEG_PERMS = ['allowTextEdit', 'allowBlankLines', 'allowAudioSwap'];
-export const SEG_PERMS_REV_KEY = 'segPermsRev';
-export const SEG_PERMS_REV = 2;
-export function segmenterPermission(s, key) {
-  const v = s ? s[key] : undefined;
-  if (v !== false) return true;
-  return !(Number(s && s[SEG_PERMS_REV_KEY]) >= SEG_PERMS_REV);
-}

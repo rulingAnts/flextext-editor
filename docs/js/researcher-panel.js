@@ -14,11 +14,11 @@
 
 import * as Researcher from './researcher.js';
 import { openExternal } from './external-link.js';
-import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit, SEG_PERMS, SEG_PERMS_REV_KEY, SEG_PERMS_REV, segmenterPermission } from './typing.js';
+import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets, stripSilentPhrasesXml } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -780,10 +780,8 @@ const GROUPS = [
      * `settings.allowAudioSwap === true` on a managed device, so with no field to tick it the
      * button was unreachable on every paired device in the field. Found by this audit, 2026-09-09. */
     { k: 'allowAudioSwap', type: 'checkbox' },
-    // Audio Segmenter only (the engine gates read them; other apps ignore them). Since v712 all
-    // three of the Segmenter's own switches — swap above, these two — are ON for a managed device
-    // too, until a researcher unticks them here (Seth, 2026-10-09). typing.js segmenterPermission
-    // has the rule, and why a false saved by an older panel does not count as unticking.
+    // Audio Segmenter only (the engine gates read them; other apps ignore them). Both default ON
+    // for an unpaired device — somebody working alone — and are the researcher's to switch off.
     { k: 'allowBlankLines', type: 'checkbox' },
     { k: 'allowTextEdit', type: 'checkbox' },
   ] },
@@ -1449,17 +1447,8 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v713', date: '2026-10-10', items: [
-    { k: 'panel.rel.fix.blankLinesKept', issue: 111 },
-    { k: 'panel.rel.fix.gapLines' },
-    { k: 'panel.rel.fix.zipLatest', issue: 102 },
-    { k: 'panel.rel.fix.passthroughSilent', issue: 97 },
-    { k: 'panel.rel.new.segPermsOn' },
-    { k: 'panel.rel.new.mgGuessPiece', issue: 93 },
-    { k: 'panel.rel.new.mgWordSplitJoin' },
-    { k: 'panel.rel.fix.mgUndoKeys' },
-    { k: 'panel.rel.fix.mgLangNarrow' },
-    { k: 'panel.rel.fix.blankEmptyWord', issue: 97 },
+  { v: 'v714', date: '2026-10-10', items: [
+    { k: 'panel.rel.fix.revertSilentExports', issue: 111 },
   ] },
   { v: 'v709', date: '2026-10-08', items: [
     { k: 'panel.rel.new.silentExports', issue: 97 },
@@ -4333,8 +4322,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
     if (kind === 'flextext') {
       const xml = await menuFlextextText(wrap);
       if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
-      // As uploaded, minus the empty timed lines an older device still wrote (v711) — see withoutSilentLines.
-      saveBlobAs(new Blob([stripSilentPhrasesXml(xml)], { type: 'application/xml' }), base + '.flextext');
+      saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext');
       return;
     }
     const src = await prepareConversionSources(wrap, pkgBase, paint, { kind });
@@ -4380,7 +4368,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
        * its annotation extensions, so it is a first-class file there rather than a passenger. */
       /* …with its one reference to the recording pointed at the file this package actually ships
        * (lametaFlextextMedia changes that attribute and nothing else). */
-      if (src.xml) entries.push({ name: pkgBase + '.flextext', data: new Blob([lametaFlextextMedia(stripSilentPhrasesXml(src.xml), src.segMedia ? src.segMedia.name : '')], { type: 'application/xml' }) });
+      if (src.xml) entries.push({ name: pkgBase + '.flextext', data: new Blob([lametaFlextextMedia(src.xml, src.segMedia ? src.segMedia.name : '')], { type: 'application/xml' }) });
       /* Only what we actually know. Genre, Date, Location, Access are left out for the researcher to
        * complete in lameta, which is what lameta is for: an empty element would read as answered,
        * and a guessed value would read as a fact. */
@@ -4514,36 +4502,6 @@ function findInventoryItem(instanceId, docId) {
   return null;
 }
 
-/* WHERE A FOLDER FILE GOES IN THE DOWNLOAD-ALL ZIP (v710; Seth, 2026-10-09: "our export packages
- * contain a long list of flextext files with timestamps and it's not always easy to tell which one is
- * most recent/currently active … the most recent/authoritative one is in the root while older ones go
- * in a sub-folder"). The CURRENT .flextext — the one every conversion in the zip is built from
- * (pickSourceFiles) — takes the text's plain name in the root, beside the ELAN/SayMore/.fxpa built
- * from it under the same base. Every other .flextext (timestamped backups and the original assignment
- * alike) keeps its own name inside `olderFolder`. Nothing else moves. The Drive folder itself is
- * untouched — that is #102. ⚠ NO SPACE IN THE FOLDER'S NAME (Seth, 2026-10-09: "it will be
- * incompatible with lameta") — lameta's own naming turns whitespace into `_`, so the folder is
- * `older_versions`, and any translation is held to the same rule here rather than trusted to.
- * PURE and lifted by test/download-all-latest.test.mjs. */
-function zipEntryName(f, current, base, olderFolder) {
-  const name = String((f && f.name) || 'file');
-  if (!(isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES))) return name;
-  if (current && f && f.id === current.id) return `${base || 'text'}.flextext`;
-  return `${String(olderFolder || 'older_versions').trim().replace(/\s+/g, '_')}/${name}`;
-}
-
-/* A .flextext about to leave the panel as it was uploaded loses its empty timed lines — the ones a
- * device that had not yet updated to v709 still wrote (stripSilentPhrasesXml, flextext.js; v711). Any
- * other file, or a blob that cannot be read as text, goes out exactly as it came. */
-async function withoutSilentLines(f, data) {
-  if (!(isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES)) || !data || typeof data.text !== 'function') return data;
-  try {
-    const xml = await data.text();
-    const clean = stripSilentPhrasesXml(xml);
-    return clean === xml ? data : new Blob([clean], { type: data.type || 'application/xml' });
-  } catch { return data; }
-}
-
 /* Download-everything-as-one-ZIP: every byte routes through the Worker with the RESEARCHER'S own
  * token and connection — this control must never exist on a field device. Built client-side because
  * Drive has no "folder as zip" URL — the web UI's folder download is an internal, cookie-
@@ -4585,11 +4543,6 @@ async function downloadAllZip(btn) {
       try { return (await Researcher.listTextFiles(iid, id)).files || []; } catch { return []; /* partial is fine */ }
     }));
     const all = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
-    // The current .flextext on top under the text's name, the older ones in a folder — see zipEntryName.
-    const menuWrap = btn.closest ? btn.closest('.rp-dl') : null;
-    const ftBase = (menuWrap && menuWrap._menuSrc && menuWrap._menuSrc.base) || title || 'text';
-    const currentFt = pickSourceFiles(all).flextext;
-    const zipName = (f) => zipEntryName(f, currentFt, ftBase, t('panel.dl.olderFolder'));
     const wanted = all;   // the ENTIRE folder — every bridged identity, backups included
     const entries = [];
     const used = new Set();
@@ -4605,10 +4558,10 @@ async function downloadAllZip(btn) {
       const i = ++got;
       const head = t('panel.dl.fetchingN', { i, n: wanted.length, name: f.name || '' });
       dlStatus(wrapForStatus, head); jobSet(job, head);
-      add(zipName(f), await withoutSilentLines(f, await Researcher.fetchDriveFile(f.id, (bytes) => {
+      add(f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
         const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
         dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
-      }, memberDlVia(wrapForStatus), dlCtl.signal)));
+      }, memberDlVia(wrapForStatus), dlCtl.signal));
       if (dlCancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
     }
 
@@ -10622,9 +10575,6 @@ function toFormValues(s) {
       ? s.enterAtEnd : (Object.keys(s).length ? 'split' : 'advance');
     else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'adjustBoundaries') v.adjustBoundaries = s.adjustBoundaries !== false;
-    // The Audio Segmenter's own three, on unless a v712+ panel switched them off — the ONE rule the
-    // device's gates use (typing.js segmenterPermission), so this form shows what the device will do.
-    else if (SEG_PERMS.includes(f.k)) v[f.k] = segmenterPermission(s, f.k);
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     /* ⚠ THE THREE TYPING DIALS DEFAULT TO 'off', NOT opts[0]. The generic select fallback below
@@ -10699,9 +10649,6 @@ function readForm(box) {
   // keeps the stricter rule from these four switches (app.js linePermission reads them as fallback).
   patch.joinSplitBaseline = legacyJoinSplit(raw.joinBaseline, raw.splitBaseline);
   patch.joinSplitGloss = legacyJoinSplit(raw.joinGloss, raw.splitGloss);
-  /* The marker that makes this form's false a decision (v712): written with the three Audio Segmenter
-   * switches, and only when the form really carried all three — see segmenterPermission. */
-  if (SEG_PERMS.every((k) => typeof raw[k] === 'boolean')) patch[SEG_PERMS_REV_KEY] = SEG_PERMS_REV;
   // appLang 'follow' (or unset) = "don't change this device's language" → never push it (it would
   // clobber a field worker's own toggle choice). Only an explicit en/id is sent (set-with-override).
   if (patch.appLang === 'follow' || !patch.appLang) delete patch.appLang;

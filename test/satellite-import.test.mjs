@@ -112,8 +112,8 @@ ok(/'mg\.moreAudio': 'Audio: \{a\} \\u00b7 Text: \{t\}/.test(en) && /'mg\.moreTe
 console.log('\nrow controls: delete a text, swap its recording — on by default when unpaired');
 const swap = asyncFn(app, 'satReplaceAudio');
 const rowc = fn(app, 'satRowControls');
-ok(/function allowAudioSwapOn\(\) \{ return !Sync\.hasSession\(\) \|\| segmenterPermission\(settings, 'allowAudioSwap'\); \}/.test(app),
-   'allowAudioSwap: researcher-settable, ON with no researcher session — and on a paired device unless switched off (v712)');
+ok(/function allowAudioSwapOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowAudioSwap === true; \}/.test(app),
+   'allowAudioSwap mirrors allowDeleteOn exactly — researcher-settable, ON with no researcher session');
 ok(/allowDeleteOn\(\)/.test(rowc) && /allowAudioSwapOn\(\)/.test(rowc), 'each control is behind its own permission');
 ok(/userDeleteDoc\(d\.id, d\.title\)/.test(rowc),
    'delete goes through the EXISTING userDeleteDoc — its confirm, its upload-first case, its queued-upload cancel');

@@ -229,18 +229,8 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
   Free translations are prose and are unaffected.
 - **Segmentation mode invariant (flat mode): one line = one paragraph = one phrase = one span**,
   including blank lines (a blank line is a real timed span — usually silence). ⚠ In the files written
-  for FLEx and ELAN/SayMore a blank line is left OUT (v709, `isSilentPhrase` in `flextext.js`): no empty
-  phrase, no empty annotation; the editor keeps it, and a re-import sees a hole between its neighbours.
-  A word with no text, no gloss and nothing preserved (`isEmptyWord`, v712) does not count as content —
-  the Segmenter's in-place editing can leave one on a blank line. The blank lines' TIMES are written
-  instead as one processing instruction, `<?flextext-editor v="1" blank-lines="…"?>` (`BLANK_LINES_PI`,
-  v713, #111); `parseInterlinearText` reads it into `doc.blankLines`, and `healGapLines` hands those to
-  `fillGapLines` as `pieces`, which puts each back at its own times (and lets them replace the parser's
-  one-empty-line placeholder for a text whose every line was blank). Without it — a file from FLEx or
-  ELAN — every hole of ≥ 350 ms between timed lines and before the first becomes one blank line (v710),
-  and so does the rest of the recording after the last line once its length is known — `settleTail`
-  in `segment-strips.js`, the ONE tail rule, run by `reconcile` (Cut, Baseline), by the Gloss tab when
-  its peaks land, and by the Segmenter's matcher, all from the same 350 ms (`TAIL_LINE_MIN_MS`, v712).
+  for FLEx and ELAN/SayMore a blank line is written as an empty phrase with its times / an empty annotation.
+  (v709 left them out; v714 undid that — moved texts lost their untranscribed segments, #111.)
 - All span edits route through `segments.js` (`boundaryAtPlayhead` / `mergeSegments` /
   `normalizeSegments` / `syncToLines`): spans can never cross; a time is never invented
   (out-of-range → `timePending`); **text is sacred** (a text edit always applies even when the

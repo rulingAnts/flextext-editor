@@ -14,6 +14,27 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ---
 
+
+## ▶ v714 — ROLLBACK, 2026-10-10: v709's "leave blank lines out of the exports" is undone; production returns to v707's export behaviour
+
+Seth, 2026-10-10, testing the v713 staging build: "It looks thoroughly broken now. Can we revert to the version of flextext
+editor BEFORE I attempted to exclude empty lines? I'm getting audio segments and text all misaligned on re-import now from
+older time-aligned exports." Then: "Let's revert, push production" — with a new version number "so that the update pushes".
+- v714 = main (v709 + docs) with v709's code change reversed: `docs/js/flextext.js`, `docs/js/seg-exports.js` and their
+  tests are byte-identical to v707 (6d86abd6) again; `test/silent-exports.test.mjs` is gone. Every line is written to the
+  .flextext and the EAFs again, blank ones included. The v709 release note stays (it was released); the v714 note says it
+  was undone (#111).
+- **Parked, not lost (Seth: "Everything we HAD done since then should be moved to a feature branch and carefully rethought
+  in a careful, ultracoded, Fable evaluated plan (after Sunday)"):** branch `parked/v709-v713-blank-lines` = the whole line
+  v709 → v713 (silent exports; blank lines restored on re-import; Download-all layout; pass-through stripping; Seth's Audio
+  Segmenter list — permissions on by default, picker, undo keys, per-piece ✨, word split/join; the blank-lines
+  instruction for #111). Same commit as `roundtrip-v710`. NOT to be picked from piecemeal: re-plan it as a whole after
+  2026-10-11, with an ultracode workflow and the plan evaluated by Fable.
+- **Researcher notice:** an apology through the `maintenance-notice` workflow (no new code) — see the chat for the wording
+  question (the panel frames that notice as "Maintenance in progress … texts are unaffected").
+- Field impact to tell researchers: a text uploaded or moved between devices between v709 (2026-10-09) and v714 may have
+  lost its untranscribed segments and need re-cutting on the Cut tab (#111).
+
 ## 0 — a credential-rotation item lived here
 
 ⚠ **Deliberately not described in this repository, which is PUBLIC** (Seth, 2026-09-01: "let's not
@@ -34,99 +55,7 @@ The item itself is tracked privately.
 
 ---
 
-## ▶ v713 — assembled 2026-10-10 on branch `roundtrip-v710` (#111: a moved text keeps every cut; the pauses come back as blank lines; the current .flextext on top of Download all; pass-through downloads drop an older device's empty lines; Seth's Audio Segmenter list) — staging, NOT released (Seth: "Let's not release v710 yet. I still need to test it"); production is v709
-
-`BUILD_TAG = 'roundtrip v4'` (v710–v712 = 'roundtrip v1'–'v3' were earlier staging builds of the same branch; never
-released, so the number moves on).
-
-v713 — Brian's #111 ("Missing audio segments with empty baseline after moving out and back in to device"). A text moves
-between devices as the .flextext its first device uploaded (Lane B, `serializeDocBlob`; the receiving device rebuilds it
-in `buildDocFromFlextextUrl`), and since v709 that file has no line for a piece with nothing in it — so the pieces
-nobody had typed yet vanished (v709), or came back merged, one blank line per hole (v712). Seth chose option B of two
-(2026-10-10): "Keep the upload clean and record the blank pieces' times inside the file, as a hidden XML instruction
-that FLEx and ELAN ignore." `serializeFlextext` writes `<?flextext-editor v="1" blank-lines="start-end …"?>` inside
-`<interlinear-text>` (`BLANK_LINES_PI`, flextext.js; `~` = estimated) for every timed blank line it leaves out, plus any
-`doc.blankLines` a parsed file brought in that nothing has used yet; the file still validates against FLEx's
-FlexInterlinear.xsd (xmllint, 2026-10-10). `parseInterlinearText` reads it into `doc.blankLines`; `healGapLines` (app.js)
-hands it to `fillGapLines` as `pieces` (segments.js `piecePlan`: each piece at its own times, the 350 ms rule for any
-stretch they leave uncovered, an open tail), lets the pieces replace the parser's placeholder line for a text whose
-every line was blank, and drops the field once used. Verified in the rig: a text cut into 15 (three untranscribed
-pieces in a row at the end), saved to file, imported again — 15 lines, every time identical, in the Editor and the
-Segmenter. test/blank-lines-pi.test.mjs; the test DOM learned processing instructions. Status note posted on #111.
-Seth: this also moves toward #104 (a data model, with .flextext as one export of it) — "Let's not do that JUST yet."
-FLEx import of a v713 .flextext (with the blank-lines line) checked by Seth, 2026-10-10: "successful with no ill effects".
-
-**Testing split (Seth, 2026-10-10):** the Editor and the researcher panel are what this release must get right; the
-Audio Segmenter "is not widely used yet" — its checks wait until after the release ("keep a checklist for what to test
-on audio segmenter, but save that testing for after the release"). Both lists: plans/RELEASE-SMOKE-TEST.md § v713.
-**Next, after this release (Seth, 2026-10-10):** an optional tick to keep a blank line AS a blank line in the exports —
-sketch in plans/BACKLOG.md ("tick a blank line to keep it").
-**Open before release:** whether a device should re-upload, once, a text whose last upload predates v713 and that has
-blank pieces (otherwise field texts uploaded under v709–v712 still lose their untranscribed cuts when moved) — asked,
-not answered yet; not built.
-
-v712 (the same evening as v711). Seth on v711, the same evening: "Round-trip appears to work, except
-final empty segment isn't being drawn. Make sure to also watch for a gap between the final audio segment in the
-flextext and the actual end of the audio file (total duration?)", then four Audio Segmenter items (the 40-minute
-recording one deferred: "Let's put that problem off for a future release"). v712:
-- **Tail:** the tail rule used coverTail's full second, so a final blank line under a second never came back, and only
-  `reconcile` ran it (Cut, Baseline). Now `settleTail` (segment-strips.js, exported) is the one rule — stretch an empty
-  last line, else a blank line of its own — from `TAIL_LINE_MIN_MS` = 350 ms (the gap rule's threshold), run by
-  reconcile, by the Gloss tab once its peaks land (`settleTailOf`, re-rendered only while nobody is typing), and in the
-  matcher, where the tail span now gets a blank text line beside it when the rows already paired one to one.
-- **"All permissions that are specific to the audio segmenter app should be on by default":** `segmenterPermission`
-  (typing.js) for allowTextEdit / allowBlankLines / allowAudioSwap — on unless a v712+ panel switched it off. The panel
-  saved every box (readForm), so a stored `false` from before v712 is the old default written down, not a choice; a
-  v712+ panel writes `segPermsRev: 2` with them, and only then does a false count. Engines older than v712 read
-  `=== true` and are unaffected. "…make sure if they really are blank, they don't export as empty lines": `isEmptyWord`
-  (flextext.js) — an empty word/gloss pair no longer makes a line content (isSilentPhrase, stripSilentPhrasesXml), and
-  Done drops pairs left empty (`mgDropEmptyWords`). His list also named joining/splitting word/gloss pairs: Space mid-word
-  splits the pair, Backspace at a word's start joins it (refused, with a reason, over a FLEx analysis). Found while
-  verifying: the box's blur fires AS a redraw removes it (Chromium, synchronous, still connected), and its commit ran
-  with the old index against the new line — Space at the start of a word made the word twice (pre-v712, since in-place
-  editing shipped); now each in-box change marks the box first (`taken`), regression-tested with a removal that blurs.
-- **Language picker "lost":** below 820 px the matcher hides its heading row, and the picker lived in it. The row now
-  stays (headings hidden) when it carries the picker (`mg-has-lang`).
-- **Undo/redo "doesn't appear to be working":** the matcher's history worked from the buttons and ⌘Z, but Ctrl+Y — what
-  the Redo tooltip promises — did nothing; Ctrl+Z was dead after touching the speed or language picker; a grab that never
-  moved left an undo step that did nothing; a refused ✂ the same. All four fixed; the editor's own ring stands down
-  while the matcher is open.
-- **Per-piece ✨ in the Segmenter:** ✨ moved to the dock's bottom-right corner (as the editor's v701) and has the same two
-  modes: whole recording while nothing is cut, else the piece under the playhead (`mgGuessPiece`, via
-  `guessedBoundariesWithin` + `applyGuessedSplitsWithin`) — any piece, since audio and text are cut independently; one
-  undo step; the "replace everything?" confirm is gone with the behaviour that needed it.
-- test/segmenter-v712.test.mjs runs the real functions; 806 tests.
-
-v710/v711, three of Seth's asks the same day:
-- "On re-import, gaps in duration between paragraphs, phrases, etc, should re-generate empty lines/audio segments in
-  flextext editor so that they can be changed" — or "draw empty audio segments in the gaps and ADD flextext
-  paragraph/phrase lines whenever text … is typed in. Whichever is the easier and less risky." Built as the first, which
-  delivers the second: `gapLinesBetween` / `tailGapLine` / `fillGapLines` (segments.js, pure) plan a blank line for every
-  hole of ≥ 350 ms (GUESS_MIN_GAP_MS) between timed lines and before the first; `healGapLines` (app.js) inserts them into
-  paragraphs + segments together from `healFlatSegments`, i.e. on entering Cut/Baseline/Gloss and opening a text in the
-  Segmenter (so texts imported under v709 heal on next open; the classic editor is untouched); the tail after the last
-  line is a blank line too once the recording's length is known (`reconcile`, via the `appendBlankLine` dep, only where
-  `coverTail` may not stretch the last line). A blank line inside one original paragraph inherits its `paraOf` — without
-  that the serializer falls back to flat for the whole text. v709's `isSilentPhrase` keeps every blank line out of the
-  exports until someone types into it. test/gap-lines.test.mjs runs the round trip end to end.
-- "our export packages contain a long list of flextext files with timestamps … the most recent/authoritative one is in
-  the root while older ones go in a sub-folder" + "Let's not have a space in a folder name … incompatible with lameta."
-  `zipEntryName` (researcher-panel.js): in Files… ▸ Download all (ZIP) the current .flextext (pickSourceFiles — what every
-  conversion in the zip is built from) is `<base>.flextext` in the root; every other .flextext goes into `older_versions/`
-  (`versi_lama/` in Indonesian; whitespace forced to `_`). The Drive folder itself is still the pile (#102).
-- "ALL flextext exports on ALL export options have our v709 export fix right?" — not the pass-through ones: Files… ▸
-  .flextext, the lameta session and Download all hand over the uploaded file, and the Utilities Convert/Export tool the
-  picked one, byte-for-byte on purpose. v711: `stripSilentPhrasesXml` (flextext.js) removes exactly the empty timed
-  phrases a pre-v709 device wrote (empty txt, empty words, empty gls, segnum, our own `audio …` note — nothing else) and a
-  paragraph left empty, by string surgery, so every other byte stays; a file with nothing to remove is the same string.
-  test/silent-passthrough.test.mjs holds the frozen v707 shape.
-
-## v709 — released 2026-10-09 (silent lines leave the FLExText and EAF exports, #97); production = bc25b076
-
-Seth, 2026-10-09: "You can push v709 first though. like deploy it." Released as tested on staging (`silent-exports v1`),
-BUILD_TAG cleared in bc25b076 (main = productionWeb = staging); deploy run 37853994428, all seven apps green, every
-endpoint v709 on two passes 45 s apart, the shipped flextext.js identical to the commit. Assembled 2026-10-08 on branch
-`silent-exports`:
+## ▶ v709 — assembled 2026-10-08 on branch `silent-exports` (silent lines leave the FLExText and EAF exports, #97) — on staging, NOT in main
 
 Seth, 2026-10-08: "Silent segments exported (or saved) as flextext and especially eaf should not be included in the
 export. That's all. Good enough. So not as empty lines in FLEx or empty annotations in ELAN/SayMore." `BUILD_TAG =
@@ -139,6 +68,14 @@ keeps the phrase) and the round trip (the file opens as lines with holes, like a
 **v708 (`gap-lines`, the Cut-tab Line tick, #97) was ROLLED BACK from staging the same day** — Seth: "too much machinery
 and too buggy" — by reverting its merge (`82ca0bf`); the branch is kept, unmerged. v708 was never released, so the number
 is skipped rather than reused: a device that loaded the v708 preview must see a NEW version string to fetch this shell.
+
+## Filed 2026-10-09 — contributor-friendliness plans (Seth: "put all these as plans to follow up on later")
+
+Issues only, nothing built: **#116** fork-and-run offline dev rig on Mac/Windows/Linux (root `package.json` with wrangler,
+a Node entry point, `DEV_STUBS` in the worker, CONTRIBUTING.md + templates, the dependency surface pinned); **#117**
+fork-safe previews (worker names overridable, routes only from this repo, a contributor's own Cloudflare secrets);
+**#118** GitHub Discussions + a good-first-issue pass. **#98** gained the GitHub-sign-in half (OAuth on the worker,
+post as the user); **#99** (Crowdin) is to proceed phase 0 first. Planned order: #116 → #99 phase 0 → #98.
 
 ## ▶ v707 — released 2026-10-07 (✨ at any length, #93; Gloss 🔗 gated, #100; join and split are separate permissions); production = 6d86abd6 (main = productionWeb = staging); sites-only release, no worker change
 

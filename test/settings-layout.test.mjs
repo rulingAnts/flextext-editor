@@ -68,14 +68,9 @@ test('every paired-only setting is greyed on the unpaired form, with a reason', 
 });
 
 test('and the six gates really are the short-circuiting kind', () => {
-  for (const k of ['allowDelete', 'allowAudioRemove']) {
+  for (const k of ['allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines', 'allowTextEdit']) {
     assert.match(APP, new RegExp(`!Sync\\.hasSession\\(\\) \\|\\| settings\\.${k} === true`),
       `${k}'s gate is unpaired-means-on`);
-  }
-  // The Audio Segmenter's own three are unpaired-means-on too — and paired-means-on unless switched off (v712).
-  for (const k of ['allowAudioSwap', 'allowBlankLines', 'allowTextEdit']) {
-    assert.match(APP, new RegExp(`!Sync\\.hasSession\\(\\) \\|\\| segmenterPermission\\(settings, '${k}'\\)`),
-      `${k}'s gate is unpaired-means-on, through the shared resolver`);
   }
   assert.match(APP, /!Sync\.hasSession\(\) \|\| loadSettings\(\)\.deleteAllEnabled === true/,
     'and Delete All the same, reading through loadSettings');

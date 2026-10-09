@@ -3,6 +3,16 @@
 **Status:** in progress on branch `lameta-device`. Milestones and what Seth checks at each are at
 the end. Companion contract: `plans/lameta-progress-spec.md`.
 
+**2026-10-09: M1–M4 are merged into `main`** (the branch is 0 commits ahead), so M5 onward
+continues from `main` on a feature branch. **The lameta app this agent serves is now usually
+FlexText Metadata**, Seth's lameta fork (`plans/flextext-metadata.md`). It writes an open marker,
+`<project>/.flextext-open.json`, and watches `Sessions/`.
+- While the marker is fresh (heartbeat < 2 minutes old), new session folders may be written at
+  once, and rewrites of existing `.session` files stay queued.
+- With no fresh marker, everything below applies unchanged, because stock lameta gives no such
+  signal.
+- The contract is `plans/flextext-metadata.md` §5.
+
 Seth, 2026-09-27: *"a Tauri or Electron-shell (or Chrome PWA with file system permissions?) version
 of Researcher Panel let's the user browse to and link their lameta project file (and then the
 sessions folder becomes basically a 'device' into which FLExText Editor texts can be moved in or

@@ -46,18 +46,10 @@ const STUBS = ['t', 'deps', 'db', 'Researcher', 'confirmModal', 'renderDashboard
   'savePending', 'setTimeout', 'dlStatus', 'bridgedIds', 'memberDlVia', 'prepareConversionSources',
   'buildSegEntriesFor', 'makeZip', 'document', 'URL',
   // v690: the manifest's schema-3 hashes are computed in runAssignUpload through this helper.
-  'blobSha256',
-  // v711: Download all strips an older device's empty timed lines from each .flextext.
-  'stripSilentPhrasesXml'];
-
-/* v710: downloadAllZip names folder files through the real pickSourceFiles + zipEntryName (and the role
- * constants they read), carried in the body like everything else it calls. */
-const FILE_RULES = PANEL.slice(PANEL.indexOf('const SOURCE_AUDIO_ROLES = '), PANEL.indexOf('\n', PANEL.indexOf('const isFlextextName = ')) + 1)
-  + fnSrc('function pickSourceFiles(files) {') + '\n' + fnSrc('function zipEntryName(f, current, base, olderFolder) {')
-  + '\n' + fnSrc('async function withoutSilentLines(f, data) {');
+  'blobSha256'];
 
 function loadPanel(stubs) {
-  const body = `${TRAY}\n${AQ}\n${FILE_RULES}\n${fnSrc('async function runAssignUpload(docId) {')}
+  const body = `${TRAY}\n${AQ}\n${fnSrc('async function runAssignUpload(docId) {')}
     ${fnSrc('async function paintAssignQueue() {')}\n${fnSrc('async function downloadAllZip(btn) {')}
     return { jobs, jobStart, jobEnd, jobSet, jobPaused, jobDrop, aqActive, aqStop, aqJobs, aqPause,
              aqResume, aqCancelRunning, aqCancelCleanup, aqCancelPrompt, aqCancelIds,
@@ -102,7 +94,6 @@ function world(over = {}) {
     prepareConversionSources: async () => ({ error: 'none' }), buildSegEntriesFor: async () => [],
     makeZip: async () => ({}),
     blobSha256: async () => '',
-    stripSilentPhrasesXml: (x) => x,
     document: { createElement: () => ({ click() {}, remove() {}, style: {} }), body: { appendChild() {} } },
     URL: { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} },
   };
@@ -217,8 +208,7 @@ test('a stop flag can never outlive its transfer', () => {
 test('both download jobs can be cancelled, and a cancel reads as a cancel, not a failure', () => {
   assert.equal((PANEL.match(/new AbortController\(\)/g) || []).length >= 2, true);
   assert.match(PANEL, /cancel: \(\) => \{ dlCancelled = true; jobSet\(job, t\('panel\.jobs\.cancelling'\)\); dlCtl\.abort\(\); \}/, 'Download All');
-  // v711: the fetch now sits inside withoutSilentLines(…), hence the third parenthesis.
-  assert.match(PANEL, /memberDlVia\(wrapForStatus\), dlCtl\.signal\)\)\);/, 'and the signal actually reaches the fetch');
+  assert.match(PANEL, /memberDlVia\(wrapForStatus\), dlCtl\.signal\)\);/, 'and the signal actually reaches the fetch');
   assert.match(PANEL, /cancel: \(\) => \{ fileCancelled = true; jobSet\(job, t\('panel\.jobs\.cancelling'\)\); fileCtl\.abort\(\); \}/, 'a single Drive file');
   assert.match(PANEL, /memberDlVia\(wrap2\), fileCtl\.signal\)\.then/);
   assert.match(PANEL, /if \(dlCancelled \|\| \(e && \(e\.cancelled \|\| e\.name === 'AbortError'\)\)\) \{\s*\n\s*jobEnd\(job, t\('panel\.jobs\.cancelledShort'\)\);/);

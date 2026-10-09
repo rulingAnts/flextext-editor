@@ -215,8 +215,7 @@ test('the package carries the recording and the .flextext beside the annotation'
    * same doc state as the EAF so the package cannot hold two annotations that disagree. The EAF was
    * built from parseFlextext(src.xml) in this same operation, so shipping src.xml satisfies that AND
    * avoids round-trip loss through our own parser. */
-  // v711: the fetched XML minus an older device's empty timed lines (stripSilentPhrasesXml), then its media reference.
-  assert.match(branch, /entries\.push\(\{ name: pkgBase \+ '\.flextext', data: new Blob\(\[lametaFlextextMedia\(stripSilentPhrasesXml\(src\.xml\), src\.segMedia \? src\.segMedia\.name : ''\)\]/,
+  assert.match(branch, /entries\.push\(\{ name: pkgBase \+ '\.flextext', data: new Blob\(\[lametaFlextextMedia\(src\.xml, src\.segMedia \? src\.segMedia\.name : ''\)\]/,
     'the .flextext is the same XML the EAF was parsed from, with only its media reference repointed');
   assert.doesNotMatch(branch, /serializeFlextext/, 'not re-serialized — no round-trip loss');
 });

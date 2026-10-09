@@ -3519,9 +3519,6 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
   font-size:.85rem;color:var(--muted,#667);text-align:center}
 @media (max-width:820px){
   .mg-rowhead{display:none}
-  /* …except when it carries the language picker: the headings go, the picker stays (v712). */
-  .mg-rowhead.mg-has-lang{display:flex;justify-content:flex-end;padding:.3rem .6rem 0}
-  .mg-rowhead.mg-has-lang h3{display:none}
   .mg-row{grid-template-columns:1fr;gap:.25rem;padding-bottom:.4rem;border-bottom:1px solid var(--line,#d7dbe0)}
   .mg-rows{max-height:calc(100vh - 20rem)}
 }

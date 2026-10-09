@@ -38,7 +38,7 @@ console.log('EAF — FLEx profile');
   ok(itextTier.includes('<ANNOTATION_VALUE>Kisah Kasuari</ANNOTATION_VALUE>'), 'interlinear-text annotation carries the title');
   ok((itextTier.match(/<ALIGNABLE_ANNOTATION /g) || []).length === 1, 'exactly one interlinear-text annotation spanning the text');
   const paraTier = eaf.slice(eaf.indexOf('TIER_ID="A_paragraph"'), eaf.indexOf('TIER_ID="A_phrase-txt-fau"'));
-  ok((paraTier.match(/<ALIGNABLE_ANNOTATION /g) || []).length === 2, 'paragraph tier mirrors the phrase tier 1:1 (2 annotations — the silent middle line is not written, 2026-10-08)');
+  ok((paraTier.match(/<ALIGNABLE_ANNOTATION /g) || []).length === 3, 'paragraph tier mirrors the phrase tier 1:1 (3 annotations)');
   const phraseTs = [...eaf.slice(eaf.indexOf('TIER_ID="A_phrase-txt-fau"')).matchAll(/TIME_SLOT_REF1="(ts\d+)" TIME_SLOT_REF2="(ts\d+)"/g)].slice(0, 3).map((m) => m[1] + '/' + m[2]);
   const paraTs = [...paraTier.matchAll(/TIME_SLOT_REF1="(ts\d+)" TIME_SLOT_REF2="(ts\d+)"/g)].map((m) => m[1] + '/' + m[2]);
   ok(JSON.stringify(paraTs) === JSON.stringify(phraseTs), 'paragraph annotations SHARE the phrase time slots');
@@ -52,10 +52,7 @@ console.log('EAF — FLEx profile');
   // Contiguous segments share the joint TIME_SLOT: boundaries 0,2000,4000,6000 → exactly 4 slots.
   const slots = [...eaf.matchAll(/<TIME_SLOT /g)].length;
   ok(slots === 4, `contiguous boundaries share slots (4 slots for 3 segments, got ${slots})`);
-  // Seth, 2026-10-08: a silent segment gets NO annotation (it used to export as an empty aligned one).
-  const phraseTier = eaf.slice(eaf.indexOf('TIER_ID="A_phrase-txt-fau"'), eaf.indexOf('TIER_ID="A_phrase-gls-id"'));
-  ok((phraseTier.match(/<ALIGNABLE_ANNOTATION /g) || []).length === 2, 'the blank (silent) line exports NO annotation — two for three segments');
-  ok(!phraseTier.includes('<ANNOTATION_VALUE></ANNOTATION_VALUE>'), '…and nothing on the phrase tier carries an empty value');
+  ok(eaf.includes('<ANNOTATION_VALUE></ANNOTATION_VALUE>'), 'blank line exports as an EMPTY aligned annotation');
   ok(eaf.includes('&lt;empat&gt;') && eaf.includes('three &amp; four'), 'XML escaping in values');
   ok(eaf.includes('PREVIOUS_ANNOTATION='), 'word subdivision children are chained in order');
   ok(eaf.includes('STEREOTYPE="Symbolic_Subdivision"') && eaf.includes('STEREOTYPE="Symbolic_Association"'),
@@ -191,7 +188,7 @@ console.log('flextext IMPORT — segmentsFromOffsets (flextext as THE segmentati
   const d4 = segDoc();
   const xml = serializeFlextext(d4, { vernLang: 'fau', analLang: 'id' });
   const beginVals = [...xml.matchAll(/begin-time-offset="(\d+)"/g)].map((m) => +m[1]);
-  ok(JSON.stringify(beginVals) === JSON.stringify([0, 4000]), 'exported offsets carry the exact span starts back — the silent line between them is not written (2026-10-08)');
+  ok(JSON.stringify(beginVals) === JSON.stringify([0, 2000, 4000]), 'exported offsets carry the exact span starts back');
 }
 
 console.log('flextext — segTimes:false suppresses OUR emission, never imported data');

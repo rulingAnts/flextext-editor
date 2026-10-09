@@ -311,10 +311,7 @@ test('#90 review: matcher steps that await, with the delete landing in the middl
   const { ok, done } = checker();
 
   const commitRun = async (env) => {
-    // mgDropEmptyWords (v712) is lifted with it: Done runs every committed phrase through it.
-    const h = lift(['mgCommit', 'mgDropEmptyWords'], `
-      const isEmptyWord = (w) => !w || (!w.txt && !w.gls);
-      const baselineFromWords = (ws) => ws.map((w) => w.txt).join(' ');
+    const h = lift(['mgCommit'], `
       let puts = 0;
       const db = {
         getDoc: async (id) => { calls.push('getDoc:' + id); if (env.during === 'getDoc') remoteDelete(); return { id, doc: {} }; },

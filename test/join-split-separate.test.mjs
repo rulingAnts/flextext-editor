@@ -82,7 +82,7 @@ test('both surfaces show the four switches and read them through the one resolve
     assert.match(src, /v\.splitBaseline = linePermissions\(s, 'baseline'\)\.split;/);
     assert.match(src, /v\.joinGloss = linePermissions\(s, 'gloss'\)\.join;/);
     assert.match(src, /v\.splitGloss = linePermissions\(s, 'gloss'\)\.split;/);
-    assert.match(src, /import \{[^}]*linePermissions, legacyJoinSplit[^}]*\} from '\.\/typing\.js';/, 'imported from the shared module (already in every SHELL)');
+    assert.match(src, /import \{[^}]*linePermissions, legacyJoinSplit \} from '\.\/typing\.js';/, 'imported from the shared module (already in every SHELL)');
   }
   assert.match(APP, /'joinSplitBaseline', 'joinSplitGloss', 'joinBaseline', 'splitBaseline', 'joinGloss', 'splitGloss', 'enterAtEnd',/, 'all six travel with a setup link');
   for (const k of ['joinBaseline', 'joinBaselineNote', 'splitBaseline', 'splitBaselineNote', 'joinGloss', 'joinGlossNote', 'splitGloss', 'splitGlossNote', 'rel.new.joinSplitSeparate']) {

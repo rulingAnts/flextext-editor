@@ -109,7 +109,7 @@ console.log('\nevery foreign .flextext is normalised where it ENTERS the library
 {
   ok(/function normalizePhraseLines\(doc\)/.test(app),
      'the repair is a pure function — no `current`, no persist, no settings gate');
-  ok(/const flattened = normalizePhraseLines\(doc\);[\s\S]*const filled = healGapLines\(doc\);\n\s+if \(flattened \|\| filled\) schedulePersist\(\);/.test(fn(app, 'healFlatSegments')),
+  ok(/if \(normalizePhraseLines\(doc\)\) schedulePersist\(\);/.test(fn(app, 'healFlatSegments')),
      'healFlatSegments keeps its behaviour by calling it — only IT knows the doc it healed is the open one');
   for (const [where, name] of [['importFile', 'the editor opening a .flextext'],
                                ['buildDocFromFlextextUrl', 'a researcher-assigned text'],
@@ -236,10 +236,7 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
   ok(/a\.end = t;\s*\n\s*b\.start = t;/.test(mv), 'both sides of the join move together — no gap, no overlap');
 
   const drag = fn(app, 'mgBoundaryDrag');
-  // v712: snapshot at pick-up, pushed at the FIRST move — a grab that never moved leaves no step.
-  ok(/phase === 'start'[\s\S]{0,80}mgDragSnap = mgSnap\(\)/.test(drag)
-     && /if \(mgMoveBoundary\(i, ms\)\) \{\n\s+if \(before\) \{ mgCapture\(before\); mgDragSnap = null; \}/.test(drag),
-     'ONE undo per drag, of the state at pick-up, taken only once the boundary actually moves');
+  ok(/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag), 'ONE undo per drag, captured at pick-up');
   ok(/phase === 'end'[\s\S]{0,40}mgDraw\(\)/.test(drag), 'and one full redraw on release');
   ok(/mgLiveBoundary\(i\)/.test(drag), 'with a cheap live repaint in between');
   const live = fn(app, 'mgLiveBoundary');
@@ -314,11 +311,8 @@ console.log('\nplaceholders KEEP THEIR ROW, and the uncut remainder is never los
   ok(/MG\.spans\.push\(\{ id: 'tail', start: lastEnd/.test(prep),
      'whatever follows the last piece of AUDIO is appended, so the pane accounts for the whole recording');
   ok(/const lastEnd = Math\.max\(0, \.\.\.MG\.spans\.filter\(\(s\) => !s\.timePending\)\.map\(\(s\) => s\.end\)\)/.test(prep)
-     && /dur - lastEnd >= TAIL_LINE_MIN_MS/.test(prep),
-     'measured from the last REAL span (a trailing placeholder ends at 0), from the editor\'s 350 ms tail rule (v712)');
-  ok(/const pairedBefore = MG\.spans\.length === MG\.lines\.length && !MG\.spans\[MG\.spans\.length - 1\]\.timePending;/.test(prep)
-     && /if \(pairedBefore\) MG\.lines\.push\(\{ id: 'ln\+tail', guid: newGuid\(\), phrases: \[makeSegment\('', \[\]\)\] \}\);/.test(prep),
-     '…with a blank text line beside it when the rows already paired one to one (the round-trip tail, v712)');
+     && /dur - lastEnd > 1000/.test(prep),
+     'measured from the last REAL span (a trailing placeholder ends at 0), with coverTail\'s 1s tolerance');
 }
 
 console.log('\none list, row i left beside row i right');
@@ -338,10 +332,8 @@ console.log('\none list, row i left beside row i right');
      'including inside an empty text cell, where a blank line is exactly what is missing');
   ok(/\.mg-row\{display:grid;grid-template-columns:1fr 1fr/.test(css) && !/\.mg-panes\{/.test(css),
      'styled as rows, and the pane rules are gone');
-  ok(/@media \(max-width:820px\)\{\s*\.mg-rowhead\{display:none\}[\s\S]{0,400}?\.mg-row\{grid-template-columns:1fr/.test(css),
+  ok(/@media \(max-width:820px\)\{\s*\.mg-rowhead\{display:none\}\s*\.mg-row\{grid-template-columns:1fr/.test(css),
      'on a phone the two cells stack inside the row — still one scroll, still one pair');
-  ok(/\.mg-rowhead\.mg-has-lang\{display:flex;/.test(css) && /\.mg-rowhead\.mg-has-lang h3\{display:none\}/.test(css),
-     '…and the heading row stays when it carries the language picker, without its headings (v712)');
 }
 
 console.log('\nboth ⤴ buttons are wired — the text one was not');
@@ -375,8 +367,8 @@ console.log('\nundo/redo over the MATCHER\'s state, not the document\'s');
 
 console.log('\nblank lines, for audio that deserves a line but has no words yet');
 {
-  ok(/function allowBlankLinesOn\(\) \{ return !Sync\.hasSession\(\) \|\| segmenterPermission\(settings, 'allowBlankLines'\); \}/.test(app),
-     'researcher-settable, on with no researcher session — and on for a paired device unless switched off (v712)');
+  ok(/function allowBlankLinesOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowBlankLines === true; \}/.test(app),
+     'researcher-settable, on by default with no researcher session — same shape as allowDeleteOn');
   const ins = fn(app, 'mgInsertLine');
   ok(/makeSegment\(''/.test(ins), 'it inserts the engine\'s own empty phrase');
   ok(/above\.paraOf/.test(ins), 'inheriting paraOf, so inserting inside a sentence does not start a new one');
@@ -479,8 +471,8 @@ console.log('\ntext ⤴ joins PHRASES into one — two phrases in a paragraph is
      '⚠ and never the two side by side');
   /* A draft autosaved by v567 still holds the lines IT joined as two phrases (Seth's first real
    * text carried nine). The join fix cannot reach a draft that already exists; Done can. */
-  ok(/segments: \(l\.phrases\.length > 1 \? \[mergePhrases\(l\.phrases\)\] : l\.phrases\)\.map\(mgDropEmptyWords\)/.test(asyncFn(app, 'mgCommit')),
-     'and Done merges a two-phrase line that an older draft may still carry (and drops pairs left empty, v712)');
+  ok(/segments: l\.phrases\.length > 1 \? \[mergePhrases\(l\.phrases\)\] : l\.phrases/.test(asyncFn(app, 'mgCommit')),
+     'and Done merges a two-phrase line that an older draft may still carry');
   const split = fn(app, 'mgSplitLine');
   ok(/if \(flat\[k\]\.punct\) continue;/.test(split),
      'a split maps the VISIBLE word index onto the unfiltered word list (the pane hides punctuation)');
@@ -525,7 +517,7 @@ console.log('\n✂ on the big player cuts the piece under the playhead (Seth, 20
   ok(/cut: root\.querySelector\('\.player-cut'\)/.test(read('docs/js/audio.js')), 'the Player only looks it up; it never cuts');
   ok(/class="player-cut icon-btn2" data-i18n-title="player\.cut" hidden/.test(shell), 'the segmenter shell carries it, hidden by default');
   ok(!/player-cut/.test(read('docs/index.html')), 'the editor\'s dock does not — the Cut tab has its own Enter');
-  ok(/if \(e\.key === 'Enter'\) \{[\s\S]{0,160}mgSplitAtPlayhead\(\)/.test(fn(app, 'setupSegmenterMode')), 'Enter does the same, as on the Cut tab');
+  ok(/e\.key === 'Enter'[^\n]*mgSplitAtPlayhead\(\)/.test(fn(app, 'setupSegmenterMode')), 'Enter does the same, as on the Cut tab');
   for (const k of ['player.cut', 'mg.cutNoSpan']) {
     ok((read('docs/js/i18n.js').match(new RegExp(`'${k.replace(/\./g, '\\.')}': `, 'g')) || []).length === 2, `${k} in both languages`);
   }
@@ -565,8 +557,8 @@ console.log('\nthe audio loads on EVERY open, not only the first one that was no
 
 console.log('\nedit in place — tap a word, a gloss or the translation; Space at a word\'s edge adds a pair (Seth, 2026-09-04)');
 {
-  ok(/function allowTextEditOn\(\) \{ return !Sync\.hasSession\(\) \|\| segmenterPermission\(settings, 'allowTextEdit'\); \}/.test(app),
-     'researcher-settable, on when working alone and on a paired device unless switched off — the same shape as allowBlankLinesOn (v712)');
+  ok(/function allowTextEditOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowTextEdit === true; \}/.test(app),
+     'researcher-settable, on when working alone — the same shape as allowBlankLinesOn');
   const draw = fn(app, 'mgDraw');
   ok(/const editable = allowTextEditOn\(\);/.test(draw) && /mgWordStack\(ln, w, wi, editable\)/.test(draw), 'every pair is built by one helper that knows whether it is editable');
   ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
@@ -579,25 +571,15 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); el\.textContent = was; el\.blur\(\); return; \}/.test(wire), 'Escape restores');
   ok(/e\.key === ' ' && at >= 0 && len > 0 && \(at === 0 \|\| at === len\)/.test(wire), 'Space adds a pair only at the START or END of a non-empty word');
   ok(/mgInsertWord\(ln\.id, wi, at === 0 \? 'before' : 'after'\)/.test(wire), 'before or after, by where the caret was');
-  ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); taken = true; if \(!mgDeleteWord\(ln\.id, wi\)\) taken = false; return; \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
-  // v712: Space INSIDE a word splits it, Backspace at a word's start joins it to the one before.
-  ok(/if \(e\.key === ' ' && at > 0 && at < len\) \{ e\.preventDefault\(\); taken = true; mgSplitWord\(ln\.id, wi, el\.textContent, at\); return; \}/.test(wire),
-     'Space in the MIDDLE of a word splits it — no word ever holds a space');
-  ok(/if \(e\.key === 'Backspace' && at === 0 && wi > 0\) \{[\s\S]{0,80}taken = true;\n\s+if \(!mgJoinWord\(ln\.id, wi, el\.textContent\)\) taken = false;/.test(wire),
-     'Backspace at the START of a word joins it to the one before');
-  // ⚠ the box is marked BEFORE each change that redraws its line: the browser blurs a box as it is
-  // removed, and that blur's commit ran with the box's OLD index against the NEW line (v712).
-  ok(/mgCommitEdit\(el, ln, wi, field\);\s+\/\/ keep what was typed so far\n\s+taken = true;\n\s+mgInsertWord\(/.test(wire),
-     'Space at an edge: the text is committed, THEN the box is marked, THEN the pair goes in');
-  ok(/el\.addEventListener\('blur', \(\) => \{ if \(!taken\) mgCommitEdit\(el, ln, wi, field\); \}\)/.test(wire),
-     'and blur commits, so a tap elsewhere never loses a word — unless a split or a join already took the text');
+  ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); mgDeleteWord\(ln\.id, wi\); \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
+  ok(/el\.addEventListener\('blur', \(\) => mgCommitEdit\(el, ln, wi, field\)\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
   const edit = fn(app, 'mgEditWord');
   ok(/if \(\(ph\.words\[k\]\[field\] \|\| ''\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write)');
   ok(/mgCapture\(\);/.test(edit) && !/mgDraw\(\)/.test(edit) && /mgSaveDraft\(\);/.test(edit),
      'a changed one captures for undo and autosaves WITHOUT redrawing — Tab keeps walking the line');
   ok(/if \(field === 'txt'\) ph\.baseline = baselineFromWords\(ph\.words\);/.test(edit), 'the phrase baseline follows the words');
   ok(/mgDraw\(\);\s*\n\s*mgFocusWord\(id, where === 'before' \? wi : wi \+ 1\);/.test(fn(app, 'mgInsertWord')), 'adding a pair redraws and puts the caret in the new word');
-  ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return false;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace (and the box is told it was refused, v712)');
+  ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace');
   ok(/if \(line\.phrases\.length > 1\) line\.phrases = \[mergePhrases\(line\.phrases\)\];/.test(fn(app, 'mgLinePhrase')), 'a legacy two-phrase line is merged before it is edited');
   ok(/\{ k: 'allowBlankLines', type: 'checkbox' \},\s*\n\s*\{ k: 'allowTextEdit', type: 'checkbox' \}/.test(read('docs/js/researcher-panel.js')),
      'the panel has BOTH switches (blank lines had a gate but no checkbox)');

@@ -1,7 +1,7 @@
 /* ONE USER ACTION = ONE UNDO AND ONE REDO, for every edit path v717 touches (Seth's standing rule;
  * plans/time-gaps-and-estimates.md §6.1 time-undo, P5) — and each path keeps text and times together.
  *
- *   · an edge drag on the strips (makeBoundaryDrag → dragSeam): one capture at pick-up, one save on
+ *   · an edge drag on the strips (makeBoundaryDrag → dragSeam): one capture at its first move, one save on
  *     release; across a pause only the grabbed edge moves (D11, case 13);
  *   · the plain text box (app.js applyBaseline, run for real with the focus-session undo around it):
  *     one undo item restores the lines AND their times, one redo puts both back (D10, case 1);
@@ -76,7 +76,7 @@ test('an edge drag is ONE undo and ONE save; one undo restores it, one redo re-a
   drag(0, null, 'start', 'end');
   for (const ms of [4155, 4158, 4161, 4163]) drag(0, ms, 'move', 'end');
   drag(0, null, 'end', 'end');
-  assert.equal(captures, 1, 'one undo step for the whole drag, taken at pick-up');
+  assert.equal(captures, 1, 'one undo step for the whole drag, taken at its first move');
   assert.equal(saves, 1, 'one save, on release');
   assert.deepEqual(times(doc.segments.slice(0, 2)), [[2230, 4163], [5346, 6846]], 'line 2\'s start is unchanged');
   const after = structuredClone(doc.segments);

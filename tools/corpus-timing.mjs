@@ -82,6 +82,7 @@ async function loadEngine(root) {
   let D = 0;
   const reconcile = new Function('SEG', 'ft', 'SS', 'getD', `
     const { syncToLines, isAligned } = SEG;
+    const settleSpan = SEG.settleSpan || ((s) => s);
     const readLegacyEstimates = ft.readLegacyEstimates || (() => {});
     const docSegments = SS.docSegments;
     const peaksDurationFor = () => getD();

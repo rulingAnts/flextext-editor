@@ -65,13 +65,14 @@ test('one gesture, one consumer, three tabs and the top player, one switch', () 
   assert.match(attach, /ev\.preventDefault\(\); ev\.stopPropagation\(\);/, 'not a seek, not a row select');
   assert.match(attach, /const perPx = Math\.max\(1, seg\.end - seg\.start\) \/ \(wave\.clientWidth \|\| 1\);/, 'scale frozen at pick-up');
   const drag = STRIPS.slice(STRIPS.indexOf('export function makeBoundaryDrag(o)'), STRIPS.indexOf('let stripsDragFn = null;'));
-  assert.match(drag, /if \(o\.capture\) o\.capture\(\);\s*\n\s*seam = bi;/, 'one undo per drag, at pick-up');
-  assert.match(drag, /const r = dragSeam\(o\.getSegs\(\), before, bi, ms, grabbed\);\s*\n\s*if \(!r\) return;/, 'the live objects move in place (v717: dragSeam — the grabbed edge, judged against the spans at pick-up)');
+  assert.match(drag, /if \(!moved\) \{[\s\S]{0,200}if \(o\.capture\) o\.capture\(\);\s*\n\s*moved = true;/, 'one undo per drag, at its first move that moves something (v717 review)');
+  assert.match(drag, /if \(moved && o\.persist\) o\.persist\(\);/, 'and a save only when something moved');
+  assert.match(drag, /const r = dragSeam\(segs, before, bi, ms, grabbed\);\s*\n\s*if \(!r\) return;/, 'the live objects move in place (v717: dragSeam — the grabbed edge, judged against the spans at pick-up)');
   assert.match(drag, /before = segs\[bi\] && segs\[bi \+ 1\] \? \[\{ \.\.\.segs\[bi\] \}, \{ \.\.\.segs\[bi \+ 1\] \}\] : null;/, 'copied at pick-up');
   assert.doesNotMatch(drag, /delete segs\[bi \+ 1\]\.timeEstimated/, 'no flag deleted outright: the placed edge stops being a guess, the far edge keeps its own');
   const attach2 = STRIPS.slice(STRIPS.indexOf('export function attachEdgeHandles(row, wave, i, ctx)'), STRIPS.indexOf('export function makeBoundaryDrag(o)'));
   assert.match(attach2, /const edge = side === 'r' \? 'end' : 'start';/, 'each grip says which edge it is (D11)');
-  assert.match(drag, /if \(o\.persist\) o\.persist\(\);\s*\n\s*if \(o\.onEnd\) o\.onEnd\(bi\);/, 'one persist on release');
+  assert.match(drag, /if \(moved && o\.persist\) o\.persist\(\);[^\n]*\n\s*if \(o\.onEnd\) o\.onEnd\(bi\);/, 'one persist on release');
   assert.match(STRIPS, /attachEdgeHandles\(row, wave, i, cutEdgeCtx\(segs\)\);/, 'Cut rows');
   assert.match(STRIPS, /attachEdgeHandles\(row, wave, i, stripsEdgeCtx\(segs\)\);/, 'Baseline rows');
   assert.match(APP, /attachEdgeHandles\(waveWrap, wave, i, \{ allowed: adjustBoundariesAllowed,/, 'Gloss rows');

@@ -20,7 +20,7 @@
  * DISPLAY of samples, never a modification of them.
  */
 
-import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, isEstimate, dragSeam,
+import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, isEstimate, dragSeam, settleSpan,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed, timingReport,
          guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed } from './segments.js';
 import { peakPlan } from './seg-exports.js';
@@ -916,6 +916,7 @@ function coverTail(doc, paras, durationMs) {
   if (String(paras[i] ?? '').trim()) return false;
   if (durationMs - last.end <= COVER_TOL_MS) return false;
   last.end = durationMs;
+  settleSpan(last);   // the recording's end is a fact: a guess that stood there is no longer one
   return true;
 }
 
@@ -929,8 +930,10 @@ const evenSpread = (N, D) => Array.from({ length: N }, (_, k) => {
 function reconcile(doc, d = deps) {
   const paras = d.getParagraphs(doc);
   /* A doc stored before v717 holds estimates as a bare flag, and the `~` its import ignored: read them
-   * back per edge, in memory only (flextext.js readLegacyEstimates). Saved with the next real edit. */
-  readLegacyEstimates(doc);
+   * back per edge, in memory only (flextext.js readLegacyEstimates). Saved with the next real edit.
+   * Through the host when it offers one (app.js keeps an upload's "already on Drive" record across a
+   * read-back — reading is not an edit). */
+  if (d.readBack) d.readBack(); else readLegacyEstimates(doc);
   const segs = docSegments(doc);
   // SEED: a doc entering segmentation for the first time gets ONE segment spanning the whole
   // recording — that is the truthful starting state (nothing has been divided yet), and it is what
@@ -976,17 +979,20 @@ function reconcile(doc, d = deps) {
 
 /* ⚠ THE THREE STATES OF A LINE'S TIME, ONE SET OF CLASSES FOR EVERY STRIP SURFACE (v717): the
  * Baseline strips, the Cut rows, the Gloss bars and the Segmenter's spans. `seg-pending` — no time
- * (dotted, ⋯); `seg-est` — at least one edge is a guess (dashed; isEstimate, never the bare flag, so
- * a stale `timeEstimated` cannot dress a real time as a guess); `seg-check` — a line the timing report
- * flags (the red bar). P6: the banner speaks for the text; a line is marked only when it is the
- * exception. */
+ * (dotted, ⋯); `seg-est` — an estimate (dashed; isEstimate: a guessed edge, or the flag of a span an
+ * older build wrote with no edges to say which); `seg-check` — a line the timing report flags (the red
+ * bar, behind the banner's switch). P6: the banner speaks for the text; a line is marked only when it
+ * is the exception. */
 export function timeStateClass(seg, checked) {
   if (!isAligned(seg)) return ' seg-pending';
   return (isEstimate(seg) ? ' seg-est' : '') + (checked ? ' seg-check' : '');
 }
-/** The lines the timing report singles out (dense: many words in very little audio). */
-export function checkedLines(segs, texts) {
+/** The lines the timing report singles out (dense: many words in very little audio). `on` is the
+ * researcher's switch (`timingBanner`, app.js timingBannerOn): the red bar, its "!" and its tooltip
+ * are the banner's marks, so a managed device with the banner off stays plain (D15, v717 review). */
+export function checkedLines(segs, texts, on = true) {
   const out = new Set();
+  if (!on) return out;
   for (const it of timingReport(segs, texts).items) if (it.kind === 'dense') for (const k of it.lines) out.add(k);
   return out;
 }
@@ -1031,7 +1037,7 @@ export function renderStrips() {
   const keepTop = scroller ? scroller.scrollTop : 0;
   host.innerHTML = '';
   const dur = peaksCache.durationMs || (segs.length && isAligned(segs[segs.length - 1]) ? segs[segs.length - 1].end : 0);
-  const checks = checkedLines(segs, paras);
+  const checks = checkedLines(segs, paras, !deps.timingMarks || deps.timingMarks());
 
   paras.forEach((text, i) => {
     const seg = segs[i] || { timePending: true };
@@ -1963,13 +1969,13 @@ export function attachEdgeHandles(row, wave, i, ctx) {
  * set both sides and delete the right-hand flag outright, so a 10 ms nudge swallowed the pause into
  * the next line and a guessed FAR edge was laundered into a "real" one. */
 export function makeBoundaryDrag(o) {
-  let seam = null, before = null, grabbed = 'end';
+  let seam = null, before = null, grabbed = 'end', moved = false;
   return (bi, ms, phase, edge) => {
     const p = o.getPlayer && o.getPlayer();
     if (phase === 'start') {
       try { p?.clearSpan?.(); p?.pause?.(); } catch { /* the player may be mid-load */ }
-      if (o.capture) o.capture();
       seam = bi;
+      moved = false;
       grabbed = edge === 'start' ? 'start' : 'end';
       const segs = o.getSegs();
       before = segs[bi] && segs[bi + 1] ? [{ ...segs[bi] }, { ...segs[bi + 1] }] : null;
@@ -1981,7 +1987,17 @@ export function makeBoundaryDrag(o) {
     }
     if (phase === 'move') {
       if (seam == null || !before) return;
-      const r = dragSeam(o.getSegs(), before, bi, ms, grabbed);
+      /* ⚠ ONE UNDO STEP, TAKEN AT THE FIRST MOVE THAT MOVES SOMETHING — not at pick-up: a grip pressed
+       * and released where it was used to leave an Undo item that undid nothing (and a stamped save),
+       * so the next Undo looked dead (v717 review). The move is tried on copies first, so the snapshot
+       * is still the state before the drag. */
+      const segs = o.getSegs();
+      if (!moved) {
+        if (!segs[bi] || !segs[bi + 1] || !dragSeam([{ ...segs[bi] }, { ...segs[bi + 1] }], before, 0, ms, grabbed)) return;
+        if (o.capture) o.capture();
+        moved = true;
+      }
+      const r = dragSeam(segs, before, bi, ms, grabbed);
       if (!r) return;
       if (o.redraw) { o.redraw(bi); o.redraw(bi + 1); }
       if (o.syncMarks) o.syncMarks();
@@ -1992,7 +2008,7 @@ export function makeBoundaryDrag(o) {
     seam = null; before = null;
     try { p?.boundaryFocus?.('end'); } catch { /* cosmetic */ }
     try { p?.boundaryLive?.(null); } catch { /* cosmetic */ }
-    if (o.persist) o.persist();
+    if (moved && o.persist) o.persist();   // nothing moved, nothing to save
     if (o.onEnd) o.onEnd(bi);
   };
 }
@@ -2144,7 +2160,7 @@ export function renderCut(anchorIdx) {
   const anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
   host.replaceChildren();
   cutFollowRow = null;
-  const checks = checkedLines(segs, paras);
+  const checks = checkedLines(segs, paras, !cutDeps.timingMarks || cutDeps.timingMarks());
 
   segs.forEach((seg, i) => {
     const row = document.createElement('div');

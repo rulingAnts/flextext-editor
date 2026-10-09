@@ -112,23 +112,39 @@ test('pre-v717 flags are migrated per edge (pass 0)', () => {
   const lone = normalizeSegments([{ start: 0, end: 1000 }, { start: 1000, end: 3000, timeEstimated: true }, { start: 3000, end: 4000 }]);
   assert.deepEqual(edges(lone[1]), [true, true]);
   assert.equal(lone[1].timeEstimated, true);
-  // A span already carrying `guess` is never re-migrated.
-  const kept = normalizeSegments([{ start: 0, end: 1000, guess: [null, null] }, { start: 1000, end: 2000, guess: [null, null], timeEstimated: true }]);
-  assert.ok(!('timeEstimated' in kept[1]), 'an explicit [null, null] says real — the stale flag is re-derived away');
+  // A span whose live guess explains its flag is never re-migrated…
+  const live = normalizeSegments([{ start: 0, end: 1000, guess: [null, null] }, { start: 1000, end: 2000, guess: [1000, null], timeEstimated: true }]);
+  assert.deepEqual(edges(live[1]), [true, false], 'its own guessed edge, and only that');
+  /* …but a flag NO live edge explains was set by an older build (v717 keeps the two equal after every
+   * operation): v716 copies a v717 span with {...s} and sets its own flag on a fraction-split piece,
+   * which then carries the copied [null, null] beside `timeEstimated: true`. Read as real, that guess
+   * went out as a measured time after a rollback and back (v717 review); it is migrated like any flag. */
+  const rolled = normalizeSegments([{ start: 0, end: 1000, guess: [null, null] }, { start: 1000, end: 1600, guess: [null, null], timeEstimated: true },
+    { start: 1600, end: 2000, guess: [null, null], timeEstimated: true }, { start: 2000, end: 3000, guess: [null, null] }]);
+  assert.deepEqual(rolled.slice(1, 3).map(edges), [[false, true], [true, false]], 'the v716 split\'s seam is a guess on both sides');
+  assert.ok(rolled[1].timeEstimated && rolled[2].timeEstimated && isEstimate(rolled[1]));
   assert.deepEqual(normalizeSegments(seed), seed, 'normalize is idempotent on migrated spans');
 });
 
-test('a demoted span carries no times and no estimate', () => {
+test('a demoted span carries no times and no estimate — only the times it held, for the export', () => {
   const out = normalizeSegments([{ start: 100, end: 150, timeEstimated: true, guess: [100, 150], estSource: 'note', phraseIndex: 1 }]);
-  assert.deepEqual(out[0], { phraseIndex: 1, timePending: true });
+  assert.deepEqual(out[0], { phraseIndex: 1, timePending: true, fileTimes: [100, 150] },
+    'too short to be a line: pending, but its phrase\'s own times are written back while they still equal these');
+  // Pushed out of existence by its neighbour (an edit's doing, not the file's): nothing is held.
+  const pushed = normalizeSegments([{ start: 0, end: 1000 }, { start: 900, end: 1050, fileTimes: [1, 2] }]);
+  assert.deepEqual(pushed[1], { timePending: true });
+  // Already pending and held: normalize keeps the hold.
+  assert.deepEqual(normalizeSegments([{ timePending: true, fileTimes: [5, 9] }])[0], { timePending: true, fileTimes: [5, 9] });
 });
 
 /* The property: over random sequences of every operation, after EVERY step —
  *   · timeEstimated is exactly isEstimate (present only when true);
- *   · the first line's start and the last line's end are never guesses (C0);
+ *   · no operation MAKES a guess of the first line's start or the last line's end (C0): an outer edge
+ *     is a guess afterwards only if that very value was a guessed edge before (a deletion can bring an
+ *     interior guess to the outside, and it stays the guess it was);
  *   · aligned spans are ordered and non-overlapping, and nothing is longer or shorter than the text. */
 function rng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
-test('property: timeEstimated === isEstimate and C0 holds after every operation', () => {
+test('property: timeEstimated === isEstimate, and no operation makes an outer edge a guess (C0)', () => {
   let seen = 0, gapped = 0;
   for (let run = 0; run < 60; run++) {
     const r = rng(run + 1);
@@ -137,6 +153,7 @@ test('property: timeEstimated === isEstimate and C0 holds after every operation'
       : Array.from({ length: 8 }, (_, k) => ({ start: 2230 + k * 7000, end: 2230 + k * 7000 + 5000 }));
     let paras = segs.map(() => '');
     for (let step = 0; step < 40; step++) {
+      const guessedBefore = new Set(segs.flatMap((x) => [edgeGuessed(x, 0) ? x.start : null, edgeGuessed(x, 1) ? x.end : null]).filter((v) => v != null));
       const n = segs.length, i = Math.floor(r() * n);
       const s = segs[i];
       const t = isAligned(s) ? Math.round(s.start + r() * (s.end - s.start)) : Math.round(r() * 60000);
@@ -162,8 +179,9 @@ test('property: timeEstimated === isEstimate and C0 holds after every operation'
       });
       seen += segs.filter(isEstimate).length;
       gapped += segs.filter((x, k) => k > 0 && isAligned(x) && isAligned(segs[k - 1]) && x.start - segs[k - 1].end > 1).length;
-      assert.equal(edgeGuessed(segs[0], 0), false, `run ${run} step ${step}: the first line's start is never a guess`);
-      assert.equal(edgeGuessed(segs[segs.length - 1], 1), false, `run ${run} step ${step}: the last line's end is never a guess`);
+      const first = segs[0], last = segs[segs.length - 1];
+      assert.ok(!edgeGuessed(first, 0) || guessedBefore.has(first.start), `run ${run} step ${step}: no operation makes the first line's start a guess`);
+      assert.ok(!edgeGuessed(last, 1) || guessedBefore.has(last.end), `run ${run} step ${step}: no operation makes the last line's end a guess`);
     }
   }
   assert.ok(seen > 500 && gapped > 50, `the sequences really exercised estimates (${seen}) and gapped seams (${gapped})`);

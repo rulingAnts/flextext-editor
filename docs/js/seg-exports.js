@@ -11,7 +11,7 @@
  * carries only real content — baseline text, words, word glosses, free translations, times.
  */
 
-import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn } from './flextext.js';
+import { esc, wordGlosses, phraseFrees, analysisLangs, glossIn, freeIn, spansForExport, heldFileTimes } from './flextext.js';
 // Pure, imports nothing: where an estimate is decided, once (per edge, v717).
 import { isEstimate } from './segments.js';
 
@@ -28,8 +28,13 @@ const isAligned = (s) => !!s && typeof s.start === 'number' && typeof s.end === 
 //   · a multi-phrase paragraph takes each phrase's own offsets (no live span pairs with a phrase);
 //   · a doc with no live time model at all (doc.segments missing or empty) reads the offsets, which
 //     are then the only times there are.
+// The live spans are read as an export reads them (flextext.js spansForExport): a pre-v717 doc's
+// estimates come back first, so .fxpa and the listening page mark them too. A pending line the model
+// could not place but nobody changed (`fileTimes`, heldFileTimes) takes the file's own times — where
+// they keep the rows in order: an EAF tier must be ordered and non-overlapping, so a phrase nested in
+// the line before it (overlapping ELAN speakers) stays unaligned here, though the .flextext keeps it.
 function phraseRows(doc) {
-  const segs = Array.isArray(doc.segments) ? doc.segments : [];
+  const segs = spansForExport(doc);
   const live = segs.length > 0;
   const rows = [];
   let i = 0;
@@ -39,11 +44,20 @@ function phraseRows(doc) {
       const e = parseInt(phrase.attrs && phrase.attrs['end-time-offset'], 10);
       const own = (Number.isFinite(b) && Number.isFinite(e) && e > b) ? { start: b, end: e } : null;
       const single = para.segments.length === 1;
-      rows.push({ phrase, span: (single && live) ? (segs[i] || null) : own });
+      const span = (single && live) ? (segs[i] || null) : own;
+      const held = single && live ? heldFileTimes(span, phrase.attrs) : null;
+      rows.push({ phrase, span, held: held ? { start: held[0], end: held[1] } : null });
     }
     i++;
   }
-  return rows;
+  rows.forEach((r, k) => {
+    if (!r.held) return;
+    let lo = -Infinity, hi = Infinity;
+    for (let j = k - 1; j >= 0; j--) if (isAligned(rows[j].span)) { lo = rows[j].span.end; break; }
+    for (let j = k + 1; j < rows.length; j++) if (isAligned(rows[j].span)) { hi = rows[j].span.start; break; }
+    if (r.held.start >= lo && r.held.end <= hi) r.span = r.held;
+  });
+  return rows.map(({ phrase, span }) => ({ phrase, span }));
 }
 
 export function fmtClock(ms) {

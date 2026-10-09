@@ -25,7 +25,7 @@ const { isAligned, isEstimate, edgeGuessed } = SEG;
 /* reconcile(doc, deps) with a peaks cache that says the recording is `D` ms long. */
 function opener(D) {
   return new Function('SEG', 'ft', 'D', `
-    const { syncToLines, isAligned } = SEG;
+    const { syncToLines, isAligned, settleSpan } = SEG;
     const { readLegacyEstimates } = ft;
     let peaksCache = { docId: 'doc', peaks: null, durationMs: D };
     ${liftAll(STRIPS, ['docSegments', 'peaksDurationFor', 'COVER_TOL_MS', 'coverTail', 'evenSpread', 'reconcile'])}
@@ -132,7 +132,9 @@ test('P8: playing, seeking and the dock\'s marks clip at the recording\'s end; t
 test('the three states, one set of classes: pending, estimate, check', () => {
   assert.equal(timeStateClass({ timePending: true }), ' seg-pending');
   assert.equal(timeStateClass({ start: 0, end: 1000, guess: [null, 1000] }), ' seg-est');
-  assert.equal(timeStateClass({ start: 0, end: 1000, timeEstimated: true, guess: [null, null] }), '', 'the bare flag cannot dress a real time as a guess');
+  assert.equal(timeStateClass({ start: 0, end: 1000, guess: [null, null] }), '', 'explicitly real');
+  // A flag no live edge explains was set by an older build (a rollback to v716 and back): an estimate.
+  assert.equal(timeStateClass({ start: 0, end: 1000, timeEstimated: true, guess: [null, null] }), ' seg-est', 'an older build\'s flag is still dashed');
   assert.equal(timeStateClass({ start: 0, end: 1000 }, true), ' seg-check');
   assert.equal(timeTipKey({ start: 0, end: 1000, guess: [null, 1000], estSource: 'note' }), 'seg.estTip.note');
   assert.equal(timeTipKey({ start: 0, end: 1000, guess: [null, 1000] }), 'seg.estTip.edit');

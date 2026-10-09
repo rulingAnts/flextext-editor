@@ -17,6 +17,10 @@
  *     v714, the .fxpa, PAT and a rollback keep reading the one flag they know. Rendered dashed.
  *   - `estSource` — where the guess came from ('note' | 'marker' | 'pattern' | 'edit' | 'legacy'),
  *     for the tooltip only.
+ *   - `fileTimes: [b, e]` (v717, on a PENDING span only) — the model could not use this line's times
+ *     (its phrase overlaps a neighbour, or is shorter than MIN_SEGMENT_MS, or an older build clamped
+ *     it), but nobody has changed the line since: while its phrase still carries exactly these offsets,
+ *     the export writes them back as they came (P4). Any operation that re-times the line drops it.
  *
  * ⚠ THE INVARIANT THAT MATTERS: aligned segments must be strictly increasing and non-overlapping.
  * That is not merely our internal tidiness — ELAN REQUIRES aligned annotations within a tier to be
@@ -60,8 +64,9 @@ export function audioTierReachable(seg, playheadMs) {
 /* Clear a segment's times IN PLACE, preserving any non-time fields a caller attached (e.g.
  * phraseIndex). ⚠ In place by deletion: the old `Object.assign(seg, blank(seg))` added timePending
  * but could not REMOVE keys, so a demoted segment kept its stale start/end and its estimate flag. */
-function blankInPlace(seg) {
+function blankInPlace(seg, keepFileTimes = false) {
   delete seg.start; delete seg.end; delete seg.timeEstimated; delete seg.guess; delete seg.estSource;
+  if (!keepFileTimes) delete seg.fileTimes;
   seg.timePending = true;
   return seg;
 }
@@ -77,9 +82,13 @@ function blankInPlace(seg) {
  * of each edge makes every one of those questions answer itself: an edge is a guess while it still
  * holds the value that was guessed, and the moment anyone places it, it is not.
  *
- * ⚠ C0 — TWO EDGES ARE NEVER GUESSES: the first line's start and the last line's end. No operation
+ * ⚠ C0 — NO OPERATION MAKES A GUESS OF THE FIRST LINE'S START OR THE LAST LINE'S END. Nothing
  * interpolates them; they come from the file, the user, 0 or the recording's end. A recording made in
- * the app therefore keeps solid first and last lines, as it always has.
+ * the app therefore keeps solid first and last lines, as it always has. ⚠ It is a rule about where
+ * guesses are MADE (and how an old "estimated" flag is read — estimateEdges), not an eraser applied by
+ * position: delete the first line of an estimated text and the new first line's start is still the
+ * interpolated value it was, so it stays a guess. Enforcing C0 by position after every operation made
+ * exactly that guess "real" and exported it as one (v717 review).
  * ============================================================================================== */
 export const GUESS_TOL_MS = 1;
 
@@ -91,11 +100,20 @@ export function edgeGuessed(s, side) {
   return isNum(v) && Math.abs(v - g) <= GUESS_TOL_MS;
 }
 
-/** At least one edge is a guess. A span from before v717 (no `guess` field) is what its flag says. */
+/* A span an OLDER build called an estimate, with no live guessed edge to say which edges: no `guess`
+ * at all (v714–v716), or a v717 `guess` that the older build carried along with `{...s}` while it set
+ * its own flag (a rollback to v716 and back — v716 fraction-splits a v717 span, and both pieces carry
+ * the copied `[null, null]` beside `timeEstimated: true`). Every v717 operation keeps the flag equal to
+ * the live edges (settle), so a flag no edge explains was written by an older build, and is migrated
+ * per edge like any pre-v717 estimate rather than read as real. */
+function flagOnly(s) {
+  return isAligned(s) && !!s.timeEstimated && !edgeGuessed(s, 0) && !edgeGuessed(s, 1);
+}
+
+/** At least one edge is a guess — or, for a span an older build wrote, its flag says so (flagOnly). */
 export function isEstimate(s) {
   if (!isAligned(s)) return false;
-  if (!Array.isArray(s.guess)) return !!s.timeEstimated;
-  return edgeGuessed(s, 0) || edgeGuessed(s, 1);
+  return edgeGuessed(s, 0) || edgeGuessed(s, 1) || !!s.timeEstimated;
 }
 
 const copySpan = (s) => {
@@ -107,8 +125,8 @@ const copySpan = (s) => {
 // The guess pair a span carries, treating an unmigrated estimate as guessed at both edges.
 const guessOf = (s) => {
   if (!s) return null;
-  if (Array.isArray(s.guess)) return s.guess;
-  return isAligned(s) && s.timeEstimated ? [s.start, s.end] : null;
+  if (flagOnly(s)) return [s.start, s.end];
+  return Array.isArray(s.guess) ? s.guess : null;
 };
 
 /* WHICH EDGES OF A SPAN KNOWN TO BE AN ESTIMATE ARE THE GUESSES — for a span whose source said only
@@ -117,48 +135,52 @@ const guessOf = (s) => {
  * are one seam. So a legacy fraction-split piece keeps its outer edges real, and a v714 seed is
  * guessed on its interior edges. `isEst(j)` says which neighbours are estimates.
  *
- * ⚠ If that leaves NO edge guessed (a lone `~` line between two real ones that it meets on both
- * sides — a start pushed by normalize in v714 looks like that), every non-C0 edge is guessed instead:
- * the source said "estimate", and P4 is that a file's own marks go back out as they came in. */
+ * ⚠ A LONE estimate — no neighbour is one — gets every non-C0 edge guessed instead. The neighbour rule
+ * is for runs (a split's pieces, a seed), where the seams between estimates are the guesses. A lone one
+ * is a different animal: a start pushed by normalize in v714–v716 meets the real line before it and is
+ * the GUESS at exactly that meeting edge, so "meets a real neighbour, therefore real" laundered it and
+ * marked the file's real end instead. With nothing to say which edge it is, both are marked: the source
+ * said "estimate", and P4 is that a file's own marks go back out as they came in. (Where the phrase still
+ * carries the file's own offsets, readLegacyEstimates knows better and uses them.) */
 export function estimateEdges(segs, i, isEst = (j) => isEstimate(segs[j])) {
   const s = segs[i], n = segs.length;
-  const meetsReal = (j, v) => j >= 0 && j < n && isAligned(segs[j]) && !isEst(j)
+  const near = (j) => j >= 0 && j < n && isAligned(segs[j]);
+  const meetsReal = (j, v) => near(j) && !isEst(j)
     && Math.abs(v - (j < i ? segs[j].end : segs[j].start)) <= GUESS_TOL_MS;
   const first = i === 0, last = i === n - 1;
-  let gs = !first && !meetsReal(i - 1, s.start);
-  let ge = !last && !meetsReal(i + 1, s.end);
+  const lone = !(near(i - 1) && isEst(i - 1)) && !(near(i + 1) && isEst(i + 1));
+  let gs = !first && (lone || !meetsReal(i - 1, s.start));
+  let ge = !last && (lone || !meetsReal(i + 1, s.end));
   if (!gs && !ge) { gs = !first; ge = !last; }
   return [gs ? s.start : null, ge ? s.end : null];
 }
 
-// Stale guesses dropped, `timeEstimated` re-derived. In place; pending spans are left alone.
-function settle(s) {
+/* Stale guesses dropped, `timeEstimated` re-derived FROM THE EDGES, a time no longer a `fileTimes`
+ * hold. In place; pending spans are left alone. Callers migrate flagOnly spans first, so the flag set
+ * here always says exactly what the edges say. Exported for flextext.js's read-back. */
+export function settleSpan(s) {
   if (!isAligned(s)) return s;
+  delete s.fileTimes;
   if (Array.isArray(s.guess)) s.guess = [edgeGuessed(s, 0) ? s.guess[0] : null, edgeGuessed(s, 1) ? s.guess[1] : null];
-  if (isEstimate(s)) s.timeEstimated = true;
+  if (edgeGuessed(s, 0) || edgeGuessed(s, 1)) s.timeEstimated = true;
   else { delete s.timeEstimated; delete s.estSource; }
   return s;
 }
-// C0, enforced by position: whatever a file or an operation said, these two edges are real.
-function holdOuterEdges(out) {
-  const first = out[0], last = out[out.length - 1];
-  if (first && Array.isArray(first.guess) && first.guess[0] != null) first.guess = [null, first.guess[1]];
-  if (last && Array.isArray(last.guess) && last.guess[1] != null) last.guess = [last.guess[0], null];
-}
-// A pre-v717 estimate (the flag, no `guess`) given explicit edges, using its neighbours. In place.
+const settle = settleSpan;
+// An older build's estimate (flagOnly) given explicit edges, using its neighbours. In place.
 function migrateAt(segs, k) {
   const s = segs[k];
-  if (!isAligned(s) || Array.isArray(s.guess) || !s.timeEstimated) return;
+  if (!flagOnly(s)) return;
   s.guess = estimateEdges(segs, k);
   if (!s.estSource) s.estSource = 'legacy';
 }
 
-/* The array as the per-edge model reads it: COPIES, pre-v717 estimates migrated (each judged against
- * its neighbours as they were, before any of them changed), C0 held, the flag re-derived. Every
+/* The array as the per-edge model reads it: COPIES, older builds' estimates migrated (each judged
+ * against its neighbours as they were, before any of them changed), the flag re-derived. Every
  * operation below starts here, so a legacy span never reaches one of the primitives unmigrated. */
 export function withGuesses(segments) {
   const out = (segments || []).map(copySpan);
-  const legacy = out.map((s) => isAligned(s) && !Array.isArray(s.guess) && !!s.timeEstimated);
+  const legacy = out.map(flagOnly);
   if (legacy.some(Boolean)) {
     const was = out.map((s) => isEstimate(s));
     out.forEach((s, k) => {
@@ -167,7 +189,6 @@ export function withGuesses(segments) {
       if (!s.estSource) s.estSource = 'legacy';
     });
   }
-  holdOuterEdges(out);
   out.forEach(settle);
   return out;
 }
@@ -260,9 +281,13 @@ export function normalizeSegments(segments, opts = {}) {
 
   // Pass 1 — per-segment sanity: no negative start, and demote anything too short/invalid.
   for (const seg of out) {
-    if (!isAligned(seg)) { blankInPlace(seg); continue; }
+    if (!isAligned(seg)) { blankInPlace(seg, true); continue; }
     if (seg.start < 0) seg.start = 0;
-    if (seg.end - seg.start < minMs) blankInPlace(seg);
+    /* A span shorter than minMs is demoted. When it was a FILE's (an ELAN sliver of 90 ms) its phrase
+     * still holds those very times, untouched, and the export writes them back (`fileTimes`, P4) — v716
+     * did, and dropping them was a regression. The demoted values ride along so the export can tell:
+     * it passes the phrase's offsets through only while they still equal them. */
+    if (seg.end - seg.start < minMs) { const was = [seg.start, seg.end]; blankInPlace(seg); seg.fileTimes = was; }
   }
 
   // Pass 2 — monotonicity, forwards. Each aligned segment must start at or after the previous
@@ -281,7 +306,6 @@ export function normalizeSegments(segments, opts = {}) {
     prevEnd = seg.end;
   }
 
-  holdOuterEdges(out);
   out.forEach(settle);
   return out;
 }
@@ -508,12 +532,23 @@ export function syncToLines(segments, lineCount, opts = {}) {
  *   split               → the old span divided by WORD fraction, the inner edges guessed;
  *   new                 → { timePending } — never a neighbour's time.
  * Then normalizeSegments. Returns a NEW array, one span per origin; the inputs are not mutated.
- * ------------------------------------------------------------------------------------------- */
+ *
+ * ⚠ A LINE MOVED TO ANOTHER PLACE KEEPS ITS WORDS, NOT ITS TIME. Its audio is still where it was in
+ * the recording, and the recording's order is fixed: cut "ii jj" and paste it two lines up, and its
+ * span 5100–6900 now sits before lines timed 1300–5100. Carried along, that span made normalize push
+ * and demote every unchanged line it passed until the times caught up — three lines lost their times
+ * and the next export lost the cuts for good (v717 review). So only the longest run of origins whose
+ * OLD positions still increase keeps its times; a line off that run (`moved`, or out of order however
+ * it got there) becomes { timePending } — the banner then counts it as a line with no time, which is
+ * the truth. (Which of two crossing lines MOVED is the reconcile's call, made with the text in view: a
+ * worded line outweighs a blank one there. The run here is the backstop for anything else.) */
 export function segmentsFollowLines(oldSegs, origins, opts = {}) {
   const old = withGuesses(oldSegs);
   const at = (k) => (Number.isInteger(k) && k >= 0 && k < old.length ? old[k] : null);
   const clamp01 = (f) => (isNum(f) ? Math.min(1, Math.max(0, f)) : null);
-  const out = (origins || []).map((o) => {
+  const keep = inOrderOrigins(origins || []);
+  const out = (origins || []).map((o, j) => {
+    if (!keep[j]) return { timePending: true };
     const kind = o && o.kind;
     if (kind === 'kept' || kind === 'exact' || kind === 'edit') {
       const s = at(o.from);
@@ -539,6 +574,36 @@ export function segmentsFollowLines(oldSegs, origins, opts = {}) {
     return { timePending: true };
   });
   return normalizeSegments(out, opts);
+}
+
+/* Which origins may keep their times: the longest run whose old positions increase, in the order of
+ * the new lines. A line's place in the OLD text is an interval — [i, i+1) for a kept/exact/edit line,
+ * the whole of a join, its word-fraction slice of a split — so a split's pieces chain one after another.
+ * A line the reconcile kept untouched weighs a hair more, so ties fall to the lines nobody edited.
+ * `moved` origins never keep a time. */
+function inOrderOrigins(origins) {
+  const iv = origins.map((o) => {
+    if (!o || o.moved) return null;
+    if ((o.kind === 'kept' || o.kind === 'exact' || o.kind === 'edit') && Number.isInteger(o.from)) return [o.from, o.from + 1];
+    if (o.kind === 'join' && Array.isArray(o.from) && o.from.length) return [Math.min(...o.from), Math.max(...o.from) + 1];
+    if (o.kind === 'split' && Number.isInteger(o.from) && o.frac) return [o.from + (+o.frac[0] || 0), o.from + (+o.frac[1] || 0)];
+    return null;
+  });
+  const w = origins.map((o) => 1 + (o && o.kind === 'kept' ? 0.001 : 0));
+  const n = iv.length, best = new Array(n).fill(0), prev = new Array(n).fill(-1);
+  let top = -1;
+  for (let j = 0; j < n; j++) {
+    if (!iv[j]) continue;
+    best[j] = w[j];
+    for (let q = 0; q < j; q++) {
+      if (iv[q] && iv[q][1] <= iv[j][0] + 1e-9 && best[q] + w[j] > best[j]) { best[j] = best[q] + w[j]; prev[j] = q; }
+    }
+    if (top < 0 || best[j] > best[top]) top = j;
+  }
+  const keep = new Array(n).fill(false);
+  for (let j = top; j >= 0; j = prev[j]) keep[j] = true;
+  // A 'new' line has no time to keep or lose; it is never on the run and never needs to be.
+  return keep;
 }
 
 /* ---------------------------------------------------------------------------------------------

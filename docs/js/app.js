@@ -673,7 +673,7 @@ function renderTimingBanner() {
   const D = rec ? peaksDurationMs(rec.id) : 0;
   if (!rec || !rec.doc || !isEditorTab(view) || !segmentationEnabled() || !timingBannerOn()
       || !rec.audioSource || rec.pendingAudio || !(D > 0)) { el.hidden = true; return; }
-  readLegacyEstimates(rec.doc);   // in memory only — the Gloss tab can be the first to read a v714 doc
+  if (readLegacyEstimates(rec.doc)) keepInSync(rec);   // a no-op after readBackOnOpen, unless something new needs it
   const segs = docSegments(rec.doc);
   const texts = getBaselineParagraphs(rec.doc);
   const report = timingReport(segs, texts, { durationMs: D, timeSync: !!rec.timeSync });
@@ -781,6 +781,7 @@ function docStats(doc) {
 
 async function persist() {
   if (!current) return;
+  inSyncSinceOpen.delete(current);   // a stamped write is an edit: the hash decides from here
   current.modified = Date.now();
   const titleEl = $('#doc-title');
   if (titleEl) current.title = titleEl.value.trim() || current.title || '';
@@ -794,6 +795,7 @@ async function persist() {
 }
 
 function schedulePersist() {
+  if (current) inSyncSinceOpen.delete(current);   // an edit — see readBackOnOpen
   renderTimingBanner();   // an edit can change what it says; it rebuilds only when that changes
   clearTimeout(saveTimer);
   saveTimer = setTimeout(
@@ -993,6 +995,7 @@ async function toggleDone() {
 }
 
 function enterEditor(tab) {
+  readBackOnOpen(current);   // before any tab draws it: Baseline, Cut and Gloss all see the same spans
   applyDoneButton();
   $('#doc-title').value = current.title || '';
   updateShareButton();
@@ -1088,8 +1091,27 @@ function rememberTab(tab) {
  * and the timing banner's dismissal. Write the record as it is, quietly. */
 function saveQuiet(rec = current) {
   if (!rec) return Promise.resolve();
+  keepInSync(rec);
   return db.putDoc(rec).catch(() => { /* a convenience write; never surface a toast for it */ });
 }
+
+/* ⚠ OPENING IS NOT AN EDIT — AND THE "ALREADY ON DRIVE" CHECK HAS TO AGREE (v717 review). Done and
+ * Save-send skip the upload when `uploadedSig` still equals uploadContentSig(rec), a hash of the doc's
+ * JSON. Opening a text changes that JSON without anyone editing it: a pre-v717 doc's estimates are read
+ * back per edge (readLegacyEstimates — every span gains its explicit `guess`), and the strips may lay
+ * down a seed, heal or tail cover. Not stamping `modified` kept the list honest, but the hash moved, so
+ * the first Done after an upgrade uploaded a duplicate of a text nobody had touched. So: a record that
+ * was in sync when it was opened stays in sync across those changes — until the first real edit
+ * (schedulePersist / persist), after which the hash decides as it always has. */
+const inSyncSinceOpen = new WeakSet();
+function readBackOnOpen(rec) {
+  if (!rec || !rec.doc) return;
+  const inSync = !!rec.uploadedSig && rec.uploadedSig === uploadContentSig(rec);
+  readLegacyEstimates(rec.doc);   // in memory only; saved with the next write of the record
+  if (inSync) { rec.uploadedSig = uploadContentSig(rec); inSyncSinceOpen.add(rec); } else inSyncSinceOpen.delete(rec);
+}
+// A change made by READING the record (a read-back, a seed): still in sync if it was at open.
+function keepInSync(rec) { if (rec && inSyncSinceOpen.has(rec)) rec.uploadedSig = uploadContentSig(rec); }
 
 /* The Cut tab's hint must never promise a key the researcher has switched off.
  *
@@ -1534,7 +1556,7 @@ function decorateGlossSegments() {
   const segs = docSegments(current.doc);
   const groups = $('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment') : [];
   const entries = [];
-  const checks = checkedLines(segs, getBaselineParagraphs(current.doc));   // v717: the same marks as the strips
+  const checks = checkedLines(segs, getBaselineParagraphs(current.doc), timingBannerOn());   // v717: the same marks as the strips, the same switch
   groups.forEach((g, i) => {
     const seg = segs[i];
     if (!seg || g.querySelector('.gseg-bar')) return;
@@ -2345,6 +2367,8 @@ function switchTab(tab, landing) {
       capture: () => captureUndo(),
       persist: () => schedulePersist(),
       persistQuiet: () => saveQuiet(),          // the seed/heal/cover on open: a write, not an edit (v717)
+      readBack: () => { if (current && readLegacyEstimates(current.doc)) keepInSync(current); },
+      timingMarks: () => timingBannerOn(),      // the red check bars follow the banner's switch (v717)
       onRendered: () => renderTimingBanner(),
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
@@ -2380,6 +2404,8 @@ function switchTab(tab, landing) {
         capture: () => captureUndo(),
         persist: () => schedulePersist(),
         persistQuiet: () => saveQuiet(),        // the seed/heal/cover on open: a write, not an edit (v717)
+        readBack: () => { if (current && readLegacyEstimates(current.doc)) keepInSync(current); },
+        timingMarks: () => timingBannerOn(),    // the red check bars follow the banner's switch (v717)
         onRendered: () => renderTimingBanner(),
         // Read through a FUNCTION, not a captured boolean: initStrips runs once per doc open, and a
         // researcher push (changeSettings) can land mid-session — a snapshot would keep the old
@@ -2510,8 +2536,10 @@ let lastPlayTarget = null;
  * restoring one without the other would desynchronise the 1:1 line invariant. */
 const UNDO_CAP = 100;
 let undoStack = [], redoStack = [];
+// `ts`: the record's timeSync flag (the red "paired by position" banner) belongs to the same edit as the
+// spans the positional fallback wrote, so an Undo of that edit takes it back too (v717 review).
 function docSnap() {
-  return { p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []) };
+  return { p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []), ts: !!current.timeSync };
 }
 function pushSnap(snap) {
   undoStack.push(snap);
@@ -2549,10 +2577,10 @@ function updateUndoButtons() {
   if (r) r.disabled = !redoStack.length;
 }
 function applyUndoState(st, onto) {
-  const now = { p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []) };
-  onto.push(now);
+  onto.push(docSnap());
   current.doc.paragraphs = st.p;
   current.doc.segments = st.s;
+  if ('ts' in st) { if (st.ts) current.timeSync = true; else delete current.timeSync; }
   /* ⚠ THE CLASSIC BOX MUST SHOW WHAT WAS RESTORED BEFORE switchTab READS IT. switchTab's first step
    * is "leaving baseline: applyBaseline()", which reconciles the doc FROM the box — and the box still
    * held the text being undone, so the undo was re-applied in the same tick and one Undo did nothing
@@ -9734,6 +9762,7 @@ function mgLineFrees(line) {
 }
 
 function mgLoad(rec) {
+  readBackOnOpen(rec);   // a pre-v717 doc's estimates, per edge, before the matcher copies its spans
   const paras = (rec.doc && rec.doc.paragraphs) || [];
   MG = {
     docId: rec.id,
@@ -9770,7 +9799,10 @@ function mgLoad(rec) {
      * segment has audio there is nothing to hold in place, and mgPrepareAudio seeds the whole file. */
     /* `guess` and `estSource` ride along too (v717): which EDGES are estimates is what the matcher's
      * verbs keep honest (placeSeam / splitSpanAt / mergeSpanPair), and mgCommit gives them back. */
-    spans: docSegments(rec.doc).map((s, i) => ({
+    /* withGuesses: an older build's bare flag is given its edges HERE, judged against the doc's own
+     * neighbours — left to the matcher's verbs it read as "both edges guessed", so joining the two halves
+     * of a v716 nudged cut produced a line guessed at both REAL ends (v717 review). */
+    spans: withGuesses(docSegments(rec.doc)).map((s, i) => ({
       id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
       timePending: !!s.timePending || !(Number(s.end) > Number(s.start)), timeEstimated: !!s.timeEstimated,
       ...(Array.isArray(s.guess) ? { guess: s.guess.slice(0, 2) } : {}), ...(s.estSource ? { estSource: s.estSource } : {}),
@@ -10004,9 +10036,9 @@ let mgDragFrom = null;   // [span i, span i+1] as they were at pick-up, and the 
 function mgBoundaryDrag(i, ms, phase, src, edge) {
   if (!MG) return;
   if (phase === 'start') {
-    mgCapture(); player?.pause?.();
+    player?.pause?.();
     mgDragFrom = MG.spans[i] && MG.spans[i + 1]
-      ? { before: [{ ...MG.spans[i] }, { ...MG.spans[i + 1] }], edge: edge === 'start' ? 'start' : 'end' } : null;
+      ? { before: [{ ...MG.spans[i] }, { ...MG.spans[i + 1] }], edge: edge === 'start' ? 'start' : 'end', captured: false } : null;
     if (src === 'row') { try { const s = MG.spans[i]; if (s && !s.timePending) player?.boundaryFocus?.('start', mgGrabbedAt(i)); } catch { /* cosmetic */ } }
     try { player?.boundaryLive?.(i); } catch { /* cosmetic */ }
     return;
@@ -10017,6 +10049,15 @@ function mgBoundaryDrag(i, ms, phase, src, edge) {
     if (src === 'row') { try { player?.boundaryFocus?.('end'); } catch { /* cosmetic */ } }
     try { player?.boundaryLive?.(null); } catch { /* cosmetic */ }
     return;
+  }
+  /* ⚠ THE UNDO STEP IS TAKEN ON THE FIRST MOVE THAT MOVES SOMETHING, not at pick-up: a grip pressed
+   * and released where it was used to leave an Undo item that undid nothing, so the next Undo looked
+   * dead (v717 review). Tried on copies first, so the snapshot is still the state before the drag. */
+  if (mgDragFrom && !mgDragFrom.captured) {
+    const a = MG.spans[i], b = MG.spans[i + 1];
+    if (!a || !b || a.timePending || b.timePending || !dragSeam([{ ...a }, { ...b }], mgDragFrom.before, 0, ms, mgDragFrom.edge)) return;
+    mgCapture();
+    mgDragFrom.captured = true;
   }
   if (mgDragFrom && mgMoveBoundary(i, ms, mgDragFrom.edge, mgDragFrom.before)) {
     mgLiveBoundary(i);
@@ -10039,12 +10080,12 @@ function mgGrabbedAt(i) {
 function mgSplitSpan(id) {
   const i = MG.spans.findIndex((s) => s.id === id);
   if (i < 0) return;
-  mgCapture();
   const sp = MG.spans[i];
   const head = player?.playheadMs?.();
   const inside = typeof head === 'number' && head > sp.start && head < sp.end;
   const at = Math.round(inside ? head : (sp.start + sp.end) / 2);
   if (at - sp.start < MIN_SEGMENT_MS || sp.end - at < MIN_SEGMENT_MS) { toast(t('mg.tooShort')); return; }
+  mgCapture();   // after the refusal: a split that changes nothing leaves no Undo item (v717 review)
   /* The playhead is a real edge; the MIDPOINT is our guess, on both sides of it (v717 — v714 saved it as
    * a measured time). The outer edges keep whatever they were (segments.js splitSpanAt). */
   const [first, second] = splitSpanAt(sp, at, { real: inside });
@@ -10373,8 +10414,7 @@ async function mgCommit() {
     if (!sp || sp.timePending) return { start: 0, end: 0, timePending: true };
     // An estimated time stays labelled as one all the way through: exports and the archive care
     // whether a boundary was measured or guessed, and the matcher is not what turns one into the other.
-    // Per EDGE since v717: `guess` rides, and withGuesses re-derives the flag from it (and holds the
-    // first start and last end real, C0).
+    // Per EDGE since v717: `guess` rides, and withGuesses re-derives the flag from it.
     const out = { start: sp.start, end: sp.end };
     if (Array.isArray(sp.guess)) { out.guess = sp.guess.slice(0, 2); if (sp.estSource) out.estSource = sp.estSource; }
     else if (sp.timeEstimated) out.timeEstimated = true;
@@ -10461,7 +10501,7 @@ function mgDraw() {
   const pairs = Math.min(MG.spans.length, MG.lines.length);
   const paired = (i) => i < pairs && !MG.spans[i].timePending;
   // Row i's words over row i's audio: the same check mark the editor's strips carry (v717).
-  const checks = checkedLines(MG.spans, MG.lines.map((ln) => mgLineText(ln).words.map((w) => w.txt).join(' ')));
+  const checks = checkedLines(MG.spans, MG.lines.map((ln) => mgLineText(ln).words.map((w) => w.txt).join(' ')), timingBannerOn());
   /* A colour per pair: the pairing has to be readable at a glance, and on a cheap phone in daylight
    * a thin connecting line would not be.
    *
@@ -11027,7 +11067,7 @@ async function mgOpen(id) {
    * the way out. */
   const draft = rec.matchDraft;
   if (draft && Array.isArray(draft.spans) && Array.isArray(draft.lines)) {
-    MG.spans = draft.spans;
+    MG.spans = withGuesses(draft.spans);   // a draft an older build saved: its flags per edge, as mgLoad's
     MG.lines = draft.lines;
     MG.resumed = draft.at || Date.now();
   }
@@ -12841,11 +12881,9 @@ function applyUiScale() {
       else { player.clearSpan(); player.seekMs(0); }
     });
   }
-  // Focus-session boundaries for text undo (segmentation editor only -- Seth's scoping).
-  const UNDO_FIELDS = '.gloss-input, .free-input, .seg-text, #baseline-text';
+  // Focus-session boundaries for text undo — which fields: undoFieldFor.
   document.addEventListener('focusin', (e) => {
-    if (!segmentationEnabled() || !current) return;
-    const el = e.target.closest && e.target.closest(UNDO_FIELDS);
+    const el = undoFieldFor(e.target);
     if (!el) return;
     commitFieldUndo();                       // a previous session still pending? close it first
     try { fieldUndo = { el, startValue: el.value, snap: docSnap() }; } catch { fieldUndo = null; }
@@ -12853,6 +12891,20 @@ function applyUiScale() {
   document.addEventListener('focusout', (e) => {
     if (fieldUndo && e.target === fieldUndo.el) { commitFieldUndo(); updateUndoButtons(); }
   });
+}
+
+/* WHICH FIELDS OPEN A FOCUS-SESSION UNDO STEP (v326). Every text field of the segmentation editor —
+ * Seth's scoping — and the plain baseline box in EVERY mode (v717 review). That box now rewrites the
+ * spans of a timed text when it commits (applyBaseline: times follow their lines), and an Undo has to
+ * refill it before switchTab re-reads it; with segmentation off it had no step of its own, so one Undo
+ * took back the box edit AND the action before it, and the only way back was the browser's own undo,
+ * which applyBaseline then read as a fresh split with a guessed time. One commit, one Undo, one Redo. */
+const UNDO_FIELDS = '.gloss-input, .free-input, .seg-text, #baseline-text';
+function undoFieldFor(target) {
+  if (!current || !target || !target.closest) return null;
+  const el = target.closest(UNDO_FIELDS);
+  if (!el) return null;
+  return segmentationEnabled() || el.id === 'baseline-text' ? el : null;
 }
 
 function setup() {

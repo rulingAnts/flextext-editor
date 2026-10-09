@@ -179,8 +179,13 @@ console.log('flextext — timestamps in notes + native offsets, never the baseli
   ok(/time-estimates="[0-9a-f-]+@~4000-6000"/.test(est), 'per edge: the pre-v717 flag on the LAST line is its start (its end is the recording\'s, C0)');
   ok(!!g3, 'segDoc phrases carry guids');
   const real = segDoc();
-  real.segments[2] = { start: 4000, end: 6000, guess: [null, null], timeEstimated: true };
-  ok(!serializeFlextext(real, { vernLang: 'fau', analLang: 'id' }).includes('~'), 'an explicitly real span is written without `~`, whatever a stale flag says');
+  real.segments[2] = { start: 4000, end: 6000, guess: [null, null] };
+  ok(!serializeFlextext(real, { vernLang: 'fau', analLang: 'id' }).includes('~'), 'an explicitly real span is written without `~`');
+  // A flag no live edge explains was set by an OLDER build (v716 after a rollback copies [null, null]
+  // along and flags its own guess): still an estimate, never laundered into a measured time.
+  const rolled = segDoc();
+  rolled.segments[2] = { start: 4000, end: 6000, guess: [null, null], timeEstimated: true };
+  ok(/>audio ~0:04\.000/.test(serializeFlextext(rolled, { vernLang: 'fau', analLang: 'id' })), 'an older build\'s flag beside [null, null] still goes out with `~`');
 }
 
 console.log('flextext IMPORT — segmentsFromOffsets (flextext as THE segmentation format, no sidecar)');
@@ -382,8 +387,15 @@ console.log('adversarial audit regressions (2026-08-03)');
   ok(s3[1].timePending === true, 'F3: unsalvageable overlapping span demotes to pending, never crosses');
   d3.segments = s3;
   const x3 = serializeFlextext(d3, { vernLang: 'fau', analLang: 'id' });
-  ok((x3.match(/begin-time-offset=/g) || []).length === 1 && x3.includes('begin-time-offset="0" end-time-offset="3000"'),
-     'F3 (v717): …and the demoted line is exported untimed, so the export cannot overlap either');
+  /* v717 review: the demoted line is the FILE's — nobody changed it — so the .flextext writes its own
+   * times back exactly as they came (P4; v716 did, and the first v717 dropped them). The model still
+   * never crosses (above), and the EAF, whose tiers must be ordered, leaves that one line unaligned. */
+  ok((x3.match(/begin-time-offset=/g) || []).length === 2 && x3.includes('begin-time-offset="0" end-time-offset="3000"')
+     && x3.includes('begin-time-offset="1000" end-time-offset="2000"'),
+     'F3 (v717): …and the .flextext writes the nested line\'s own times back, untouched (P4)');
+  const e3 = serializeEaf(d3, { profile: 'flex', vern: 'fau', anal: 'id', mediaName: 'x.wav' });
+  ok((e3.match(/TIME_VALUE="1000"/g) || []).length === 0 && /TIME_VALUE="3000"/.test(e3),
+     'F3 (v717): …but not into the EAF, where it would overlap the line before on one tier');
 
   // F6: a multi-phrase paragraph (merged in ELAN) exports each phrase's OWN offsets, not pending.
   const d6 = makeDoc({ vernLang: 'fau', analLang: 'id' });

@@ -120,7 +120,7 @@ console.log('\nevery foreign .flextext is normalised where it ENTERS the library
   // The export surfaces need no such call: phraseRows already refuses the paragraph-indexed span
   // when a paragraph holds several phrases, falling back to each phrase's own offsets. (v717: and a
   // single-phrase paragraph takes ONLY its live span — no fallback to stale offsets, D8.)
-  ok(/const single = para\.segments\.length === 1;\s*\n\s*rows\.push\(\{ phrase, span: \(single && live\) \? \(segs\[i\] \|\| null\) : own \}\);/.test(read('docs/js/seg-exports.js')),
+  ok(/const single = para\.segments\.length === 1;\s*\n\s*const span = \(single && live\) \? \(segs\[i\] \|\| null\) : own;/.test(read('docs/js/seg-exports.js')),
      'and the export path was already phrase-aware, so it is deliberately left alone');
 }
 
@@ -148,7 +148,7 @@ console.log('\nspans live in doc.segments — the field the rest of the suite re
 const stripsW = read('docs/js/segment-strips.js');
 ok(/doc\.segments = /.test(stripsW), 'segment-strips writes doc.segments on every cut, join and guess');
 ok(/Array\.isArray\(doc\.segments\)/.test(read('docs/js/flextext.js')), 'the flextext exporter reads doc.segments');
-ok(/Array\.isArray\(doc\.segments\)/.test(read('docs/js/seg-exports.js')), 'and so do the EAF/bundle builders');
+ok(/const segs = spansForExport\(doc\);/.test(read('docs/js/seg-exports.js')), 'and so do the EAF/bundle builders (through the exporter\'s own read of doc.segments)');
 const load0 = fn(app, 'mgLoad');
 ok(/docSegments\(rec\.doc\)/.test(load0),
    'mgLoad reads doc.segments (a top-level rec.segments found NOTHING on any text the Cut tab made — an empty left pane on every real document)');
@@ -243,7 +243,9 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
      'the spans are copied at pick-up, so a pause cannot turn into a seam half-way through a drag');
 
   const drag = fn(app, 'mgBoundaryDrag');
-  ok(/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag), 'ONE undo per drag, captured at pick-up');
+  ok(/if \(mgDragFrom && !mgDragFrom\.captured\) \{[\s\S]{0,300}mgCapture\(\);\s*\n\s*mgDragFrom\.captured = true;/.test(drag)
+     && !/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag),
+     'ONE undo per drag, captured at the first move that moves something (v717 review: not at pick-up, where a still grip left an empty step)');
   ok(/phase === 'end'[\s\S]{0,40}mgDraw\(\)/.test(drag), 'and one full redraw on release');
   ok(/mgLiveBoundary\(i\)/.test(drag), 'with a cheap live repaint in between');
   const live = fn(app, 'mgLiveBoundary');
@@ -507,7 +509,7 @@ console.log('\nDone points `current` at the committed record — or the next upd
 console.log('\nan older draft still resumes — its spans and lines, with any map it carried ignored');
 {
   const open = asyncFn(app, 'mgOpen');
-  ok(/MG\.spans = draft\.spans;\s*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
+  ok(/MG\.spans = withGuesses\(draft\.spans\);[^\n]*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
      'a v567–v570 draft (149 cuts, nine joins, a map of picks) comes back as rows; the picks are simply not a thing any more');
 }
 

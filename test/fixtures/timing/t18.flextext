@@ -1,0 +1,421 @@
+<?xml version="1.0" encoding="utf-8"?>
+<document version="2">
+  <interlinear-text guid="1bfad556-f7ea-4274-95c9-4d08f05ee8f2">
+    <item type="title" lang="id">T18</item>
+    <paragraphs>
+      <paragraph guid="a90a0cae-ab10-4249-a3cf-10d0c2797096">
+        <phrases>
+          <phrase guid="fabe0ecd-5397-406a-a468-4dfe2cf8ef90" begin-time-offset="0" end-time-offset="1748">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">1</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:00.000–0:01.748</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="837e5955-6e83-4d4f-99c6-fb541cd09b98">
+        <phrases>
+          <phrase guid="a9f986eb-32b9-4bd3-a30a-d40510572a58" begin-time-offset="1748" end-time-offset="4184">
+            <item type="txt" lang="fau">w w w w w w</item>
+            <item type="segnum" lang="id">2</item>
+            <words>
+              <word guid="2a820463-e55a-4b6d-bd9e-db3f5ab2bdda">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="4102a0bc-1de8-4f6e-90e9-4db758aeabf5">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="c205d6d5-6282-455c-b2ff-42f00e794502">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="54e1ac5c-1640-4f0c-b73c-9afc7370e4d1">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="0fb94ea5-32b4-4794-a392-f26e5f2a6f04">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="2d445b6f-2a55-4caf-85bd-2b0009192729">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:01.748–0:04.184</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="2a8a2810-7489-419e-a8b7-16e498907d66">
+        <phrases>
+          <phrase guid="c4de4cf9-bff4-45ca-a9dd-84aec26b5a13" begin-time-offset="4184" end-time-offset="5433">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">3</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:04.184–0:05.433</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="a4889e39-51a9-45e2-b979-32385d58a2e9">
+        <phrases>
+          <phrase guid="ac61eb6d-2314-4553-9305-2b2745c61385" begin-time-offset="5433" end-time-offset="6837">
+            <item type="txt" lang="fau">w w w w w</item>
+            <item type="segnum" lang="id">4</item>
+            <words>
+              <word guid="0092949c-9b72-4258-a91c-17ecb7b5cae6">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="d98eeec0-614b-433e-8627-6d963b735d85">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="effc4364-14f7-4c4e-9d6c-d131ec13654a">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="85226af4-17f9-4415-8b86-08c8156a8f4b">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="b996c118-80d2-4fd2-9eff-522d4a2d4c3a">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:05.433–0:06.837</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="f3fa2a9f-91b3-46c6-884b-e34be551d053">
+        <phrases>
+          <phrase guid="77d14244-1aa8-41f9-b569-949ee70640a2" begin-time-offset="6837" end-time-offset="9049">
+            <item type="txt" lang="fau">w w w w w w w w w</item>
+            <item type="segnum" lang="id">5</item>
+            <words>
+              <word guid="46186ac9-a20f-420e-adc2-535e0bc37c8a">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="bec43090-0833-41a8-9350-dc62c8cc565e">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="4ae8dc8c-91ff-4e2c-8fff-08d943da54ce">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="6bf269e8-234b-4a09-b36f-de134cab48f9">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="91535e35-067e-44d6-9ab7-78c501d21823">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="d3f4a102-e56e-4071-894f-43b3c81f2eae">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="c09d3854-3ed4-4050-bbd2-94d31cb6d0c9">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="fd7fd5ce-49b6-4903-b447-940d14879c12">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="ae518c32-4553-4ba9-a24b-2f0376af94c4">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:06.837–0:09.049</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="c35ff85b-1a1d-4b28-9f66-4d1927f3304f">
+        <phrases>
+          <phrase guid="8fcf477f-fa0d-4556-a462-e4d2e5875562" begin-time-offset="9049" end-time-offset="10053">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">6</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:09.049–0:10.053</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="6cc8fe2b-b8f3-42a0-99c9-8a1f7cdc268c">
+        <phrases>
+          <phrase guid="77d14244-1aa8-41f9-b569-949ee70640a2" begin-time-offset="10053" end-time-offset="11748">
+            <item type="txt" lang="fau">w w w w w w</item>
+            <item type="segnum" lang="id">7</item>
+            <words>
+              <word guid="a5b40dc4-b9fc-48ce-9a37-2fa6796fe0db">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="365bd583-3c04-4772-a321-ac492d00710f">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="addb62c7-30fa-4d86-a294-8ff0cdfb8dff">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="2f35237d-5e58-407f-bb58-92aef5fc9cfd">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="a9292eff-6536-4245-857c-761bae805819">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="081febf5-fa61-4708-9aa6-aa4f1839c0e1">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:10.053–0:11.748</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="54fb299f-bb24-4cd3-bddf-fe56a05288c3">
+        <phrases>
+          <phrase guid="833200e7-599f-47d1-a5fc-ab2b975e8ab9" begin-time-offset="11748" end-time-offset="13265">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">8</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:11.748–0:13.265</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="fdc450ef-24c2-4b06-9774-50917de3c81e">
+        <phrases>
+          <phrase guid="3ece11bb-e742-42a7-823a-05484e96fc83" begin-time-offset="13265" end-time-offset="14872">
+            <item type="txt" lang="fau">w w w w w w</item>
+            <item type="segnum" lang="id">9</item>
+            <words>
+              <word guid="848e0886-563c-45e2-a1c7-55c82de77740">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="fc6e047a-6369-4f5f-8c79-f8ee76ab59a4">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="b4e0358c-4e8f-4b60-89f9-05e515fba417">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="64dfaa8a-eb3e-4a18-b417-577f77332300">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="4e8f3c0a-e30a-4b99-a84f-d6124c69b2d6">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="fb8321bb-15a5-4368-9e89-bc6ab3d2fbcc">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="1e0e94d7-34e4-49cf-b868-6f52ffc52e94">
+                <item type="punct" lang="fau">.</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:13.265–0:14.872</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="30b2e1fa-2a44-4798-8552-1e9d451216d2">
+        <phrases>
+          <phrase guid="fe6446dc-64ab-4f06-90b2-5e216ed71e27" begin-time-offset="14872" end-time-offset="17065">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">10</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:14.872–0:17.065</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cf7bf57d-130f-461e-99af-3c1bc7bdd774">
+        <phrases>
+          <phrase guid="3ba8b48c-b5ce-4614-b7de-ffb4b78637dc" begin-time-offset="17065" end-time-offset="18923">
+            <item type="txt" lang="fau">w w w w w w w w w</item>
+            <item type="segnum" lang="id">11</item>
+            <words>
+              <word guid="fe22551e-6fb0-4a55-8fde-1ed94f9ce1f0">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="a31b1da7-5c07-41be-bd78-d9d1455c4017">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="7f2cdc6e-30a3-4a59-8065-d0e6455593b2">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="8f57fa4a-668c-44aa-a151-880807acf357">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="3e995fa1-787c-4f5f-b0d8-3c95077b0a49">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="4b4f9d33-f96e-4788-8c01-1c4494ca6f71">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="ffa688a9-596a-49b1-8c00-3be11a979e3f">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="a99c1fc1-da46-435b-a532-6afe0b070c55">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="4cdd8aa7-0006-4f60-aed7-0f98de5d1019">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:17.065–0:18.923</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="06586c7f-75de-4759-8ab3-1e19379a32ae">
+        <phrases>
+          <phrase guid="fdfcee5d-319c-4f4f-8416-249955c7060d" begin-time-offset="18923" end-time-offset="19398">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">12</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:18.923–0:19.398</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="0fe25305-30f4-463c-9bc1-d4216e5cc76d">
+        <phrases>
+          <phrase guid="63dfd547-04e8-4141-b1b7-c5bfe7d76ac3" begin-time-offset="19398" end-time-offset="20179">
+            <item type="txt" lang="fau">w w w</item>
+            <item type="segnum" lang="id">13</item>
+            <words>
+              <word guid="542d5f30-22a3-42b3-9692-04e2d41f4dd4">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="26d688f9-8928-43f0-a73b-34a959969aa0">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="9f484d82-321e-4321-9e47-c2f0d5084f73">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:19.398–0:20.179</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="409d49ed-bb59-4540-9756-e1f6d19d7203">
+        <phrases>
+          <phrase guid="61086687-4c79-4e10-bc9d-8409b19b6f31" begin-time-offset="20179" end-time-offset="23387">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">14</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:20.179–0:23.387</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cc811355-81a4-4e79-b7ac-2360b015b051">
+        <phrases>
+          <phrase guid="3277367c-83f1-489b-a68a-c6e75b290990" begin-time-offset="23387" end-time-offset="24162">
+            <item type="txt" lang="fau">w w</item>
+            <item type="segnum" lang="id">15</item>
+            <words>
+              <word guid="4ee19e50-2555-436b-b232-5b6168e66d3f">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="f24a1d01-cec6-48e2-9cd8-3633aadfc5bb">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:23.387–0:24.162</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cdd5c786-81a0-4397-8879-33b86921ac11">
+        <phrases>
+          <phrase guid="7b46aff6-b07a-4f66-a36d-eb3771dd7df1" begin-time-offset="24162" end-time-offset="24740">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">16</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:24.162–0:24.740</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="35c197d2-48e7-4bec-b3e8-89b1ba4ba688">
+        <phrases>
+          <phrase guid="da4bdbe1-df0b-4130-9c96-42d7f435fa61" begin-time-offset="24740" end-time-offset="25525">
+            <item type="txt" lang="fau">w w w</item>
+            <item type="segnum" lang="id">17</item>
+            <words>
+              <word guid="5a34812a-e0a8-4cb3-b03f-19824fa841f2">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="4aa51a12-6fa3-48a3-92b9-f630ad8e63a0">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+              <word guid="23ea70d4-1a58-4557-9f1b-e3602cf1dae6">
+                <item type="txt" lang="fau">w</item>
+                <item type="gls" lang="id">w</item>
+              </word>
+            </words>
+            <item type="gls" lang="id">w</item>
+            <item type="note" lang="id">audio 0:24.740–0:25.525</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="1837e324-1349-4131-9e6f-81a8a7124c21">
+        <phrases>
+          <phrase guid="3a02196b-afc3-4bec-8954-f6821c4d18bc" begin-time-offset="25525" end-time-offset="25797">
+            <item type="txt" lang="fau"></item>
+            <item type="segnum" lang="id">18</item>
+            <words>
+            </words>
+            <item type="note" lang="id">audio 0:25.525–0:25.797</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+    </paragraphs>
+    <languages>
+      <language lang="fau" vernacular="true"/>
+      <language lang="id"/>
+    </languages>
+    <media-files offset-type="milliseconds">
+    <media guid="a5d9a81d-6669-4768-a964-f2cac4101ce6" location="recording.wav"/>
+    </media-files>
+  </interlinear-text>
+</document>

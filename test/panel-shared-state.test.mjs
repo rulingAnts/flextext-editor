@@ -185,7 +185,7 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
    * and the download lane silently chose the owner route. The gates were right and useless. */
   ok(/data-fmenu\$\{rowWrap\.dataset\.viamember \? ' data-viamember="1"' : ''\}/.test(panel),
      '⚠ the modal copies data-viamember from the row — gates and download lane both depend on it');
-  ok(/const dead = viaMember \? \[\] : cleanupCandidates\(allFiles\)/.test(panel),
+  ok(/const dead = viaMember \? \[\] : cleanupCandidates\(ownFiles\)/.test(panel),   // own folder only since G3
      '⚠ the Cleanup (delete-to-trash) control is not offered to a member');
   /* ⚠ COUNT THE RENDER SITES, DO NOT MATCH ONE. v469 gated one of the two places that render this
    * link and shipped believing it was done; a member's menu still carried it, with a live Drive

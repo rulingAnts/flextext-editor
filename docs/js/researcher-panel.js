@@ -3982,15 +3982,26 @@ async function populateFilesMenu(wrap) {
   // the other folder's files, and WHICH half survived depended on resolution order. Caught by the
   // bridge fixture returning complementary menus per direction.
   const lists = await Promise.all(bridge.ids.map(async (id) => {
-    try { const r = await Researcher.listTextFiles(iid, id); return { files: r.files || [], folderId: r.folderId || '' }; }
-    catch { return { files: [], folderId: '' }; /* one folder failing must not empty the menu */ }
+    try { const r = await Researcher.listTextFiles(iid, id); return { id, files: r.files || [], folderId: r.folderId || '' }; }
+    catch { return { id, files: [], folderId: '' }; /* one folder failing must not empty the menu */ }
   }));
-  const allFiles = lists.flatMap((l) => l.files).sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
-  const folderId = lists.map((l) => l.folderId).find(Boolean) || '';
+  const newestFirst = (a, b) => String(b.modified).localeCompare(String(a.modified));
+  const allFiles = lists.flatMap((l) => l.files).sort(newestFirst);
+  /* ⚠ THE TITLE BRIDGE IS FOR DISPLAY ONLY (plans/move-upload-guards.md G3). It joins folders by a
+   * matching TITLE in this browser's history, and titles repeat — one recording assigned twice,
+   * numbered recording names — so it pulls in OTHER texts' folders. Feeding that into the manifest,
+   * the ".flextext" row, the conversions and cleanup let one text's Files menu serve, and offer to
+   * trash, another text's copies. Everything that picks a file reads THIS docId's own folder; the
+   * merged list feeds only "Download all", which moves and deletes nothing (and files the other
+   * texts' copies under their own sub-folder in the zip — see downloadAllZip). */
+  const own = lists.find((l) => l.id === docId) || { files: [], folderId: '' };
+  const ownFiles = own.files.slice().sort(newestFirst);
+  const folderId = own.folderId || lists.map((l) => l.folderId).find(Boolean) || '';
   wrap._allFiles = allFiles;                 // the entire-folder ZIP wants EVERYTHING, uncollapsed
+  wrap._ownFiles = ownFiles;                 // what every pick, the cleanup review and a move read
   wrap._cache = new Map();                   // per-menu-open byte cache: one fetch per file per open
 
-  const src = pickSourceFiles(allFiles);
+  const src = pickSourceFiles(ownFiles);
   let manifest = null;
   if (src.manifest) {
     try { manifest = JSON.parse(await (await menuFetch(wrap, src.manifest.id)).text()); }
@@ -4033,7 +4044,7 @@ async function populateFilesMenu(wrap) {
    * never read from a stored flag — a flag goes stale the moment a later write fails and would then
    * assert the opposite of the truth. Matching is by NAME because that is what the manifest records;
    * the roles below then come from Drive's own tags. */
-  const present = new Set(allFiles.map((f) => f.name));
+  const present = new Set(ownFiles.map((f) => f.name));
   const missing = manifest.files.filter((d) => d && d.name && !present.has(d.name)).map((d) => d.name);
 
   const audioF = src.audio;
@@ -4156,7 +4167,7 @@ async function populateFilesMenu(wrap) {
      * links that won't work"). Cleanup deletes, and members hold drive:'read' — the worker refuses
      * 'manage' outright, so this control could only ever fail for them. Deletion and re-parenting
      * may be revisited in a later release; until they are, a member must not see the button. */
-    const dead = viaMember ? [] : cleanupCandidates(allFiles);
+    const dead = viaMember ? [] : cleanupCandidates(ownFiles);
     /* ⚠ STOP-GAP (2026-10-10, plans/move-upload-guards.md step 0). "Keep only the newest by Drive
      * modifiedTime" is not "keep the current work": modifiedTime is UPLOAD time, so an empty
      * placeholder or a damaged queued copy that landed last sorts as newest, and the copies holding
@@ -4578,8 +4589,16 @@ async function downloadAllZip(btn) {
     dlStatus(wrapForStatus, t('panel.dl.zipBuilding'));
     // Re-list across every bridged identity (legacy texts have two folders — see bridgedIds).
     const bridge = bridgedIds(docId, btn.dataset.title);
+    /* ⚠ A SAME-TITLE TEXT IS ANOTHER TEXT (G3). The bridge stays here because a legacy text split
+     * across two folders still wants both halves in its archive — but titles repeat, so the bridge
+     * also pulls in genuinely different texts, and their backups carry the same-looking names. Laid
+     * side by side they were indistinguishable in the zip. Files from any folder other than this
+     * docId's own go under a sub-folder that says what they are. */
     const lists = await Promise.all(bridge.ids.map(async (id) => {
-      try { return (await Researcher.listTextFiles(iid, id)).files || []; } catch { return []; /* partial is fine */ }
+      let rows = [];
+      try { rows = (await Researcher.listTextFiles(iid, id)).files || []; } catch { rows = []; /* partial is fine */ }
+      const dir = id === docId ? '' : sanitizeBase(t('panel.dl.otherTextDir', { id: String(id).slice(0, 8) })) + '/';
+      return rows.map((f) => ({ ...f, zipName: dir + (f.name || 'file') }));
     }));
     const all = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
     const wanted = all;   // the ENTIRE folder — every bridged identity, backups included
@@ -4597,7 +4616,7 @@ async function downloadAllZip(btn) {
       const i = ++got;
       const head = t('panel.dl.fetchingN', { i, n: wanted.length, name: f.name || '' });
       dlStatus(wrapForStatus, head); jobSet(job, head);
-      add(f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
+      add(f.zipName || f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
         const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
         dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
       }, memberDlVia(wrapForStatus), dlCtl.signal));
@@ -4734,18 +4753,31 @@ function wireDownloadMenus(scope) {
       if (hc) {
         e.preventDefault(); e.stopPropagation();
         (async () => {
-          // Find every folder the bridged identities own, then confirm with the ADVISORY (Seth):
-          // download first, and the removal follows the folder ID wherever it now lives — if the
-          // folder was MOVED elsewhere in Drive, THAT folder is what goes to trash. Copy or
-          // download; never move.
-          const bridge = bridgedIds(hc.dataset.id, hc.dataset.title);
-          const folderIds = [];
-          for (const id of bridge.ids) {
-            try { const r = await Researcher.listTextFiles(hc.dataset.i, id); if (r.folderId) folderIds.push(r.folderId); }
-            catch { /* a missing folder is simply not removable */ }
+          const docId = hc.dataset.id;
+          /* ⚠ A 'deleted' ROW DOES NOT MEAN THE TEXT IS GONE (plans/move-upload-guards.md G3).
+           * Every MOVE records 'deleted' for the device it left, and the docId — which is what the
+           * folder listing resolves by — is the SAME on the destination. So this button on the old
+           * device's row found the text's LIVE folder under the new device: every backup, and
+           * originals/ with the audio, the consent clip, the consent receipt and the manifest. Its
+           * next upload would have made a fresh folder with no manifest, unmovable for ever, and the
+           * consent record would be gone for good after 30 days in the trash.
+           * So the folder may go only when nothing holds the text: no device reports it, no move or
+           * assignment of it is on its way, and the estate shows it filed under Unassigned — the place
+           * the sweep puts every text no device holds. Unknown counts as "no". */
+          if (assignedDocIds().has(docId) || pendingMoves.has(docId) || inFlightAssignIds().has(docId)) {
+            deps.toast(t('panel.hist.removeFolderLive'), 9000); return;
           }
+          const tx = ((estateCache && estateCache.texts) || []).find((x) => x && x.docId === docId);
+          if (!tx || !tx.inUnassigned) { deps.toast(t('panel.hist.removeFolderNotFiled'), 9000); return; }
+          // THIS docId's folder only — never a same-title sibling's (G3). The confirm says so. The
+          // removal follows the folder ID wherever it now lives — if the folder was MOVED elsewhere
+          // in Drive, THAT folder is what goes to trash (Seth's advisory, kept in the confirm).
+          const folderIds = [];
+          try { const r = await Researcher.listTextFiles(hc.dataset.i, docId); if (r.folderId) folderIds.push(r.folderId); }
+          catch { /* a missing folder is simply not removable */ }
           if (!folderIds.length) { deps.toast(t('panel.hist.noFolder'), 5000); return; }
-          if (!await confirmModal(t('panel.hist.removeFolderConfirm', { title: hc.dataset.title || '?' }))) return;
+          if (!await confirmModal(t('panel.hist.removeFolderConfirm', { title: hc.dataset.title || '?' })
+                                  + '\n\n' + t('panel.hist.removeFolderOwnOnly'))) return;
           try {
             const r = await Researcher.trashFiles(folderIds, 'deleted-text folder removal');
             deps.toast(t('panel.hist.folderRemoved', { n: r.trashed }), 6000);
@@ -7267,12 +7299,14 @@ function adminModal() {
  * picked a device and pressed Move, then failed with `nothingToMove` — a refusal after the
  * commitment, which reads as the app breaking rather than as the text being ineligible. */
 async function moveSources(fromId, docId, title) {
-  const bridge = bridgedIds(docId, title);
-  let all = [];
-  for (const id of bridge.ids) {
-    try { all = all.concat((await Researcher.listTextFiles(fromId, id)).files || []); } catch { /* partial */ }
-  }
-  all.sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+  /* ⚠ THIS docId's OWN FOLDER, AND NOTHING ELSE (plans/move-upload-guards.md G3). This used to merge
+   * every folder the title bridge named, and a same-title text is a DIFFERENT text — which is how one
+   * move delivered another text's content. Nothing a move can use is lost: the gate below needs a
+   * manifest, manifests arrived (v336) after the identity fix (v137), so a split legacy text was
+   * never movable and the bridge only ever added foreign files. A failed listing now THROWS, so the
+   * modal says the listing failed instead of reporting "no manifest" about a folder it never saw. */
+  const all = ((await Researcher.listTextFiles(fromId, docId)).files || []).slice()
+    .sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
   const picks = pickSourceFiles(all);
   /* The MANIFEST is the gate, per Seth — not merely "we found some files". A folder can hold
    * role-tagged files without ever having been described by one, and an assignment built from a

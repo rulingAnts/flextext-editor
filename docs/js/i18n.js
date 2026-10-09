@@ -1242,6 +1242,15 @@ internet after the first time.</p>
   'panel.hist.noFolder': 'No Drive folder found for this text.',
   'panel.hist.removeFolderConfirm': 'Move \u201c{title}\u201d\u2019s Drive folder to the trash?\n\n\u26a0 Make sure you have DOWNLOADED it first (Files \u2192 Download all) and saved it on your computer.\n\n\u26a0 The removal follows the folder itself, wherever it now is: if you MOVED the folder somewhere else in your Drive, THAT folder is what goes to the trash. If you want to keep a copy in Drive, COPY the files \u2014 do not just move the folder.\n\nTrashed items stay recoverable for 30 days.',
   'panel.hist.folderRemoved': 'Moved {n} folder(s) to Drive trash.',
+  /* G3 (plans/move-upload-guards.md): a 'deleted' row is also written for the device a text was MOVED
+   * away from, and the folder lookup is by docId — so without these the button could trash the text's
+   * live folder on its new device. The folder goes only when nothing holds the text. */
+  'panel.hist.removeFolderLive': 'This text is still on a device, or on its way to one, so its folder stays. (A move also writes a \u201cdeleted\u201d row for the device the text left.)',
+  'panel.hist.removeFolderNotFiled': 'This text\u2019s folder is not filed under Unassigned yet, so it is left alone. Folders of texts no device holds are filed there automatically; try again later, or remove it from the Unassigned box.',
+  'panel.hist.removeFolderOwnOnly': 'Only this text\u2019s own folder is removed. Folders of other texts with the same title are not touched.',
+  /* Download all: a same-title text's files go under their own folder in the zip (G3). {id} is the
+   * first 8 characters of that text's id, the one thing that tells two same-title texts apart. */
+  'panel.dl.otherTextDir': 'Same title, another text ({id})',
   'panel.move.btn': 'Move\u2026',
   'panel.move.title': 'Move \u201c{title}\u201d',
   'panel.move.intro': 'The text, its audio and its Drive folder move to the device you pick. The copy here is removed only after the other device has received it \u2014 a final upload happens first, so nothing is lost even if the move stalls.',
@@ -3977,6 +3986,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.hist.noFolder': 'Folder Drive untuk teks ini tidak ditemukan.',
   'panel.hist.removeFolderConfirm': 'Pindahkan folder Drive \u201c{title}\u201d ke sampah?\n\n\u26a0 Pastikan Anda sudah MENGUNDUHNYA dulu (Berkas \u2192 Unduh semua) dan menyimpannya di komputer Anda.\n\n\u26a0 Penghapusan mengikuti folder itu sendiri, di mana pun ia berada sekarang: jika Anda MEMINDAHKAN folder ke tempat lain di Drive, folder ITULAH yang masuk sampah. Jika ingin menyimpan salinan di Drive, SALIN berkasnya \u2014 jangan hanya memindahkan folder.\n\nItem di sampah dapat dipulihkan selama 30 hari.',
   'panel.hist.folderRemoved': '{n} folder dipindahkan ke sampah Drive.',
+  'panel.hist.removeFolderLive': 'Teks ini masih ada di perangkat, atau sedang dikirim ke perangkat, jadi foldernya tetap disimpan. (Pemindahan juga mencatat baris \u201cdihapus\u201d untuk perangkat yang ditinggalkan teks itu.)',
+  'panel.hist.removeFolderNotFiled': 'Folder teks ini belum masuk ke Belum Ditugaskan, jadi dibiarkan. Folder teks yang tidak dipegang perangkat mana pun dipindahkan ke sana secara otomatis; coba lagi nanti, atau hapus dari kotak Belum Ditugaskan.',
+  'panel.hist.removeFolderOwnOnly': 'Hanya folder teks ini sendiri yang dihapus. Folder teks lain yang berjudul sama tidak disentuh.',
+  'panel.dl.otherTextDir': 'Judul sama, teks lain ({id})',
   'panel.move.btn': 'Pindahkan\u2026',
   'panel.move.title': 'Pindahkan \u201c{title}\u201d',
   'panel.move.intro': 'Teks, audionya, dan folder Drive-nya pindah ke perangkat yang Anda pilih. Salinan di sini dihapus hanya setelah perangkat lain menerimanya \u2014 unggahan terakhir terjadi lebih dulu, jadi tidak ada yang hilang meski pemindahan tertunda.',

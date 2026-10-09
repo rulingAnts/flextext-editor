@@ -48,6 +48,12 @@ on:
         required: false
         type: string
         default: "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected."
+      tone:
+        description: "Colour (raise only): info = calm heads-up (default); success = good news; warning = the amber maintenance look; alert = something is wrong"
+        required: false
+        type: choice
+        default: info
+        options: [info, success, warning, alert]
       details:
         description: "More info (raise only, optional): a longer explanation shown collapsed under a 'More info' toggle. Use \\n for a line break."
         required: false
@@ -71,6 +77,7 @@ jobs:
           FX_MSG: ${{ inputs.message }}
           FX_ADVICE: ${{ inputs.advice }}
           FX_DETAILS: ${{ inputs.details }}
+          FX_TONE: ${{ inputs.tone }}
         run: |
           node -e '
             const act = process.env.FX_ACTION || "status";
@@ -92,9 +99,14 @@ jobs:
              * that under its own localised lines. Otherwise JSON, which the panel (researcher-panel.js
              * opsNotice) reads as { title, message, advice } — a key present but empty means "no such
              * line". A plain message that merely BEGINS with "{" is padded so it cannot pass for JSON. */
-            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE || !!details;
+            const TONES = ["info", "success", "warning", "alert"];
+            const tone = TONES.includes(process.env.FX_TONE) ? process.env.FX_TONE : "info";
+            // Only the legacy look (amber, default heading and last line, no More info) is plain text — so
+            // with info as the default tone an ordinary raise is JSON now, and the live-panel guard below is
+            // what keeps that honest.
+            const custom = title !== DEFAULT_TITLE || advice !== DEFAULT_ADVICE || !!details || tone !== "warning";
             const value = custom
-              ? JSON.stringify({ kind: "maintenance", title, message: msg, advice, ...(details ? { details } : {}) })
+              ? JSON.stringify({ kind: "maintenance", tone, title, message: msg, advice, ...(details ? { details } : {}) })
               : (msg[0] === "{" ? " " + msg : msg);
             const q = (s) => "\x27" + String(s).replace(/\x27/g, "\x27\x27") + "\x27";
             const sql = act === "raise"

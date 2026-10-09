@@ -85,7 +85,7 @@ console.log('\nit cannot be dismissed, and it is escaped');
   const fn = panel.slice(panel.indexOf('function maintenanceBanner'), panel.indexOf('function assignedDocIds'));
   ok(!/dismiss|data-close|localStorage/.test(fn),
      'no dismiss control — a banner you can hide is one you hide before making changes anyway');
-  ok(/opsNoticeHtml\(n\.message\)/.test(fn) && /esc\(n\.title/.test(fn) && /esc\(fz\)/.test(fn) && /^function opsNoticeHtml\(text\) \{[\s\S]*?return esc\(text\)/m.test(panel), 'every operator string is escaped like any other server string (opsNoticeHtml escapes FIRST, then links)');
+  ok(/opsNoticeHtml\(n\.message\)/.test(fn) && /esc\(title\)/.test(fn) && /esc\(fz\)/.test(fn) && /^function opsNoticeHtml\(text\) \{[\s\S]*?return esc\(text\)/m.test(panel), 'every operator string is escaped like any other server string (opsNoticeHtml escapes FIRST, then links)');
   /* Two banners since the freeze flag (2026-08-26), so "renders nothing when unset" is now
    * structural: an empty accumulator, every banner chunk behind its own if, nothing appended
    * unconditionally. */
@@ -107,6 +107,7 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
     const T = { 'panel.maint.title': 'Maintenance in progress', 'panel.maint.advice': 'Please avoid making changes.', 'panel.maint.more': 'More info', 'panel.freeze.title': 'Locked', 'panel.freeze.advice': 'Read only.' };
     const t = (k) => T[k] || k;
     const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const OPS_TONES = ['info', 'success', 'warning', 'alert'];
     ${src('opsNotice')}
     ${src('opsNoticeHtml')}
     ${src('opsNoticeMore')}
@@ -116,8 +117,8 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
   ok(/Maintenance in progress/.test(plain) && /Backend work tonight\./.test(plain) && /Please avoid making changes\./.test(plain),
      'plain text: the maintenance heading, the message, the advice — as before v715');
   const notice = render(JSON.stringify({ kind: 'notice', title: 'Sorry', message: 'Some texts need re-cutting.' }));
-  ok(/rp-opnotice/.test(notice) && /<strong>Sorry<\/strong>/.test(notice) && /Some texts need re-cutting\./.test(notice),
-     'a notice: its own title and message, in the notice style');
+  ok(/rp-tone-info/.test(notice) && /<strong>Sorry<\/strong>/.test(notice) && /Some texts need re-cutting\./.test(notice),
+     'a notice: its own title and message, in the calm info tone');
   ok(!/Maintenance in progress|Please avoid making changes/.test(notice), '…and NOTHING about maintenance — no contradiction');
   const bare = render(JSON.stringify({ kind: 'notice', message: 'Just this.' }));
   ok(!/<strong>/.test(bare) && /Just this\./.test(bare) && !/class="note"/.test(bare), 'a notice with no title or advice is just the message');
@@ -134,6 +135,14 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
   ok(/<details class="rp-maint-more"><summary>More info<\/summary>/.test(more), 'details render as a collapsed <details> with the localised "More info" summary');
   ok(/Long &lt;version&gt;<br>with two lines\./.test(more), '…escaped, with newlines as line breaks');
   ok(!/<details/.test(plain) && !/<details/.test(headless), 'no details, no toggle');
+  /* Tones (Seth, 2026-10-10): plain text and a JSON without a tone stay the amber WARNING; the workflow's
+   * default is the calm INFO; success and alert exist; an unknown tone falls back rather than styling nothing. */
+  ok(/rp-tone-warning/.test(plain) && /rp-tone-warning/.test(titled), 'plain text and untoned maintenance JSON: warning (the amber it always was)');
+  for (const tone of ['info', 'success', 'warning', 'alert']) ok(new RegExp(`class="rp-maint rp-tone-${tone}"`).test(render(JSON.stringify({ message: 'm', tone }))), `tone ${tone} styles the banner`);
+  ok(/rp-tone-warning/.test(render(JSON.stringify({ message: 'm', tone: 'purple' }))), 'an unknown tone falls back to warning');
+  const css = rd('docs/css/app.css');
+  for (const tone of ['info', 'success', 'alert']) ok((css.match(new RegExp(`\\.rp-maint\\.rp-tone-${tone} \\{`, 'g')) || []).length === 2, `${tone} has a light and a dark rule`);
+  ok(/\.rp-maint a \{ color: inherit;/.test(css), 'links inherit the banner colour (blue on amber was unreadable)');
   /* Hyperlinks (Seth, 2026-10-10): [label](https://…) and bare https://… become links; nothing else does. */
   const linked = render(JSON.stringify({ kind: 'maintenance', title: 'T', message: 'Open the [Audio Segmenter](https://audio-segmenter.flextext.app/) or https://app.flextext.app/.', advice: '', details: 'See https://github.com/rulingAnts/flextext-editor/issues/111 (details).' }));
   ok(/<a href="https:\/\/audio-segmenter\.flextext\.app\/" target="_blank" rel="noopener">Audio Segmenter<\/a>/.test(linked), '[label](url) becomes a link that opens in a new tab');
@@ -145,7 +154,7 @@ console.log('\na NOTICE is only the operator\'s words; plain text is the mainten
   ok(/href="https:\/\/e\.com\/&quot;" target/.test(unsafe) && !/" onclick="/.test(unsafe), 'a quote inside a URL stays an entity inside the href, so it cannot close the attribute');
   ok(/\{not json/.test(render('{not json')), 'text that only looks like JSON is shown as the plain notice it is');
   const noMsg = render(JSON.stringify({ kind: 'notice' }));
-  ok(!/rp-opnotice/.test(noMsg) && /\{&quot;kind&quot;/.test(noMsg),
+  ok(!/rp-tone-info/.test(noMsg) && /\{&quot;kind&quot;/.test(noMsg),
      'JSON without a message is not a notice — it is shown as plain text, never silently dropped');
   ok(/&lt;b&gt;x&lt;\/b&gt;/.test(render(JSON.stringify({ kind: 'notice', title: '<b>x</b>', message: 'm' }))), 'a notice title is escaped');
   ok(/Locked/.test(render(JSON.stringify({ kind: 'notice', message: 'm' }), 'frozen')), 'the write-lock banner still leads');
@@ -161,9 +170,10 @@ console.log('\nthe workflow owns all three lines, pre-filled with the panel\'s o
   ok(def('title') === 'Maintenance in progress' && def('title') === en('panel.maint.title'), `title default is the panel\'s own heading: "${def('title')}"`);
   ok(!!def('advice') && def('advice') === en('panel.maint.advice'), 'advice default is the panel\'s own advice line, word for word');
   ok(!!def('message'), 'the message is pre-filled too');
-  ok(/const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details;/.test(yml), 'plain text while heading and advice are the defaults and there is no More-info — older panels keep working');
-  ok(/JSON\.stringify\(\{ kind: "maintenance", title, message: msg, advice, \.\.\.\(details \? \{ details \} : \{\}\) \}\)/.test(yml), 'otherwise JSON with all three keys present (empty = that line dropped), plus details when given');
-  ok(/^      details:/m.test(yml) && /const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details;/.test(yml), 'a More-info text is a fourth field, and makes the value structured');
+  ok(/const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details \|\| tone !== "warning";/.test(yml), 'plain text only for the legacy look (defaults, no More-info, warning tone) — older panels keep working for that');
+  ok(/JSON\.stringify\(\{ kind: "maintenance", tone, title, message: msg, advice, \.\.\.\(details \? \{ details \} : \{\}\) \}\)/.test(yml), 'otherwise JSON with tone and all three keys present (empty = that line dropped), plus details when given');
+  ok(/^      tone:\n(?:        .*\n)*?        default: info\n/m.test(yml) && /options: \[info, success, warning, alert\]/.test(yml), 'tone is a choice whose default is the calm info');
+  ok(/^      details:/m.test(yml) && /\|\| !!details/.test(yml), 'a More-info text is a field, and makes the value structured');
   ok(/const none = \(s\) => \(s === "-" \? "" : s\);/.test(yml) && /none\(\(process\.env\.FX_TITLE/.test(yml) && /none\(\(process\.env\.FX_ADVICE/.test(yml),
      '⚠ a lone "-" means no heading / no last line — GitHub refills an EMPTY dispatch field from its default, so blank cannot mean none');
   ok(/Type - for no heading/.test(yml) && /Type - for no last line/.test(yml), '...and both field descriptions say so');

@@ -3261,14 +3261,24 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
   .rp-maint .note { color: #cbb277; }
 }
 /* An operator NOTICE (v715) — an announcement or an apology, not a warning: the information blue. */
-.rp-maint.rp-opnotice { border-color: #2f6fb0; background: #eef5fc; color: #10304d; }
-.rp-maint.rp-opnotice .note { color: #2c5578; }
+/* TONES (Seth, 2026-10-10: "That one looks alarming, like something blew up. We'd like the default to be
+ * less alarming and more heads-up-y"). The base .rp-maint is the amber WARNING the maintenance banner has
+ * always had; the workflow's default is INFO — a calm grey-blue. success = good news; alert = the real thing.
+ * Each in light and dark. */
+.rp-maint.rp-tone-info { border-color: #a9b8c6; background: #f3f6f9; color: #2a3b4c; }
+.rp-maint.rp-tone-info .note { color: #4f6579; }
+.rp-maint.rp-tone-success { border-color: #7fb98a; background: #eef8ef; color: #1f4a2a; }
+.rp-maint.rp-tone-success .note { color: #3c6d48; }
+.rp-maint.rp-tone-alert { border-color: #d0654f; background: #fdefec; color: #5a1f14; }
+.rp-maint.rp-tone-alert .note { color: #8a3a2c; }
 @media (prefers-color-scheme: dark) {
-  .rp-maint.rp-opnotice { border-color: #3d79b8; background: #12263a; color: #cfe3f7; }
-  .rp-maint.rp-opnotice .note { color: #9dbbd8; }
+  .rp-maint.rp-tone-info { border-color: #4a5c6e; background: #1c2630; color: #d3dde7; }
+  .rp-maint.rp-tone-info .note { color: #9fb0c0; }
+  .rp-maint.rp-tone-success { border-color: #3f7a4c; background: #142a1a; color: #cfe8d4; }
+  .rp-maint.rp-tone-success .note { color: #93c29d; }
+  .rp-maint.rp-tone-alert { border-color: #a0492f; background: #33160f; color: #f2d4cc; }
+  .rp-maint.rp-tone-alert .note { color: #d99d8e; }
 }
-/* The write-lock banner (ops_flag `freeze`): a restriction, not an advisory — so it reads a shade
-   sterner than the amber notice, without shouting "broken" in red. */
 .rp-maint.rp-frozen { border-color: #c4571d; background: #fdf0e7; color: #4a2410; }
 .rp-maint.rp-frozen .note { color: #7a4a22; }
 @media (prefers-color-scheme: dark) {

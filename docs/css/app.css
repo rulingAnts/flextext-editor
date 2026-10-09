@@ -1712,6 +1712,8 @@ a.rp-gout { text-decoration: none; display: inline-block; text-align: center; }
 .rp-hist-links .rp-dl { display: inline-block; }
 /* Cleanup entry: visually a caution, not a download. */
 .rp-dl-clean .rp-dl-name { color: #8a4b10; }
+/* The cleanup review (G2): a row that will go to the trash reads quieter than one that stays. */
+.rp-clean-trash td { opacity: .7; }
 /* In-flight move chip + the clickable done tag. */
 .rp-tag-moving { background: #ece3f7; color: #5b3d8a; font-weight: 600; }
 .rp-tag-btn { appearance: none; border: none; cursor: pointer; font: inherit; font-size: 11px; }

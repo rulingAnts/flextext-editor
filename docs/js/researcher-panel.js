@@ -18,7 +18,7 @@ import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wire
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES, isBetaHost } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets, flextextStats } from './flextext.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -3936,13 +3936,245 @@ function bridgedIds(docId, title) {
  * dangerous possible way for a refactor to go wrong. Explicitly listing what MAY go, rather than
  * subtracting what must stay, means a role this function has never heard of is kept by default.
  * PURE and lifted by test/text-folder-files.test.mjs. */
-const CLEANUP_OFFERED = false;   // stop-gap — see populateFilesMenu
 function cleanupCandidates(allFiles) {
   const rows = (allFiles || []).filter((f) => f && f.id);
   // Newest-first already, but never trust the caller's ordering for a destructive operation.
   const backups = rows.filter((f) => isFlextextName(f) && !hasRole(f, PROTECTED_ROLES))
     .sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
   return backups.slice(1);   // keep the newest; the rest are the older copies
+}
+
+/* ── WHAT A COPY HOLDS, COMPARED (plans/move-upload-guards.md §1) ────────────────────────────────
+ *
+ * Cleanup and a move both have to choose among a text's Drive copies, and both used to choose the
+ * NEWEST — Drive modifiedTime, which is UPLOAD time. These compare what the copies HOLD instead
+ * (flextextStats, flextext.js).
+ *
+ * ⚠ TWO SETS OF MEASURES, FOR TWO DIFFERENT COSTS.
+ *   STAT_ALL      decides what CLEANUP may trash: a copy goes only if a kept copy has at least as
+ *                 much of EVERYTHING. A false keep costs some Drive space, so every measure counts —
+ *                 structure (lines, timings) as well as content.
+ *   STAT_CONTENT  decides when a MOVE stops to ask. Ordinary editing lowers structure counts — a
+ *                 join turns two lines into one, so the copy from before the join has "more lines" —
+ *                 and a guard that read that as a loss would undo the coworker's join. Words, glosses
+ *                 and the non-whitespace characters of the baseline and the free translation survive
+ *                 joins and splits unchanged, so only those can make another copy "richer" there.
+ * ⚠ It is a COUNT comparison. Two copies with equal counts and different wording compare as equal;
+ * the UI words this as "no more … than", never "contains". */
+const STAT_ALL = ['phrases', 'timed', 'textLines', 'words', 'glossed', 'freeLines', 'chars', 'freeChars'];
+const STAT_CONTENT = ['words', 'glossed', 'chars', 'freeChars'];
+function statsDominate(a, b, keys) {
+  return !!(a && b) && keys.every((k) => (a[k] || 0) >= (b[k] || 0));
+}
+function statsRicher(a, b, keys) {
+  return statsDominate(a, b, keys) && keys.some((k) => (a[k] || 0) > (b[k] || 0));
+}
+/* Holds NOTHING a person made: no words, no text, no translation, no glosses, no cut. An untouched
+ * placeholder is exactly this, and it is outranked by ANY copy with content whatever its guid — a
+ * placeholder minted on a device has a fresh guid, so a same-guid rule alone would keep every one
+ * for ever. */
+function statsHaveContent(s) {
+  return !!s && ((s.words || 0) + (s.chars || 0) + (s.freeChars || 0) + (s.glossed || 0) + (s.timed || 0)) > 0;
+}
+
+/* Fetch and count a set of Drive copies. Returns Map(fileId → entry):
+ *   { state: 'ok', stats }           read and counted
+ *   { state: 'damaged', stats }      holds nothing usable (empty, NUL, not a document, cut off)
+ *   { state: 'unreadable', stats }   whole, but this parser could not read it — UNKNOWN, never bad
+ *   { state: 'unchecked', why }      not fetched: 'zip' (the panel reads no zips), 'cap', 'fetch'
+ *   { state: 'missing' }             the id answered 404 — only meaningful for a lookup by id
+ *
+ * ⚠ SLOW LINKS ARE THE NORMAL CASE. Identical backups (Drive's own sha256) are fetched once, results
+ * are cached for the session by content hash, and only `need` (the copy that will actually be SENT)
+ * is fetched whatever its size — never capping that one is the point (a long analysed text keeps
+ * FLEx's morpheme data verbatim and passes 4 MB easily). The rest are capped by count and bytes and
+ * reported as "not checked", which every caller treats as KEEP. `onProgress(i, n)` names the step. */
+const copyStatsCache = new Map();
+const COPY_CHECK_MAX = 12;
+const COPY_CHECK_FILE_MAX = 8 * 1024 * 1024;
+const COPY_CHECK_BYTES = 24 * 1024 * 1024;
+async function copyStats(files, opts = {}) {
+  const out = new Map();
+  const need = new Set(opts.need || []);
+  const keyOf = (f) => (f.sha256 ? 'sha:' + f.sha256 : 'id:' + f.id);
+  const todo = [];
+  let budget = COPY_CHECK_BYTES, picked = 0;
+  const seen = new Map();
+  for (const f of files || []) {
+    if (!f || !f.id || out.has(f.id)) continue;
+    if (/\.zip$/i.test(String(f.name || ''))) { out.set(f.id, { state: 'unchecked', why: 'zip' }); continue; }   // the panel reads no zips
+    const k = keyOf(f);
+    if (copyStatsCache.has(k)) { out.set(f.id, copyStatsCache.get(k)); continue; }
+    if (seen.has(k)) { seen.get(k).push(f.id); continue; }
+    const forced = need.has(f.id);
+    if (!forced && (picked >= COPY_CHECK_MAX || (f.size || 0) > COPY_CHECK_FILE_MAX || (f.size || 0) > budget)) {
+      out.set(f.id, { state: 'unchecked', why: 'cap' }); continue;
+    }
+    if (!forced) { picked++; budget -= (f.size || 0); }
+    seen.set(k, [f.id]);
+    todo.push(f);
+  }
+  let done = 0;
+  const one = async (f) => {
+    let entry;
+    try {
+      const blob = await Researcher.fetchDriveFile(f.id, null, opts.via || null, opts.signal);
+      const st = flextextStats(await blob.text());
+      entry = { state: st.ok ? 'ok' : st.damaged ? 'damaged' : 'unreadable', stats: st };
+      copyStatsCache.set(keyOf(f), entry);
+    } catch (e) {
+      if (e && (e.cancelled || e.name === 'AbortError')) throw e;
+      entry = /_404$/.test(String((e && e.message) || '')) ? { state: 'missing' } : { state: 'unchecked', why: 'fetch' };
+    }
+    for (const id of seen.get(keyOf(f)) || [f.id]) out.set(id, entry);
+    done++;
+    try { if (opts.onProgress) opts.onProgress(done, todo.length); } catch { /* a progress painter never fails the check */ }
+  };
+  if (opts.onProgress) { try { opts.onProgress(0, todo.length); } catch { /* noop */ } }
+  for (let i = 0; i < todo.length; i += 2) await Promise.all(todo.slice(i, i + 2).map(one));   // two at a time
+  return out;
+}
+
+/* Every Drive file id a DEVICE currently relies on as its proof of backup for this text — the
+ * `uploadedFileId` each install reports. Trashing one makes that device believe in a backup Drive no
+ * longer shows, so cleanup never does, even when the copy is damaged (it is harmless kept, and the
+ * move modal reports it as damaged). Every install counts, live or not: protection is cheap. */
+function deviceFileIds(docId) {
+  const ids = new Set();
+  for (const it of (lastData && lastData.instances) || []) {
+    for (const ins of it.installs || []) {
+      const items = (ins.inventory && Array.isArray(ins.inventory.items)) ? ins.inventory.items : [];
+      for (const d of items) if (d && d.id === docId && d.uploadedFileId) ids.add(String(d.uploadedFileId));
+    }
+  }
+  return ids;
+}
+/* Copies a move or an assignment DELIVERED (the 'assigned' history event's fileId, since this
+ * change) and the copy an in-flight move is sending. Extra protection only — this browser's history
+ * is not the account's, so nothing may RELY on it being here. */
+function recordedFileIds(docId) {
+  const ids = new Set();
+  try {
+    for (const e of loadHistory(Researcher.currentAccountId())) {
+      if (e && e.docId === docId && e.kind === 'assigned' && e.fileId) ids.add(String(e.fileId));
+    }
+  } catch { /* best effort */ }
+  const mv = pendingMoves.get(docId);
+  if (mv && mv.sentFileId) ids.add(String(mv.sentFileId));
+  return ids;
+}
+/* Cleanup waits while this text is still being DELIVERED: trashing the copy a destination is
+ * fetching breaks its download, and a placeholder still waiting for its transcription is fetching
+ * the file that was sent to it. */
+function cleanupBlocked(docId) {
+  if (pendingMoves.has(docId) || inFlightAssignIds().has(docId)) return true;
+  for (const it of (lastData && lastData.instances) || []) {
+    for (const ins of it.installs || []) {
+      const items = (ins.inventory && Array.isArray(ins.inventory.items)) ? ins.inventory.items : [];
+      if (items.some((d) => d && d.id === docId && d.awaitingTranscript)) return true;
+    }
+  }
+  return false;
+}
+
+/* WHICH OLDER COPIES MAY GO — a plan, never an act (plans/move-upload-guards.md G2). PURE.
+ *
+ * `backups` is the newest bare .flextext plus cleanupCandidates (still the explicit list of what MAY
+ * go — nothing else is ever a row here). Precedence, first match wins:
+ *   1. a device's current backup (deviceIds)              KEEP — even if damaged
+ *   2. a copy a delivery used (keepIds)                    KEEP
+ *   3. damaged: empty, NUL, not a document, cut off        TRASH — holds nothing; beats "newest",
+ *                                                          because the damaged file WAS the newest
+ *   4. not fetched, unreadable, a zip                      KEEP — unknown means keep
+ *   5. the newest readable copy that holds content         KEEP (a placeholder that landed last does
+ *                                                          not hold this place over the transcription)
+ *   6. byte-identical (sha256) to a kept copy              TRASH
+ *   7. holds nothing while a kept copy holds content       TRASH — whatever its guid
+ *   8. a kept copy of the same guid has at least as much
+ *      of every STAT_ALL measure                           TRASH, naming that copy
+ *   9. otherwise it has more of something than every
+ *      kept copy                                           KEEP
+ * Walked newest → oldest, so each copy is compared with everything kept so far. */
+function cleanupPlan({ backups, stats, deviceIds, keepIds }) {
+  const newestFirst = (a, b) => String(b.modified).localeCompare(String(a.modified));
+  const rows = (backups || []).filter((f) => f && f.id).slice().sort(newestFirst)
+    .map((file) => ({ file, entry: (stats && stats.get(file.id)) || { state: 'unchecked', why: 'cap' }, verdict: '', than: null }));
+  const kept = [];
+  const keep = (r, v) => { r.verdict = v; kept.push(r); };
+  for (const r of rows) {
+    if (deviceIds && deviceIds.has(r.file.id)) keep(r, 'keepDevice');
+    else if (keepIds && keepIds.has(r.file.id)) keep(r, 'keepRecorded');
+    else if (r.entry.state === 'damaged') r.verdict = 'trashEmpty';
+    else if (r.entry.state !== 'ok') keep(r, 'keepUnknown');
+  }
+  const ok = (r) => r.entry.state === 'ok';
+  const anyContent = rows.some((r) => ok(r) && statsHaveContent(r.entry.stats));
+  const newest = rows.find((r) => ok(r) && (!anyContent || statsHaveContent(r.entry.stats)));
+  if (newest && !newest.verdict) keep(newest, anyContent ? 'keepNewest' : 'keepNewestEmpty');
+  for (const r of rows) {
+    if (r.verdict) continue;
+    const s = r.entry.stats;
+    const same = r.file.sha256 ? kept.find((k) => k.file.sha256 && k.file.sha256 === r.file.sha256) : null;
+    if (same) { r.verdict = 'trashSame'; r.than = same.file; continue; }
+    const withContent = kept.find((k) => ok(k) && statsHaveContent(k.entry.stats));
+    if (!statsHaveContent(s) && withContent) { r.verdict = 'trashLess'; r.than = withContent.file; continue; }
+    const dom = kept.find((k) => ok(k) && k.entry.stats.guid === s.guid && statsDominate(k.entry.stats, s, STAT_ALL));
+    if (dom) { r.verdict = 'trashLess'; r.than = dom.file; continue; }
+    keep(r, 'keepRicher');
+  }
+  return { rows, trash: rows.filter((r) => r.verdict.startsWith('trash')).map((r) => r.file.id) };
+}
+
+/* The researcher's REVIEW of a cleanup: what each older copy holds, what will happen to it and why,
+ * and one button that trashes exactly `plan.trash` — to Drive TRASH, 30-day recoverable, as before.
+ * Nothing is decided by date alone any more, and nothing goes without being shown first. */
+async function cleanupReviewModal(wrap) {
+  const docId = wrap.dataset.id;
+  if (cleanupBlocked(docId)) { deps.toast(t('panel.dl.cleanupInFlight'), 8000); return; }
+  const own = wrap._ownFiles || [];
+  if (!cleanupCandidates(own).length) return;
+  const backups = own.filter((f) => f && f.id && isFlextextName(f) && !hasRole(f, PROTECTED_ROLES));
+  const ctl = new AbortController();
+  const m = modal(`
+    <h3>${esc(t('panel.dl.cleanupTitle', { title: wrap.dataset.title || '?' }))}</h3>
+    <p class="note rp-clean-say">${esc(t('panel.move.checking', { i: 0, n: backups.length }))}</p>
+    <div class="rp-clean-table"></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn rp-revoke" data-m="go" hidden></button>
+    </div>`, true, () => ctl.abort());
+  const say = m.el.querySelector('.rp-clean-say');
+  let stats;
+  try {
+    stats = await copyStats(backups, { via: memberDlVia(wrap), signal: ctl.signal,
+      onProgress: (i, n) => { say.textContent = t('panel.move.checking', { i, n }); } });
+  } catch { m.close(); return; }                   // cancelled: nothing was trashed
+  const plan = cleanupPlan({ backups, stats, deviceIds: deviceFileIds(docId), keepIds: recordedFileIds(docId) });
+  const when = (f) => histWhen(Date.parse(f && f.modified));
+  const n = (s, k) => (s && s.ok ? String(s[k] || 0) : '—');
+  const why = (r) => t('panel.dl.cleanup.' + r.verdict, { when: r.than ? when(r.than) : '' });
+  m.el.querySelector('.rp-clean-table').innerHTML = `<div class="rp-subs-scroll"><table class="ws-table"><thead><tr>
+      <th>${esc(t('panel.dl.colDate'))}</th><th>${esc(t('panel.dl.colLines'))}</th><th>${esc(t('panel.dl.colWords'))}</th>
+      <th>${esc(t('panel.dl.colGlossed'))}</th><th>${esc(t('panel.dl.colTimed'))}</th><th>${esc(t('panel.dl.colVerdict'))}</th>
+    </tr></thead><tbody>${plan.rows.map((r) => `<tr${r.verdict.startsWith('trash') ? ' class="rp-clean-trash"' : ''}>
+      <td>${esc(when(r.file))}</td><td>${esc(n(r.entry.stats, 'textLines'))}</td><td>${esc(n(r.entry.stats, 'words'))}</td>
+      <td>${esc(n(r.entry.stats, 'glossed'))}</td><td>${esc(n(r.entry.stats, 'timed'))}</td><td>${esc(why(r))}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  const go = m.el.querySelector('[data-m="go"]');
+  if (!plan.trash.length) { say.textContent = t('panel.dl.cleanupNothing'); return; }
+  say.textContent = t('panel.dl.cleanupReviewIntro');
+  go.textContent = t('panel.dl.cleanupGo', { n: plan.trash.length });
+  go.hidden = false;
+  go.addEventListener('click', () => busy(go, async () => {
+    // Re-checked at the moment of the act: a move or assignment may have started while this was open.
+    if (cleanupBlocked(docId)) { deps.toast(t('panel.dl.cleanupInFlight'), 8000); m.close(); return; }
+    try {
+      const r = await Researcher.trashFiles(plan.trash, 'backup cleanup');
+      deps.toast(t('panel.dl.cleanupDone', { n: r.trashed }), 6000);
+      m.close();
+      wrap.dataset.loaded = ''; populateFilesMenu(wrap);   // the menu refreshes to the post-cleanup truth
+    } catch (e) { errToast(e); }
+  }));
 }
 
 /* THE FILES ▾ MENU, BUILT ON THE MANIFEST (v3 work order item 2).
@@ -4168,15 +4400,21 @@ async function populateFilesMenu(wrap) {
      * 'manage' outright, so this control could only ever fail for them. Deletion and re-parenting
      * may be revisited in a later release; until they are, a member must not see the button. */
     const dead = viaMember ? [] : cleanupCandidates(ownFiles);
-    /* ⚠ STOP-GAP (2026-10-10, plans/move-upload-guards.md step 0). "Keep only the newest by Drive
-     * modifiedTime" is not "keep the current work": modifiedTime is UPLOAD time, so an empty
-     * placeholder or a damaged queued copy that landed last sorts as newest, and the copies holding
-     * the transcription were the ones offered to the trash. Hidden until the review (G2) that keeps
-     * every copy holding something the kept ones lack replaces this one-click version. */
-    if (dead.length && CLEANUP_OFFERED) {
+    /* ⚠ A REVIEW, NOT A ONE-CLICK TRASH (plans/move-upload-guards.md G2). This kept only the newest
+     * copy by Drive modifiedTime — UPLOAD time — so an empty placeholder or a damaged queued copy that
+     * landed last sorted as newest and the copies holding the transcription went to the trash. The
+     * row now opens cleanupReviewModal, which reads each copy and trashes only what a kept copy is
+     * shown to hold at least as much as. While the text is still being DELIVERED it is not offered:
+     * the row stays, greyed, and says why (a control that vanishes is one nobody finds twice). */
+    if (dead.length) {
       wrap._cleanupIds = dead.map((f) => f.id);
-      rows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
-        <span class="rp-dl-name">${esc(t('panel.dl.cleanup'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.cleanupSub', { n: dead.length }))}</span></button>`);
+      if (cleanupBlocked(docId)) {
+        rows.push(`<span class="rp-dl-item rp-dl-pending" role="menuitem" aria-disabled="true">
+          <span class="rp-dl-name">${esc(t('panel.dl.cleanup'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.cleanupInFlight'))}</span></span>`);
+      } else {
+        rows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
+          <span class="rp-dl-name">${esc(t('panel.dl.cleanup'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.cleanupSub', { n: dead.length }))}</span></button>`);
+      }
     }
   }
   menu.innerHTML = head + (rows.length ? rows.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
@@ -4740,13 +4978,9 @@ function wireDownloadMenus(scope) {
       if (cl) {
         e.preventDefault(); e.stopPropagation();
         const wrap2 = cl.closest('.rp-dl');
-        const ids = (wrap2 && wrap2._cleanupIds) || [];
-        if (!ids.length) return;
-        if (!await confirmModal(t('panel.dl.cleanupConfirm', { n: ids.length }))) return;
-        Researcher.trashFiles(ids, 'backup cleanup').then((r) => {
-          deps.toast(t('panel.dl.cleanupDone', { n: r.trashed }), 6000);
-          if (wrap2) { wrap2.dataset.loaded = ''; populateFilesMenu(wrap2); }   // menu refreshes to the post-cleanup truth
-        }).catch(() => deps.toast(t('panel.dl.zipFailed'), 5000));
+        if (!wrap2 || !((wrap2._cleanupIds) || []).length) return;
+        // The review decides what goes, and shows it first — see cleanupReviewModal (G2).
+        cleanupReviewModal(wrap2).catch((err) => errToast(err));
         return;
       }
       const hc = e.target.closest && e.target.closest('[data-histclean]');

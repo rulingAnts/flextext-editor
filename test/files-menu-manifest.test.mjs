@@ -41,7 +41,7 @@ const MANIFEST_NAME = 'flextext-manifest.json';
 
 /* Run the real menu builder over a fake folder. `manifest` is the JSON body the manifest file
  * returns, or null to serve no manifest file at all. Returns the rendered HTML plus the row count. */
-async function runMenu(files, manifest, { folderId = 'FOLDER_abc123def' } = {}) {
+async function runMenu(files, manifest, { folderId = 'FOLDER_abc123def', blocked = false } = {}) {
   let html = '';
   const menuEl = { set innerHTML(v) { html = v; }, get innerHTML() { return html; } };
   const wrap = { dataset: { i: 'i1', id: 'doc1', title: 'Kisah Rusa' }, querySelector: () => menuEl };
@@ -69,12 +69,12 @@ async function runMenu(files, manifest, { folderId = 'FOLDER_abc123def' } = {}) 
     // menuFetch returns the manifest bytes for the manifest file id.
     menuFetch: async () => ({ text: async () => (manifest === null ? 'not json' : JSON.stringify(manifest)) }),
     console: { warn() {} },
+    cleanupBlocked: () => blocked,
   };
   const fn = new Function(...Object.keys(env), `
     ${rolesSrc}
     ${pickSrc}
     ${cleanSrc}
-    const CLEANUP_OFFERED = false;
     return (${menuSrc.replace('async function populateFilesMenu', 'async function')});
   `)(...Object.values(env));
   await fn(wrap);
@@ -247,9 +247,12 @@ console.log('\ncleanup is offered only when there is actually something to clean
     file('Kisah Rusa 2026-08-05.flextext', '', '2026-08-05T00:00:00Z'),
     file('Kisah Rusa 2026-08-01.flextext', '', '2026-08-01T00:00:00Z')];
   const many = await runMenu(pileup, MANIFEST);
-  /* STOP-GAP (plans/move-upload-guards.md step 0): the one-click newest-only cleanup is withheld
-   * until the review that keeps every copy holding something the kept ones lack replaces it. */
-  ok(!many.html.includes('data-cleanup'), 'a backup pileup offers no one-click cleanup while the stop-gap holds');
+  ok(many.html.includes('data-cleanup'), 'a backup pileup does');
+  ok(many.wrap._cleanupIds && many.wrap._cleanupIds.length === 2, 'and it stages exactly the older copies (the MAY-GO list the review then reads)');
+  /* G2: while the text is still being delivered the row stays, greyed, and says why. */
+  const busyMenu = await runMenu(pileup, MANIFEST, { blocked: true });
+  ok(!busyMenu.html.includes('data-cleanup') && busyMenu.html.includes('panel.dl.cleanupInFlight'),
+     'a text still being delivered shows the row greyed with the reason, never a live trash button');
 }
 
 console.log('\nthe menu hands the conversion runner what it needs');

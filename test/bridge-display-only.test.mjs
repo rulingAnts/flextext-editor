@@ -28,7 +28,7 @@ const grab = (re, what) => { const m = panel.match(re); assert.ok(m, `${what} is
 
 const rolesSrc = grab(/const SOURCE_AUDIO_ROLES = [\s\S]*?const isFlextextName = [^;]*;/, 'the role sets');
 const pickSrc = grab(/function pickSourceFiles\(files\) \{[\s\S]*?\n\}/, 'pickSourceFiles');
-const cleanSrc = grab(/const CLEANUP_OFFERED = [^\n]*\nfunction cleanupCandidates\(allFiles\) \{[\s\S]*?\n\}/, 'cleanupCandidates');
+const cleanSrc = grab(/function cleanupCandidates\(allFiles\) \{[\s\S]*?\n\}/, 'cleanupCandidates');
 const movSrc = grab(/async function moveSources\(fromId, docId, title\) \{[\s\S]*?\n\}/, 'moveSources');
 const menuSrc = grab(/async function populateFilesMenu\(wrap\) \{[\s\S]*?\n\}\n/, 'populateFilesMenu');
 const MANIFEST_NAME = 'flextext-manifest.json';
@@ -78,7 +78,7 @@ test('the Files menu picks, manifests and cleans from its OWN folder; only Downl
     sanitizeBase: (s) => String(s || ''), MANIFEST_NAME, conversionCaps,
     bridgedIds: () => ({ ids: ['doc1', 'doc2'], audioUrl: '', latestEventFileId: '' }),
     driveFolderLink: () => '', Researcher: { listTextFiles: async (_i, id) => ({ files: FOLDERS[id], folderId: 'F_' + id + '_0123456789' }) },
-    menuFetch: async () => ({ text: async () => JSON.stringify(MANIFEST) }), console: { warn() {} },
+    menuFetch: async () => ({ text: async () => JSON.stringify(MANIFEST) }), console: { warn() {} }, cleanupBlocked: () => false,
   };
   const fn = new Function(...Object.keys(env), `${rolesSrc}\n${pickSrc}\n${cleanSrc}\nreturn (${menuSrc.replace('async function populateFilesMenu', 'async function')});`)(...Object.values(env));
   await fn(wrap);

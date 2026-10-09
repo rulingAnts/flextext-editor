@@ -1229,3 +1229,105 @@ export function freeIn(seg, lang, primary = '') {
   const f = phraseFrees(seg).find((x) => (x.lang || primary) === lang);
   return f ? f.text : '';
 }
+
+/* ---------------- What a stored copy holds, and whether it is whole (plans/move-upload-guards.md) ----
+ *
+ * WHY THESE EXIST: a text's Drive folder collects one timestamped .flextext per upload, and every
+ * step that had to pick ONE of them — a move, an adopt, a cleanup — picked the newest by Drive
+ * modifiedTime. That is UPLOAD time, not editing time: a placeholder that landed last, or a queued
+ * copy damaged on the device and sent days later, sorts as newest and wins. A transcription went back
+ * to a four-line state that way. These two functions replace "newest" with facts about the file.
+ *
+ * ⚠ BOTH ARE PURE AND TAKE TEXT. No DOM beyond DOMParser (which this module already uses), no
+ * storage, no i18n — the format-module rule. Reason codes come back as CODES; the sentences live in
+ * the UI. */
+
+/* The cheap check, and the only one a DEVICE runs before it sends its own copy.
+ *
+ * ⚠ DELIBERATELY NOT A PARSE. A device must never refuse to back up the only copy of someone's work
+ * because a strict parser disliked it — and the serializer's esc() escapes only & < > ", so a
+ * control character pasted from a word processor (U+000B, U+000C) is written raw and a real XML
+ * parser rejects the whole file. Every reason below is a property of a file that holds NOTHING
+ * usable: no bytes, NUL bytes (the damaged-in-the-queue case: 489 bytes, all zero), not a
+ * <document>, no text in it, or cut off before its last line. A file with an awkward character
+ * passes, exactly as it would have uploaded before this existed.
+ *
+ * ⚠ NO SIZE FLOOR: a genuinely empty text serializes to about 475 bytes and the damaged file was 489,
+ * so a threshold cannot tell them apart. Structure can. */
+export function checkFlextextBytes(text) {
+  const s = String(text == null ? '' : text);
+  if (!s.trim()) return { ok: false, reason: 'empty' };
+  if (s.indexOf('\u0000') >= 0) return { ok: false, reason: 'nul' };
+  const head = s.replace(/^﻿/, '').replace(/^\s*<\?xml[^>]*\?>/, '').replace(/^(\s*<!--[\s\S]*?-->)+/, '');
+  if (!/^\s*<document[\s>/]/.test(head)) return { ok: false, reason: 'root' };
+  if (!/<interlinear-text[\s>/]/.test(s)) return { ok: false, reason: 'noText' };
+  if (!/<\/document>\s*$/.test(s)) return { ok: false, reason: 'truncated' };
+  return { ok: true, reason: '' };
+}
+
+/* What is IN a copy, counted the way the investigation that found the problem counted it, so the
+ * numbers a researcher is shown match the evidence.
+ *
+ *   phrases    every <phrase>
+ *   timed      phrases with a begin-time-offset that is NOT an estimate — an estimated span (the
+ *              "~" note the serializer writes) is a seed the app laid down, not a cut a person made
+ *   textLines  phrases with any baseline text
+ *   words      non-punctuation <word>s
+ *   glossed    words with a non-empty gloss
+ *   freeLines  phrases with a free translation
+ *   chars      non-whitespace baseline characters — survives joins and splits unchanged, which is
+ *              exactly what makes it a CONTENT measure rather than a structure one
+ *   freeChars  non-whitespace free-translation characters — a join concatenates two translations
+ *              with a space, so this survives it too, where freeLines would drop by one
+ *
+ * `ok:false` with `damaged:true` is checkFlextextBytes' verdict (the file holds nothing usable);
+ * `ok:false` with reason 'parse' means only that THIS parser could not read it — unknown, not bad.
+ * Characters XML forbids are blanked before parsing for the same reason the device check does not
+ * parse at all. */
+const XML_FORBIDDEN = /[\u0001-\u0008\u000B\u000C\u000E-\u001F￾￿]/g;
+const nonWsLen = (s) => String(s || '').replace(/\s+/g, '').length;
+export function flextextStats(xml) {
+  const out = { ok: false, reason: '', damaged: false, guid: '', phrases: 0, timed: 0, textLines: 0,
+    words: 0, glossed: 0, freeLines: 0, chars: 0, freeChars: 0 };
+  const chk = checkFlextextBytes(xml);
+  if (!chk.ok) { out.reason = chk.reason; out.damaged = true; return out; }
+  let dom = null;
+  try { dom = new DOMParser().parseFromString(String(xml).replace(XML_FORBIDDEN, ' '), 'text/xml'); }
+  catch { dom = null; }
+  const root = dom && dom.documentElement;
+  if (!root || (dom.querySelector && dom.querySelector('parsererror')) || root.tagName !== 'document') {
+    out.reason = 'parse';
+    return out;
+  }
+  const kids = (el, name) => [...((el && el.children) || [])].filter((c) => c.tagName === name);
+  const typeOf = (el) => el.getAttribute('type') || '';
+  const texts = kids(root, 'interlinear-text');
+  if (!texts.length) { out.reason = 'parse'; return out; }
+  out.guid = texts[0].getAttribute('guid') || '';
+  for (const it of texts) for (const ps of kids(it, 'paragraphs')) for (const p of kids(ps, 'paragraph')) {
+    for (const phs of kids(p, 'phrases')) for (const ph of kids(phs, 'phrase')) {
+      out.phrases++;
+      const items = kids(ph, 'item');
+      const txt = items.find((i) => typeOf(i) === 'txt');
+      let wordChars = 0;
+      for (const ws of kids(ph, 'words')) for (const w of kids(ws, 'word')) {
+        const wi = kids(w, 'item');
+        if (wi.some((i) => typeOf(i) === 'punct')) continue;
+        out.words++;
+        const wt = wi.find((i) => typeOf(i) === 'txt');
+        wordChars += nonWsLen(wt ? wt.textContent : '');
+        if (wi.some((i) => typeOf(i) === 'gls' && String(i.textContent || '').trim())) out.glossed++;
+      }
+      const chars = nonWsLen(txt ? txt.textContent : '') || wordChars;
+      out.chars += chars;
+      if (chars > 0) out.textLines++;
+      const free = items.filter((i) => typeOf(i) === 'gls').map((i) => String(i.textContent || '')).join(' ');
+      if (free.trim()) { out.freeLines++; out.freeChars += nonWsLen(free); }
+      const begin = ph.getAttribute('begin-time-offset');
+      const estimated = items.some((i) => typeOf(i) === 'note' && /^\s*audio\s+~/.test(String(i.textContent || '')));
+      if (begin != null && begin !== '' && !estimated) out.timed++;
+    }
+  }
+  out.ok = true;
+  return out;
+}

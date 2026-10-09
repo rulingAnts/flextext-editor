@@ -819,23 +819,79 @@ export function tailGapLine(segments, durationMs, opts = {}) {
   return durationMs - last.end >= tol ? { start: last.end, end: durationMs } : null;
 }
 
-/* gapLinesBetween applied to a document's two parallel arrays. `makeLine(prev, next)` builds the
- * blank paragraph — the host owns the paragraph's shape (guid, its one empty phrase, paraOf) — and is
- * handed the ORIGINAL neighbours. Returns NEW arrays, or the given ones untouched when there is
- * nothing to fill; and refuses outright when the arrays are not 1:1, because then an index names
- * nothing (reconcile repairs that, and the next open fills). Idempotent: a filled document has no
- * hole left in it. */
+/* ---------------------------------------------------------------------------------------------
+ * …AND WHERE THE FILE SAYS EXACTLY WHAT WAS THERE, EXACTLY THAT (v713, #111).
+ *
+ * Brian, #111: "Missing audio segments with empty baseline after moving out and back in to device."
+ * A text moved between devices is rebuilt from the .flextext the first device uploaded, and since
+ * v709 that file has no line for a piece with nothing in it — so the 350 ms rule above can put the
+ * audio back, but not the CUTS: three untranscribed pieces in a row come back as one blank line, and
+ * a coworker's segmentation of everything not yet typed is gone. Since v713 serializeFlextext records
+ * the times of every blank line it leaves out (a processing instruction FLEx and ELAN skip — see
+ * BLANK_LINES_PI in flextext.js), and these `pieces` are those times.
+ *
+ * A hole is filled with the pieces that lie inside it, each at its own times, and whatever stretch
+ * they leave uncovered still follows the 350 ms rule — so a file edited elsewhere (a phrase deleted
+ * in FLEx) degrades to exactly v712's behaviour, never worse. After the last line the hole is OPEN:
+ * the pieces recorded there go in as they are, and the rest of the recording is settleTail's, which
+ * knows how long it is. A piece that no longer fits a hole (it overlaps a line that was re-timed
+ * elsewhere) is dropped — it was blank. Holes around a line whose time is unknown are never filled,
+ * as above: the hole may be its.
+ * ------------------------------------------------------------------------------------------- */
+// Valid pieces only ({ start, end, est }), in time order, none overlapping the one before it.
+export function cleanPieces(pieces) {
+  const out = [];
+  const list = (pieces || [])
+    .filter((p) => p && isNum(p.start) && isNum(p.end) && p.start >= 0 && p.end > p.start)
+    .map((p) => ({ start: Math.round(p.start), end: Math.round(p.end), ...(p.est ? { est: true } : {}) }))
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  for (const p of list) if (!out.length || p.start >= out[out.length - 1].end) out.push(p);
+  return out;
+}
+function piecePlan(segs, pieces, opts = {}) {
+  const minGap = isNum(opts.minGapMs) ? opts.minGapMs : GAP_LINE_MIN_MS;
+  const list = cleanPieces(pieces);
+  const out = [];
+  const fill = (before, lo, hi, open) => {
+    let cur = lo;
+    for (const p of list) {
+      if (p.start < cur || (!open && p.end > hi)) continue;     // before this hole, or not inside it
+      if (p.start - cur >= minGap) out.push({ before, start: cur, end: p.start });
+      out.push({ before, start: p.start, end: p.end, ...(p.est ? { est: true } : {}) });
+      cur = p.end;
+    }
+    if (!open && hi - cur >= minGap) out.push({ before, start: cur, end: hi });
+  };
+  if (!segs.length) { fill(0, 0, Infinity, true); return out; }   // a text with no line but its blank ones
+  const first = segs[0], last = segs[segs.length - 1];
+  if (isAligned(first)) fill(0, 0, first.start, false);
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const a = segs[i], b = segs[i + 1];
+    if (isAligned(a) && isAligned(b)) fill(i + 1, a.end, b.start, false);
+  }
+  if (isAligned(last)) fill(segs.length, last.end, Infinity, true);
+  return out;
+}
+
+/* gapLinesBetween applied to a document's two parallel arrays — or, with `opts.pieces`, piecePlan.
+ * `makeLine(prev, next)` builds the blank paragraph — the host owns the paragraph's shape (guid, its
+ * one empty phrase, paraOf) — and is handed the ORIGINAL neighbours. Returns NEW arrays, or the given
+ * ones untouched when there is nothing to fill; and refuses outright (`refused: true`) when the arrays
+ * are not 1:1, because then an index names nothing (reconcile repairs that, and the next open fills).
+ * Idempotent: a filled document has no hole left in it. */
 export function fillGapLines(paragraphs, segments, makeLine, opts = {}) {
   const paras = paragraphs || [], segs = segments || [];
   const same = { changed: false, added: 0, paragraphs: paras, segments: segs };
-  if (paras.length !== segs.length || typeof makeLine !== 'function') return same;
-  const plan = gapLinesBetween(segs, opts);
+  if (paras.length !== segs.length || typeof makeLine !== 'function') return { ...same, refused: true };
+  const plan = Array.isArray(opts.pieces) && opts.pieces.length ? piecePlan(segs, opts.pieces, opts) : gapLinesBetween(segs, opts);
   if (!plan.length) return same;
   const P = paras.slice(), S = segs.slice();
-  for (let k = plan.length - 1; k >= 0; k--) {          // back to front: earlier indexes stay valid
-    const { before, start, end } = plan[k];
+  // Back to front: earlier indexes stay valid, and several lines for one hole (same `before`, in
+  // time order) land in time order, each pushing the later ones along.
+  for (let k = plan.length - 1; k >= 0; k--) {
+    const { before, start, end, est } = plan[k];
     P.splice(before, 0, makeLine(paras[before - 1] || null, paras[before] || null));
-    S.splice(before, 0, { start, end });
+    S.splice(before, 0, est ? { start, end, timeEstimated: true } : { start, end });
   }
   return { changed: true, added: plan.length, paragraphs: P, segments: S };
 }

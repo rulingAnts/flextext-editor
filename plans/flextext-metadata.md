@@ -207,8 +207,10 @@ is closed.
 - ⚠ **Upstream's workflow publishes releases.** `onset/lameta`'s `.github/workflows/main.yml`
   builds Windows + macOS and **publishes a GitHub Release** on every push to `V2`, `beta`,
   `release` or `V3`, and a fork inherits it.
-  - It is **disabled on the fork**.
-  - Even so, never push those branch names there.
+  - On 2026-10-09 Actions were not yet enabled on the fork (0 workflows registered), so it could
+    not run. Enabling Actions for the fork's own Windows build activates it too, so disable it at
+    that moment: `gh workflow disable "Build/release" -R rulingAnts/lameta`.
+  - Either way, never push those branch names there.
 - ⚠ **Telemetry is off.** Upstream sends Sentry error reports and Segment analytics. A rebranded
   fork must not report into upstream's accounts, and nothing should leave a researcher's machine
   unasked, given the privacy obligations this suite carries to the communities it serves.

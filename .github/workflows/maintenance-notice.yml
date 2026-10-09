@@ -31,8 +31,10 @@ on:
       # under its own (localised) heading and advice — byte-identical to before. Change either and the
       # three are stored as JSON, which needs the live panel at v715 or later: the guard step below reads
       # the live panel's version and refuses rather than let an older panel print a JSON blob.
+      # ⚠ A field submitted EMPTY gets its default back (GitHub fills a blank dispatch input from
+      # `default:`), so "blank = none" cannot work. A lone `-` means none.
       title:
-        description: "Heading (raise only). Blank = no heading."
+        description: "Heading (raise only). Type - for no heading."
         required: false
         type: string
         default: "Maintenance in progress"
@@ -42,7 +44,7 @@ on:
         type: string
         default: "Backend maintenance is in progress. You may see an outage or a glitch."
       advice:
-        description: "Last line (raise only). Blank = no last line."
+        description: "Last line (raise only). Type - for no last line."
         required: false
         type: string
         default: "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected."
@@ -77,8 +79,12 @@ jobs:
             const DEFAULT_TITLE = "Maintenance in progress";
             const DEFAULT_ADVICE = "Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected.";
             const DEFAULT_MSG = "Backend maintenance is in progress. You may see an outage or a glitch.";
-            const title = (process.env.FX_TITLE || "").trim();
-            const advice = (process.env.FX_ADVICE || "").trim();
+            // A lone "-" means NONE: GitHub refills an empty dispatch field from its default, so an
+            // operator cannot submit a blank one (the v715 notice went out with the advice it had
+            // asked to drop). Both lines are stored as "" and the panel omits them.
+            const none = (s) => (s === "-" ? "" : s);
+            const title = none((process.env.FX_TITLE || "").trim());
+            const advice = none((process.env.FX_ADVICE || "").trim());
             const msg = (process.env.FX_MSG || "").trim() || DEFAULT_MSG;
             // A dispatch field is one line; \\n typed into it becomes a real line break in the collapsed text.
             const details = (process.env.FX_DETAILS || "").replace(/\\n/g, "\n").trim();

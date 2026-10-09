@@ -164,6 +164,9 @@ console.log('\nthe workflow owns all three lines, pre-filled with the panel\'s o
   ok(/const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details;/.test(yml), 'plain text while heading and advice are the defaults and there is no More-info — older panels keep working');
   ok(/JSON\.stringify\(\{ kind: "maintenance", title, message: msg, advice, \.\.\.\(details \? \{ details \} : \{\}\) \}\)/.test(yml), 'otherwise JSON with all three keys present (empty = that line dropped), plus details when given');
   ok(/^      details:/m.test(yml) && /const custom = title !== DEFAULT_TITLE \|\| advice !== DEFAULT_ADVICE \|\| !!details;/.test(yml), 'a More-info text is a fourth field, and makes the value structured');
+  ok(/const none = \(s\) => \(s === "-" \? "" : s\);/.test(yml) && /none\(\(process\.env\.FX_TITLE/.test(yml) && /none\(\(process\.env\.FX_ADVICE/.test(yml),
+     '⚠ a lone "-" means no heading / no last line — GitHub refills an EMPTY dispatch field from its default, so blank cannot mean none');
+  ok(/Type - for no heading/.test(yml) && /Type - for no last line/.test(yml), '...and both field descriptions say so');
   ok(i18n.split("'panel.maint.more':").length - 1 === 2, 'the "More info" summary label exists in both languages');
   ok(/if: steps\.compose\.outputs\.structured == '1'/.test(yml) && /-lt 715/.test(yml) && /research\.flextext\.app\/sw\.js/.test(yml),
      '⚠ a custom heading or advice is refused while the LIVE panel is older than v715 (it would print the JSON raw)');

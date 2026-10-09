@@ -3248,6 +3248,10 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
   border: 1px solid #d99a00; background: #fff8e6; color: #4a3800;
 }
 .rp-maint strong { display: block; margin-bottom: 2px; }
+/* Links in an operator notice take the banner's own colour — the default link blue is unreadable on the
+ * amber banner, worse in dark mode (Seth, 2026-10-10: "Blue on black isn't pretty or readable"). */
+.rp-maint a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.rp-maint a:hover { text-decoration-thickness: 2px; }
 .rp-maint details.rp-maint-more { margin-top: 6px; }
 .rp-maint details.rp-maint-more summary { cursor: pointer; font-weight: 600; }
 .rp-maint details.rp-maint-more > div { margin-top: 4px; }

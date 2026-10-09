@@ -100,12 +100,30 @@ function serialize(el) {
   return `<${el.tagName}${attrs}>${el.childNodes.map(serialize).join('')}</${el.tagName}>`;
 }
 
+/* querySelectorAll for ONE shape, `parent > child[attr="v"]`, in document order: parseWord's fallback
+ * for a word that has morphemes but no top-level txt ('morph > item[type="txt"]'). A FLEx text with
+ * such words is in the real corpus (tools/corpus-timing.mjs). Any other selector throws, so a test
+ * can never pass on a query this DOM only pretends to answer. */
+function selectAll(root, sel) {
+  const m = /^([\w-]+)\s*>\s*([\w-]+)(?:\[([\w-]+)="([^"]*)"\])?$/.exec(String(sel).trim());
+  if (!m) throw new Error('mini-xml-dom: unsupported selector ' + sel);
+  const out = [];
+  const visit = (el) => {
+    for (const c of el.children) {
+      if (el.tagName === m[1] && c.tagName === m[2] && (!m[3] || c.getAttribute(m[3]) === m[4])) out.push(c);
+      visit(c);
+    }
+  };
+  visit(root);
+  return out;
+}
+
 export function installMiniXmlDom() {
   globalThis.DOMParser = class {
     parseFromString(str /*, type */) {
       try {
         const root = parseXml(str);
-        return { documentElement: root, querySelector: () => null };
+        return { documentElement: root, querySelector: () => null, querySelectorAll: (sel) => selectAll(root, sel) };
       } catch (e) {
         const errEl = { textContent: String(e.message || e) };
         return { documentElement: new MiniElement('parsererror'), querySelector: (sel) => (sel === 'parsererror' ? errEl : null) };

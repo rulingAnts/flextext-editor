@@ -553,6 +553,12 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     quiet `rec.timingAck`, and it is researcher-switchable (`timingBanner`, the `allowBlankLines`
     shape). Every drag surface goes through `dragSeam` with the grabbed EDGE, judged against the spans
     at pick-up — across a pause only that edge moves.
+  - **Text and times change together, at the same index — never re-paired by position** (the
+    2026-08-16 lesson). The classic box's `applyBaseline` on a timed text takes
+    `reconcileBaselineWithOrigins` → `segmentsFollowLines`; the positional `syncToLines` is the last
+    resort for a doc whose spans already disagreed with its lines, and it sets `rec.timeSync` so the
+    banner turns red. Before a time-model change reaches staging, run `tools/corpus-timing.mjs` over
+    the real files (local, read-only, counts only — DEVELOPERS.md §8).
 
 ## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 

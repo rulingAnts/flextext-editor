@@ -531,6 +531,15 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
   (EAF/flextext/preview/bext, includes pinned regressions from adversarial audits),
   `loose-conversions` (the Utilities converter, asserted as PARITY with the Files ▾ menu),
   `version-sync` (release gate), `worker-*` (auth boundaries, seclog).
+- **Time-model fixtures and the corpus gate (v717).** `test/fixtures/timing/` holds timing SKELETONS
+  of real files — their offsets, notes and guids, with every word `w` and neutral titles;
+  `timing-fixtures-clean` fails on any real text. Before a time-model change goes to staging, run
+  `node tools/corpus-timing.mjs <folder> --durations <json> --baseline <older checkout>` over the
+  real files on your own machine: it opens each file as the editor does and prints COUNTS only
+  (placed times changed on open, lines gained, two opens identical, classes, estimate lines, red
+  banners, and every line of an untouched export that differs from the older engine's). It reads,
+  never writes, and is never run in CI. The expected numbers are in
+  `plans/time-gaps-and-estimates.md` §6.5.
 - **Before your first push: `./install-hooks.sh`.** It installs `hooks/pre-push`, which refuses a
   push carrying a credential (`./check-secrets.sh`), one that touches `.github/workflows/`
   (billable), or one aimed at a production branch. The first has no override on purpose; the other

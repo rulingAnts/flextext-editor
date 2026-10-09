@@ -14,6 +14,27 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ---
 
+
+## ▶ v714 — ROLLBACK, 2026-10-10: v709's "leave blank lines out of the exports" is undone; production returns to v707's export behaviour
+
+Seth, 2026-10-10, testing the v713 staging build: "It looks thoroughly broken now. Can we revert to the version of flextext
+editor BEFORE I attempted to exclude empty lines? I'm getting audio segments and text all misaligned on re-import now from
+older time-aligned exports." Then: "Let's revert, push production" — with a new version number "so that the update pushes".
+- v714 = main (v709 + docs) with v709's code change reversed: `docs/js/flextext.js`, `docs/js/seg-exports.js` and their
+  tests are byte-identical to v707 (6d86abd6) again; `test/silent-exports.test.mjs` is gone. Every line is written to the
+  .flextext and the EAFs again, blank ones included. The v709 release note stays (it was released); the v714 note says it
+  was undone (#111).
+- **Parked, not lost (Seth: "Everything we HAD done since then should be moved to a feature branch and carefully rethought
+  in a careful, ultracoded, Fable evaluated plan (after Sunday)"):** branch `parked/v709-v713-blank-lines` = the whole line
+  v709 → v713 (silent exports; blank lines restored on re-import; Download-all layout; pass-through stripping; Seth's Audio
+  Segmenter list — permissions on by default, picker, undo keys, per-piece ✨, word split/join; the blank-lines
+  instruction for #111). Same commit as `roundtrip-v710`. NOT to be picked from piecemeal: re-plan it as a whole after
+  2026-10-11, with an ultracode workflow and the plan evaluated by Fable.
+- **Researcher notice:** an apology through the `maintenance-notice` workflow (no new code) — see the chat for the wording
+  question (the panel frames that notice as "Maintenance in progress … texts are unaffected").
+- Field impact to tell researchers: a text uploaded or moved between devices between v709 (2026-10-09) and v714 may have
+  lost its untranscribed segments and need re-cutting on the Cut tab (#111).
+
 ## 0 — a credential-rotation item lived here
 
 ⚠ **Deliberately not described in this repository, which is PUBLIC** (Seth, 2026-09-01: "let's not

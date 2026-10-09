@@ -229,8 +229,8 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
   Free translations are prose and are unaffected.
 - **Segmentation mode invariant (flat mode): one line = one paragraph = one phrase = one span**,
   including blank lines (a blank line is a real timed span — usually silence). ⚠ In the files written
-  for FLEx and ELAN/SayMore a blank line is left OUT (v709, `isSilentPhrase` in `flextext.js`): no empty
-  phrase, no empty annotation; the editor keeps it, and a re-import sees a hole between its neighbours.
+  for FLEx and ELAN/SayMore a blank line is written as an empty phrase with its times / an empty annotation.
+  (v709 left them out; v714 undid that — moved texts lost their untranscribed segments, #111.)
 - All span edits route through `segments.js` (`boundaryAtPlayhead` / `mergeSegments` /
   `normalizeSegments` / `syncToLines`): spans can never cross; a time is never invented
   (out-of-range → `timePending`); **text is sacred** (a text edit always applies even when the

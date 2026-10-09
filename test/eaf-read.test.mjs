@@ -41,7 +41,7 @@ const doc = {
     { segments: [{ baseline: 'Lyfch tap plap joygoi.', free: 'He liked to sit on the lily pad.',
                    words: [{ txt: 'Lyfch', gls: 'lily.pad' }, { txt: 'tap', gls: 'on' }, { txt: 'plap', gls: 'sit' },
                            { txt: 'joygoi', gls: 'like-DPst' }, { txt: '.', punct: true }], attrs: {} }] },
-    { segments: [{ baseline: '', free: '', words: [], attrs: {} }] },                   // timed silence — NOT written to the EAF (2026-10-08)
+    { segments: [{ baseline: '', free: '', words: [], attrs: {} }] },                   // timed silence
   ],
   segments: [{ start: 0, end: 2000 }, { start: 2000, end: 4500 }, { start: 4500, end: 5000 }],
 };
@@ -60,13 +60,13 @@ console.log('\nround trip through the FLEx profile');
   eq(map.title, 'Frog Meets Fish', 'title read from the interlinear-text tier');
 
   const out = eafToLines(eaf, map);
-  eq(out.lines.length, 2, 'every line WITH something in it survives; the empty timed one is not written (Seth, 2026-10-08) — ELAN sees a hole');
-  eq(out.lines.map((l) => l.baseline), ['Todn lyfch nyr', 'Lyfch tap plap joygoi.'], 'baselines');
-  eq(out.lines.map((l) => [l.start, l.end]), [[0, 2000], [2000, 4500]], 'times');
+  eq(out.lines.length, 3, 'every line survives, including the empty timed one');
+  eq(out.lines.map((l) => l.baseline), ['Todn lyfch nyr', 'Lyfch tap plap joygoi.', ''], 'baselines');
+  eq(out.lines.map((l) => [l.start, l.end]), [[0, 2000], [2000, 4500], [4500, 5000]], 'times');
   eq(out.lines[0].words, [{ txt: 'Todn', gls: 'frog-Nom' }, { txt: 'lyfch', gls: 'lily.pad' }, { txt: 'nyr', gls: 'by' }],
      'words with their glosses, in order');
   eq(out.lines[1].words[4], { txt: '.' }, 'punctuation word kept, and it has no gloss');
-  eq(out.lines.map((l) => l.free || ''), ['Long ago a frog lived by a lily pad.', 'He liked to sit on the lily pad.'],
+  eq(out.lines.map((l) => l.free || ''), ['Long ago a frog lived by a lily pad.', 'He liked to sit on the lily pad.', ''],
      'free translations attach to the right lines');
 }
 
@@ -78,7 +78,7 @@ console.log('\nround trip through the SayMore profile (transcription + free tran
   eq(map.baseline, 'Transcription', 'SayMore transcription tier detected by name');
   eq(map.free, 'Free Translation', 'SayMore free-translation tier detected by name');
   const out = eafToLines(eaf, map);
-  eq(out.lines.map((l) => l.baseline), ['Todn lyfch nyr', 'Lyfch tap plap joygoi.'], 'baselines');
+  eq(out.lines.map((l) => l.baseline), ['Todn lyfch nyr', 'Lyfch tap plap joygoi.', ''], 'baselines');
   eq(out.lines[0].words.map((w) => w.txt), ['Todn', 'lyfch', 'nyr'],
      'no word tier → the baseline is split into words rather than dropping them');
   eq(out.lines[0].words[0].gls, undefined, 'and those words carry no invented glosses');

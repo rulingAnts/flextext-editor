@@ -5596,6 +5596,61 @@ function renderDevBadge() {
   el.querySelector('.dev-badge-text').textContent = t('dev.badge');
   el.querySelector('.dev-badge-off').textContent = t('dev.badgeOff');
 }
+/* ═══ DEV-REMOVED TOMBSTONES (Seth, 2026-10-10) ═════════════════════════════════════════════════
+ * ☠ takes the text off this device WITHOUT uploading it. If that text had already been to Drive, its
+ * folder is still there — and the thing Seth needs not to happen is for it to drift into the
+ * **Unassigned** area and sit among texts that are there for real reasons (pending assignment and
+ * the like), or to accumulate duplicates there across test runs.
+ *
+ * ⚠ WHY A TOMBSTONE AT ALL: UNASSIGNED IS INFERRED FROM ABSENCE. Nothing marks a text unassigned;
+ * the estate works it out from a Drive folder that no device claims. So a device that simply goes
+ * quiet about a text has, by that silence, asked for exactly the outcome we are trying to avoid. The
+ * tombstone is the device saying something ACTIVE instead: "this one is gone on purpose, and here is
+ * the folder to destroy."
+ *
+ * ⚠ AND IT CARRIES THE FOLDER ID, which is the whole reason it is written BEFORE the delete. Once
+ * the local record is gone there is nothing left to resolve the folder from — no device owns the
+ * text, so the panel cannot look it up. `driveFolderId` is already on the doc (the v167 dedupe
+ * contract), so it is copied out while it still exists. A text that never reached Drive has no
+ * folderId and gets NO tombstone: there is nothing to clean, which is the ordinary testing case.
+ *
+ * ⚠ TRASHING IS WHAT MAKES THE GUARANTEE HOLD, not any cleverness here. Every one of the worker's
+ * Drive queries is scoped `trashed=false`, so a trashed folder is invisible to the estate and to the
+ * unassigned computation alike. Once the panel trashes it, it cannot reappear anywhere — the
+ * requirement is met by construction rather than by getting a sweep's logic right.
+ *
+ * ⚠ NOTHING SYNCS BACK, BY DESIGN (Seth's option 1). The device cannot be told the panel finished —
+ * that would need a new command type, and so a worker allow-list change and the whole backend-first
+ * sequence, for a developer affordance. So the panel remembers what it has handled and stops
+ * offering it, while these expire on their own. `fxTombs()` lists them; `fxTombs('clear')` empties
+ * them; `?devreset` takes them with everything else. */
+const DEV_TOMB_KEY = 'flextext-dev-removed';
+const DEV_TOMB_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // long enough to forget about; short enough to self-clean
+function devTombs() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(DEV_TOMB_KEY)) || []; } catch { return []; }
+  if (!Array.isArray(list)) return [];
+  const now = Date.now();
+  const live = list.filter((x) => x && x.id && x.folderId && (!x.at || now - x.at < DEV_TOMB_TTL_MS));
+  if (live.length !== list.length) setDevTombs(live);   // prune on read: no timer to forget to start
+  return live;
+}
+function setDevTombs(list) {
+  try {
+    if (list && list.length) localStorage.setItem(DEV_TOMB_KEY, JSON.stringify(list.slice(0, 200)));
+    else localStorage.removeItem(DEV_TOMB_KEY);
+  } catch { /* private mode: the tombstone just will not survive, which costs a manual tidy-up */ }
+}
+/* Written from the forced delete, with the doc still in hand. No folder on Drive ⇒ no tombstone. */
+function addDevTomb(d) {
+  const folderId = d && (d.driveFolderId || '');
+  if (!folderId) return false;
+  const list = devTombs().filter((x) => x.id !== d.id);          // re-deleting the same id replaces it
+  list.push({ id: d.id, title: d.title || '', folderId, at: Date.now() });
+  setDevTombs(list);
+  return true;
+}
+
 /* Everything that has to happen when the flag flips, from either direction (fxDev or the badge's own
  * off button).
  *
@@ -5663,7 +5718,15 @@ async function userDeleteDoc(docId, title, opts = {}) {
    * drops no matching work: mgClose skips a draft save still pending, but the tab tap blurred any
    * edit and that save's 400ms ran out long before anyone answered the confirm. */
   if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
-  if (force) try { console.warn('dev mode: deleting WITHOUT a backup, as asked:', docId); } catch { /* noop */ }
+  /* ⚠ THE TOMBSTONE IS WRITTEN WHILE THE DOC STILL EXISTS — see addDevTomb. After db.deleteDoc
+   * there is no `driveFolderId` left to copy, and the panel would have no way to find the folder. */
+  if (force) {
+    const tombed = addDevTomb(d);
+    try {
+      console.warn('dev mode: deleting WITHOUT a backup, as asked:', docId,
+        tombed ? '— its Drive folder is flagged for the panel to trash' : '— nothing on Drive to clean');
+    } catch { /* noop */ }
+  }
   if (force || !d || !uploads || backedUp) {
     // Nothing to preserve (gone / no upload target / already safely on Drive) → remove now,
     // cancelling any stray queued upload so it can't resurrect.
@@ -6113,7 +6176,13 @@ async function syncGatherInventory() {
   // engineVersion is the TRUE running engine version (vs cachedApps, which reads cache NAMES that a
   // stale-body precache can make lie) — the reliable brick/stale signal. All E2EE in the report.
   // The kind this install reports. The worker stores nothing about it; the panel's badge shows it.
+  /* Texts ☠ removed without a backup, each naming the Drive folder the panel should TRASH rather
+   * than let drift into Unassigned (see the tombstone block). Omitted entirely when there are none,
+   * so an ordinary device's report is byte-identical to before and the change-gate hash does not
+   * move — and an older panel, which knows nothing of this field, simply ignores it. */
+  const tombs = devTombs();
   return { type: RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor', items, settings: snap,
+           devRemoved: tombs.length ? tombs : undefined,
            ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION,
            // Which shell this install runs in. Each shell is its own storage sandbox, so the
            // panel must be able to tell a PWA apart from an APK on the same handset.
@@ -12743,6 +12812,16 @@ if (typeof window !== 'undefined') window.fxDev = (on = true) => {
   return devMode()
     ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup. fxDev(false) or the on-screen badge turns it off; ?devreset clears everything.'
     : 'developer mode OFF.';
+};
+/* CONSOLE ENTRY POINT — `fxTombs()`. What this device is still telling the panel to trash, and the
+ * way to drop it. Nothing syncs back from the panel (deliberately — see the tombstone block), so
+ * this is how a tombstone goes away early; otherwise they expire on their own. */
+if (typeof window !== 'undefined') window.fxTombs = (verb) => {
+  if (verb === 'clear') { setDevTombs([]); Sync.reportNow(); return 'cleared — the panel will stop being offered these on its next poll.'; }
+  const list = devTombs();
+  if (!list.length) return 'no dev-removed texts are flagged on this device.';
+  return list.map((x) => `${x.title || '(untitled)'} — folder ${x.folderId} — removed ${new Date(x.at).toISOString().slice(0, 10)}`).join('\n')
+    + `\n\n${list.length} flagged. The researcher panel offers "Remove, no unassign" for each. fxTombs('clear') drops them here without trashing anything.`;
 };
 
 /* ⚠ AT MODULE SCOPE, NOT IN setup(). setup() returns early for crowd, paragraph, researcher, record

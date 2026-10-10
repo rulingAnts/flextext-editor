@@ -177,6 +177,12 @@ let serverPending = new Map();
  * browser, serverPending for every other panel, retired by ack like the rest. */
 const CMD_KIND = { triggerUpload: 'upload', uploadDelete: 'delete', delete: 'delete', assign: 'assign', setDone: 'done' };
 
+/* Developer mode, read from the SAME per-browser flag app.js owns (`fxDev()` arms it; the badge
+ * app.js draws is already on screen here, because the panel runs on the editor's origin with app.js
+ * booted). Read, never written: the panel must not be able to arm anything — not itself and
+ * certainly not a device. */
+function devMode() { try { return localStorage.getItem('flextext-dev-mode') === '1'; } catch { return false; } }
+
 /* #15 — texts in the Researcher view sort by STATUS, THEN NAME (they listed in arrival order,
  * which helped nobody — Brian's screenshot made the case). Active texts first, finished ones
  * after: the list is a worklist, and a done text is the one thing nobody is about to open. Each
@@ -5108,7 +5114,14 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
-            ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>` : '')
+            ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
+                         /* ⚠ DEVELOPER MODE ONLY, AND IT IS NOT A FORCE. This sends the ORDINARY
+                          * `delete` command; the DEVICE still refuses it for un-uploaded work unless
+                          * that device was armed in its own console. So this cannot destroy a
+                          * coworker's work from here — see devMode in app.js. Rendered only while
+                          * this panel's own browser is armed (same origin, same flag). */
+                       + (devMode() ? ` <button class="link-btn rp-devdel" data-iact="del-text-now" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.dev.delNow'))}</button>` : '')
+                       : '')
             /* ⚠ THE "UPDATE THE DEVICE FIRST" GREY-OUT IS FOR SOMEONE WHO COULD OTHERWISE DELETE.
              * It sits on the ELSE of canDelText and so used to escape the mAssign gate above it: a
              * member WITHOUT assignTexts, looking at an old device, was shown a dead greyed Remove
@@ -5502,6 +5515,15 @@ async function instanceActionInner(el) {
       pendingCmds.set(el.dataset.id, { seq: r2.seq, kind: 'delete', instanceId: id, at: Date.now() });
       savePending(Researcher.currentAccountId());
       deps.toast(t('panel.inst.delSent'), 5000);
+      renderDashboard(lastData || undefined);
+    } else if (act === 'del-text-now') {
+      /* Developer mode: remove it WITHOUT the upload first. The confirm says so plainly, and names
+       * the one thing that will stop it — a device nobody armed refuses this and the text stays. */
+      if (!await confirmModal(t('panel.dev.confirmDelNow', { title: el.dataset.title || '?' }))) return;
+      const r3 = await busy(el, () => Researcher.deleteNow(id, el.dataset.id));
+      pendingCmds.set(el.dataset.id, { seq: r3.seq, kind: 'delete', instanceId: id, at: Date.now() });
+      savePending(Researcher.currentAccountId());
+      deps.toast(t('panel.dev.delNowSent'), 6000);
       renderDashboard(lastData || undefined);
     } else if (act === 'cancel-removal') {
       /* The pending REMOVAL half of a move, before stage 2 has issued it as a command. There is

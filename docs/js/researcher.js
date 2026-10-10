@@ -1369,6 +1369,11 @@ export function triggerUpload(instanceId, docId)  { return pushCommand(instanceI
 // text once that upload is confirmed safe. Engine v94+ only — the panel gates the button on the
 // install's reported engineVersion (an older engine would ignore or mis-handle the command).
 export function uploadDelete(instanceId, docId)   { return pushCommand(instanceId, 'uploadDelete', { docId }); }
+/* ⚠ DELETE WITHOUT UPLOADING FIRST — developer use. `delete` is an EXISTING command type (already in
+ * the worker's allow-list and in TEXT_COMMANDS), so this needs no backend change at all. And it is
+ * NOT a force: the device's own deleteConfirmedDoc still refuses un-uploaded work unless THAT device
+ * has developer mode armed in its own console, so the panel cannot destroy a coworker's work. */
+export function deleteNow(instanceId, docId)      { return pushCommand(instanceId, 'delete', { docId }); }
 
 /* ---------------- crowd recorders (public crowd-source recording pages) ----------------
  * Deliberately NOT E2EE: the public recorder page is keyless, so it must be able to read its own

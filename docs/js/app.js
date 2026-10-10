@@ -856,7 +856,8 @@ async function setDocDone(docId, wantDone) {
   if (isOpen) applyDoneButton();
   if (wantDone) {
     toast(t('done.marked'), 5000);
-    const onDrive = rec.uploadedSig && rec.uploadedSig === uploadContentSig(rec);
+    // A copy that may be v709's is not "on Drive" (v709ResendSweep): send a complete one first.
+    const onDrive = rec.uploadedSig && rec.uploadedSig === uploadContentSig(rec) && !v709CopyMayBeOnDrive(rec);
     if (!onDrive) {
       // Content changed since the last send (or never sent) → one final upload. If the
       // researcher has auto-delete on, the upload-done hook removes it once confirmed.
@@ -4983,6 +4984,12 @@ async function deleteConfirmedDoc(docId) {
     console.warn('sync: refusing remote delete — not safely on Drive (un-uploaded or edited since backup):', docId);
     return false;
   }
+  // The copy on Drive may be one v709 wrote without its silent lines: not a backup until the re-send
+  // (or any newer upload) lands. Callers that hold a removal request keep it — see v709ResendSweep.
+  if (v709CopyMayBeOnDrive(d)) {
+    console.warn('sync: refusing delete — the copy on Drive may lack its silent lines (v709); waiting for a complete one:', docId);
+    return false;
+  }
   await deleteUploadedDoc(docId); // reuse the existing teardown (open-doc + both app modes)
   Sync.reportNow();
   return true;
@@ -5008,7 +5015,8 @@ async function sweepPendingUpDel() {
   for (const docId of ids) {
     const d = await db.getDoc(docId).catch(() => null);
     if (!d) continue;                                             // gone — intent done
-    if (d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); continue; }
+    // A copy that may be v709's is not a backup: keep the intent for the re-send to complete.
+    if (d.uploadedFileId && d.uploadedModified === d.modified && !v709CopyMayBeOnDrive(d)) { await deleteConfirmedDoc(docId); continue; }
     keep.push(docId);                                             // upload still pending — the queue retries it
   }
   setPendingUpDel(keep);
@@ -5022,7 +5030,9 @@ async function sweepPendingUpDel() {
 async function userDeleteDoc(docId, title) {
   const d = await db.getDoc(docId).catch(() => null);
   const uploads = !!Sync.workerUploadTarget();
-  const backedUp = d && d.uploadedFileId && d.uploadedModified === d.modified;
+  // A copy that may be v709's is not a backup (v709ResendSweep): upload first, and leave a queued
+  // re-send in place for that — the branch below cancels nothing when an upload is already queued.
+  const backedUp = d && d.uploadedFileId && d.uploadedModified === d.modified && !v709CopyMayBeOnDrive(d);
   const willUpload = d && uploads && !backedUp;
   const msg = willUpload
     ? t('texts.confirmDeleteUpload', { title: title || t('untitled') })
@@ -5125,6 +5135,13 @@ async function autoBackupSweep() {
  *  6. HOLDS AT LEAST ONE SILENT LINE — v709DroppedPhrase is v709's own isSilentPhrase (f579e92c),
  *     verbatim, because "would v709 have left this out?" is the question. A text with none lost
  *     nothing and is never re-sent.
+ * Rules 2, 3, 4 and 6 together are v709CopyMayBeOnDrive — "the newest copy on Drive may be one v709
+ * wrote" — which every REMOVAL path also asks (below). Rules 1 and 5 belong to the re-send alone.
+ *
+ * WHO RUNS IT: any paired, approved device (Sync.workerUploadTarget) — the upload gate every
+ * automatic upload uses. NOT the Send menu's Upload button (`sendOptions`): Done, auto-backup and the
+ * researcher's commands upload without it, so a device set to "save only" uploaded v709 copies too;
+ * rule 2 already proves the device uploads.
  *
  * WHAT A RE-SEND IS: uploadDocById with { resend: 'v709' } — the ordinary Lane B queue, so pairing,
  * the held-while-unpaired rule, offline queueing and retry-forever are the ones every upload has.
@@ -5132,9 +5149,32 @@ async function autoBackupSweep() {
  * stamps the proof-of-backup like any upload, but shows NO toast and NEVER runs the auto-delete
  * (uploadState). The doc's content and `modified` are never touched; the only write is the mark.
  *
- * ⚠ WHAT IT DOES NOT COVER: a remote delete / move that reaches an eligible text BEFORE its
- * re-send lands still relies on the copy already on Drive (deleteConfirmedDoc trusts
- * uploadedModified === modified). Online, that window is the length of one upload. */
+ * ⚠ A COPY THAT MAY BE v709's IS NOT A BACKUP. Every path that removes a text because "it is already
+ * on Drive" asks v709CopyMayBeOnDrive first and, while it is true, treats the text as NOT on Drive:
+ * deleteConfirmedDoc refuses (the plain remote `delete`); the `uploadDelete` command, the coworker's
+ * 🗑 (userDeleteDoc), Done (setDocDone), "Done – send" (doUpload) and the boot sweep of pending
+ * removals (sweepPendingUpDel) all take their upload-FIRST route instead. So a removal that arrives
+ * before the re-send has landed — online or after days offline — waits for it: the request is kept
+ * (pendingUpDel), the queued re-send is neither cancelled nor deleted with the text, and the
+ * re-send's landing completes the request, as any upload's landing does. That is a removal somebody
+ * ASKED for, carried out once a complete copy is safe; the re-send never starts one, and never runs
+ * the researcher's auto-delete. A removal that arrives with nothing queued sends a fresh copy
+ * itself, by the same upload-first route, and the re-send then has nothing left to do.
+ *
+ * ⚠ A BUNDLE AN OLDER ENGINE QUEUED (no `engine` on the record — v709's among them) can land under
+ * this one. While the copy it leaves may be v709's, its landing removes nothing (uploadState): a
+ * pending removal stays pending for the re-send, which this landing makes due — so the settled flag
+ * is dropped and the next 90 s sweep sends it — and the auto-delete is skipped. It is not deferred:
+ * the re-send never runs the auto-delete, so such a Done text stays on the device, complete, until
+ * someone removes it. (An older engine's bundle for a text with no silent line auto-deletes as before.)
+ *
+ * ⚠ WHAT IT DOES NOT COVER — the panel's MOVE. moveTextModal picks the newest .flextext on Drive
+ * when Move is clicked and hands it to the destination before the source device is involved, so a
+ * Move made before this device's re-send has landed (before this release reaches it, or while it is
+ * offline) still delivers the copy without its silent lines. The source device keeps its complete
+ * copy until its re-send lands, because the release that follows is upload-first (above). Nor does
+ * it cover a text CHANGED since its v709 upload (rule 5): its next send carries every line, and
+ * until then Drive's newest copy is v709's. */
 const V709_DEPLOYED_AT = Date.parse('2026-10-08T22:31:19Z');
 const V709_OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
 function v709DroppedPhrase(seg) {
@@ -5145,18 +5185,24 @@ function v709DroppedPhrase(seg) {
   if ((seg.postItemsXML || []).some((x) => !V709_OUR_NOTE.test(x))) return false;
   return true;
 }
-function v709ResendWanted(d) {
-  if (!d || !d.doc || d.resentV709At) return false;                          // 1
-  if (!d.uploadedFileId) return false;                                       // 2
+/* Could the newest copy of this text on Drive be one v709 wrote? Rules 2, 3, 4 and 6 above. It does
+ * NOT look at `resentV709At`: a queued re-send is not a landed one. True until a copy built by an
+ * engine that stamps `engine` lands (uploadedEngine), which is what ends it. */
+function v709CopyMayBeOnDrive(d) {
+  if (!d || !d.doc || !d.uploadedFileId) return false;                       // 2
   if (!(Number(d.uploadedAt) >= V709_DEPLOYED_AT)) return false;             // 3
   if (d.uploadedEngine) return false;                                        // 4
-  const onDrive = d.uploadedModified === d.modified
-    || !!(d.uploadedSig && d.uploadedSig === uploadContentSig(d));
-  if (!onDrive) return false;                                                // 5
   return (d.doc.paragraphs || []).some((p) => (p.segments || []).some(v709DroppedPhrase));   // 6
 }
+function v709ResendWanted(d) {
+  if (!d || d.resentV709At) return false;                                    // 1
+  if (!v709CopyMayBeOnDrive(d)) return false;                                // 2, 3, 4, 6
+  return d.uploadedModified === d.modified
+    || !!(d.uploadedSig && d.uploadedSig === uploadContentSig(d));           // 5
+}
 // Set once a scan finds nothing it must look at again, so the 90 s sweep stops reading every
-// record. Per page load: the next boot scans once more, which is what catches a late v709 bundle.
+// record. Per page load: the next boot scans once more. Dropped again by uploadState when a bundle an
+// older engine queued lands and leaves a copy that may be v709's, so that re-send waits 90 s, not a boot.
 let v709ResendSettled = false;
 // One scan at a time: boot, the 'online' edge and the 90 s timer can overlap, and two scans could
 // each queue the same text before either had marked it.
@@ -5168,9 +5214,9 @@ async function v709ResendSweep() {
   try { await v709ResendScan(); } finally { v709ResendRunning = false; }
 }
 async function v709ResendScan() {
-  // The rules any upload has: paired AND approved (an upload target), and allowed to upload. Not
-  // settled when either is missing — it runs again once the device is paired / allowed.
-  if (!Sync.workerUploadTarget() || !allowedSend().has('upload')) return;
+  // The gate every automatic upload has: paired AND approved (an upload target). Not settled when it
+  // is missing — it runs again once the device is paired. (Not `sendOptions` — see the header.)
+  if (!Sync.workerUploadTarget()) return;
   const metas = await db.listDocs().catch(() => null);
   if (!metas) return;
   let revisit = false;
@@ -5386,7 +5432,9 @@ async function syncDispatch(cmd) {
       if (!docId) break;
       const d = await db.getDoc(docId).catch(() => null);
       if (!d) break;                                              // already gone — nothing to do
-      if (d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); break; }
+      // A copy that may be v709's is not a backup: take the upload-first route below, where a queued
+      // re-send carries the request (v709ResendSweep).
+      if (d.uploadedFileId && d.uploadedModified === d.modified && !v709CopyMayBeOnDrive(d)) { await deleteConfirmedDoc(docId); break; }
       const ids = pendingUpDel();
       if (!ids.includes(docId)) { ids.push(docId); setPendingUpDel(ids); }
       // Already queued or mid-flight? The intent above is enough — the upload-done
@@ -6628,7 +6676,13 @@ function uploadState(docId) {
         // ⚠ The one-time v709 RE-SEND (v709ResendSweep) is not a send anybody made: it never runs the
         // auto-delete and never toasts. It still stamps the proof-of-backup below like any upload.
         const resend = !!st.resend;
-        if (!resend && deleteAfterUpload() && st.docDone !== false) {   // auto-delete only after marked finished AND safely uploaded
+        /* ⚠ A RECORD WITH NO `engine` was queued by an engine older than that field — v709's bundles
+         * among them — so the copy it leaves on Drive may lack its silent lines. Its removals (the
+         * auto-delete, a pending upload-then-delete) wait for the doc read below, where
+         * v709CopyMayBeOnDrive decides; nothing is removed while that copy may be v709's. */
+        const olderEngine = !st.engine;
+        const autoDelete = !resend && deleteAfterUpload() && st.docDone !== false;
+        if (autoDelete && !olderEngine) {   // auto-delete only after marked finished AND safely uploaded
           setPendingUpDel(pendingUpDel().filter((x) => x !== docId));   // auto-delete covers the intent
           deleteUploadedDoc(docId).then(() => Sync.reportNow()); // inventory shrank — tell the panel promptly
           toast(t('record.sentRemoved', { name: st.name }), 6000);
@@ -6670,10 +6724,22 @@ function uploadState(docId) {
           // the panel confirms completion by detecting a CHANGED uploadedFileId in the reported inventory).
           db.getDoc(docId).then(async (d) => {
             if (d) { stamp(d); await db.putDoc(d); }
+            /* An older engine's bundle that may have left a copy without its silent lines: remove
+             * nothing — the text stays, and a pending request stays pending for the re-send, which
+             * this landing has just made due; drop the settled flag so the next 90 s sweep sends it
+             * rather than the next boot. (v709ResendSweep's header.) */
+            const mayBeV709 = !!d && v709CopyMayBeOnDrive(d);
+            if (mayBeV709) v709ResendSettled = false;
+            if (autoDelete && !mayBeV709) {   // an older engine's bundle with nothing v709 could drop: as before
+              setPendingUpDel(pendingUpDel().filter((x) => x !== docId));   // auto-delete covers the intent
+              await deleteUploadedDoc(docId);
+              toast(t('record.sentRemoved', { name: st.name }), 6000);
+              return Sync.reportNow();
+            }
             // A researcher-requested upload-then-delete rides the SAME completion
             // point: the proof-of-backup stamp above is persisted first, so
             // deleteConfirmedDoc's delete-safety check passes only now.
-            if (pendingUpDel().includes(docId)) {
+            if (pendingUpDel().includes(docId) && !mayBeV709) {
               setPendingUpDel(pendingUpDel().filter((x) => x !== docId));
               if (await deleteConfirmedDoc(docId)) toast(t('sync.removedAfterUpload'), 6000);
             }
@@ -6989,8 +7055,9 @@ async function doUpload(researcher = false) {
     // exactly what was asked for.) Nothing will land, so no completion hook runs: the done flag is
     // persisted and reported here, the return-to-list intent is honoured here, and auto-delete
     // follows the same rule the row toggle applies (setDocDone).
+    // (A copy that may be v709's is not "already saved" — v709ResendSweep — so it sends one that is.)
     if (!researcher && current.uploadedFileId && current.uploadedSig
-        && current.uploadedSig === uploadContentSig(current)) {
+        && current.uploadedSig === uploadContentSig(current) && !v709CopyMayBeOnDrive(current)) {
       const wantedReturn = returnAfterUploadOf === current.id;
       returnAfterUploadOf = null;
       await persist();                       // saves the just-synced edit AND the done flag

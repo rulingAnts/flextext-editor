@@ -362,8 +362,18 @@ This is the part that has caused real outages when done wrong — read
   until the text changes. Each device re-sends, once, every text that was uploaded at or after
   v709's deploy (2026-10-08T22:31:19Z) by an engine that does not stamp `uploadedEngine`, is
   unchanged since, and holds a line v709 would have dropped; it marks the doc `resentV709At` and
-  never repeats. Same queue as any upload (pairing, `sendOptions` 'upload', offline, retry); the
-  queued record carries `resend: 'v709'`, and its completion never auto-deletes and never toasts.
+  never repeats. Same queue as any upload (paired and approved, offline, retry — gated like every
+  automatic upload on the upload target, not on the Send menu's `sendOptions`); the queued record
+  carries `resend: 'v709'`, and its completion never auto-deletes and never toasts.
+  ⚠ **Until a complete copy lands, a copy that may be v709's is not a backup**
+  (`v709CopyMayBeOnDrive`: uploaded in the window, no `uploadedEngine`, a silent line). Every
+  removal path asks it — `deleteConfirmedDoc` refuses; `uploadDelete`, the 🗑, Done, "Done – send" and
+  the boot sweep of pending removals go upload-first — so a removal that arrives first waits, the
+  queued re-send survives it, and its landing completes the request. A bundle an older engine queued
+  (no `engine`) removes nothing when it lands while its copy may be v709's (no auto-delete; a pending
+  removal waits for the re-send). Not covered: the panel's Move takes Drive's newest copy when it is
+  clicked, so a Move before the source device's re-send lands still delivers v709's copy; and a text
+  changed since its v709 upload is not re-sent (its next send carries every line).
   Rules and limits in the function's header; `test/v709-resend.test.mjs` runs the real functions.
 - Security posture: open signup + rate limit + owner approval tiers; escrowed recovery; optional
   TOTP; security log (`worker/src/seclog.js`) with email alerts. See `notes/connectivity-*.md`.

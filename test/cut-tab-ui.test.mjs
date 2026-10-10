@@ -380,8 +380,8 @@ ok(!/\n\s*schedulePersist\(\);/.test(fn(app, 'rememberTab')),
    'and remembering never goes through persist() — looking at a tab must not stamp the text modified');
 ok(/saveQuiet\(\);/.test(fn(app, 'rememberTab')) && /return db\.putDoc\(rec\)\.catch/.test(fn(app, 'saveQuiet')) && !/modified/.test(fn(app, 'saveQuiet').replace(/\/\*[\s\S]*?\*\//g, '')),
    'it writes the record quietly instead (a modified stamp would re-upload a text already on Drive)');
-ok(/!docSegments\(current\.doc\)\.some\(isAligned\)/.test(landing),
-   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen');
+ok(/!\(docSegments\(current\.doc\)\.some\(isAligned\) \|\| current\.audioSource\)/.test(landing),
+   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen (v718: an aligned span, or the recording itself — an untimed text stores no span)');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

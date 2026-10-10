@@ -1053,9 +1053,12 @@ function landingTab(tab) {
   /* ⚠ A remembered tab is still subject to the gates AND to reality: the researcher can switch the
    * Cut tab off after a device has used it, and a text can lose its recording (or never have had one
    * — one curious tap on Cut is enough to remember it). Landing on the "this text has no recording"
-   * screen every time would be a worse bug than the one the memory fixes. */
+   * screen every time would be a worse bug than the one the memory fixes.
+   * ⚠ (v718) An untimed text with its recording no longer STORES any span — its even spread is drawn,
+   * never written — so an aligned span is no longer the only proof that Cut has something to show: an
+   * attached recording (audioSource, removed with the recording) counts too. */
   const lastOk = last && isEditorTab(last)
-    && !(last === 'cut' && (!cutTabEnabled() || !docSegments(current.doc).some(isAligned)));
+    && !(last === 'cut' && (!cutTabEnabled() || !(docSegments(current.doc).some(isAligned) || current.audioSource)));
   if (lastOk) return last;
   if (!landOnCutEnabled()) return tab;
   if (!docHasNoText(current.doc)) return tab;               // words already ⇒ this is transcription

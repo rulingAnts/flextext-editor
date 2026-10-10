@@ -271,8 +271,14 @@ ok(/caret == null \? text\.length/.test(splitAt),
    '…and "no caret" means the END of the line — the words all stay put, the new line starts empty');
 ok(/const input = deps\.container\.querySelectorAll\('\.seg-text'\)\[i\]/.test(splitAt),
    'the words come from the BOX, not the model, so keystrokes not yet committed are not dropped');
-ok(/const ms = deps\.getPlayer\(\)\?\.playheadMs\?\.\(\);\s*\n\s*const i = segmentIndexAt\(docSegments\(doc\), ms\);/.test(atPlayhead) && /if \(i < 0\) return false/.test(atPlayhead),
-   'it acts on the line the PLAYHEAD is in, and refuses when the playhead is in none of them');
+ok(/const ms = deps\.getPlayer\(\)\?\.playheadMs\?\.\(\);\s*\n\s*const i = segmentIndexAt\(docSegments\(doc\), ms\);/.test(atPlayhead),
+   'it acts on the line the PLAYHEAD is in');
+/* v719: "the playhead is in no line" used to be a flat refusal. It now has a meaning — the playhead
+ * is in a GAP — and the gesture adds the line there (Seth, 10 Oct). Still never a silent split of
+ * something else: only a gap the user can see on screen, and only through addGapLine's own capture. */
+ok(/if \(i < 0\) \{\s*\n\s*const g = gapsToDraw\(docSegments\(doc\), deps\)\.find/.test(atPlayhead)
+   && /return !!\(g && deps\.addGapLine && deps\.addGapLine\(g\.k\)\);/.test(atPlayhead),
+   '…and a playhead in a gap adds a line there instead of refusing (v719)');
 ok(/if \(deps\.capture\) deps\.capture\(\); splitLineAt\(/.test(fn(strips, 'stripsSpec')),
    '…and the completed split is its own undo step, taken at the commit (plans/split-tiers.md) — a chopping run types nothing, so nothing else would create one');
 ok(/if \(focusNext\) focusStrip\(i \+ 1, 0\)/.test(splitAt),
@@ -283,18 +289,21 @@ ok(/activeTab !== 'baseline'/.test(app) && /stripSplitAtPlayhead\(\)/.test(app)
 ok(/baseline\.hintSeg/.test(app) && /baseline\.hintSeg/.test(i18n),
    'and the tab says so — the classic "Enter for a new paragraph" hint is wrong in strip mode');
 
-console.log('\nthe segments account for ALL of the recording');
-const cover = fn(strips, 'coverTail');
-ok(!!cover, 'there is a step that extends an unfinished tail to the end of the recording');
-ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /phrase\.attrs\['end-time-offset'\] != null\) return false;/.test(cover),
-   '…which never touches a line that has text, nor one whose times were imported (v717: read from the PHRASE — the span never had attrs, so the old guard guarded nothing)');
-ok(!/last\.attrs/.test(cover), '…and the dead span-attrs test is gone');
-ok(/COVER_TOL_MS/.test(cover) && /COVER_TOL_MS = 1000/.test(strips),
-   '…and leaves rounding and encoder priming alone (a second of tolerance)');
-ok(/if \(coverTail\(doc, paras, known\)\) wrote = true;/.test(fn(strips, 'prepareDisplaySpans')),
-   'prepareDisplaySpans (v718, was reconcile) runs it, and a repair it makes is saved like D7\'s one-line span —');
+console.log('\nthe segments account for ALL of the recording — v719: by SHOWING the tail, not by swallowing it');
+/* ⚠ coverTail IS GONE (v719). Seth's rule — 2026-08-14, "showing part (not all) of the recording …
+ * is not OK" — is unchanged; what changed is the answer. It used to stretch an untexted last line
+ * silently to the end of the recording; now the unaccounted tail is its own gap row, with ▶, its
+ * waveform and its length. Nothing is written, so nothing can be written WRONG: on the damaged L29
+ * export the 2.1 s tail is the evidence the red banner is pointing at, and absorbing it into the
+ * last line hid exactly that (case 16). */
+ok(!fn(strips, 'coverTail'), 'coverTail is gone');
+ok(!/COVER_TOL_MS/.test(strips), '…and so is its tolerance constant');
+ok(!/coverTail\(doc, paras, known\)/.test(fn(strips, 'prepareDisplaySpans')),
+   '…and prepareDisplaySpans no longer calls it — opening a text writes less than it did, never more');
+ok(/addGap\(paras\.length\);/.test(fn(strips, 'renderStrips')) && /addGap\(segs\.length\);/.test(fn(strips, 'renderCut')),
+   'the tail is drawn instead, on both tabs (gapRowsFor\'s k === n row)');
 ok(/if \(wrote\) \(d\.persistQuiet \|\| d\.persist\)\?\.\(\);/.test(fn(strips, 'prepareDisplaySpans')) && /persistQuiet: \(\) => saveQuiet\(\),/.test(app),
-   '…QUIETLY (v717, P1): opening a text is not an edit, so no `modified` stamp and no re-upload');
+   'D7\'s one-line span is still written QUIETLY (v717, P1): opening a text is not an edit');
 const durFor = fn(strips, 'peaksDurationFor');
 ok(/id !== peaksCache\.docId/.test(durFor) && /return 0/.test(durFor),
    'a peaks cache belonging to ANOTHER text can never seed this one\'s spans');

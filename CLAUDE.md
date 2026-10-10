@@ -531,6 +531,21 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   after a user began correcting it there (`v714SeedLines`: step from the UNTOUCHED lines, never a mean of
   edited ones). The Audio Segmenter keeps a draft only after an edit (`MG.edited`); its changed-text
   check ignores the editor's quiet writes. Seth's B2, plans/time-gaps-and-estimates.md §4 v718.
+- **Gaps are shown, never filled (v719, Seth's B1):** audio no line covers — before the first line,
+  between two PLACED lines, after the last — shows as a `.gap-row` with ▶, its own waveform, its range
+  and "Add a line here" whenever the pause is ≥ 350 ms (`segments.js gapRowsFor`; a gap ≥ 1 s with
+  ≥ 400 ms voiced is tinted amber, `gapHasSpeech`). ⚠ **NOTHING IS INSERTED WHEN A TEXT OPENS** — the
+  rows are a view until a finger lands; inserting on open would grow ELAN40 from 40 lines to 79, almost
+  all silence, and send ~40 empty phrases to FLEx on the next export (D1). Add here / Add all /
+  ✂-in-a-gap go through `insertLineAt`, which splices `doc.paragraphs` and `doc.segments` at the SAME
+  index DIRECTLY — never `reconcileBaseline`, whose LCS could pair a new blank line with a neighbouring
+  blank and take its time with it. Add all works from the end backwards and is ONE Undo. ⚠ A gap row
+  carries NONE of `.seg-strip`, `.cut-row`, `.seg-text`, `data-i` and the gap bands are their own player
+  layer (`Player.setGapMarks`), so everything that finds rows by order still counts only lines, and
+  dragging seam k still moves seam k (case 15). `coverTail` is GONE: the unaccounted tail is a row now,
+  not a silent stretch of the last line. Researcher switch `gapLines` (the writes, not the rows); device
+  preference `showGaps`, default on. While a red "check alignment" banner is unacknowledged, Add is
+  hidden and the row says so (case 16). plans/time-gaps-and-estimates.md §4 v719.
 - **Exports (in the save/share zip):** `<title>.eaf` + `<title>.pfsx` (ELAN reads display settings
   from a same-basename sidecar; without it ELAN's remembered `sortAlphabetically` puts every gloss
   tier ABOVE its own vernacular partner — `A_phrase-gls-*` sorts before `A_phrase-txt-*`. The

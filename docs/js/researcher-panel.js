@@ -716,7 +716,7 @@ export function wireIconPicks(root) {
  * control which cannot act says why:
  *   • PAIRED ONLY — twelve fields are inert on a device working alone. Eight because the engine gate
  *     short-circuits (`!Sync.hasSession() || settings.X === true`: allowDelete, deleteAllEnabled,
- *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner, keepTimes — a lone worker always has
+ *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner, keepTimes, gapLines — a lone worker always has
  *     these, so the switch could only lie), and four because they wait on an upload that cannot
  *     happen with no researcher Drive behind it (autoDel, autoBackup, autoBackupMins, doneEnabled).
  *     They appear on the unpaired tab greyed, each carrying its reason: the `off:` notes over in
@@ -798,6 +798,7 @@ const GROUPS = [
     /* "Keep these times" (v718): a guessed line's times made its own, one press on the active line. The
      * same shape — on for a lone worker, off on a managed device until switched on. */
     { k: 'keepTimes', type: 'checkbox', note: 'panel.f.keepTimesNote' },
+    { k: 'gapLines', type: 'checkbox', note: 'panel.f.gapLinesNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.
@@ -1480,6 +1481,9 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v719', date: '2026-10-10', items: [
+    { k: 'panel.rel.new.gapRows' },
+  ] },
   { v: 'v718', date: '2026-10-10', items: [
     { k: 'panel.rel.new.untimedLines' },
     { k: 'panel.rel.new.keepTimes' },

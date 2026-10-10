@@ -268,3 +268,117 @@ test('Segmenter: a join drops the guessed inner seam and keeps real audio next t
   api.redo(); api.redo();
   assert.deepEqual(mgTimes(api.MG), [[0, 3000], [3000, 9000]], 'and one redo each');
 });
+
+/* ── v719: Add here, Add all, and ✂ with the playhead in a gap ─────────────────────────────────
+ * Seth's rule again, on the three paths that create lines out of unclaimed audio. Each runs through
+ * the REAL undo stack (docSnap / pushSnap / applyUndoState / doUndo / doRedo, lifted from app.js),
+ * so "one Undo removes them all" is measured rather than asserted. */
+
+function gapEditor(rec, D, opts = {}) {
+  let saves = 0;
+  const api = new Function('ft', 'SEG', 'rec', 'D', 'opts', 'onSave', `
+    const { newGuid, makeSegment, getBaselineParagraphs } = ft;
+    const { gapRowsFor, edgeGuessed } = SEG;
+    const docSegments = (d) => d.segments || [];
+    const settings = opts.settings || {};
+    const Sync = { hasSession: () => !!opts.managed };
+    const segmentationEnabled = () => true;
+    let current = rec, player = null, activeTab = 'baseline';
+    const peaksDurationMs = () => D;
+    const timingBannerOn = () => !Sync.hasSession() || settings.timingBanner === true;
+    /* A FUNCTION is allowed, so a test can make the report change as the line numbers shift —
+     * which is the whole point of carryTimingAck. */
+    const timingReport = (segs, paras) => (typeof opts.report === 'function'
+      ? opts.report(segs, paras) : (opts.report || { level: '', items: [], sig: '' }));
+    const $ = () => null;
+    const schedulePersist = () => onSave();
+    const switchTab = () => {}, updateUndoButtons = () => {}, splitCancel = () => false;
+    const UNDO_CAP = 100;
+    let undoStack = [], redoStack = [], fieldUndo = null;
+    let touchedLine = opts.touched || null;
+    ${liftAll(APP, ['docSnap', 'pushSnap', 'commitFieldUndo', 'captureUndo', 'applyUndoState', 'doUndo', 'doRedo',
+                    'gapLinesOn', 'gapLinesAllowed', 'showGapsOn', 'checkAlignmentPending', 'gapRowsNow',
+                    'timingSnap', 'redWasAcked', 'carryTimingAck', 'shiftTouchedLine', 'gapSpan',
+                    'insertLineAt', 'addGapLine', 'addAllGapLines'])}
+    return {
+      addGapLine, addAllGapLines, gapRowsNow,
+      undo: doUndo, redo: doRedo,
+      getTouched: () => touchedLine,
+      get undoDepth() { return undoStack.length; }, get redoDepth() { return redoStack.length; },
+    };
+  `)(ft, SEG, rec, D, opts, () => { saves++; });
+  return { api, saves: () => saves };
+}
+const snapshot = (doc) => ({ texts: ft.getBaselineParagraphs(doc).slice(), times: times(doc.segments) });
+
+test('v719 Add here: one Undo removes the line, one Redo puts it back — and no other time moves', () => {
+  const doc = loadFixture('elan40');
+  const rec = { id: 'x', doc };
+  const before = snapshot(doc);
+  const ed = gapEditor(rec, 125457);
+  assert.equal(ed.api.gapRowsNow().length, 39);
+  assert.ok(ed.api.addGapLine(1));
+  const after = snapshot(doc);
+  assert.equal(doc.paragraphs.length, 41);
+  assert.equal(ed.saves(), 1, 'one save');
+  assert.equal(ed.api.undoDepth, 1, 'ONE undo item');
+  ed.api.undo();
+  assert.deepEqual(snapshot(doc), before, 'one Undo restores the lines AND their times');
+  assert.equal(ed.api.redoDepth, 1, 'ONE redo item');
+  ed.api.redo();
+  assert.deepEqual(snapshot(doc), after, 'and one Redo puts both back');
+});
+
+test('v719 Add all: 39 lines added, and still exactly ONE Undo and ONE Redo', () => {
+  const doc = loadFixture('elan40');
+  const rec = { id: 'x', doc };
+  const before = snapshot(doc);
+  const ed = gapEditor(rec, 125457);
+  assert.equal(ed.api.addAllGapLines(), 39);
+  const after = snapshot(doc);
+  assert.equal(doc.paragraphs.length, 79);
+  assert.equal(ed.saves(), 1, 'one save for the whole sweep');
+  assert.equal(ed.api.undoDepth, 1, 'ONE undo item — "Undo removes them all" is what the confirmation promises');
+  ed.api.undo();
+  assert.deepEqual(snapshot(doc), before, 'and it does: 79 lines back to 40, every time as it was');
+  ed.api.redo();
+  assert.deepEqual(snapshot(doc), after, 'one Redo re-adds all 39');
+  assert.equal(ed.api.undoDepth, 1, 'the stack never grew past one for this action');
+});
+
+test('v719 ✂ in a gap: the same single item (it goes through addGapLine, not through a split)', () => {
+  const doc = loadFixture('elan40');
+  const rec = { id: 'x', doc };
+  const before = snapshot(doc);
+  const ed = gapEditor(rec, 125457);
+  // the Cut tab's gesture resolves the playhead to a gap and calls addGapLine with its k — the
+  // source wiring is pinned in gap-rows.test.mjs; here we measure what that call costs in undo items
+  const row = ed.api.gapRowsNow().find((g) => g.start < 4800 && g.end > 4800);   // 4153–5346, the first pause
+  assert.ok(row, 'the playhead at 4.8 s is inside the first pause');
+  assert.ok(ed.api.addGapLine(row.k));
+  assert.equal(ed.api.undoDepth, 1, 'ONE undo item');
+  assert.equal(ed.saves(), 1, 'one save');
+  assert.deepEqual(times(doc.segments)[row.k], [row.start, row.end], 'the new line holds the whole pause');
+  ed.api.undo();
+  assert.deepEqual(snapshot(doc), before, 'one Undo, and the pause is unclaimed again');
+});
+
+test('v719: a refused Add (researcher switch off, or a red banner) takes no undo item at all', () => {
+  for (const opts of [{ settings: {}, managed: true }, { report: { level: 'red', items: [{ kind: 'dense', level: 'red' }], sig: 'd' } }]) {
+    const doc = loadFixture('elan40');
+    const rec = { id: 'x', doc };
+    const before = snapshot(doc);
+    const ed = gapEditor(rec, 125457, opts.managed
+      ? { ...opts, settings: {} }
+      : opts);
+    // a managed device needs Sync.hasSession() === true to be gated; the harness is a lone worker,
+    // so only the red-banner case can refuse here — which is the one that matters for case 16.
+    if (opts.report) {
+      assert.equal(ed.api.addGapLine(1), false);
+      assert.equal(ed.api.addAllGapLines(), 0);
+      assert.equal(ed.api.undoDepth, 0, 'nothing captured');
+      assert.equal(ed.saves(), 0, 'nothing saved');
+      assert.deepEqual(snapshot(doc), before, 'and nothing changed');
+    }
+  }
+});

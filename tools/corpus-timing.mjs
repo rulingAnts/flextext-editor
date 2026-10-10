@@ -35,6 +35,11 @@
  * --expect     { "<path>": "a"|"b"|"d"|"e-full"|"e-partial"|"f" } from the planning audit; the
  *              classes found here are checked against it file by file.
  *
+ * GAPS (v719, `gaps`): every pause of 350 ms or more between two PLACED lines, before the first or
+ * after the last. `byFile` gives the per-text counts the plan names; `addAllKeepsTimes` must equal
+ * `texts` and `addAllBroken` must be 0 — adding a line in every gap may never move an existing time.
+ * `addedOnOpen` must be 0: the rows are a view, and opening still writes nothing.
+ *
  * PARTLY TIMED (v718, `partly`): the corpus has no partly timed text of its own, so every timed text is
  * also opened as one — its lines 2, 3, 8, 9, 14, 15… (k % 6 of 2 or 3) made untimed by our own export,
  * as a line typed while segmentation was off would be — at its recording's length (or, without one, its
@@ -145,6 +150,7 @@ const { isAligned, isEstimate, edgeGuessed, timingReport } = NEW.SEG;
 /* v718: an untimed line is drawn as a PLACEHOLDER (display only). Placed = a time somebody has. Older
  * engines have no placeholders, so there every aligned span is placed. */
 const V718 = typeof NEW.SEG.storableSegments === 'function';
+const V719 = typeof NEW.SEG.gapRowsFor === 'function';   // the gap rows (plans §4 v719, §6.5)
 const isPlaceholder = NEW.SEG.isPlaceholder || (() => false);
 const isPlaced = NEW.SEG.isPlaced || isAligned;
 const storable = NEW.SEG.storableSegments || ((x) => x);
@@ -198,6 +204,12 @@ const T = {
   vsBaseline: OLD ? { identical: 0, tildeRestored: 0, piLines: 0, piFiles: 0, other: 0, otherFiles: 0,
     classicOther: 0, untimedSeeded: V718 ? null : { files: 0, piLines: 0, quietWrites: 0, other: 0 } } : null,
   expectMismatch: EXPECT ? 0 : null,
+  /* v719 (plans §4 v719, §6.5): the unassigned-audio rows. `rows` is the total across the corpus;
+   * `byFile` names the texts that have any, so the plan's per-text counts can be read off directly
+   * (ELAN40 39, ELAN52 51, ELAN43 33, each damaged L29 1, everything else 0). `addAllKeepsTimes` is
+   * the safety claim: adding a line in every gap must leave every ORIGINAL line's time untouched. */
+  gaps: V719 ? { texts: 0, rows: 0, lead: 0, interior: 0, tail: 0, withSpeech: 0, byFile: {},
+    addAllKeepsTimes: 0, addAllBroken: 0, addedOnOpen: 0, blockedByRed: 0 } : null,
   /* v718 (plans §4 v718, §6.5): untimed lines are drawn in their gap and never stored or exported. */
   untimed: V718 ? { partlyTexts: 0, placeholders: 0, noRoom: 0, storedPlaceholders: 0,
     openedWithAudio: 0, spread: 0, noRoomTexts: 0, oneLine: 0, quietWrites: 0, exportedWithOffsets: 0,
@@ -259,6 +271,36 @@ for (const path of files) {
     const ph = A.doc.segments.filter(isPlaceholder).length, cramped = A.doc.segments.filter((x) => x && x.noRoom).length;
     if (timed && (ph || cramped)) { U.partlyTexts++; U.placeholders += ph; U.noRoom += cramped; flag('partly timed (v718: needs timing)', rel); }
     if (U.storedPlaceholders) flag('a placeholder in the storable form', rel);
+  }
+
+  /* v719 — THE GAP ROWS. Measured on the spans the editor DREW (A.doc.segments), because that is what
+   * the rows are built from. Two claims are checked per text:
+   *   · opening added no line and changed no time (already counted above as linesGained/timeChanges);
+   *   · "Add a line for every gap" would leave every original line's time exactly as it is — simulated
+   *     here with the same back-to-front splice addAllGapLines uses, so an off-by-one would show up as
+   *     addAllBroken rather than as a silent corpus-wide shift. */
+  if (V719 && D) {
+    const G = T.gaps;
+    const rows = NEW.SEG.gapRowsFor(A.doc.segments, D);
+    if (rows.length) {
+      const n = A.doc.segments.length;
+      G.texts++; G.rows += rows.length;
+      G.lead += rows.filter((g) => g.k === 0).length;
+      G.tail += rows.filter((g) => g.k === n).length;
+      G.interior += rows.filter((g) => g.k > 0 && g.k < n).length;
+      G.byFile[rel] = rows.length;
+      // the red banner hides Add (case 16) — count the texts where that is what a user would meet
+      if (rep.level === 'red') { G.blockedByRed++; flag('v719: gap rows behind a red banner (Add hidden)', rel); }
+      const was = A.doc.segments.map((x) => (isPlaced(x) ? [x.start, x.end] : null));
+      const after = A.doc.segments.map((x) => ({ ...x }));
+      for (let i = rows.length - 1; i >= 0; i--) after.splice(rows[i].k, 0, { start: rows[i].start, end: rows[i].end });
+      const kept = [];
+      let j = 0;
+      for (const w of was) { while (j < after.length && !(after[j].start === (w && w[0]) && after[j].end === (w && w[1]))) j++; kept.push(j < after.length); j++; }
+      if (after.length === n + rows.length && kept.every(Boolean)) G.addAllKeepsTimes++;
+      else { G.addAllBroken++; flag('v719: Add all would move an existing time', rel); }
+    }
+    if (A.doc.segments.length !== A.doc.paragraphs.length) { G.addedOnOpen++; flag('v719: opening changed the line count', rel); }
   }
   let cls = 'untimed';
   if (timed) {

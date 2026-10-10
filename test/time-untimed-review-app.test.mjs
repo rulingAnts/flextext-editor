@@ -177,13 +177,16 @@ test('the draft\'s signature ignores the editor\'s quiet writes, and notices a K
   const one = ft.makeDoc(SET);
   ft.reconcileBaseline(one, ['w w w'], { flatSegments: true });
   assert.equal(sigNow(editorOpen(one, 8000)), sigNow(one), 'D7 is not a change');
-  // the tail cover: an empty last line's end moved to the recording's end
+  /* v719: the tail cover is GONE. An empty last line ending 5 s before the recording does used to be
+   * stretched to the end on open; now that 5 s is a gap row instead, and the line's own end is left
+   * exactly as the file wrote it. The signature was unchanged before because the write was quiet; it
+   * is unchanged now because there is no write at all, which is the stronger version of the claim. */
   const tail = ft.makeDoc(SET);
   ft.reconcileBaseline(tail, ['w a', 'w b', ''], { flatSegments: true });
   tail.segments = [{ start: 0, end: 3000, guess: [null, null] }, { start: 3000, end: 6000, guess: [null, null] }, { start: 6000, end: 7000, guess: [null, null] }];
   const covered = editorOpen(tail, 12000);
-  assert.equal(covered.segments[2].end, 12000, 'covered');
-  assert.equal(sigNow(covered), sigNow(tail), 'the tail cover is not a change');
+  assert.equal(covered.segments[2].end, 7000, 'the last line keeps the end the file gave it (v719: no tail cover)');
+  assert.equal(sigNow(covered), sigNow(tail), 'and opening is not a change');
   // …but a Keep in the editor IS: only the guessed edges change, and resuming over it put the guess back
   const est = clone(tail);
   est.segments[1] = { start: 3000, end: 6000, guess: [3000, 6000], estSource: 'edit', timeEstimated: true };
@@ -254,18 +257,19 @@ function liveSettings(start) {
     const applyUiScale = noop, applyHeaderLabels = noop, applyGlossIcon = noop, applyResearchVisibility = noop, applyAllowedButtons = noop,
       fillDeviceSetup = noop, renderDocList = noop, applyDeleteAllButton = noop, applyInviteButton = noop, applyDoneButton = noop,
       applyCutTabVisibility = noop, applyCutHint = noop, applyBaselineHint = noop, applyGlossEmptyHint = noop, renderTimingBanner = noop,
+      syncGapTools = noop,   // v719: the dock's gap controls follow the same push
       baselineShowsTextarea = () => false, refreshList = noop, renderRecordView = noop, renderRecordList = noop;
     const joinLinesAllowed = () => true, splitLinesAllowed = () => true, segmentationEnabled = () => settings.segmentation === true;
     const currentView = () => 'baseline', switchTab = (v) => env.switched.push(v), mgDraw = () => { env.drawn++; };
-    ${liftAll(APP, ['adjustBoundariesAllowed', 'keepTimesOn', 'keepAllowed', 'timingBannerOn', 'applyLiveSettings'])}
+    ${liftAll(APP, ['adjustBoundariesAllowed', 'keepTimesOn', 'keepAllowed', 'timingBannerOn', 'gapLinesOn', 'gapLinesAllowed', 'applyLiveSettings'])}
     return (next) => { env.next = next; applyLiveSettings(); };
   `)(env);
   return { env, push: (next) => run(next) };
 }
 
 test('a pushed keepTimes or timingBanner redraws the open tab — Keep and the marks follow the switch', () => {
-  const base = { segmentation: true, keepTimes: true, timingBanner: true };
-  for (const change of [{ keepTimes: false }, { timingBanner: false }]) {
+  const base = { segmentation: true, keepTimes: true, timingBanner: true, gapLines: true };
+  for (const change of [{ keepTimes: false }, { timingBanner: false }, { gapLines: false }]) {
     const { env, push } = liveSettings(base);
     push({ ...base, ...change });
     assert.deepEqual(env.switched, ['baseline'], `${Object.keys(change)[0]} off: re-entered once (a Keep that did nothing stayed on screen)`);

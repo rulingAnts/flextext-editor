@@ -169,15 +169,26 @@ the agent sandbox:
   without asking anyone (Seth, 2026-08-20: *"YOU can tell when the staging build has finished and is
   live"*).
 
-⚠ Direct HTTP is still blocked — egress to `*.workers.dev`, `rulingants.github.io`,
-`connect.flextext.app` and `pat.flextext.app` returns 000/403 — so `check-release-integrity.sh` run
-from the sandbox proves nothing. That is a real limit, and it is the ONLY one; do not let it stand in
-for "verification is manual". Allowing those four hosts in the environment's network policy would
-close the remainder.
+- **Direct HTTP: OPEN since 2026-10-11.** The network policy was widened, so the sandbox now reaches
+  all seven `*.flextext.app` app hosts, `rulingants.github.io`, the `staging-*.68mh29kgsd.workers.dev`
+  estate, and `connect.flextext.app` (which answers 401 to an unauthenticated root — the worker
+  refusing, correctly). **`./check-release-integrity.sh` runs for real and passes**, and a deploy is
+  confirmed by reading the version the live origin serves. v719's staging deploy was verified this
+  way on all seven hosts before anyone opened a browser.
+  - ⚠ The script is **PATH-based** (the Pages layout: `$BASE/flextext-editor/sw.js`,
+    `$BASE/text-recorder/sw.js`). Pointed at a host-based Cloudflare origin it fails confusingly,
+    looking for `app.flextext.app/flextext-editor/sw.js`. `rulingants.github.io` is the host it
+    wants and the default `BASE` is already right — do not "fix" it toward Cloudflare.
+  - ⚠ **`000` from the sandbox does NOT mean blocked.** Read the gateway's own code at
+    `$HTTPS_PROXY/__agentproxy/status`: **403** is a policy denial, **502** is permitted-but-nothing-
+    answering. `beta.flextext.app` reads 000 and is 502 — the seven `<worker>-beta` Workers have
+    never been created, so there is nothing there to reach. Diagnosing that as a network problem is
+    the mistake this line exists to prevent.
 
 ⚠ **The general lesson, which is why this is written at length:** a limitation recorded once gets
 believed indefinitely, by humans and agents alike. Re-test the limits occasionally rather than
-inheriting them. This is the second time that has been the finding in this file.
+inheriting them. **This is the THIRD time that has been the finding in this file** — the paragraph
+above replaced one that had been wrong for weeks, and was itself wrong within seven weeks.
 
 #### Docs commits are free now
 

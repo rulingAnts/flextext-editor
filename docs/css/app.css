@@ -397,6 +397,9 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 .dev-badge-off { color: #fecaca; text-decoration: underline; font-size: 12px; font-weight: 600;
                  min-width: 32px; min-height: 28px; }
 .dev-del { color: #b91c1c; }
+/* The panel's own dev control, beside the ordinary upload-first "Remove from device". Same red as
+   the editor's ☠ so the two read as one feature across the two surfaces. */
+.rp-devdel { color: #b91c1c; }
 
 /* The dock's two gap controls, beside ✨ — same size, same weight, never shouting. */
 .player-gap { font-size: 12px; white-space: nowrap; }

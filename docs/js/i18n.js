@@ -569,6 +569,10 @@ en: {
   'panel.opt.abm.15': '15 minutes',
   'panel.opt.abm.30': '30 minutes',
   'panel.opt.abm.60': '1 hour',
+  // Developer mode in the panel — shown only while this browser is armed with fxDev().
+  'panel.dev.delNow': 'Remove, no backup',
+  'panel.dev.confirmDelNow': 'Tell the device to delete “{title}” WITHOUT uploading it first?\n\nNothing is backed up and this cannot be undone. The device will only obey if developer mode is also on there — otherwise it refuses and the text stays.',
+  'panel.dev.delNowSent': 'Sent — the device will delete it without a backup (if developer mode is on there).',
   'panel.inst.delText': 'Remove from device',
   'panel.inst.untitledText': 'Untitled text',
   'panel.inst.confirmDelText': 'The device will first upload “{title}” to Drive (a fresh time-stamped copy), then delete it from the device. The text is only deleted after the upload is confirmed safe. Continue?',
@@ -3447,6 +3451,10 @@ id: {
   'panel.opt.abm.15': '15 menit',
   'panel.opt.abm.30': '30 menit',
   'panel.opt.abm.60': '1 jam',
+  // Mode pengembang di panel — hanya tampil selama peramban ini aktif dengan fxDev().
+  'panel.dev.delNow': 'Hapus, tanpa cadangan',
+  'panel.dev.confirmDelNow': 'Minta perangkat menghapus “{title}” TANPA mengunggahnya lebih dulu?\n\nTidak ada yang dicadangkan dan ini tidak bisa dibatalkan. Perangkat hanya akan menuruti jika mode pengembang juga aktif di sana — kalau tidak, ia menolak dan teksnya tetap ada.',
+  'panel.dev.delNowSent': 'Terkirim — perangkat akan menghapusnya tanpa cadangan (jika mode pengembang aktif di sana).',
   'panel.inst.delText': 'Hapus dari perangkat',
   'panel.inst.untitledText': 'Teks tanpa judul',
   'panel.inst.confirmDelText': 'Perangkat akan terlebih dahulu mengunggah “{title}” ke Drive (salinan baru berstempel waktu), lalu menghapusnya dari perangkat. Teks hanya dihapus setelah unggahan dipastikan aman. Lanjutkan?',

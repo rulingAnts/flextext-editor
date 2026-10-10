@@ -206,6 +206,27 @@ test('the panel needs NO new worker command — `delete` already exists end to e
   assert.doesNotMatch(RSCH, /pushCommand\([^)]*'forceDelete'/, 'no panel-side force command');
 });
 
+test('the panel offers it too, and only while THIS browser is armed', () => {
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  // The panel reads the same per-browser flag app.js owns — same origin, so arming once covers both.
+  assert.match(PANEL, /function devMode\(\) \{ try \{ return localStorage\.getItem\('flextext-dev-mode'\) === '1'; \}/,
+    'the panel reads the flag');
+  assert.doesNotMatch(PANEL, /localStorage\.setItem\('flextext-dev-mode'/,
+    '⚠ and NEVER writes it — the panel must not be able to arm anything');
+  assert.match(PANEL, /devMode\(\) \? ` <button class="link-btn rp-devdel" data-iact="del-text-now"/,
+    'the button is rendered only when armed');
+  assert.match(PANEL, /Researcher\.deleteNow\(id, el\.dataset\.id\)/, 'and sends the ordinary delete command');
+  assert.match(PANEL, /confirmModal\(t\('panel\.dev\.confirmDelNow'/, 'behind its own confirm');
+  // It must sit beside the safe one, not replace it.
+  assert.match(PANEL, /data-iact="del-text"/, 'the upload-first Remove is still there');
+  for (const k of ['panel.dev.delNow', 'panel.dev.confirmDelNow', 'panel.dev.delNowSent']) {
+    assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} in en and id`);
+  }
+  assert.match(I18N, /panel\.dev\.confirmDelNow': 'Tell the device to delete .{0,12}\{title\}.{0,12} WITHOUT uploading it first\?/);
+  assert.match(I18N, /only obey if developer mode is also on there/,
+    'and the confirm says the device can still refuse — which is the safety property, stated to the user');
+});
+
 test('the strings exist in both languages, and the confirm says what it does', () => {
   for (const k of ['dev.badge', 'dev.badgeOff', 'dev.deleteTitle', 'dev.confirmDeleteNoBackup']) {
     assert.equal((I18N.match(new RegExp(`'${k.replace('.', '\\.')}':`, 'g')) || []).length, 2, `${k} in en and id`);

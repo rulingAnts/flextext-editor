@@ -968,6 +968,15 @@ export function initResearcherPanel(d) {
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
   window.addEventListener('online', () => { if (!root || root.hidden) return; sweepAssignUploads(); if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
+  /* ⚠ DEVELOPER MODE TOGGLED → REPAINT, or the rows keep the state they were drawn in. fxDev() lives
+   * in app.js and arms a localStorage flag; the panel reads that flag while BUILDING each row, so a
+   * dashboard drawn before arming shows no "Remove, no backup" and one drawn before disarming still
+   * shows it. The panel does not poll its way out of this quickly — renderDashboard runs on its own
+   * events — so arming appeared to do nothing until the next tick. Decoupled through an event rather
+   * than a cross-module call: app.js has no business knowing the panel's render entry point. */
+  window.addEventListener('fx-dev-mode', () => {
+    try { renderDashboard(lastData || undefined); } catch { /* dashboard not up yet */ }
+  });
   /* CONSOLE ENTRY POINT — `fxDevices()`. Prints what the panel ACTUALLY received for each device,
    * so "why is/isn't this flagged?" is answered with data instead of a theory. Added after two wrong
    * guesses about the estate badge (Seth, 2026-08-05): the client code and the worker SQL both

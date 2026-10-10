@@ -24,7 +24,7 @@ const WORKER = readFileSync(new URL('../worker/src/v1.js', import.meta.url), 'ut
 
 /* The flag and the badge, lifted from app.js and run against a localStorage stand-in. */
 function devApp(opts = {}) {
-  const env = { store: new Map(Object.entries(opts.store || {})), lists: 0, removed: [], appended: [] };
+  const env = { store: new Map(Object.entries(opts.store || {})), lists: 0, removed: [], appended: [], events: [] };
   const api = new Function('env', 'opts', `
     const localStorage = {
       getItem: (k) => (env.store.has(k) ? env.store.get(k) : null),
@@ -33,7 +33,7 @@ function devApp(opts = {}) {
     };
     const t = (k) => k;
     const allowDeleteOn = () => opts.allowDelete !== false;
-    const refreshList = () => { env.lists++; };
+    const refreshList = () => { env.lists++; return opts.listRejects ? Promise.reject(new Error('ul is null')) : undefined; };
     const userDeleteDoc = (id, title, o) => { env.called = { id, title, o }; };
     // A DOM small enough to see what the badge does and no smaller.
     const mk = () => ({ id: '', className: '', type: '', textContent: '', title: '', children: [],
@@ -54,8 +54,10 @@ function devApp(opts = {}) {
       getElementById(id) { return this._byId.get(id) || null; },
       body: { appendChild(el) { document._byId.set(el.id, el); return el; } },
     };
-    ${liftAll(APP, ['DEV_KEY', 'devMode', 'setDevMode', 'renderDevBadge', 'devDeleteBtn'])}
-    return { devMode, setDevMode, renderDevBadge, devDeleteBtn,
+    const window = { dispatchEvent: (e) => { env.events.push(e && e.type); return true; } };
+    const CustomEvent = function (type, init) { this.type = type; this.detail = init && init.detail; };
+    ${liftAll(APP, ['DEV_KEY', 'devMode', 'setDevMode', 'renderDevBadge', 'devModeChanged', 'devDeleteBtn'])}
+    return { devMode, setDevMode, renderDevBadge, devModeChanged, devDeleteBtn,
              badge: () => document.getElementById('dev-badge') };
   `)(env, opts);
   return { env, api };
@@ -82,7 +84,53 @@ test('arming is CONSOLE ONLY — fxDev is the one entry point, and never a keybo
   assert.doesNotMatch(APP, /setDevMode\(true\)/, 'nothing in the app arms it for the user');
   const fx = APP.slice(APP.indexOf('window.fxDev = '), APP.indexOf('window.fxDev = ') + 700);
   assert.match(fx, /setDevMode\(!!on\)/, 'fxDev(false) disarms as well as fxDev() arming');
-  assert.match(fx, /renderDevBadge\(\)/, 'and it draws (or removes) the badge immediately');
+  assert.match(fx, /devModeChanged\(\)/, 'and everything that follows a flip goes through one place');
+});
+
+test('a flip repaints safely, and never through a bare refreshList() (the v720 crash)', () => {
+  /* refreshList() is synchronous but hands off to an ASYNC renderer without awaiting it, so a throw
+   * inside escapes as an unhandled promise rejection that a try/catch around the call cannot see.
+   * fxDev() in the researcher panel was the first caller to hit it: `ul is null` at app.js:453. */
+  const dmc = liftAll(APP, ['devModeChanged']);
+  assert.match(dmc, /Promise\.resolve\(refreshList\(\)\)\.catch\(/,
+    'the async rejection is caught, not just the synchronous throw');
+  assert.match(dmc, /dispatchEvent\(new CustomEvent\('fx-dev-mode'/,
+    'and the panel is told, since it reads the flag while BUILDING each row');
+
+  // The real fix is in the renderer: it must tolerate a shell that has no list at all.
+  const rdl = liftAll(APP, ['renderDocList']);
+  assert.match(rdl, /const ul = \$\('#doc-list'\);\s*\n\s*const empty = \$\('#doc-list-empty'\);\s*\n\s*if \(!ul\) return;/,
+    'renderDocList bails when its host is absent instead of throwing on null');
+  assert.match(rdl, /if \(empty\) empty\.hidden = docs\.length > 0;/, 'and the empty-state node is guarded too');
+
+  // refreshList still falls through to renderDocList in RESEARCHER_MODE — which is now harmless.
+  const rl = liftAll(APP, ['refreshList']);
+  assert.match(rl, /return renderDocList\(\);/, 'the fall-through is unchanged; the renderer is what got safe');
+});
+
+test('a flip in a shell with no texts list is a no-op, not an unhandled rejection', async () => {
+  // listRejects makes refreshList behave as it really does in the panel: it returns a promise that
+  // rejects. Before the fix this escaped every try/catch and printed a console error with no stack
+  // into the code responsible.
+  const a = devApp({ listRejects: true });
+  const seen = [];
+  const onRej = (e) => { seen.push(e); };
+  process.on('unhandledRejection', onRej);
+  try {
+    assert.doesNotThrow(() => a.api.devModeChanged(), 'the flip itself does not throw');
+    await new Promise((r) => setImmediate(r));   // give an unhandled rejection a tick to surface
+    await new Promise((r) => setImmediate(r));
+  } finally { process.off('unhandledRejection', onRej); }
+  assert.deepEqual(seen, [], 'and nothing escapes as an unhandled rejection');
+  assert.ok(a.env.lists > 0, 'it did still try to repaint');
+  assert.deepEqual(a.env.events, ['fx-dev-mode'], 'and the panel was told either way');
+});
+
+test('the panel repaints on the flip, through the event and not a cross-module call', () => {
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  assert.match(PANEL, /window\.addEventListener\('fx-dev-mode', \(\) => \{\s*\n\s*try \{ renderDashboard\(lastData \|\| undefined\); \}/,
+    'the panel listens and re-renders');
+  assert.doesNotMatch(PANEL, /import \{[^}]*devModeChanged/, 'app.js internals stay app.js internals');
 });
 
 test('it persists until turned off, and survives a private-mode write failure', () => {

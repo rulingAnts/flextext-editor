@@ -21,6 +21,11 @@
  *     (its phrase overlaps a neighbour, or is shorter than MIN_SEGMENT_MS, or an older build clamped
  *     it), but nobody has changed the line since: while its phrase still carries exactly these offsets,
  *     the export writes them back as they came (P4). Any operation that re-times the line drops it.
+ *   - `phAt: [s, e]` (v718, IN MEMORY ONLY) — the values a PLACEHOLDER was given by spreadUntimed: a
+ *     line with no time, drawn evenly in the gap its timed neighbours leave. It is a placeholder only
+ *     while its values still equal these (isPlaceholder). Never stored, never exported — see below.
+ *   - `noRoom: true` (v718, IN MEMORY ONLY, on a pending span) — spreadUntimed found no room for it
+ *     between its timed neighbours. A display mark; storage drops it.
  *
  * ⚠ THE INVARIANT THAT MATTERS: aligned segments must be strictly increasing and non-overlapping.
  * That is not merely our internal tidiness — ELAN REQUIRES aligned annotations within a tier to be
@@ -66,6 +71,7 @@ export function audioTierReachable(seg, playheadMs) {
  * but could not REMOVE keys, so a demoted segment kept its stale start/end and its estimate flag. */
 function blankInPlace(seg, keepFileTimes = false) {
   delete seg.start; delete seg.end; delete seg.timeEstimated; delete seg.guess; delete seg.estSource;
+  delete seg.phAt; delete seg.noRoom;   // display-only (v718): spreadUntimed lays them down afresh
   if (!keepFileTimes) delete seg.fileTimes;
   seg.timePending = true;
   return seg;
@@ -120,8 +126,43 @@ const copySpan = (s) => {
   if (!s) return { timePending: true };
   const o = { ...s };
   if (Array.isArray(s.guess)) o.guess = s.guess.slice(0, 2);
+  if (Array.isArray(s.phAt)) o.phAt = s.phAt.slice(0, 2);
   return o;
 };
+
+/* =================================================================================================
+ * PLACEHOLDERS (v718 — plans/time-gaps-and-estimates.md §2, D3, D4; Seth's B2, 2026-10-10: "make sure
+ * the lines that DO have timing information follow that timing information and only the ones with NO
+ * time information are evenly spaced in the gap in between clear lines").
+ *
+ * A line with no time is drawn in the gap its timed neighbours leave, sharing it evenly with the other
+ * untimed lines there (spreadUntimed). That span is a PLACEHOLDER: it plays, it draws, it can be dragged
+ * or cut like any span — and it is never stored and never exported. `phAt` holds the values it was
+ * given, and it is a placeholder only while its values are still exactly those, so a copy made with
+ * `{...s}` that is then dragged, cut or nudged is simply not one any more (case 10) — there is no flag
+ * to forget to clear. Two operations keep the status on purpose: joining two placeholders, and dividing
+ * one at a point the user did not place (a word fraction, a nudged cut, the Segmenter's midpoint) — a
+ * guess inside a guess is still nobody's time (case 2). Anything the user places makes it a real span,
+ * or an estimate where an edge is still the spread's guess, and THAT is stored and exported, marked.
+ *
+ * ⚠ THEY LIVE IN current.doc.segments, IN MEMORY, so every renderer, ticker and operation sees the one
+ * array (as v714's seed did) — and storage removes them in exactly ONE place: db.js putDoc →
+ * storableRecord → storableSegments, which writes a placeholder as { timePending: true }. Every export
+ * reads the same storable form (flextext.js spansForExport). So opening a text stores nothing, and no
+ * spread time reaches a .flextext, an EAF or a .fxpa.
+ * ============================================================================================== */
+/* Each untimed line needs this much of the gap, or the run stays ⋯ with a "no room" mark: 400 ms is
+ * the shortest real text line in the corpus (399 ms, D2). */
+export const SPREAD_MIN_MS = 400;
+
+/** A span drawn by spreadUntimed and not moved since — display only. */
+export function isPlaceholder(s) {
+  return isAligned(s) && Array.isArray(s.phAt) && s.start === s.phAt[0] && s.end === s.phAt[1];
+}
+/** A time somebody has: real, or an estimate (stored and exported, marked). Not a placeholder. */
+export function isPlaced(s) { return isAligned(s) && !isPlaceholder(s); }
+const PH_FIELDS = ['start', 'end', 'guess', 'estSource', 'timeEstimated', 'phAt', 'noRoom', 'timePending'];
+const withoutTime = (s) => { const o = { ...s }; for (const k of PH_FIELDS) delete o[k]; return o; };
 // The guess pair a span carries, treating an unmigrated estimate as guessed at both edges.
 const guessOf = (s) => {
   if (!s) return null;
@@ -214,9 +255,12 @@ export function placeSeam(segs, i, t, edge = 'seam') {
 
 /* Divide one aligned span at `at` → [first, second]. `real: true` — the user placed this point (the
  * playhead); `real: false` — we chose it (nudged, a word fraction, ✨), so it is a guess on both
- * sides. The outer edges keep exactly the guesses the span had. Non-time fields ride with both. */
+ * sides. The outer edges keep exactly the guesses the span had. Non-time fields ride with both.
+ * `keepPlaceholder` (v718): dividing a PLACEHOLDER at a point nobody placed leaves two placeholders
+ * (case 2) — pass it only with `real: false`; ✨ does not, so its pieces become estimates. */
 export function splitSpanAt(cur, at, opts = {}) {
   const real = opts.real !== false;
+  const keep = !real && !!opts.keepPlaceholder && isPlaceholder(cur);
   const g = guessOf(cur);
   const first = copySpan(cur), second = copySpan(cur);
   first.end = at; second.start = at;
@@ -224,14 +268,19 @@ export function splitSpanAt(cur, at, opts = {}) {
     first.guess = [g ? g[0] : null, real ? null : at];
     second.guess = [real ? null : at, g ? g[1] : null];
   }
-  if (!real) first.estSource = second.estSource = opts.source || 'edit';
+  if (!real) first.estSource = second.estSource = keep ? 'spread' : (opts.source || 'edit');
+  if (keep) { first.phAt = [first.start, first.end]; second.phAt = [second.start, second.end]; }
   return [settle(first), settle(second)];
 }
 
 /* Join two neighbouring spans into one. The start side's guess comes from `a` and the end side's
  * from `b`, so a guessed INNER boundary simply disappears with the boundary — the old rule ("an
  * estimate if either half was") made a real join of two estimated halves a guess for ever. A merge
- * with a pending side keeps whatever time IS known. */
+ * with a pending side keeps whatever time IS known.
+ * ⚠ A join whose every known time is a PLACEHOLDER's is a placeholder (v718, case 2): two untimed lines
+ * joined are still one untimed line, and must not leave this function as a stored estimate. Joined to
+ * a line somebody timed, it is that line's time with the spread's guess on the far edge — dashed,
+ * stored, exported with its `~`: the user joined it, and the edge is honestly a guess. */
 export function mergeSpanPair(a, b) {
   const A = isAligned(a), B = isAligned(b);
   if (!A && !B) return { timePending: true };
@@ -245,6 +294,7 @@ export function mergeSpanPair(a, b) {
     const src = (g[0] != null ? (A ? a : b).estSource : null) || (g[1] != null ? (B ? b : a).estSource : null);
     if (src) m.estSource = src;
   }
+  if ((!A || isPlaceholder(a)) && (!B || isPlaceholder(b))) m.phAt = [m.start, m.end];
   return settle(m);
 }
 
@@ -425,8 +475,9 @@ export function boundaryAtPlayhead(segments, index, playheadMs, opts = {}) {
   }
 
   /* The playhead is a real edge on both sides of the new boundary; a boundary we had to move inward
-   * is not the user's chosen time, on either side of it. The outer edges keep what they were. */
-  out.splice(index, 1, ...splitSpanAt(cur, at, { real: !nudged }));
+   * is not the user's chosen time, on either side of it. The outer edges keep what they were. A
+   * PLACEHOLDER cut at the playhead becomes two placed lines; nudged, it stays two placeholders (v718). */
+  out.splice(index, 1, ...splitSpanAt(cur, at, { real: !nudged, keepPlaceholder: true }));
   return normalizeSegments(out, opts);
 }
 
@@ -496,7 +547,8 @@ export function splitSegment(segments, i, opts = {}) {
     return normalizeSegments(out, opts);
   }
 
-  out.splice(i, 1, ...splitSpanAt(cur, at, { real: !estimated }));
+  // A placeholder divided by word fraction is two placeholders (v718, case 2); at the playhead, two lines.
+  out.splice(i, 1, ...splitSpanAt(cur, at, { real: !estimated, keepPlaceholder: true }));
   return normalizeSegments(out, opts);
 }
 
@@ -567,8 +619,11 @@ export function segmentsFollowLines(oldSegs, origins, opts = {}) {
       const start = f0 === 0 ? s.start : Math.round(s.start + f0 * len);
       const end = f1 === 1 ? s.end : Math.round(s.start + f1 * len);
       const piece = { start, end, guess: [f0 === 0 ? g[0] : start, f1 === 1 ? g[1] : end] };
-      const src = (f0 > 0 || f1 < 1) ? 'edit' : s.estSource;
+      // A placeholder's word-fraction pieces are placeholders still (v718, case 2): nobody placed them.
+      const ph = isPlaceholder(s);
+      const src = ph ? 'spread' : (f0 > 0 || f1 < 1) ? 'edit' : s.estSource;
       if (src) piece.estSource = src;
+      if (ph) piece.phAt = [start, end];
       return settle(piece);
     }
     return { timePending: true };
@@ -604,6 +659,109 @@ function inOrderOrigins(origins) {
   for (let j = top; j >= 0; j = prev[j]) keep[j] = true;
   // A 'new' line has no time to keep or lose; it is never on the run and never needs to be.
   return keep;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * spreadUntimed — Seth's B2 (v718, D3, D4): every line with no time, shown in the gap it belongs to.
+ *
+ * A RUN is a stretch of lines with no placed time. Its ROOM runs from the end of the placed line
+ * before it (or 0) to the start of the placed line after it (or D, the recording's decoded length),
+ * and the run shares the room evenly: line m of k gets [round(lo + m(hi−lo)/k), round(lo + (m+1)(hi−lo)/k)].
+ * Each becomes a placeholder (phAt), guessed on every edge but a C0 one — the first line's start and the
+ * last line's end are 0 and D, which are facts. An all-untimed text is the same rule with one room,
+ * [0, D]: exactly v714's even spread, round(kD/N), now drawn and never written (D4). Placed lines are
+ * never changed; they bound the rooms and that is all.
+ *
+ * ⚠ NO ROOM, NO SPREAD. A room shorter than k × minMs (400 ms a line, the shortest real text line)
+ * leaves its lines pending, each marked `noRoom` for the renderer (⋯ and an amber mark): nothing is
+ * squeezed into a sliver to make the picture look complete.
+ * ⚠ A LINE HOLDING THE FILE'S OWN TIMES (`fileTimes`) IS NOT UNTIMED: the model could not place them,
+ * but they are times (P4). It stays pending, keeps its hold, and takes no share of the room.
+ * ⚠ A ONE-LINE TEXT IS LEFT ALONE: its whole-file span is D7's, a real one, laid down by the caller.
+ * D unknown (0) → no spread at all. Deterministic: the same spans and D give the same placeholders, so
+ * every draw of every tab shows the same thing. Returns a NEW array (copies); the input is untouched.
+ * ------------------------------------------------------------------------------------------- */
+export function spreadUntimed(segments, D, opts = {}) {
+  const minMs = isNum(opts.minMs) ? opts.minMs : SPREAD_MIN_MS;
+  const out = withGuesses(segments);
+  const n = out.length;
+  out.forEach((s) => { delete s.noRoom; });
+  if (!(isNum(D) && D > 0) || n < 2) return out;
+  for (let k = 0; k < n;) {
+    if (isPlaced(out[k])) { k++; continue; }
+    let j = k;
+    while (j + 1 < n && !isPlaced(out[j + 1])) j++;
+    const lo = k > 0 ? out[k - 1].end : 0;
+    const hi = j < n - 1 ? out[j + 1].start : D;
+    const members = [];
+    for (let q = k; q <= j; q++) if (!Array.isArray(out[q].fileTimes)) members.push(q);
+    const m = members.length;
+    const room = m > 0 && hi - lo >= m * minMs;
+    members.forEach((idx, q) => {
+      const cur = out[idx];
+      if (!room) { if (isAligned(cur)) blankInPlace(cur); cur.timePending = true; cur.noRoom = true; return; }
+      const s = withoutTime(cur);
+      s.start = Math.round(lo + (q * (hi - lo)) / m);
+      s.end = Math.round(lo + ((q + 1) * (hi - lo)) / m);
+      s.guess = [idx > 0 ? s.start : null, idx < n - 1 ? s.end : null];
+      s.estSource = 'spread';
+      s.phAt = [s.start, s.end];
+      out[idx] = settle(s);
+    });
+    k = j + 1;
+  }
+  return out;
+}
+
+/* WHAT STORAGE AND EXPORTS SEE (v718): every placeholder written as { timePending: true } (any non-time
+ * field it carried — a Segmenter row's id — kept), and the display-only marks (`phAt`, `noRoom`)
+ * dropped from every span. db.js putDoc runs each record through this — the ONE chokepoint — and
+ * flextext.js spansForExport too, so a spread time reaches neither IndexedDB nor a file (case 5).
+ * `matcher: true` keeps the Audio Segmenter's own shape for a row with no audio ({ start: 0, end: 0 }).
+ * A span with nothing to drop is passed through as the same object: it must serialize exactly as it
+ * did before this existed. Returns a NEW array; nothing is mutated. */
+export function storableSegments(segments, opts = {}) {
+  return (Array.isArray(segments) ? segments : []).map((s) => {
+    if (!s || typeof s !== 'object') return s;
+    if (isPlaceholder(s)) {
+      const o = withoutTime(s);
+      if (opts.matcher) { o.start = 0; o.end = 0; }
+      o.timePending = true;
+      return o;
+    }
+    if (!('phAt' in s) && !('noRoom' in s)) return s;
+    const o = { ...s };
+    delete o.phAt; delete o.noRoom;
+    return o;
+  });
+}
+
+/* v714's SEED, RECOGNISED (v718, case 12). v714 — and v717, quietly — stored an untimed text opened
+ * with its recording as an even spread of estimates: guesses that every later export then wrote out as
+ * times (E78 was made that way). They are turned back into what they always were, lines with no time,
+ * and spreadUntimed draws them again as placeholders that nothing stores or exports.
+ * A seed span is an estimate whose length is within 2 ms of `step` and whose start is within 2 ms of
+ * k × step. `step` comes from the spans' own mean length, never from this device's decoded length:
+ * decoders disagree by tens of milliseconds, and a ±70 ms difference must not hide a seed (BM6). */
+export function isV714Seed(span, k, step) {
+  if (!isEstimate(span) || isPlaceholder(span) || !(step > 0) || !Number.isInteger(k) || k < 0) return false;
+  return Math.abs((span.end - span.start) - step) <= 2 && Math.abs(span.start - k * step) <= 2;
+}
+/* The seed spans of a stored text, made pending (copies; the rest unchanged). Candidates are estimates
+ * whose line carries no offsets of its own (`hasOffsets(i)`): a seed was never in a file, and a FILE's
+ * even spread (E78) is that file's own estimate, kept and exported as one (D5). `step` is the
+ * candidates' mean length, which a drag between two seed lines leaves exactly where it was; k is the
+ * grid point nearest each start, so a line inserted since does not shift every seed after it. Two hits
+ * at least — a seed is never one line (D7's whole-file span is real). */
+export function seedsToPending(segments, hasOffsets = () => false) {
+  const segs = Array.isArray(segments) ? segments : [];
+  const cand = [];
+  segs.forEach((s, i) => { if (isEstimate(s) && !isPlaceholder(s) && !hasOffsets(i)) cand.push(i); });
+  if (cand.length < 2) return segs.map(copySpan);
+  const step = cand.reduce((a, i) => a + (segs[i].end - segs[i].start), 0) / cand.length;
+  const hit = new Set(cand.filter((i) => isV714Seed(segs[i], Math.round(segs[i].start / step), step)));
+  if (hit.size < 2) return segs.map(copySpan);
+  return segs.map((s, i) => (hit.has(i) ? { ...withoutTime(s), timePending: true } : copySpan(s)));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1081,9 +1239,14 @@ export function splitPlan(tiers, placed) {
  *                          by being shifted against their audio (the damaged L29 exports);
  *            'pastEnd'   — the last time is more than 350 ms past the recording's end (`ms`): the
  *                          right recording? (Below that it is decoder spread — T53 is 63 ms over.)
- *   amber    'partly'    — some lines have a time and these (`lines`) do not;
+ *   amber    'partly'    — some lines have a time and these (`lines`) do not (v718: shown as placeholders
+ *                          in their gap, "needs timing");
+ *            'noRoom'    — of those, these (`lines`) had no room in their gap and stay ⋯ (v718);
  *   estimate 'estimated' — `n` lines are estimates, `bySource` counts them by where the guess came from;
- *   info     'noTimes'   — nothing in the text has a time yet.
+ *   info     'noTimes'   — nothing in the text has a time yet (`spread`: the lines are drawn evenly, as
+ *                          placeholders — v718's one quiet banner for every FLEx export with no times).
+ * ⚠ "HAS A TIME" MEANS PLACED (v718): a placeholder is drawn and plays, but it is nobody's time, so it
+ * counts as untimed here, is never an estimate, and is never checked for density (case 17).
  * `level` is the most severe item's; `sig` changes whenever what the banner would say changes, so a
  * dismissal can be remembered against it and the banner come back when the text changes under it.
  * ============================================================================================== */
@@ -1098,11 +1261,11 @@ export function timingReport(spans, texts, opts = {}) {
   const n = Math.max(segs.length, lines.length);
   const D = isNum(opts.durationMs) && opts.durationMs > 0 ? opts.durationMs : null;
   const items = [];
-  const aligned = Array.from({ length: n }, (_, k) => isAligned(segs[k]));
+  const aligned = Array.from({ length: n }, (_, k) => isPlaced(segs[k]));
   const words = (k) => String(lines[k] || '').split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
   if (opts.timeSync) items.push({ kind: 'timeSync', level: 'red' });
-  if (n && !aligned.some(Boolean)) items.push({ kind: 'noTimes', level: 'info', n });
+  if (n && !aligned.some(Boolean)) items.push({ kind: 'noTimes', level: 'info', n, spread: segs.some(isPlaceholder) });
   else if (n) {
     const dense = [];
     for (let k = 0; k < n; k++) {
@@ -1114,7 +1277,7 @@ export function timingReport(spans, texts, opts = {}) {
     }
     if (dense.length) items.push({ kind: 'dense', level: 'red', lines: dense.map((d) => d.line), first: dense[0] });
 
-    const timed = segs.filter(isAligned);
+    const timed = segs.filter(isPlaced);
     const lastEnd = Math.max(...timed.map((s) => s.end));
     if (D && aligned.every(Boolean) && segs[0].start <= GUESS_TOL_MS
         && segs.every((s, k) => k === 0 || Math.abs(s.start - segs[k - 1].end) <= GUESS_TOL_MS)) {
@@ -1126,11 +1289,13 @@ export function timingReport(spans, texts, opts = {}) {
     const untimed = [];
     for (let k = 0; k < n; k++) if (!aligned[k]) untimed.push(k);
     if (untimed.length) items.push({ kind: 'partly', level: 'amber', n: untimed.length, lines: untimed });
+    const cramped = untimed.filter((k) => segs[k] && segs[k].noRoom);
+    if (cramped.length) items.push({ kind: 'noRoom', level: 'amber', n: cramped.length, lines: cramped });
 
     const bySource = {};
     let est = 0;
     for (let k = 0; k < n; k++) {
-      if (!isEstimate(segs[k])) continue;
+      if (!isEstimate(segs[k]) || isPlaceholder(segs[k])) continue;
       est++;
       const src = segs[k].estSource || (Array.isArray(segs[k].guess) ? 'edit' : 'legacy');
       bySource[src] = (bySource[src] || 0) + 1;

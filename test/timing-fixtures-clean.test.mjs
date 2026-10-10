@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fixtureNames, fixtureXml } from './lib/timing-fixtures.mjs';
 
-const LABELS = new Set(['ELAN40', 'E19', 'T151', 'L29', 'E78', 'T53', 'T18']);
+const LABELS = new Set(['ELAN40', 'E19', 'T151', 'L29', 'E78', 'T53', 'T18', 'U60']);
 const TEXT_OK = [
   /^(?:[w.])(?: [w.])*$/,                                   // words, baselines, glosses, translations
   /^audio ~?\d+:\d\d\.\d{3}–\d+:\d\d\.\d{3}$/,              // our own timing note
@@ -26,7 +26,7 @@ const ATTR_OK = {
 
 test('every fixture is a timing skeleton: no word, name, place or link from the source file', () => {
   const names = fixtureNames();
-  assert.ok(names.length >= 8, 'the eight skeletons are present');
+  assert.ok(names.length >= 9, 'the nine skeletons are present (v718 added U60, an all-untimed FLEx export)');
   for (const name of names) {
     assert.match(name, /^(elan|[a-z])\d+(-[a-z0-9]+)*$/, `${name}: a neutral file name`);
     const xml = fixtureXml(name);

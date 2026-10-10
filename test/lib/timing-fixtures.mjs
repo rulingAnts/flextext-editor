@@ -15,6 +15,7 @@ export const FIXTURE_DIR = new URL('../fixtures/timing/', import.meta.url);
 export const DURATION = {
   elan40: 125457, e19: 45990, t151: 362131, 'l29-damaged': 50879, 'l29-13aug': 50879,
   e78: 157179, t53: 87755, t18: 25867,
+  u60: 207331,   // v718: the all-untimed FLEx export — 60 phrases in ONE paragraph, no times at all
 };
 export const fixtureNames = () => readdirSync(FIXTURE_DIR).filter((f) => f.endsWith('.flextext')).map((f) => f.replace(/\.flextext$/, ''));
 export const fixtureXml = (name) => readFileSync(new URL(name + '.flextext', FIXTURE_DIR), 'utf8');

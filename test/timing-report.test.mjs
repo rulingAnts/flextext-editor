@@ -51,7 +51,7 @@ test('E78: its estimates, by source', () => {
 
 test('a text with no times: one info item, and no per-line marks', () => {
   const r = report('t53', (doc) => { doc.segments = doc.segments.map(() => ({ timePending: true })); });
-  assert.deepEqual(r.items, [{ kind: 'noTimes', level: 'info', n: 53 }]);
+  assert.deepEqual(r.items, [{ kind: 'noTimes', level: 'info', n: 53, spread: false }]);
   assert.equal(timingReport([], ['a', 'b'], {}).items[0].kind, 'noTimes', 'no spans at all is the same');
   assert.deepEqual(timingReport([], [], {}).items, [], 'and an empty text says nothing');
 });

@@ -11,7 +11,7 @@
 
 // segments.js is pure and imports nothing, so this adds no cycle and no new SHELL entry (it is already
 // precached everywhere app.js is). The per-edge estimate rules live there, once.
-import { isAligned, isEstimate, edgeGuessed, estimateEdges, withGuesses, settleSpan } from './segments.js';
+import { isAligned, isEstimate, edgeGuessed, estimateEdges, withGuesses, settleSpan, storableSegments } from './segments.js';
 
 export const APP_ITEM_TYPES = new Set(['txt', 'gls', 'segnum', 'punct']);
 
@@ -304,7 +304,8 @@ function parseInterlinearText(itEl, version, prefs = {}) {
   for (const node of Array.from(itEl.childNodes || [])) {
     if (!node || node.nodeType !== 7 || node.target !== TIME_ESTIMATES_PI) continue;
     const entries = parseTimeEstimatesPi(node.data);
-    if (entries.length) doc.timeEstimatesPi = (doc.timeEstimatesPi || []).concat(entries);
+    // An instruction listing NONE is a statement too (v718 — NO_TIME_ESTIMATES_PI): kept as an empty list.
+    if (entries.length || /\btime-estimates=""/.test(String(node.data || ''))) doc.timeEstimatesPi = (doc.timeEstimatesPi || []).concat(entries);
   }
 
   // Determine writing systems: prefer <languages>, fall back to usage.
@@ -509,6 +510,12 @@ function indentFragment(xml, pad) {
  * notes switched off, only the equal-length rule, which catches an even spread and nothing else
  * (v717 review). The notes are the FLEx-facing carrier; the instruction is ours. */
 export const TIME_ESTIMATES_PI = 'flextext-editor';
+/* ⚠ AND AN EMPTY ONE SAYS "NONE OF THESE ARE GUESSES" (v718, case 7/17). A run of three or more equal
+ * lines is read back as an estimate when a file carries no instruction (the equal-length rule, for
+ * devices that had notes off) — so a line the user KEPT, in a run that happens to be even, came back
+ * dashed after our own export and import. A writer holding no estimates says so with an instruction
+ * that lists none, written only when the reader's rule would otherwise misfire (serializeFlextext). */
+export const NO_TIME_ESTIMATES_PI = `<?${TIME_ESTIMATES_PI} v="2" time-estimates=""?>`;
 export function timeEstimatesPi(entries) {
   const list = (entries || []).filter((e) => e && e.guid && Number.isFinite(e.start) && Number.isFinite(e.end) && (e.gs || e.ge));
   if (!list.length) return '';
@@ -639,7 +646,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     for (const seg of para.segments) {
       const own = liveModel && para.segments.length === 1;
       const span = own ? spans[pi] : null;
-      const timed = isAligned(span);
+      const timed = isAligned(span);   // a placeholder arrives here pending (spansForExport, v718): untimed
       // D8: the live span says "no time" — so does the file, unless these are the file's own, untouched.
       const untimed = own && !timed && !heldFileTimes(span, seg.attrs);
       if (timed && isEstimate(span) && seg.attrs && seg.attrs.guid) {
@@ -729,6 +736,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   // Which of the times above are estimates, per edge — regardless of timeNotes (TIME_ESTIMATES_PI).
   const estPi = timeEstimatesPi(estimates);
   if (estPi) lines.push('    ' + estPi);
+  /* None at all — and the times written hold an even run the reader would take for a guess, or the file
+   * came with an instruction (a classic device passes its claim on): say "none" (NO_TIME_ESTIMATES_PI). */
+  else if (liveModel ? evenRealRun(spans, doc) : Array.isArray(doc.timeEstimatesPi)) lines.push('    ' + NO_TIME_ESTIMATES_PI);
   // languages element. Authored docs SKIP doc.languages (that's the stale snapshot
   // frozen at creation) and emit purely from the live settings; imported docs emit
   // their own languages first, with the settings only as gap-fillers.
@@ -888,10 +898,31 @@ export function heldFileTimes(span, attrs) {
 export function spansForExport(doc) {
   const segs = doc && Array.isArray(doc.segments) ? doc.segments : [];
   if (!segs.length) return [];
+  /* ⚠ THE STORABLE FORM FIRST (v718, D8/D12): a placeholder — an untimed line drawn evenly in its gap —
+   * is written exactly as storage would hold it, { timePending: true }, so it goes out with no offsets,
+   * no "audio" note and no instruction entry, from every exporter at once. */
   const copy = { paragraphs: doc.paragraphs, timeEstimatesPi: doc.timeEstimatesPi, timeEdges: doc.timeEdges,
-    segments: segs.map((s) => (s && Array.isArray(s.guess) ? { ...s, guess: s.guess.slice(0, 2) } : { ...s })) };
+    segments: storableSegments(segs).map((s) => (s && Array.isArray(s.guess) ? { ...s, guess: s.guess.slice(0, 2) } : { ...s })) };
   readLegacyEstimates(copy);
   return withGuesses(copy.segments);
+}
+
+/* Would the reader's equal-length rule (markFileEstimates, test 3) mark any of these written times? A run
+ * of ≥ 3 timed single-phrase lines, each within ±2 ms of the first one's length and meeting end to start.
+ * Only consulted when the live model holds no estimate at all, so every line in such a run is real. */
+function evenRealRun(spans, doc) {
+  const paras = doc.paragraphs || [];
+  const ok = (k) => isAligned(spans[k]) && paras[k] && (paras[k].segments || []).length === 1;
+  for (let k = 0; k < spans.length;) {
+    if (!ok(k)) { k++; continue; }
+    const len = spans[k].end - spans[k].start;
+    let j = k;
+    while (j + 1 < spans.length && ok(j + 1) && Math.abs((spans[j + 1].end - spans[j + 1].start) - len) <= 2
+      && Math.abs(spans[j + 1].start - spans[j].end) <= 1) j++;
+    if (j - k >= 2) return true;
+    k = j + 1;
+  }
+  return false;
 }
 
 // Our own note: "audio ~0:04.000–0:06.000". Attribute order varies by writer, so only `type` is pinned.
@@ -961,7 +992,8 @@ function markFileEstimates(doc, spans, opts = {}) {
    * estimate it held, per edge — so a run the instruction does not list is real, however even it looks.
    * Without this a real line after a word-fraction split into two equal halves (three equal lengths in a
    * row) came back marked, and every later export wrote `~` on it (v717 review). */
-  if (entries.length) for (let k = 0; k < n; k++) if (how[k] === 'pattern') how[k] = null;
+  // (v718) …an instruction that lists NONE included: it says the same about every run in the file.
+  if (Array.isArray(doc.timeEstimatesPi)) for (let k = 0; k < n; k++) if (how[k] === 'pattern') how[k] = null;
   const est = (j) => (todo(j) ? !!how[j] || (opts.legacy && !!spans[j].timeEstimated) : isEstimate(spans[j]));
   /* A legacy flag with the phrase's own offsets to compare against: the edges that DIFFER from the
    * file's are the ones somebody moved (v714–v716's normalize pushed a start to the previous line's end

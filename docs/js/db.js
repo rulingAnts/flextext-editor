@@ -1,5 +1,8 @@
 /* db.js — IndexedDB document library with autosave. */
 
+// Pure, imports nothing, and already in every SHELL that lists this file — so no new precache path.
+import { storableSegments } from './segments.js';
+
 const DB_NAME = 'flextext-editor';
 const STORE = 'docs';
 const MEDIA = 'media'; // audio blobs + waveform peaks, keyed by doc id
@@ -112,10 +115,36 @@ export async function getDoc(id) {
   });
 }
 
+/* WHAT A RECORD LOOKS LIKE IN STORAGE (v718 — plans/time-gaps-and-estimates.md §2, case 5, BM1).
+ *
+ * Placeholders — untimed lines drawn evenly in their gap (segments.js spreadUntimed) — live in the open
+ * record's doc.segments, in memory, so every tab and ticker sees one array. They must never be stored:
+ * a stored placeholder would be indistinguishable from a time somebody set, and would go out in the
+ * next export as one. So they are removed HERE, the one door every write passes through — all of
+ * putDoc's callers (persist, saveQuiet, the remembered tab, the Segmenter's draft and Done, downloads,
+ * merges) — rather than at each of them, where the next caller added would be the one that forgot.
+ *
+ * ⚠ ON A SHALLOW COPY. The record passed in is very often `current`, the open text itself: stripping
+ * it in place would make every placeholder vanish from the screen at the next autosave. Only the doc
+ * and the Segmenter's draft are copied, and only their span arrays are rebuilt; everything else is the
+ * caller's own object, as before. The draft's rows keep their own shape ({ start: 0, end: 0 }). */
+export function storableRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  let out = record;
+  if (record.doc && Array.isArray(record.doc.segments)) {
+    out = { ...out, doc: { ...record.doc, segments: storableSegments(record.doc.segments) } };
+  }
+  if (record.matchDraft && Array.isArray(record.matchDraft.spans)) {
+    out = { ...out, matchDraft: { ...record.matchDraft, spans: storableSegments(record.matchDraft.spans, { matcher: true }) } };
+  }
+  return out;
+}
+
 export async function putDoc(record) {
   const db = await getDB();
+  const stored = storableRecord(record);   // ⚠ the ONE chokepoint — see storableRecord
   return new Promise((resolve, reject) => {
-    const req = tx(db, 'readwrite').put(record);
+    const req = tx(db, 'readwrite').put(stored);
     req.onsuccess = () => { broadcastLive('docs'); resolve(); };
     req.onerror = () => reject(req.error);
   });

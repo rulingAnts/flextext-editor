@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v717';
+export const ENGINE_VERSION = 'v718';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v717';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'time-truth v2';
+export const BUILD_TAG = 'time-untimed v1';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -204,6 +204,10 @@ en: {
   'mg.startOverConfirm': 'Throw away the unfinished matching and start again from the saved text? This cannot be undone.',
   'mg.noAudioRow': 'No audio for this line',
   'mg.committedLeftover': 'Blank lines added for audio at the end: {a}. Lines saved without audio: {t}.',
+  'mg.needsTiming': 'Needs timing ({from} – {to})',
+  'mg.draftStale': 'This text has changed since you last matched it here — edited in the editor, or a newer version arrived. Resume your unfinished matching (when you press Done, those later changes are replaced), or start from the text as it is now? Your unfinished matching is kept until you change something.',
+  'mg.draftResume': 'Resume matching (discards later edits)',
+  'mg.draftFromText': 'Start from the text',
   'mg.splitSpan': 'Split this audio piece in two',
   'mg.joinPrev': 'Join to the one above',
   'mg.cutHere': 'Split the words here',
@@ -488,6 +492,7 @@ en: {
   'setup.off.allowBlankLines': 'A standalone app always lets you add blank lines. A researcher can switch that off on a device they manage.',
   'setup.off.allowTextEdit': 'A standalone app always lets you edit words, glosses and translations in place. A researcher can switch that off on a device they manage.',
   'setup.off.timingBanner': 'A standalone app always shows the timing banner. A researcher can switch it off on a device they manage.',
+  'setup.off.keepTimes': 'A standalone app always offers Keep times. A researcher can switch it off on a device they manage.',
   'setup.off.doneEnabled': 'The Finished button reports to a researcher and sends the text to their Drive. A standalone app has neither, so the button would have nothing to do.',
   'setup.off.relay': 'This explains how very large audio files reach a researcher\u2019s Drive. A standalone app does not upload, so it does not apply.',
   'setup.consentFileNote': 'Choose a sound file from this device. The app keeps its own copy, so the reminder keeps working offline and even if you later move or delete the original. A researcher-managed device is given this by its researcher instead.',
@@ -1323,9 +1328,18 @@ internet after the first time.</p>
   'seg.estTip.edit': 'Estimated time (dashed): the app placed an edge of this line (an even spread, a split away from the playhead, or a cut nudged inward). Drag it or re-cut it to set it.',
   'seg.estTip.legacy': 'Estimated time (dashed), from an earlier version of the app. Drag its edges or re-cut it to set it.',
   'seg.checkTip': 'Check this line: very many words for so little audio, so its words and its audio may be out of step.',
+  'seg.estTip.spread': 'Estimated time (dashed): this line had no time, so the app showed it evenly between its timed neighbours, and an edge is still that guess. Drag it or re-cut it to set it.',
+  'seg.spreadTip': 'No audio time yet: the lines are spread evenly over the recording as a placeholder. Nothing is saved or exported until you cut or drag them.',
+  'seg.needsTip': 'Needs timing: this line has no audio time, so it is shown evenly in the gap between its timed neighbours. Play it, then cut it or drag its edges to set it — or press Keep times if it is right.',
+  'seg.noRoomTip': 'Needs timing, and there is no room for it between its timed neighbours. Join it with the line before, then split it again with the playhead at the right moment.',
+  'seg.needsBadge': 'needs timing',
+  'keep.btn': 'Keep times',
+  'keep.tip': 'Keep these times: what this line shows now becomes its real start and end. One Undo takes it back.',
   'timing.noTimes': 'No line has an audio time yet.',
+  'timing.noTimesSpread': 'No audio times yet — lines are spread evenly as a placeholder.',
   'timing.estimated': 'This text’s times are estimates ({n} of {total} lines, dashed). They are kept, and written back marked as estimates, until you re-cut them.',
-  'timing.partly': 'Some lines have no audio time yet ({n} of {total}, shown with ⋯).',
+  'timing.partly': 'Some lines have no audio time yet ({n} of {total}). Each one is shown in the gap between its timed neighbours, marked “needs timing”, until you set it.',
+  'timing.noRoom': '{n} of them have no room in their gap, shown with ⋯.',
   'timing.check': 'Lines and audio look out of step.',
   'timing.checkDense': 'Line {line} has {words} words in {secs} s.',
   'timing.checkTail': 'The recording runs {secs} s past the last line.',
@@ -1683,6 +1697,9 @@ internet after the first time.</p>
     ,'panel.rel.fix.textBoxKeepsTimes': 'Editing a text that already has audio times in the plain baseline box (the one used when audio segmentation is off) now keeps each line with its own time when lines are added, deleted, joined or split. Before, times were handed to the lines by position, so after one added line every later line played the audio of the line before it — and the next export wrote that down as fact. Lines are matched by the words they share, not by their position. A line moved to another place keeps its words and translation but not its time, because its audio is still where it was, and the lines it passes keep theirs. Only a text whose times did not match its lines even before the edit still gets the old pairing, and then the timing banner says so in red (one Undo takes that back too). Also fixed: an edit in that box is one Undo step of its own, with audio segmentation on or off, and one Undo puts the text and its times back; it used to re-apply the edit at once, or, with segmentation off, take back the step before it as well.'
     ,'panel.rel.fix.dragKeepsPause': 'Dragging the edge of a line next to a pause now moves only that edge — on the Baseline, Cut and Gloss tabs and in the Audio Segmenter. Before, nudging the end of a line also pulled the start of the next one, so even a tiny drag closed the pause between them. Which edge moves is decided when you pick it up. Lines that touch still move together. A grip pressed and released without moving no longer leaves an Undo step that does nothing.'
     ,'panel.rel.fix.openNotAnEdit': 'Opening a text with its recording no longer counts as changing it, so a text already on Drive is not uploaded again just because it was opened — including the first time this version opens a text an earlier version saved. And times are no longer shortened when a device decodes the recording a little shorter than the times in the file: the waveform and playback stop at the end of the recording, and the times themselves stay as they were.'
+    ,'panel.rel.new.untimedLines': 'Editor, audio segmentation: a line with no audio time in a text whose other lines are timed is now shown in the gap between its timed neighbours, shared evenly with any other untimed lines there, and marked “needs timing” (an amber bar), on the Baseline, Cut and Gloss tabs and in the Audio Segmenter. The timed lines never move. Where there is no room in the gap the line stays ⋯. A text with no times at all is spread evenly as before, now with one quiet message instead of dashes that looked like estimates. None of this is saved or exported: a line keeps no time until you cut it, drag it or keep it, so exports no longer carry the even spread as times. Texts an earlier version spread that way are recognised and shown untimed again.'
+    ,'panel.rel.new.keepTimes': 'Editor, audio segmentation: “Keep times” on the line being played or typed makes a dashed (estimated) or “needs timing” line’s times its real ones, with one Undo. Researcher panel: “Show ‘Keep times’ on a line whose times are guesses”, under What the coworker may change — on for anyone working alone, off on a managed device until you switch it on.'
+    ,'panel.rel.fix.segmenterUntimed': 'Audio Segmenter: Done no longer adds a blank line at the end of a partly timed text in place of its own untimed lines, and a recording nobody cut is no longer saved as “line 1 = the whole recording”. Unfinished matching of a text that has changed since is no longer resumed without asking.'
     ,'panel.rel.new.betaChannel': 'Groundwork for a beta tier: from the next release, each version will first run for a while on beta copies of the apps (beta.flextext.app and the beta-\u2026 addresses, \u201cbeta\u201d shown beside the version) before the same version reaches the production addresses. Beta apps will use the same accounts, coworkers and texts as production. It is not open yet; when it is, ask for a beta link if you would like to try releases early.'
     ,'panel.rel.new.opsNotice': 'Researcher panel: a notice from the operator can now carry its own heading and last line, a collapsed \u201cMore info\u201d section and links \u2014 instead of always reading \u201cMaintenance in progress\u201d with the advice to avoid making changes. Long notices are no longer cut off.'
     ,'panel.rel.fix.revertSilentExports': 'Undone: v709\u2019s leaving blank lines out of the exports. Every line is written to the .flextext and the ELAN files again, blank ones included, as before v709 \u2014 leaving them out made texts moved between devices lose their untranscribed segments. A text uploaded or moved between devices since 9 October may need those segments cut again on the Cut tab.'
@@ -2524,6 +2541,8 @@ internet after the first time.</p>
   'panel.f.adjustBoundariesNote': 'On by default. Puts a grip at each end of every line\u2019s waveform on the Cut, Baseline and Gloss tabs, and makes the cut marks on the Cut tab\u2019s top player draggable. A boundary can never be dragged past its neighbours, and the words stay where they are \u2014 only the timing changes, one undo per drag. Lines that already have text keep their grips even when cutting and joining them is off. Turn this off to remove every grip.',
   'panel.f.timingBanner': 'Show the timing banner on the editor tabs',
   'panel.f.timingBannerNote': 'One short message above the player when a text’s audio times are estimates, missing, or look out of step with its recording — with Details, Show (jump to the line) and Dismiss. It never changes a time. On when working alone; off on a managed device until you switch it on.',
+  'panel.f.keepTimes': 'Show “Keep times” on a line whose times are guesses',
+  'panel.f.keepTimesNote': 'On the line being played or typed, a button that makes its dashed (estimated) or “needs timing” times its real ones, undone by one Undo. Only where boundaries may be dragged. On when working alone; off on a managed device until you switch it on.',
   'panel.f.cutJoinTextedNote': 'Off by default. On the Cut tab, lines that already have words typed for them are left alone \u2014 neither cut nor joined \u2014 so segmenting cannot disturb work already done. Turn this on to allow joining them anyway; joining keeps both pieces of text, so nothing is lost. Splitting them is never allowed there, because there is no cursor to say where the words should divide.',
   'panel.f.exportEaf': 'Include ELAN file (.eaf) in sent/saved bundles',
   'panel.f.exportSaymore': 'Include SayMore annotation file (<audio>.annotations.eaf) in sent/saved bundles',
@@ -3084,6 +3103,10 @@ id: {
   'mg.startOverConfirm': 'Buang pencocokan yang belum selesai dan mulai lagi dari teks tersimpan? Ini tidak bisa dibatalkan.',
   'mg.noAudioRow': 'Tidak ada audio untuk baris ini',
   'mg.committedLeftover': 'Baris kosong ditambahkan untuk audio di akhir: {a}. Baris tersimpan tanpa audio: {t}.',
+  'mg.needsTiming': 'Perlu waktu ({from} – {to})',
+  'mg.draftStale': 'Teks ini sudah berubah sejak terakhir Anda mencocokkannya di sini — disunting di penyunting, atau versi yang lebih baru tiba. Lanjutkan pencocokan yang belum selesai (saat Anda menekan Selesai, perubahan-perubahan itu diganti), atau mulai dari teks seperti sekarang? Pencocokan yang belum selesai tetap disimpan sampai Anda mengubah sesuatu.',
+  'mg.draftResume': 'Lanjutkan pencocokan (membuang suntingan sesudahnya)',
+  'mg.draftFromText': 'Mulai dari teks',
   'mg.splitSpan': 'Bagi potongan audio ini menjadi dua',
   'mg.joinPrev': 'Gabungkan dengan yang di atas',
   'mg.cutHere': 'Potong kata-katanya di sini',
@@ -3333,6 +3356,7 @@ id: {
   'setup.off.allowBlankLines': 'Aplikasi mandiri selalu mengizinkan penambahan baris kosong. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.allowTextEdit': 'Aplikasi mandiri selalu mengizinkan penyuntingan kata, glos, dan terjemahan di tempat. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.timingBanner': 'Aplikasi mandiri selalu menampilkan pemberitahuan waktu audio. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
+  'setup.off.keepTimes': 'Aplikasi mandiri selalu menawarkan Pakai waktu ini. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
   'setup.off.doneEnabled': 'Tombol Selesai melapor ke peneliti dan mengirim teks ke Drive mereka. Aplikasi mandiri tidak punya keduanya, jadi tombol itu tidak akan ada gunanya.',
   'setup.off.relay': 'Ini menjelaskan cara berkas audio sangat besar sampai ke Drive peneliti. Aplikasi mandiri tidak mengunggah, jadi tidak berlaku.',
   'setup.consentFileNote': 'Pilih berkas suara dari perangkat ini. Aplikasi menyimpan salinannya sendiri, jadi pengingat tetap berfungsi luring dan bahkan jika berkas aslinya nanti dipindah atau dihapus. Perangkat yang dikelola peneliti menerimanya dari peneliti.',
@@ -4063,9 +4087,18 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'seg.estTip.edit': 'Waktu perkiraan (garis putus-putus): aplikasi yang menaruh salah satu tepi baris ini (pembagian rata, potongan jauh dari posisi putar, atau potongan yang digeser ke dalam). Seret atau potong ulang untuk menetapkannya.',
   'seg.estTip.legacy': 'Waktu perkiraan (garis putus-putus), dari versi aplikasi sebelumnya. Seret tepinya atau potong ulang untuk menetapkannya.',
   'seg.checkTip': 'Periksa baris ini: terlalu banyak kata untuk audio sependek ini, jadi kata-kata dan audionya mungkin tidak sejalan.',
+  'seg.estTip.spread': 'Waktu perkiraan (garis putus-putus): baris ini belum punya waktu, jadi aplikasi menampilkannya merata di antara tetangganya yang sudah berwaktu, dan salah satu tepinya masih tebakan itu. Seret atau potong ulang untuk menetapkannya.',
+  'seg.spreadTip': 'Belum ada waktu audio: baris-baris dibagi rata di sepanjang rekaman sebagai tempat sementara. Tidak ada yang disimpan atau diekspor sampai Anda memotong atau menyeretnya.',
+  'seg.needsTip': 'Perlu waktu: baris ini belum punya waktu audio, jadi ditampilkan merata di celah antara tetangganya yang sudah berwaktu. Putar, lalu potong atau seret tepinya untuk menetapkannya — atau tekan Pakai waktu ini bila sudah benar.',
+  'seg.noRoomTip': 'Perlu waktu, dan tidak ada ruang untuknya di antara tetangganya yang sudah berwaktu. Gabungkan dengan baris sebelumnya, lalu potong lagi dengan posisi putar di saat yang tepat.',
+  'seg.needsBadge': 'perlu waktu',
+  'keep.btn': 'Pakai waktu ini',
+  'keep.tip': 'Pakai waktu ini: yang ditampilkan baris ini sekarang menjadi awal dan akhirnya yang sungguhan. Satu Urungkan membatalkannya.',
   'timing.noTimes': 'Belum ada baris yang punya waktu audio.',
+  'timing.noTimesSpread': 'Belum ada waktu audio — baris-baris dibagi rata sebagai tempat sementara.',
   'timing.estimated': 'Waktu-waktu dalam teks ini adalah perkiraan ({n} dari {total} baris, garis putus-putus). Waktu itu disimpan, dan ditulis kembali dengan tanda perkiraan, sampai Anda memotongnya ulang.',
-  'timing.partly': 'Beberapa baris belum punya waktu audio ({n} dari {total}, ditandai ⋯).',
+  'timing.partly': 'Beberapa baris belum punya waktu audio ({n} dari {total}). Masing-masing ditampilkan di celah antara tetangganya yang sudah berwaktu, ditandai “perlu waktu”, sampai Anda menetapkannya.',
+  'timing.noRoom': '{n} di antaranya tidak punya ruang di celahnya, ditandai ⋯.',
   'timing.check': 'Baris dan audio tampak tidak sejalan.',
   'timing.checkDense': 'Baris {line} berisi {words} kata dalam {secs} detik.',
   'timing.checkTail': 'Rekaman masih berlanjut {secs} detik setelah baris terakhir.',
@@ -4357,6 +4390,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.fix.textBoxKeepsTimes': 'Menyunting teks yang sudah punya waktu audio di kotak teks dasar biasa (yang dipakai saat segmentasi audio dimatikan) kini menjaga setiap baris tetap dengan waktunya sendiri saat baris ditambah, dihapus, digabung atau dipisah. Sebelumnya waktu dibagikan ke baris menurut urutan, sehingga setelah satu baris ditambahkan, setiap baris sesudahnya memutar audio baris sebelumnya — dan ekspor berikutnya mencatat itu sebagai fakta. Baris dicocokkan menurut kata-kata yang sama, bukan menurut urutannya. Baris yang dipindah ke tempat lain tetap membawa kata-kata dan terjemahannya tetapi tidak waktunya, karena audionya tetap di tempat semula, dan baris-baris yang dilewatinya tetap memegang waktunya sendiri. Hanya teks yang waktunya memang sudah tidak cocok dengan baris-barisnya sebelum disunting yang masih dipasangkan dengan cara lama, dan pemberitahuan waktu audio lalu menyatakannya dengan warna merah (satu Urungkan juga membatalkannya). Juga diperbaiki: suntingan di kotak itu kini menjadi satu langkah Urungkan sendiri, dengan segmentasi audio aktif maupun mati, dan satu Urungkan mengembalikan teks beserta waktunya; dulu suntingan itu langsung diterapkan lagi, atau, bila segmentasi mati, langkah sebelumnya ikut dibatalkan.'
     ,'panel.rel.fix.dragKeepsPause': 'Menyeret tepi baris yang bersebelahan dengan jeda kini hanya menggeser tepi itu — di tab Ketik, Potong dan Terjemahan Balik serta di Pemotong Audio. Sebelumnya, menggeser akhir sebuah baris ikut menarik awal baris berikutnya, sehingga seretan sekecil apa pun menutup jeda di antara keduanya. Tepi mana yang bergeser ditentukan saat Anda mulai menyeretnya. Baris yang bersambung tetap bergeser bersama. Pegangan yang ditekan lalu dilepas tanpa digeser tidak lagi meninggalkan langkah Urungkan yang tidak berbuat apa-apa.'
     ,'panel.rel.fix.openNotAnEdit': 'Membuka teks beserta rekamannya tidak lagi dihitung sebagai mengubahnya, jadi teks yang sudah ada di Drive tidak diunggah ulang hanya karena dibuka — termasuk saat versi ini pertama kali membuka teks yang disimpan oleh versi sebelumnya. Dan waktu tidak lagi dipendekkan bila perangkat membaca rekaman sedikit lebih pendek daripada waktu di berkas: gelombang dan pemutaran berhenti di akhir rekaman, sedangkan waktunya sendiri tetap seperti semula.'
+    ,'panel.rel.new.untimedLines': 'Editor, segmentasi audio: baris tanpa waktu audio dalam teks yang baris-baris lainnya sudah berwaktu kini ditampilkan di celah antara tetangganya yang sudah berwaktu, dibagi rata dengan baris lain tanpa waktu di sana, dan ditandai “perlu waktu” (garis jingga), di tab Ketik, Potong dan Terjemahan Balik serta di Pemotong Audio. Baris yang sudah berwaktu tidak pernah bergeser. Bila tidak ada ruang di celahnya, baris itu tetap ⋯. Teks yang sama sekali belum berwaktu tetap dibagi rata seperti sebelumnya, kini dengan satu pesan tenang, bukan garis putus-putus yang tampak seperti perkiraan. Semua ini tidak disimpan dan tidak diekspor: baris tidak memegang waktu sampai Anda memotong, menyeret atau memakainya, jadi ekspor tidak lagi membawa pembagian rata itu sebagai waktu. Teks yang dibagi rata begitu oleh versi sebelumnya dikenali dan ditampilkan lagi tanpa waktu.'
+    ,'panel.rel.new.keepTimes': 'Editor, segmentasi audio: “Pakai waktu ini” pada baris yang sedang diputar atau diketik menjadikan waktu baris bergaris putus-putus (perkiraan) atau “perlu waktu” sebagai waktu sungguhan, dengan satu Urungkan. Panel peneliti: “Tampilkan ‘Pakai waktu ini’ pada baris yang waktunya tebakan”, di bagian Apa yang boleh diubah rekan kerja — aktif bagi siapa pun yang bekerja sendiri, mati di perangkat yang dikelola sampai Anda menyalakannya.'
+    ,'panel.rel.fix.segmenterUntimed': 'Pemotong Audio: Selesai tidak lagi menambahkan baris kosong di akhir teks yang sebagian berwaktu sebagai pengganti baris-baris tanpa waktunya sendiri, dan rekaman yang belum dipotong siapa pun tidak lagi disimpan sebagai “baris 1 = seluruh rekaman”. Pencocokan yang belum selesai untuk teks yang sudah berubah sejak itu tidak lagi dilanjutkan tanpa bertanya.'
     ,'panel.rel.new.betaChannel': 'Persiapan tingkat beta: mulai rilis berikutnya, setiap versi akan berjalan dulu beberapa waktu di salinan beta aplikasi (beta.flextext.app dan alamat beta-\u2026, dengan \u201cbeta\u201d di samping nomor versi) sebelum versi yang sama sampai ke alamat produksi. Aplikasi beta akan memakai akun, rekan kerja, dan teks yang sama dengan produksi. Belum dibuka; begitu dibuka, mintalah tautan beta kalau ingin mencoba rilis lebih awal.'
     ,'panel.rel.new.opsNotice': 'Panel peneliti: pemberitahuan dari operator kini bisa membawa judul dan baris penutupnya sendiri, bagian \u201cInfo lebih lanjut\u201d yang terlipat, dan tautan \u2014 bukan selalu berbunyi \u201cPemeliharaan sedang berlangsung\u201d dengan saran untuk tidak membuat perubahan. Pemberitahuan yang panjang tidak lagi terpotong.'
     ,'panel.rel.fix.revertSilentExports': 'Dibatalkan: v709 yang tidak menyertakan baris kosong dalam ekspor. Setiap baris kembali ditulis ke .flextext dan berkas ELAN, termasuk yang kosong, seperti sebelum v709 \u2014 tanpanya, teks yang dipindahkan antarperangkat kehilangan segmen yang belum ditranskripsi. Teks yang diunggah atau dipindahkan antarperangkat sejak 9 Oktober mungkin perlu dipotong ulang di tab Potong.'
@@ -5103,6 +5139,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.adjustBoundariesNote': 'Aktif secara bawaan. Menaruh pegangan di kedua ujung gelombang setiap baris di tab Potong, Ketik dan Terjemahan Balik, dan membuat tanda potongan di pemutar atas tab Potong bisa diseret. Batas tidak pernah bisa diseret melewati tetangganya, dan kata-katanya tetap di tempatnya \u2014 hanya waktunya yang berubah, satu urungan per seretan. Baris yang sudah ada teksnya tetap punya pegangan meski pemotongan dan penggabungannya dimatikan. Matikan untuk menghilangkan semua pegangan.',
   'panel.f.timingBanner': 'Tampilkan pemberitahuan waktu audio di tab penyunting',
   'panel.f.timingBannerNote': 'Satu pesan singkat di atas pemutar bila waktu audio sebuah teks berupa perkiraan, belum ada, atau tampak tidak sejalan dengan rekamannya — dengan Rincian, Tunjukkan (lompat ke barisnya) dan Tutup. Pesan ini tidak pernah mengubah waktu. Aktif bila bekerja sendiri; mati di perangkat yang dikelola sampai Anda menyalakannya.',
+  'panel.f.keepTimes': 'Tampilkan “Pakai waktu ini” pada baris yang waktunya tebakan',
+  'panel.f.keepTimesNote': 'Pada baris yang sedang diputar atau diketik, tombol yang menjadikan waktu bergaris putus-putus (perkiraan) atau “perlu waktu” sebagai waktu sungguhan, dan bisa dibatalkan dengan satu Urungkan. Hanya bila batas boleh diseret. Aktif bila bekerja sendiri; mati di perangkat yang dikelola sampai Anda menyalakannya.',
   'panel.f.cutJoinTextedNote': 'Mati secara bawaan. Di tab Potong, baris yang sudah ada kata-katanya dibiarkan saja \u2014 tidak dipotong maupun digabung \u2014 sehingga pemotongan tidak mengganggu pekerjaan yang sudah ada. Aktifkan untuk mengizinkan penggabungannya; menggabungkan tetap menyimpan kedua teksnya, jadi tidak ada yang hilang. Memisahkannya tidak pernah diizinkan di sana, karena tidak ada kursor untuk menentukan di mana kata-katanya dibagi.',
   'panel.f.exportEaf': 'Sertakan file ELAN (.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportSaymore': 'Sertakan file anotasi SayMore (<audio>.annotations.eaf) dalam bundel yang dikirim/disimpan',

@@ -714,9 +714,9 @@ export function wireIconPicks(root) {
  * to which settings are specific to unpaired devices and which settings are only applicable to
  * paired devices"). Nothing is hidden on the strength of this; the rule of the repo is that a
  * control which cannot act says why:
- *   • PAIRED ONLY — eleven fields are inert on a device working alone. Seven because the engine gate
+ *   • PAIRED ONLY — twelve fields are inert on a device working alone. Eight because the engine gate
  *     short-circuits (`!Sync.hasSession() || settings.X === true`: allowDelete, deleteAllEnabled,
- *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner — a lone worker always has
+ *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner, keepTimes — a lone worker always has
  *     these, so the switch could only lie), and four because they wait on an upload that cannot
  *     happen with no researcher Drive behind it (autoDel, autoBackup, autoBackupMins, doneEnabled).
  *     They appear on the unpaired tab greyed, each carrying its reason: the `off:` notes over in
@@ -795,6 +795,9 @@ const GROUPS = [
      * times are estimates, missing, or out of step with the recording. Every new segmenting control is
      * the researcher's to switch: on for a lone worker, off on a managed device until switched on. */
     { k: 'timingBanner', type: 'checkbox', note: 'panel.f.timingBannerNote' },
+    /* "Keep these times" (v718): a guessed line's times made its own, one press on the active line. The
+     * same shape — on for a lone worker, off on a managed device until switched on. */
+    { k: 'keepTimes', type: 'checkbox', note: 'panel.f.keepTimesNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.
@@ -1477,6 +1480,11 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v718', date: '2026-10-10', items: [
+    { k: 'panel.rel.new.untimedLines' },
+    { k: 'panel.rel.new.keepTimes' },
+    { k: 'panel.rel.fix.segmenterUntimed' },
+  ] },
   { v: 'v717', date: '2026-10-10', items: [
     { k: 'panel.rel.new.timeEstimates' },
     { k: 'panel.rel.new.timingBanner' },

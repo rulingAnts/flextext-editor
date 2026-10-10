@@ -5,9 +5,11 @@
  * persist() its seed/heal/cover — which stamps `modified`, so merely opening a text with audio read as
  * editing it and queued a duplicate upload — and it clamped every stored time to the DECODED length
  * through syncToLines, so T53 lost 63 ms from its last line on the first render on that device.
- * Here reconcile is lifted from the source and run against the timing skeletons:
- *   · a timed text opens with every span unchanged and nothing saved at all;
- *   · a seed, a heal or a tail cover is saved QUIETLY (persistQuiet, never persist);
+ * Here it is run against the timing skeletons — since v718 as prepareDisplaySpans, exported, with the
+ * recording's length handed in (d.durationMs):
+ *   · a timed text opens with every placed span unchanged and nothing saved at all;
+ *   · D7's one-line span and a tail cover are saved QUIETLY (persistQuiet, never persist); an untimed
+ *     text's even spread is not saved at all (v718: placeholders, in memory only);
  *   · the coverTail guard reads the line's phrase offsets (it read the span's, which never exist);
  *   · a v714-stored doc's estimates are read back in memory, with nothing saved;
  *   · drawing, playing and the dock's marks clip at the recording's end — the data does not. */
@@ -17,39 +19,34 @@ import { readFileSync } from 'node:fs';
 import { loadFixture, DURATION, ft } from './lib/timing-fixtures.mjs';
 import { liftAll } from './lib/lift.mjs';
 import * as SEG from '../docs/js/segments.js';
-import { playEnd, overviewMarks, timeStateClass, timeTipKey, checkedLines } from '../docs/js/segment-strips.js';
+import { playEnd, overviewMarks, timeStateClass, timeTipKey, checkedLines, prepareDisplaySpans } from '../docs/js/segment-strips.js';
 
 const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
-const { isAligned, isEstimate, edgeGuessed } = SEG;
+const { isAligned, isEstimate, edgeGuessed, isPlaceholder, isPlaced, storableSegments } = SEG;
 
-/* reconcile(doc, deps) with a peaks cache that says the recording is `D` ms long. */
-function opener(D) {
-  return new Function('SEG', 'ft', 'D', `
-    const { syncToLines, isAligned, settleSpan } = SEG;
-    const { readLegacyEstimates } = ft;
-    let peaksCache = { docId: 'doc', peaks: null, durationMs: D };
-    ${liftAll(STRIPS, ['docSegments', 'peaksDurationFor', 'COVER_TOL_MS', 'coverTail', 'evenSpread', 'reconcile'])}
-    return reconcile;
-  `)(SEG, ft, D);
-}
+/* What every tab runs before it draws (prepareDisplaySpans — reconcile until v718), with the recording
+ * `D` ms long, counting the writes it asks for. */
 function open(doc, D) {
-  const writes = { quiet: 0, stamped: 0 };
-  const deps = {
-    getParagraphs: (d) => ft.getBaselineParagraphs(d), getDocId: () => 'doc',
-    persist: () => { writes.stamped++; }, persistQuiet: () => { writes.quiet++; },
-  };
-  opener(D)(doc, deps);
+  const writes = { quiet: 0, stamped: 0, inSync: 0 };
+  prepareDisplaySpans(doc, {
+    getParagraphs: (d) => ft.getBaselineParagraphs(d), getDocId: () => 'doc', durationMs: D,
+    persist: () => { writes.stamped++; }, persistQuiet: () => { writes.quiet++; }, keepInSync: () => { writes.inSync++; },
+  });
   return writes;
 }
+const nothing = (w) => ({ quiet: w.quiet, stamped: w.stamped });
 const snap = (segs) => JSON.stringify(segs.map((s) => [s.start, s.end, !!s.timePending, s.guess || null]));
+// What storage would hold, and every placed time with its guessed edges — placeholders are display only.
+const stored = (segs) => snap(storableSegments(segs));
 
 test('P1: a timed text opens with every span as the file had it, and NOTHING is saved', () => {
   for (const name of ['elan40', 't53', 't151', 't18', 'l29-13aug', 'l29-damaged', 'e78', 'e19']) {
     const doc = loadFixture(name);
     const before = snap(doc.segments);
     const w = open(doc, DURATION[name]);
-    assert.deepEqual(w, { quiet: 0, stamped: 0 }, `${name}: opening writes nothing`);
-    assert.equal(snap(doc.segments), before, `${name}: every time and every guessed edge unchanged`);
+    assert.deepEqual(nothing(w), { quiet: 0, stamped: 0 }, `${name}: opening writes nothing`);
+    assert.equal(stored(doc.segments), before, `${name}: every time and every guessed edge unchanged, as storage sees them`);
+    doc.segments.forEach((s, k) => { if (!isPlaced(s)) assert.ok(isPlaceholder(s) || s.timePending, `${name} line ${k + 1}: an untimed line is drawn or pending, never given a time`); });
   }
 });
 
@@ -57,8 +54,8 @@ test('case 18 / D9: T53\'s 87 818 ms end survives the render on a device that de
   const doc = loadFixture('t53');
   open(doc, DURATION.t53);
   assert.equal(doc.segments[doc.segments.length - 1].end, 87818);
-  assert.match(liftAll(STRIPS, ['reconcile']), /doc\.segments = syncToLines\(docSegments\(doc\), paras\.length\);/,
-    'reconcile no longer hands the decoded length to syncToLines');
+  assert.match(liftAll(STRIPS, ['prepareDisplaySpans']), /doc\.segments = syncToLines\(doc\.segments, paras\.length\);/,
+    'the render never hands the decoded length to syncToLines');
 });
 
 test('case 19: E19\'s last line is still an estimate after the render (D = 45 990)', () => {
@@ -72,7 +69,7 @@ test('a v714-stored doc: its ~ estimates are read back in memory on open, and no
   // As v714 stored it: spans with no per-edge record and no flag (its import ignored the ~).
   doc.segments = doc.segments.map((s) => ({ start: s.start, end: s.end }));
   const w = open(doc, DURATION.e78);
-  assert.deepEqual(w, { quiet: 0, stamped: 0 });
+  assert.deepEqual(nothing(w), { quiet: 0, stamped: 0 });
   assert.equal(doc.segments.filter(isEstimate).length, 78, 'all 78 dashed again');
   assert.ok(doc.segments.every((s) => s.estSource === 'note'), 'read from the file\'s own ~ notes');
 });
@@ -81,24 +78,30 @@ test('D7: a fresh one-line recording gets its whole-file span, written QUIETLY',
   const doc = ft.makeDoc({ vernLang: 'fau', analLang: 'id' });
   doc.segments = [];
   const w = open(doc, 12000);
-  assert.deepEqual(doc.segments.map((s) => [s.start, s.end, isEstimate(s)]), [[0, 12000, false]]);
-  assert.deepEqual(w, { quiet: 1, stamped: 0 }, 'saved, but never stamped modified');
+  assert.deepEqual(doc.segments.map((s) => [s.start, s.end, isEstimate(s), isPlaceholder(s)]), [[0, 12000, false, false]]);
+  assert.deepEqual(nothing(w), { quiet: 1, stamped: 0 }, 'saved, but never stamped modified');
 });
 
-test('a pre-transcribed text with no times is seeded as estimates on its INTERIOR edges, quietly', () => {
+test('D4 (v718): a pre-transcribed text with no times is SHOWN evenly spread — and nothing is saved', () => {
   const doc = ft.makeDoc({ vernLang: 'fau', analLang: 'id' });
   ft.reconcileBaseline(doc, ['a', 'b', 'c', 'd'], { flatSegments: true });
   doc.segments = [];
   const w = open(doc, 8000);
-  assert.deepEqual(doc.segments.map((s) => [s.start, s.end]), [[0, 2000], [2000, 4000], [4000, 6000], [6000, 8000]]);
+  assert.deepEqual(doc.segments.map((s) => [s.start, s.end]), [[0, 2000], [2000, 4000], [4000, 6000], [6000, 8000]], 'v714\'s round(kD/N), exactly');
   assert.deepEqual(doc.segments.map((s) => [edgeGuessed(s, 0), edgeGuessed(s, 1)]),
     [[false, true], [true, true], [true, true], [true, false]], 'C0: 0 and the recording\'s end are not guesses');
-  assert.ok(doc.segments.every((s) => s.timeEstimated && s.estSource === 'edit'));
-  assert.deepEqual(w, { quiet: 1, stamped: 0 });
-  // …and the heal of an all-pending doc is the same, and as quiet
+  assert.ok(doc.segments.every((s) => isPlaceholder(s) && s.estSource === 'spread'), 'placeholders, every one');
+  assert.deepEqual(nothing(w), { quiet: 0, stamped: 0 }, 'v714 and v717 stored this spread; v718 stores nothing');
+  assert.equal(w.inSync, 1, '…and tells the host the shape changed by looking, so "already on Drive" holds');
+  assert.equal(stored(doc.segments), snap([1, 2, 3, 4].map(() => ({ timePending: true }))), 'as storage sees it: four untimed lines');
+  // …and an all-pending doc (what v718 stores for it) draws the same, as quietly
   doc.segments = doc.segments.map(() => ({ timePending: true }));
-  assert.deepEqual(open(doc, 8000), { quiet: 1, stamped: 0 });
-  assert.equal(doc.segments.filter(isEstimate).length, 4);
+  assert.deepEqual(nothing(open(doc, 8000)), { quiet: 0, stamped: 0 });
+  assert.equal(doc.segments.filter(isPlaceholder).length, 4);
+  // …and a second draw changes nothing at all
+  const again = snap(doc.segments);
+  assert.deepEqual(open(doc, 8000), { quiet: 0, stamped: 0, inSync: 0 });
+  assert.equal(snap(doc.segments), again, 'deterministic');
 });
 
 test('EX4: the tail cover never re-times a line whose phrase carries the file\'s own end offset', () => {
@@ -108,11 +111,11 @@ test('EX4: the tail cover never re-times a line whose phrase carries the file\'s
   doc.paragraphs[last].segments[0].words = [];
   const end = doc.segments[last].end;
   assert.ok(DURATION.elan40 - end > 1000, 'the fixture leaves more than a second unannotated');
-  assert.deepEqual(open(doc, DURATION.elan40), { quiet: 0, stamped: 0 });
+  assert.deepEqual(nothing(open(doc, DURATION.elan40)), { quiet: 0, stamped: 0 });
   assert.equal(doc.segments[last].end, end, 'the imported alignment is left exactly as it was');
   // Without the file's offset (a line the app made), the cover still reaches the end — quietly.
   delete doc.paragraphs[last].segments[0].attrs['end-time-offset'];
-  assert.deepEqual(open(doc, DURATION.elan40), { quiet: 1, stamped: 0 });
+  assert.deepEqual(nothing(open(doc, DURATION.elan40)), { quiet: 1, stamped: 0 });
   assert.equal(doc.segments[last].end, DURATION.elan40);
 });
 
@@ -151,13 +154,14 @@ test('the three states, one set of classes: pending, estimate, check', () => {
 
 test('every strip surface wears the classes and the tooltips', () => {
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
-  assert.match(STRIPS, /row\.className = 'seg-strip' \+ timeStateClass\(seg, checks\.has\(i\)\)/, 'Baseline strips');
-  assert.match(STRIPS, /row\.className = 'seg-strip cut-row' \+ timeStateClass\(seg, checks\.has\(i\)\)/, 'Cut rows (v714 had none)');
-  assert.match(APP, /bar\.className = 'gseg-bar' \+ timeStateClass\(seg, checks\.has\(i\)\);/, 'Gloss bars');
-  assert.match(APP, /\+ timeStateClass\(sp, checks\.has\(i\)\)/, 'Segmenter spans');
+  // v718: and the third argument, whether untimed lines are this text's exceptions (needsMarks)
+  assert.match(STRIPS, /row\.className = 'seg-strip' \+ timeStateClass\(seg, checks\.has\(i\), needs\)/, 'Baseline strips');
+  assert.match(STRIPS, /row\.className = 'seg-strip cut-row' \+ timeStateClass\(seg, checks\.has\(i\), needs\)/, 'Cut rows (v714 had none)');
+  assert.match(APP, /bar\.className = 'gseg-bar' \+ timeStateClass\(seg, checks\.has\(i\), needs\);/, 'Gloss bars');
+  assert.match(APP, /\+ timeStateClass\(sp, checks\.has\(i\), needs\)/, 'Segmenter spans');
   assert.doesNotMatch(STRIPS + APP, /seg\.timeEstimated \? ' seg-est'|sp\.timeEstimated \? ' seg-est'/, 'no surface reads the bare flag for its look');
-  assert.match(STRIPS, /applyTimeTip\(wave, seg, checks\.has\(i\), deps\.t\);/);
-  assert.match(STRIPS, /applyTimeTip\(wave, seg, checks\.has\(i\), cutDeps\.t\);/);
+  assert.match(STRIPS, /applyTimeTip\(wave, seg, checks\.has\(i\), deps\.t, needs\);/);
+  assert.match(STRIPS, /applyTimeTip\(wave, seg, checks\.has\(i\), cutDeps\.t, needs\);/);
   const CSS = readFileSync(new URL('../docs/css/app.css', import.meta.url), 'utf8');
   assert.match(CSS, /\.seg-strip\.seg-pending \{ border-style: dotted;/, 'pending is dotted');
   assert.match(CSS, /\.seg-strip\.seg-est \{ border-style: dashed;/, 'an estimate is dashed');

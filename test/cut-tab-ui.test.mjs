@@ -291,15 +291,15 @@ ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /phrase\.attrs\['end-
 ok(!/last\.attrs/.test(cover), '…and the dead span-attrs test is gone');
 ok(/COVER_TOL_MS/.test(cover) && /COVER_TOL_MS = 1000/.test(strips),
    '…and leaves rounding and encoder priming alone (a second of tolerance)');
-ok(/if \(coverTail\(doc, paras, known\)\) repaired = true;/.test(fn(strips, 'reconcile')),
-   'reconcile runs it, and a repair it makes is saved like the seed —');
-ok(/if \(repaired\) \(d\.persistQuiet \|\| d\.persist\)\?\.\(\);/.test(fn(strips, 'reconcile')) && /persistQuiet: \(\) => saveQuiet\(\),/.test(app),
+ok(/if \(coverTail\(doc, paras, known\)\) wrote = true;/.test(fn(strips, 'prepareDisplaySpans')),
+   'prepareDisplaySpans (v718, was reconcile) runs it, and a repair it makes is saved like D7\'s one-line span —');
+ok(/if \(wrote\) \(d\.persistQuiet \|\| d\.persist\)\?\.\(\);/.test(fn(strips, 'prepareDisplaySpans')) && /persistQuiet: \(\) => saveQuiet\(\),/.test(app),
    '…QUIETLY (v717, P1): opening a text is not an edit, so no `modified` stamp and no re-upload');
 const durFor = fn(strips, 'peaksDurationFor');
 ok(/id !== peaksCache\.docId/.test(durFor) && /return 0/.test(durFor),
    'a peaks cache belonging to ANOTHER text can never seed this one\'s spans');
-ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 2,
-   '…and both the Baseline strips and the Cut tab tell it which text they are showing');
+ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 3,
+   '…and the Baseline strips, the Cut tab and (v718) the Gloss bars all tell it which text they are showing');
 
 console.log('\na cut or a join does not throw the user back to the top of the recording');
 ok(/const keepTop = scroller \? scroller\.scrollTop : 0;/.test(render), 'the scroll offset is read BEFORE the rebuild');

@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { loadFixture, ft } from './lib/timing-fixtures.mjs';
 import { liftAll } from './lib/lift.mjs';
 import * as SEG from '../docs/js/segments.js';
-import { makeBoundaryDrag, timeStateClass, checkedLines } from '../docs/js/segment-strips.js';
+import { makeBoundaryDrag, timeStateClass, checkedLines, lineHasOffsets } from '../docs/js/segment-strips.js';
+import { storableRecord } from './lib/storable.mjs';
 
 const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
@@ -172,15 +173,15 @@ test('the Segmenter reads an older build\'s estimates per edge before its verbs 
     { start: 3120, end: 6000, timeEstimated: true }, { start: 6000, end: 7000 }];
   delete doc.timeEdges;
   const rec = { id: 'm', doc };
-  const load = new Function('SEG', 'ft', 'rec', `
-    const { withGuesses } = SEG; const { readLegacyEstimates } = ft;
+  const load = new Function('SEG', 'ft', 'rec', 'lineHasOffsets', `
+    const { withGuesses, seedsToPending, storableSegments, isAligned } = SEG; const { readLegacyEstimates } = ft;
     let MG = null;
     const docSegments = (d) => (d && Array.isArray(d.segments) ? d.segments : []);
     const readBackOnOpen = (r) => readLegacyEstimates(r.doc);
-    ${liftAll(APP, ['mgLoad'])}
+    ${liftAll(APP, ['mgLoad', 'mgBaseSig', 'cheapHash'])}
     mgLoad(rec);
     return MG;
-  `)(SEG, ft, rec);
+  `)(SEG, ft, rec, lineHasOffsets);
   assert.match(liftAll(APP, ['mgLoad']), /^function mgLoad\(rec\) \{\s*\n\s*readBackOnOpen\(rec\);/, 'mgLoad reads back first');
   const { api } = matcher(load.spans);
   api.mgJoinSpan(load.spans[3].id);
@@ -192,11 +193,11 @@ test('the Segmenter reads an older build\'s estimates per edge before its verbs 
 /* ── opening a text: read back before anything draws, and still "on Drive" afterwards ─────────── */
 
 function opening(rec) {
-  return new Function('ft', 'rec', `
+  return new Function('ft', 'rec', 'db', `
     const { readLegacyEstimates } = ft;
     ${liftAll(APP, ['cheapHash', 'uploadContentSig', 'inSyncSinceOpen', 'readBackOnOpen', 'keepInSync'])}
     return { readBackOnOpen, keepInSync, uploadContentSig, edit: (r) => inSyncSinceOpen.delete(r) };
-  `)(ft, rec);
+  `)(ft, rec, { storableRecord });   // the signature is of the doc AS STORED (v718) — db.js's own chokepoint
 }
 function storedByV716(name) {
   const doc = loadFixture(name);
@@ -253,6 +254,7 @@ test('the red check bar, its "!" and tooltip follow the timingBanner switch (und
   assert.match(APP, /const checks = checkedLines\(segs, getBaselineParagraphs\(current\.doc\), timingBannerOn\(\)\);/, 'the Gloss bars');
   assert.match(APP, /const checks = checkedLines\(MG\.spans, [^\n]*, timingBannerOn\(\)\);/, 'the Segmenter');
   assert.equal((APP.match(/timingMarks: \(\) => timingBannerOn\(\),/g) || []).length, 2, 'the Baseline strips and the Cut rows are handed the switch');
-  assert.match(STRIPS, /const checks = checkedLines\(segs, paras, !deps\.timingMarks \|\| deps\.timingMarks\(\)\);/);
-  assert.match(STRIPS, /const checks = checkedLines\(segs, paras, !cutDeps\.timingMarks \|\| cutDeps\.timingMarks\(\)\);/);
+  // v718: the switch is read once per render, and the red bar and the amber "needs timing" both follow it.
+  assert.match(STRIPS, /const marksOn = !deps\.timingMarks \|\| deps\.timingMarks\(\);\n\s*const checks = checkedLines\(segs, paras, marksOn\);\n\s*const needs = needsMarks\(segs, marksOn\);/);
+  assert.match(STRIPS, /const marksOn = !cutDeps\.timingMarks \|\| cutDeps\.timingMarks\(\);\n\s*const checks = checkedLines\(segs, paras, marksOn\);\n\s*const needs = needsMarks\(segs, marksOn\);/);
 });

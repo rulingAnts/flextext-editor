@@ -45,7 +45,7 @@ function rig({ name, view = 'baseline', session = false, setting, audio = true, 
   };
   const api = new Function('env', `
     const { SEG, ft, t, Sync, settings, banner, log } = env;
-    const { timingReport, isEstimate } = SEG;
+    const { timingReport, isEstimate, isPlaceholder } = SEG;
     const { getBaselineParagraphs, readLegacyEstimates } = ft;
     let current = env.rec, activeTab = env.view;
     const $ = (sel) => (sel === '#timing-banner' ? banner : null);
@@ -134,9 +134,15 @@ test('a line inserted through the text box shows as "no audio time yet", amber, 
   r.rec.doc.segments = SEG.segmentsFollowLines(r.rec.doc.segments, origins);
   r.render();
   assert.match(r.banner.className, /\btiming-amber\b/);
-  assert.equal(text(r.banner), 'Some lines have no audio time yet (1 of 41, shown with ⋯).');
+  assert.equal(text(r.banner), 'Some lines have no audio time yet (1 of 41). Each one is shown in the gap between its timed neighbours, marked “needs timing”, until you set it.');
   button(r.banner, 'show').click();
   assert.deepEqual(r.log.shown, [['baseline', 6, true]]);
+  // v718: drawn in its gap (what every tab does before the banner reads the spans), it says the same.
+  r.rec.doc.segments = SEG.spreadUntimed(r.rec.doc.segments, DURATION.elan40);
+  assert.ok(SEG.isPlaceholder(r.rec.doc.segments[6]), 'the new line sits in the 1.2 s pause it was typed into');
+  r.banner.dataset.key = '';
+  r.render();
+  assert.match(text(r.banner), /^Some lines have no audio time yet \(1 of 41\)\./, 'a placeholder is still a line with no time');
 });
 
 test('Dismiss is bound to the text on screen: two texts that say the same thing do not share a banner', () => {
@@ -210,4 +216,26 @@ test('the banner\'s look: four severities, light and dark, and it wraps at phone
   for (const lv of ['info', 'estimate', 'amber', 'red']) assert.equal((CSS.match(new RegExp(`\\.timing-banner\\.timing-${lv} \\{`, 'g')) || []).length, 2, `${lv}: light and dark`);
   assert.match(CSS, /\.timing-banner \{ display: flex; flex-wrap: wrap;/);
   assert.match(CSS, /\.timing-banner \.timing-msg \{ flex: 1 1 18em; min-width: 0;[^}]*overflow-wrap: anywhere; \}/, 'a long message wraps rather than widening the page');
+});
+
+test('v718 / R6: an untimed text drawn evenly says so ONCE, quietly — and a cramped gap is amber', () => {
+  const r = rig({ name: 'u60' });
+  r.rec.doc.segments = SEG.spreadUntimed(Array.from({ length: 60 }, () => ({ timePending: true })), DURATION.u60);
+  r.render();
+  assert.equal(r.banner.hidden, false);
+  assert.match(r.banner.className, /\btiming-info\b/, 'info, not amber: every FLEx export with no times looks like this');
+  assert.equal(text(r.banner), 'No audio times yet — lines are spread evenly as a placeholder.');
+  assert.equal(button(r.banner, 'show'), undefined, 'no one line to show');
+  // a partly timed text with no room in a gap: amber, both said
+  const p = rig({ name: 't18' });
+  const segs = p.rec.doc.segments;
+  segs[5] = { timePending: true };
+  segs[6] = { timePending: true };
+  segs[4] = { ...segs[4], end: segs[7].start - 300 };          // the gap left for two lines: 300 ms
+  p.rec.doc.segments = SEG.spreadUntimed(segs, DURATION.t18);
+  p.render();
+  assert.match(p.banner.className, /\btiming-amber\b/);
+  button(p.banner, 'details').click();
+  const items = p.banner.find('timing-list').children.map((li) => li.textContent);
+  assert.ok(items.includes('2 of them have no room in their gap, shown with ⋯.'), JSON.stringify(items));
 });

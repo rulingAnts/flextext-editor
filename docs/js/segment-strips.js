@@ -21,6 +21,7 @@
  */
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, isEstimate, dragSeam, settleSpan,
+         isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed, timingReport,
          guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed } from './segments.js';
 import { peakPlan } from './seg-exports.js';
@@ -910,7 +911,7 @@ function coverTail(doc, paras, durationMs) {
   if (!(durationMs > 0) || !segments.length) return false;
   const i = segments.length - 1;
   const last = segments[i];
-  if (!isAligned(last)) return false;
+  if (!isPlaced(last)) return false;   // a placeholder is nobody's time to extend (v718)
   const phrase = doc.paragraphs && doc.paragraphs[i] && (doc.paragraphs[i].segments || [])[0];
   if (phrase && phrase.attrs && phrase.attrs['end-time-offset'] != null) return false;
   if (String(paras[i] ?? '').trim()) return false;
@@ -920,58 +921,58 @@ function coverTail(doc, paras, durationMs) {
   return true;
 }
 
-/* An even division of [0, D) into N, as the seed and the heal lay it down: a guess on every INTERIOR
- * edge (v717 — the first line's start and the last line's end are 0 and D, which are not guesses). */
-const evenSpread = (N, D) => Array.from({ length: N }, (_, k) => {
-  const start = Math.round((k * D) / N), end = Math.round(((k + 1) * D) / N);
-  return { start, end, guess: [k > 0 ? start : null, k < N - 1 ? end : null], estSource: 'edit' };
-});
+// Does line k's phrase carry begin/end offsets of its own (a time that came from a file)? A v714 seed
+// never did (seedsToPending). Exported for the Segmenter's mgLoad, so the two read one rule.
+export function lineHasOffsets(doc, k) {
+  const p = doc && doc.paragraphs && doc.paragraphs[k];
+  return !!(p && (p.segments || []).some((ph) => ph.attrs && ph.attrs['begin-time-offset'] != null && ph.attrs['end-time-offset'] != null));
+}
 
-function reconcile(doc, d = deps) {
+/* ═══ WHAT EVERY TAB DRAWS (v718 — was reconcile; plans/time-gaps-and-estimates.md §4 v718, D3, D4, D7) ═══
+ * The spans of `doc`, made ready to draw: the same answer on the Baseline strips, the Cut rows, the Gloss
+ * bars (app.js calls it on Gloss entry) — whichever tab a text opens on. In order:
+ *   1. a doc stored before v717 has its estimates read back per edge (flextext.js readLegacyEstimates);
+ *   2. v714's and v717's stored even spread is recognised and made pending again (seedsToPending): it was
+ *      never anyone's time, only the old way of drawing an untimed text;
+ *   3. one span per line (syncToLines) — never a time cut to the decoded length (v717, D9);
+ *   4. D7: a ONE-line text with its recording keeps the real whole-file span v714 gave it — a single line
+ *      over one recording is a fact, recording-mode transcription depends on it, and the export may have
+ *      no decoded length to hand — and that one is WRITTEN, quietly. So is coverTail's (until v719);
+ *   5. every line with no time is drawn in its gap (segments.js spreadUntimed): Seth's B2.
+ *
+ * ⚠ AND NOTHING ELSE IS SAVED — the v714 seed and heal are gone. A placeholder lives in memory only and
+ * storage drops it (db.js storableRecord), so opening a text writes nothing, stamps nothing, and exports
+ * no guessed time (P1). When this changed what storage WOULD hold (a seed made pending, the first span
+ * list for an untimed text), `d.keepInSync` tells the host, which keeps a text that was "already on
+ * Drive" when it was opened reading that way — looking at a text is not an edit (v717 review).
+ *
+ * `d.durationMs` may name the recording's length outright (the corpus gate, the tests); otherwise it is
+ * the peaks cache's, and only while the cache belongs to this document (peaksDurationFor). Exported for
+ * app.js's Gloss entry and for the corpus gate (tools/corpus-timing.mjs). */
+export function prepareDisplaySpans(doc, d = deps) {
   const paras = d.getParagraphs(doc);
   /* A doc stored before v717 holds estimates as a bare flag, and the `~` its import ignored: read them
    * back per edge, in memory only (flextext.js readLegacyEstimates). Saved with the next real edit.
    * Through the host when it offers one (app.js keeps an upload's "already on Drive" record across a
    * read-back — reading is not an edit). */
   if (d.readBack) d.readBack(); else readLegacyEstimates(doc);
-  const segs = docSegments(doc);
-  // SEED: a doc entering segmentation for the first time gets ONE segment spanning the whole
-  // recording — that is the truthful starting state (nothing has been divided yet), and it is what
-  // makes the first Enter actually have a time span to break. Without it every strip starts
-  // timePending and no boundary can ever be real.
-  let repaired = false;
-  const known = peaksDurationFor(d);   // 0 while the decode is still out, or if the cache is another doc's
-  if (!segs.length && known > 0) {
-    // Fresh single-line doc: one whole-file span (transcribe-from-scratch; the first Enter
-    // needs a real span to break). PRE-TRANSCRIBED multi-line doc (an imported flextext with
-    // glosses but no time alignment — Seth's case, 2026-08-03): an even division marked
-    // as estimates instead. Line 1 claiming the whole recording would be a FALSE alignment;
-    // estimated spans are honest (dashed), playable, and correctable with the set-boundary
-    // control — and creating them touches doc.segments only, so glosses and free translations
-    // cannot be lost by construction.
-    const D = known, N = paras.length;
-    doc.segments = N > 1 ? evenSpread(N, D) : [{ start: 0, end: D }];
-    repaired = true;
-  } else if (known > 0 && segs.length && segs.every((x) => !isAligned(x))) {
-    // HEAL a stuck all-pending doc (Seth's '⋯ + no waveform' screenshot): a doc opened while its
-    // audio could not be decoded (or under a pre-fix build) persisted pending segments, and the
-    // whole-file seed above only fires on ZERO segments — so it never self-repaired once the audio
-    // became readable. With a known duration: a single pending becomes the exact whole-file span;
-    // several become an even division of estimates (dashed — scrub + re-break to correct).
-    // Only the every-pending case is touched: real alignments are never second-guessed.
-    const D = known, N = segs.length;
-    doc.segments = N === 1 ? [{ start: 0, end: D }] : evenSpread(N, D);
-    repaired = true;
-  }
+  const known = Number.isFinite(d.durationMs) ? d.durationMs : peaksDurationFor(d);   // 0 while the decode is out
+  const was = JSON.stringify(storableSegments(docSegments(doc)));
+  let wrote = false;
+  doc.segments = seedsToPending(docSegments(doc), (k) => lineHasOffsets(doc, k));
   // No duration: a stored time is never cut to the decoded length (v717, D9) — drawing clips instead.
-  doc.segments = syncToLines(docSegments(doc), paras.length);
-  // …and whatever produced them, they must reach the end of the recording. See coverTail.
-  if (coverTail(doc, paras, known)) repaired = true;
-  /* Save a seed/heal/cover right away: without this the repair lived only in memory until the next
-   * edit, so storage (and everything that syncs from it) kept the broken pending state.
-   * ⚠ QUIETLY (v717, P1, D7): it is not an edit. persist() stamps `modified`, and opening a text then
-   * read as changing it — a text already safe on Drive queued itself for a duplicate upload. */
-  if (repaired) (d.persistQuiet || d.persist)?.();
+  doc.segments = syncToLines(doc.segments, paras.length);
+  if (paras.length === 1 && known > 0 && !isPlaced(doc.segments[0])) {
+    doc.segments = [{ start: 0, end: known }];   // D7: the fresh recording's one line, and the first Enter's span
+    wrote = true;
+  }
+  // …and whatever produced them, the timed lines must reach the end of the recording. See coverTail.
+  if (coverTail(doc, paras, known)) wrote = true;
+  doc.segments = spreadUntimed(doc.segments, known);
+  /* ⚠ QUIETLY (v717, P1, D7): writing the one-line span is not an edit. persist() stamps `modified`, and
+   * opening a text then read as changing it — a text already safe on Drive queued itself for upload. */
+  if (wrote) (d.persistQuiet || d.persist)?.();
+  else if (JSON.stringify(storableSegments(doc.segments)) !== was) d.keepInSync?.();
   return doc.segments;
 }
 
@@ -983,10 +984,22 @@ function reconcile(doc, d = deps) {
  * older build wrote with no edges to say which); `seg-check` — a line the timing report flags (the red
  * bar, behind the banner's switch). P6: the banner speaks for the text; a line is marked only when it
  * is the exception. */
-export function timeStateClass(seg, checked) {
-  if (!isAligned(seg)) return ' seg-pending';
+/* ⚠ AND THE UNTIMED LINES (v718), Seth: "in an ideal world those would get some kind of styling that
+ * indicates they have an audio segmenting error that needs fixing." A PLACEHOLDER (an untimed line drawn
+ * in its gap, segments.js isPlaceholder) is `seg-spread` — dashed, nothing more — while the whole text
+ * is untimed: every FLEx export with no times looks like that, and a mark on every line would be noise
+ * (P6; the one info banner speaks for it). In a PARTLY timed text the same line is the exception, and
+ * wears `seg-needs` — an amber bar and a "needs timing" badge — and a line with no room in its gap
+ * `seg-pending seg-noroom` (amber, ⋯). `needs` says the text is partly timed AND the marks are on
+ * (needsMarks): like the red bar, the amber is the banner's mark and follows its researcher switch. */
+export function timeStateClass(seg, checked, needs = false) {
+  if (isPlaceholder(seg)) return needs ? ' seg-needs' : ' seg-spread';
+  if (!isAligned(seg)) return ' seg-pending' + (needs && seg && seg.noRoom ? ' seg-noroom' : '');
   return (isEstimate(seg) ? ' seg-est' : '') + (checked ? ' seg-check' : '');
 }
+/** Whether this text's untimed lines are exceptions worth marking: some line has a time, and `on` (the
+ * researcher's switch, the same one as the red bar's). */
+export function needsMarks(segs, on = true) { return !!on && (segs || []).some(isPlaced); }
 /** The lines the timing report singles out (dense: many words in very little audio). `on` is the
  * researcher's switch (`timingBanner`, app.js timingBannerOn): the red bar, its "!" and its tooltip
  * are the banner's marks, so a managed device with the banner off stays plain (D15, v717 review). */
@@ -998,14 +1011,40 @@ export function checkedLines(segs, texts, on = true) {
 }
 /* The waveform's tooltip for an exception: where an estimate came from, or why a line is flagged.
  * Null for an ordinary line — a tooltip on every row is noise. */
-export function timeTipKey(seg, checked) {
+export function timeTipKey(seg, checked, needs = false) {
+  if (isPlaceholder(seg)) return needs ? 'seg.needsTip' : 'seg.spreadTip';
+  if (needs && seg && !isAligned(seg) && seg.noRoom) return 'seg.noRoomTip';
   if (checked && isAligned(seg)) return 'seg.checkTip';
   if (!isEstimate(seg)) return null;
   return 'seg.estTip.' + (seg.estSource || (Array.isArray(seg.guess) ? 'edit' : 'legacy'));
 }
-function applyTimeTip(el, seg, checked, t) {
-  const k = timeTipKey(seg, checked);
+function applyTimeTip(el, seg, checked, t, needs = false) {
+  const k = timeTipKey(seg, checked, needs);
   if (k) el.title = t(k); else el.removeAttribute('title');
+}
+/* The "needs timing" badge's words, for the CSS ::after that draws it (a pseudo-element has no text of
+ * its own to translate). Set on every row; only `.seg-needs` shows it. */
+function applyNeedsBadge(row, t) { if (row && t) row.dataset.needs = t('seg.needsBadge'); }
+
+/* KEEP THESE TIMES (v718 — plans §4 keepLineTimes, case 7): on a line whose time is a guess — an
+ * estimate, or an untimed line shown in its gap — one press makes what is on screen the line's real
+ * time. The host does the work (app.js keepLineTimes: one Undo, one save) and says whether anything
+ * changed; the surface then redraws itself.
+ * ⚠ SHOWN ONLY ON THE ACTIVE ROW — the one the playhead is in, or the one being typed in (CSS: .seg-on,
+ * .gseg-on, :focus-within) — so a text of sixty guessed lines does not wear sixty buttons; and only
+ * where the host allows it (adjustBoundaries AND the researcher's keepTimes — D15). Out of the tab
+ * order, like every control between two text boxes. Exported for the Gloss bars. */
+export function attachKeep(host, i, seg, ctx) {
+  if (!host || !ctx || !ctx.allowed || !ctx.allowed() || !isAligned(seg) || !isEstimate(seg)) return null;
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'seg-keep'; b.tabIndex = -1;
+  b.textContent = ctx.t('keep.btn');
+  b.title = ctx.t('keep.tip'); b.setAttribute('aria-label', ctx.t('keep.tip'));
+  b.addEventListener('pointerdown', (ev) => ev.stopPropagation());   // not a seek, not a row select
+  b.addEventListener('click', (ev) => { ev.stopPropagation(); ctx.keep(i); });
+  host.appendChild(b);
+  host.classList.add('has-keep');
+  return b;
 }
 
 /* The element whose scroll offset the strip lists live inside — the nearest scrollable ancestor
@@ -1023,7 +1062,7 @@ function scrollerFor(host) {
 export function renderStrips() {
   const doc = deps.getDoc();
   if (!doc) return;
-  const segs = reconcile(doc);
+  const segs = prepareDisplaySpans(doc);
   const paras = deps.getParagraphs(doc);
   const host = deps.container;
   /* ⚠ HOLD THE SCROLL ACROSS THE REBUILD — the same v357 rule renderCut lives by, which this
@@ -1037,14 +1076,17 @@ export function renderStrips() {
   const keepTop = scroller ? scroller.scrollTop : 0;
   host.innerHTML = '';
   const dur = peaksCache.durationMs || (segs.length && isAligned(segs[segs.length - 1]) ? segs[segs.length - 1].end : 0);
-  const checks = checkedLines(segs, paras, !deps.timingMarks || deps.timingMarks());
+  const marksOn = !deps.timingMarks || deps.timingMarks();
+  const checks = checkedLines(segs, paras, marksOn);
+  const needs = needsMarks(segs, marksOn);   // v718: untimed lines are the exception only in a partly timed text
 
   paras.forEach((text, i) => {
     const seg = segs[i] || { timePending: true };
     const row = document.createElement('div');
-    row.className = 'seg-strip' + timeStateClass(seg, checks.has(i)) + (text.trim() ? '' : ' seg-empty')
+    row.className = 'seg-strip' + timeStateClass(seg, checks.has(i), needs) + (text.trim() ? '' : ' seg-empty')
       + (deps.hasGloss && deps.hasGloss(i) ? ' seg-locked' : '');
     row.dataset.i = i;
+    applyNeedsBadge(row, deps.t);
 
     const play = document.createElement('button');
     play.className = 'seg-play';
@@ -1096,7 +1138,7 @@ export function renderStrips() {
     const wave = document.createElement('canvas');
     wave.className = 'seg-wave';
     wave.height = 44;
-    applyTimeTip(wave, seg, checks.has(i), deps.t);
+    applyTimeTip(wave, seg, checks.has(i), deps.t, needs);
     wireWaveSeek(wave, seg, deps.getPlayer, (s) => deps.onPlayTarget?.(s));
 
     /* ⚠ A TEXTAREA, NOT AN INPUT — an <input> cannot wrap, so a segment of any length scrolled
@@ -1179,6 +1221,7 @@ export function renderStrips() {
     registerCaretScissors(input, row, () => stripsCaretWant(input, i), (at) => stripsPlace(i, 'text', at), deps.t('split.here'));
 
     row.append(play, wave, input);
+    attachKeep(row, i, seg, stripsKeepCtx());   // "Keep these times" on a guessed line (v718) — see attachKeep
     host.appendChild(row);
     attachEdgeHandles(row, wave, i, stripsEdgeCtx(segs));   // the grips (adjustBoundaries) — see attachEdgeHandles
     /* ⤙⤚ JOIN, between the two rows it joins (v322, Seth's bug list #7). The baseline tab never
@@ -2043,9 +2086,14 @@ function stripsRedrawRow(k) {
  * report's, and waits for the next render). Exported for the Gloss bars, which redraw the same way. */
 export function retimeRow(row, wave, seg, t) {
   if (!row || !seg) return;
+  /* A placeholder that is dragged stops being one (v718): it is a line somebody timed now, dashed while
+   * an edge is still the spread's guess — so the amber "needs timing" look goes with the first move. */
+  const ph = isPlaceholder(seg), needs = row.classList.contains('seg-needs');
   row.classList.toggle('seg-pending', !isAligned(seg));
-  row.classList.toggle('seg-est', isEstimate(seg));
-  if (wave && t) applyTimeTip(wave, seg, row.classList.contains('seg-check'), t);
+  row.classList.toggle('seg-est', isEstimate(seg) && !ph);
+  if (!ph) row.classList.remove('seg-spread', 'seg-needs');
+  if (isAligned(seg)) row.classList.remove('seg-noroom');
+  if (wave && t) applyTimeTip(wave, seg, row.classList.contains('seg-check'), t, needs && ph);
 }
 function stripsDrag() {
   if (!stripsDragFn) stripsDragFn = makeBoundaryDrag({
@@ -2057,6 +2105,10 @@ function stripsDrag() {
 }
 function stripsEdgeCtx(segs) {
   return { allowed: () => !!(deps && deps.allowAdjust && deps.allowAdjust()), count: () => segs.length, segAt: (k) => segs[k], onDrag: stripsDrag(), t: deps.t };
+}
+// Keep (v718): the host decides and writes; a change redraws the strips (the run around it re-spreads).
+function stripsKeepCtx() {
+  return { allowed: () => !!(deps && deps.allowKeep && deps.allowKeep()), keep: (k) => { if (deps.keep && deps.keep(k)) renderStrips(); }, t: deps.t };
 }
 
 let cutDeps = null;
@@ -2093,6 +2145,10 @@ function cutDrag() {
     onEnd: (bi) => { cutSay(''); renderCut(bi); },
   });
   return cutDragFn;
+}
+// Keep (v718), the Cut tab's: a change redraws the rows, holding this one still.
+function cutKeepCtx(at) {
+  return { allowed: () => !!(cutDeps && cutDeps.allowKeep && cutDeps.allowKeep()), keep: (k) => { if (cutDeps.keep && cutDeps.keep(k)) renderCut(at); }, t: cutDeps.t };
 }
 function cutEdgeCtx(segs) {
   return { allowed: cutAdjustOk, count: () => segs.length, segAt: (k) => segs[k], onDrag: cutDrag(), t: cutDeps.t };
@@ -2152,7 +2208,7 @@ export function renderCut(anchorIdx) {
   const host = document.getElementById('cut-strips');
   const doc = cutDeps.getDoc();
   if (!host || !doc) return;
-  const segs = reconcile(doc, cutDeps);   // seeds a fresh recording's whole-file span — see reconcile
+  const segs = prepareDisplaySpans(doc, cutDeps);   // a fresh recording's whole-file span, untimed lines in their gaps — see prepareDisplaySpans
   const paras = cutDeps.getParagraphs(doc);
   const scroller = cutScroller();
   const keepTop = scroller ? scroller.scrollTop : 0;
@@ -2160,7 +2216,9 @@ export function renderCut(anchorIdx) {
   const anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
   host.replaceChildren();
   cutFollowRow = null;
-  const checks = checkedLines(segs, paras, !cutDeps.timingMarks || cutDeps.timingMarks());
+  const marksOn = !cutDeps.timingMarks || cutDeps.timingMarks();
+  const checks = checkedLines(segs, paras, marksOn);
+  const needs = needsMarks(segs, marksOn);   // v718 — see timeStateClass
 
   segs.forEach((seg, i) => {
     const row = document.createElement('div');
@@ -2169,7 +2227,8 @@ export function renderCut(anchorIdx) {
      * border, and no `position: relative`, which meant the absolutely-positioned .seg-cursor
      * resolved against a distant ancestor and drew ABOVE the waveform instead of on it. Reusing the
      * class is the point — the two tabs must not drift apart. */
-    row.className = 'seg-strip cut-row' + timeStateClass(seg, checks.has(i));   // v714 had no state here
+    row.className = 'seg-strip cut-row' + timeStateClass(seg, checks.has(i), needs);   // v714 had no state here
+    applyNeedsBadge(row, cutDeps.t);
     /* Focusable, because this tab has no text box to hold focus and the keys must land somewhere.
      * The row IS the control. */
     row.tabIndex = 0;
@@ -2181,8 +2240,9 @@ export function renderCut(anchorIdx) {
     play.setAttribute('aria-label', cutDeps.t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const wave = document.createElement('canvas');
     wave.className = 'seg-wave cut-wave';
-    applyTimeTip(wave, seg, checks.has(i), cutDeps.t);
+    applyTimeTip(wave, seg, checks.has(i), cutDeps.t, needs);
     row.append(play, wave);
+    attachKeep(row, i, seg, cutKeepCtx(i));   // "Keep these times" on a guessed line (v718)
 
     const text = String(paras[i] ?? '').trim();
     /* ⚠ GREY MEANS LOCKED, AND ONLY LOCKED (Seth, 2026-08-13: "the grayed out part should only be
@@ -2455,6 +2515,7 @@ function paraHasWork(doc, i) {
 function guessAllowedHere(segs, paras, doc) {
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) return false;
   if (segs.length <= 1) return true;                       // the untouched seed
+  if (!segs.some(isPlaced)) return true;                   // nothing cut by anyone: every line untimed (v718)
   const sig = doc && doc.guessSig;
   if (!Array.isArray(sig) || sig.length !== segs.length) return false;
   return segs.every((sg, i) => isAligned(sg) && sg.end === sig[i]);

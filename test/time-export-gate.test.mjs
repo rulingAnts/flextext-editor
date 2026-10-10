@@ -97,3 +97,26 @@ test('with segTimes off, and for a doc with no live spans, offsets pass through 
   assert.equal(raw.segments, undefined, 'a parsed doc that was never opened has no live spans');
   assert.deepEqual(phrasesOf(serializeFlextext(raw, SET)).map((p) => [p.b, p.e]), orig.map((p) => [p.b, p.e]), '…and its offsets pass through');
 });
+
+/* v718 (D8, D12): a PLACEHOLDER — an untimed line drawn evenly in its gap — is exported exactly as a
+ * pending line: no offsets, no audio note, no instruction entry, no EAF time, no .fxpa or listening-page
+ * time. Every exporter reads the storable form (spansForExport), so this holds for all of them at once. */
+test('v718: a line drawn in its gap is exported untimed by every exporter — and a stale offset never comes back', async () => {
+  const SEGS = await import('../docs/js/segments.js');
+  const doc = loadFixture('t18');
+  doc.segments[4] = { timePending: true };            // its phrase still carries the imported offsets and note
+  doc.segments = SEGS.spreadUntimed(doc.segments, 25867);
+  assert.ok(SEGS.isPlaceholder(doc.segments[4]), 'drawn in the gap the Segmenter left');
+  const ph = phrasesOf(serializeFlextext(doc, SET, { segTimes: true, timeNotes: true }));
+  assert.deepEqual([ph[4].b, ph[4].e, ph[4].notes], [null, null, 0], '.flextext: no times, no note — neither the spread\'s nor the stale ones');
+  assert.ok(!overlaps(ph));
+  const eaf = serializeEaf(doc, { title: 'T18', mediaName: 'recording.wav', durationMs: 25867 });
+  const fx = buildFxpa(doc, SET);
+  assert.equal('start' in fx.lines[4], false, '.fxpa: no time');
+  assert.equal(fx.lines.filter((l) => 'start' in l).length, 17);
+  const html = buildSegPreviewHtml(doc, { title: 'T18' });
+  const html0 = buildSegPreviewHtml({ ...doc, segments: SEGS.storableSegments(doc.segments) }, { title: 'T18' });
+  assert.equal(html, html0, 'the listening page: the stored doc\'s, exactly');
+  const eaf0 = serializeEaf({ ...doc, segments: SEGS.storableSegments(doc.segments) }, { title: 'T18', mediaName: 'recording.wav', durationMs: 25867 });
+  assert.equal(eaf.replace(/DATE="[^"]*"/, ''), eaf0.replace(/DATE="[^"]*"/, ''), 'the EAF: the stored doc\'s');
+});

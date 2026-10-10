@@ -57,7 +57,8 @@ test('and a legacy doc is given the signature it never had', () => {
 /* done / doneAt are workflow state, not content — asserted because the whole fix rests on it. */
 test('the content signature ignores done and doneAt', () => {
   const sig = APP.slice(APP.indexOf('function uploadContentSig'), APP.indexOf('async function doUpload'));
-  assert.match(sig, /JSON\.stringify\(rec\.doc\) \+ '\|' \+ \(rec\.audioId \|\| rec\.audioSource \|\| ''\) \+ '\|' \+ \(rec\.title \|\| ''\)/);
+  // v718: of the doc AS STORED (db.storableRecord) — an untimed line drawn in its gap is not content.
+  assert.match(sig, /JSON\.stringify\(db\.storableRecord\(rec\)\.doc\) \+ '\|' \+ \(rec\.audioId \|\| rec\.audioSource \|\| ''\) \+ '\|' \+ \(rec\.title \|\| ''\)/);
   assert.doesNotMatch(sig, /\bdone\b/, 'marking done cannot move the signature');
 });
 

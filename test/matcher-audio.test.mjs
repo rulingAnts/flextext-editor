@@ -293,8 +293,8 @@ console.log('\nPAIRING IS THE ROW NUMBER — nothing is picked, nothing is linke
   const commit = asyncFn(app, 'mgCommit');
   ok(/for \(let i = lines\.length; i < padTo; i\+\+\)/.test(commit) && /makeSegment\(''/.test(commit),
      'audio past the last line gets a blank line each at the end — no piece is dropped for want of words');
-  ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(s\.timePending \? m : i \+ 1\), 0\)/.test(commit),
-     'up to the last piece of REAL audio — a trailing "no audio" placeholder earns no blank line');
+  ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(isPlaced\(s\) \? i \+ 1 : m\), 0\)/.test(commit),
+     'up to the last piece of REAL audio — a trailing "no audio" row earns no blank line, nor (v718) a row shown in its gap');
   ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
      'a line past the last piece of audio is written timePending — the engine\'s own word for it');
   ok(/blankAdded/.test(commit) && /mg\.committedLeftover/.test(commit),
@@ -317,11 +317,15 @@ console.log('\nplaceholders KEEP THEIR ROW, and the uncut remainder is never los
   ok(/if \(!MG\.spans\.some\(\(sp\) => !sp\.timePending\)\) MG\.spans = \[\];/.test(load),
      'and a text with no audio anywhere starts empty, so the whole recording is seeded as one span');
   const prep = asyncFn(app, 'mgPrepareAudio');
-  ok(/MG\.spans\.push\(\{ id: 'tail', start: lastEnd/.test(prep),
+  const seed = fn(app, 'mgSeedSpans');   // v718: the rule, pure, out of mgPrepareAudio
+  ok(/MG\.spans = mgSeedSpans\(MG\.spans, dur, MG\.resumed\);/.test(prep)
+     && /return \[\.\.\.spans, \{ id: 'tail', start: lastEnd/.test(seed),
      'whatever follows the last piece of AUDIO is appended, so the pane accounts for the whole recording');
-  ok(/const lastEnd = Math\.max\(0, \.\.\.MG\.spans\.filter\(\(s\) => !s\.timePending\)\.map\(\(s\) => s\.end\)\)/.test(prep)
-     && /dur - lastEnd > 1000/.test(prep),
-     'measured from the last REAL span (a trailing placeholder ends at 0), with coverTail\'s 1s tolerance');
+  ok(/const lastEnd = Math\.max\(0, \.\.\.spans\.filter\(isPlaced\)\.map\(\(s\) => s\.end\)\)/.test(seed)
+     && /dur - lastEnd > 1000/.test(seed),
+     'measured from the last REAL span (a trailing "no audio" row ends at 0), with coverTail\'s 1s tolerance');
+  ok(/if \(isPlaced\(spans\[spans\.length - 1\]\) && dur - lastEnd > 1000\)/.test(seed),
+     '…and only after a last row that HAS a time (v718, case 3): untimed rows at the end share the remainder instead');
 }
 
 console.log('\none list, row i left beside row i right');
@@ -414,7 +418,7 @@ console.log('\nwork in progress is autosaved — losing it was the one unaccepta
   ok(/const draft = rec\.matchDraft;/.test(open) && /MG\.resumed/.test(open),
      'reopening resumes it rather than asking — the draft is newer than the doc by construction');
   const prep = asyncFn(app, 'mgPrepareAudio');
-  ok(/dur > 0 && !MG\.resumed/.test(prep),
+  ok(/if \(!\(dur > 0\) \|\| resumed\) return spans;/.test(fn(app, 'mgSeedSpans')) && /mgSeedSpans\(MG\.spans, dur, MG\.resumed\)/.test(prep),
      'and a resumed draft is not re-seeded or given a tail, which would invent spans the user did not make');
   ok(/await mgClearDraft\(MG\.docId\)/.test(asyncFn(app, 'mgCommit')), 'Done clears it');
   /* ⚠ TWO WRITERS, ONE RECORD. mgSaveDraft re-reads the record from storage; persist() writes the

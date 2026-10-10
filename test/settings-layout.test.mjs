@@ -39,7 +39,7 @@ const setupField = (k) => SETUP.find((f) => f.k === k);
 
 /* ── scope 1: paired only ──────────────────────────────────────────────────────────────────── */
 
-/* Eleven settings mean nothing on a device working alone, for exactly two reasons. Seven because the
+/* Twelve settings mean nothing on a device working alone, for exactly two reasons. Eight because the
  * engine gate short-circuits — `!Sync.hasSession() || settings.X === true` reads as "a lone worker
  * always has this", so a switch offering to take it away would be lying. Four because they wait on
  * an upload with no researcher Drive behind it to succeed. */
@@ -51,6 +51,7 @@ const PAIRED_ONLY = {
   allowBlankLines: 'gate short-circuits when unpaired',
   allowTextEdit: 'gate short-circuits when unpaired',
   timingBanner: 'gate short-circuits when unpaired',   // v717
+  keepTimes: 'gate short-circuits when unpaired',      // v718
   autoDel: 'needs an upload that has succeeded',
   autoBackup: 'needs an upload target',
   autoBackupMins: 'needs an upload target',
@@ -68,8 +69,8 @@ test('every paired-only setting is greyed on the unpaired form, with a reason', 
   }
 });
 
-test('and the seven gates really are the short-circuiting kind', () => {
-  for (const k of ['allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines', 'allowTextEdit', 'timingBanner']) {
+test('and the eight gates really are the short-circuiting kind', () => {
+  for (const k of ['allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines', 'allowTextEdit', 'timingBanner', 'keepTimes']) {
     assert.match(APP, new RegExp(`!Sync\\.hasSession\\(\\) \\|\\| settings\\.${k} === true`),
       `${k}'s gate is unpaired-means-on`);
   }

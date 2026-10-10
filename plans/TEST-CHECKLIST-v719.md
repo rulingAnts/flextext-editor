@@ -1,15 +1,18 @@
 # Manual test checklist — staging, v717 + v718 + v719
 
-⚠ **DRAFT until the adversarial review's fixes land.** Two review waves (10 finders + adversarial
-verifiers) are running as this is written; anything they change will be reflected here before this
-is handed over. The version badge will read **`time-gaps v2`** if fixes were needed, `time-gaps v1`
-if none were.
+**Ready.** The adversarial review is done — two waves, ten independent finders, thirteen confirmed
+findings, all fixed. The version badge reads **`time-gaps v2`**; if it says anything else you are not
+testing this build.
+
+On staging: `a696dd0`, ENGINE_VERSION `v719`. Deploy it from Actions → **Deploy to staging /
+preview** from branch `staging`, ticking **all** apps — this wave spans the editor and the Audio
+Segmenter, and staging's aliases can otherwise sit at different versions.
 
 ## What is already machine-verified — you do not need to re-check these
 
 So your time goes on what only you can judge:
 
-- **962/962 node tests**, exit 0 (`node --test "test/*.test.mjs"`).
+- **976/976 node tests**, exit 0 — 962 before the review, plus 14 pinning its findings.
 - **26/26 browser checks** clicked in real Chromium — including R9 (39 gap rows on ELAN40, ▶ plays
   the gap, Add here → 41 lines → one Undo → 40, Add all → 79 → one Undo → 40, Enter jumps to the
   next *line* not a gap row, dock mark k drags seam k), R10 (✂ with the playhead in a gap adds a
@@ -18,6 +21,8 @@ So your time goes on what only you can judge:
   open, 0 placeholders written, 0 stamped writes.
 - All 33 `docs/js` modules parse as real ES modules; native containment PASS; no new top-level
   import in `app.js`, so no SHELL change and no v108-class risk.
+- Every one of the thirteen fixes was checked by **reverting it and watching its test fail** — so
+  these are regression tests, not decoration.
 - Version sync across all seven sites at v719.
 
 ## 1. The judgement only you can make — is this the right amount of machinery?
@@ -106,6 +111,20 @@ Automated tests validate the XML. Only you can open it in the real applications.
 - [ ] **Indonesian**: switch languages and confirm no raw key strings (`gap.addHere` etc.) appear
       anywhere in the new UI, including the confirmation dialog and the release-notes modal.
 - [ ] The ✨ guess button is still the **last** control on the dock.
+
+## 7b. One thing I did not change — your call
+
+v719 defines dark-mode `--gap-*` colours, so with the OS in dark mode a gap row renders near-black
+**inside an otherwise white app** (there is no dark page theme: `--bg: #ffffff` has no dark
+override, and `.seg-strip` is hard-coded white).
+
+I left it alone because **v717 already does exactly the same thing** for the timing banners, which
+are on staging now — so this is one pattern spanning two releases, not a v719 bug, and narrowing it
+is a design decision rather than a fix. It also sits against your 2026-10-09 line, *"Only the panel
+gets a dark mode variant. Other apps don't."*
+
+- [ ] Look at a gap row and a timing banner with your OS in dark mode. If they should both follow
+      the white page, say so and I will strip both sets of tokens in one change.
 
 ## 8. Before any production release — not part of this test pass
 

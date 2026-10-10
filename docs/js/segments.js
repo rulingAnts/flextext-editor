@@ -749,18 +749,37 @@ export function isV714Seed(span, k, step) {
 }
 /* The seed spans of a stored text, made pending (copies; the rest unchanged). Candidates are estimates
  * whose line carries no offsets of its own (`hasOffsets(i)`): a seed was never in a file, and a FILE's
- * even spread (E78) is that file's own estimate, kept and exported as one (D5). `step` is the
- * candidates' mean length, which a drag between two seed lines leaves exactly where it was; k is the
- * grid point nearest each start, so a line inserted since does not shift every seed after it. Two hits
- * at least — a seed is never one line (D7's whole-file span is real). */
+ * even spread (E78) is that file's own estimate, kept and exported as one (D5).
+ *
+ * ⚠ TWO WRITERS LEFT SEEDS, AND ONLY ONE OF THEM CAN BE TOLD APART LINE BY LINE.
+ *   · v714–v716 stored a bare flag (read back as estSource 'legacy'). Those are recognised span by span:
+ *     `step` is their mean length, which a drag between two seed lines leaves exactly where it was, and
+ *     k the grid point nearest each start, so a line inserted since does not shift every seed after it.
+ *     Two hits at least — a seed is never one line (D7's whole-file span is real).
+ *   · v717 stored the spread per edge, exactly as this model writes a word-fraction split — the same
+ *     guesses, the same source. A split of a real line into equal pieces must stay an estimate and be
+ *     exported (case 6), so a v717 seed is recognised only WHOLE: every line of the text a candidate, and
+ *     the spans exactly its even division of [0, last end]. (Which is also what dividing a one-line
+ *     recording into equal parts by words amounts to — "a text whose spans are all estimates is uncut".) */
 export function seedsToPending(segments, hasOffsets = () => false) {
   const segs = Array.isArray(segments) ? segments : [];
+  const n = segs.length;
   const cand = [];
   segs.forEach((s, i) => { if (isEstimate(s) && !isPlaceholder(s) && !hasOffsets(i)) cand.push(i); });
   if (cand.length < 2) return segs.map(copySpan);
-  const step = cand.reduce((a, i) => a + (segs[i].end - segs[i].start), 0) / cand.length;
-  const hit = new Set(cand.filter((i) => isV714Seed(segs[i], Math.round(segs[i].start / step), step)));
-  if (hit.size < 2) return segs.map(copySpan);
+  const legacy = cand.filter((i) => segs[i].estSource === 'legacy' || flagOnly(segs[i]));
+  let hit = new Set();
+  if (legacy.length >= 2) {
+    const step = legacy.reduce((a, i) => a + (segs[i].end - segs[i].start), 0) / legacy.length;
+    hit = new Set(legacy.filter((i) => isV714Seed(segs[i], Math.round(segs[i].start / step), step)));
+    if (hit.size < 2) hit = new Set();
+  }
+  if (!hit.size && cand.length === n) {
+    const D = segs[n - 1].end;
+    const even = segs.every((s, k) => Math.abs(s.start - Math.round((k * D) / n)) <= 2 && Math.abs(s.end - Math.round(((k + 1) * D) / n)) <= 2);
+    if (even) hit = new Set(cand);
+  }
+  if (!hit.size) return segs.map(copySpan);
   return segs.map((s, i) => (hit.has(i) ? { ...withoutTime(s), timePending: true } : copySpan(s)));
 }
 

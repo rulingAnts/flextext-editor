@@ -191,7 +191,7 @@ const T = {
   /* v718 (plans §4 v718, §6.5): untimed lines are drawn in their gap and never stored or exported. */
   untimed: V718 ? { partlyTexts: 0, placeholders: 0, noRoom: 0, storedPlaceholders: 0,
     openedWithAudio: 0, spread: 0, noRoomTexts: 0, oneLine: 0, quietWrites: 0, exportedWithOffsets: 0,
-    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0 } : null } : null,
+    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0, exportedUnopened: 0 } : null } : null,
 };
 const flagged = {};
 const flag = (what, rel) => { (flagged[what] = flagged[what] || []).push(rel); };
@@ -311,6 +311,8 @@ for (const path of files) {
       const stored = JSON.parse(JSON.stringify(So.doc));   // what v714 left in IndexedDB
       if (stored.paragraphs.length > 1 && (stored.segments || []).some(isAligned)) {
         const S7 = T.untimed.v714Seeds;
+        // exported straight from the list, never drawn again (auto-backup, a send from the list)
+        if (OFFSET.test(NEW.exportXml(JSON.parse(JSON.stringify(stored))))) { S7.exportedUnopened++; flag('a stored v714 seed exported unopened as times', rel); }
         NEW.render(stored, AUDIO_MS + 70);
         S7.files++; S7.lines += stored.segments.length;
         const missed = stored.segments.filter(isPlaced).length;

@@ -120,3 +120,19 @@ test('v718: a line drawn in its gap is exported untimed by every exporter — an
   const eaf0 = serializeEaf({ ...doc, segments: SEGS.storableSegments(doc.segments) }, { title: 'T18', mediaName: 'recording.wav', durationMs: 25867 });
   assert.equal(eaf.replace(/DATE="[^"]*"/, ''), eaf0.replace(/DATE="[^"]*"/, ''), 'the EAF: the stored doc\'s');
 });
+
+test('v718 / case 12: a record v714 stored with its even seed exports NO times, opened again or not', async () => {
+  const SEGS = await import('../docs/js/segments.js');
+  const doc = ft.makeDoc(SET);
+  ft.reconcileBaseline(doc, ['a b', 'c d', 'e f', 'g h', 'i j'], { flatSegments: true });
+  // As v714 left it in IndexedDB: an even division of a 50 s recording, each span flagged, no guess.
+  doc.segments = [0, 1, 2, 3, 4].map((k) => ({ start: k * 10000, end: (k + 1) * 10000, timeEstimated: true }));
+  delete doc.timeEdges;
+  const xml = serializeFlextext(doc, SET, { segTimes: true, timeNotes: true });   // from the list: never drawn
+  assert.doesNotMatch(xml, /begin-time-offset|>audio |time-estimates/, 'the seed is not sent out as times');
+  assert.equal(buildFxpa(doc, SET).lines.filter((l) => 'start' in l).length, 0, 'nor into a .fxpa');
+  assert.equal(doc.segments.filter(SEGS.isEstimate).length, 5, 'and exporting changed nothing on the record');
+  // A FILE's even spread (E78: offsets on every phrase) is that file's own estimate, and still exported as one.
+  const e78 = loadFixture('e78');
+  assert.equal((serializeFlextext(e78, SET, { segTimes: true, timeNotes: true }).match(/>audio ~/g) || []).length, 78);
+});

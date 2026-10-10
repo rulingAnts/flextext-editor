@@ -78,17 +78,31 @@ test('a drag makes only the two lines it touches placed (R6); every other line i
 });
 
 test('case 6: three equal fraction splits of a REAL line are estimates, never placeholders, and are exported', () => {
-  let segs = [real(0, 9000)];
-  segs = splitSegment(segs, 0, { fraction: 1 / 3 });
-  segs = splitSegment(segs, 1, { fraction: 1 / 2 });
-  assert.deepEqual(times(segs), [[0, 3000], [3000, 6000], [6000, 9000]]);
-  assert.ok(segs.every((s) => isPlaced(s) && isEstimate(s)), 'estimates');
+  let segs = [real(0, 3000), real(3000, 12000), real(12000, 15000)];
+  segs = splitSegment(segs, 1, { fraction: 1 / 3 });
+  segs = splitSegment(segs, 2, { fraction: 1 / 2 });
+  assert.deepEqual(times(segs), [[0, 3000], [3000, 6000], [6000, 9000], [9000, 12000], [12000, 15000]]);
+  assert.ok(segs.slice(1, 4).every((s) => isPlaced(s) && isEstimate(s)), 'estimates');
   assert.ok(segs.every((s) => !('phAt' in s)));
+  // …however even, and however neatly on a 3000 ms grid from 0: not a seed (they are this model's own guesses)
+  assert.deepEqual(times(seedsToPending(segs)), times(segs), 'nothing set aside as a seed');
   const doc = ft.makeDoc({ vernLang: 'fau', analLang: 'id' });
-  ft.reconcileBaseline(doc, ['a', 'b', 'c'], { flatSegments: true });
+  ft.reconcileBaseline(doc, ['a', 'b', 'c', 'd', 'e'], { flatSegments: true });
   doc.segments = segs;
   const xml = ft.serializeFlextext(doc, { vernLang: 'fau', analLang: 'id' }, { segTimes: true });
-  assert.equal((xml.match(/begin-time-offset=/g) || []).length, 3, 'all three go out with their times');
+  assert.equal((xml.match(/begin-time-offset=/g) || []).length, 5, 'all five go out with their times');
+  assert.equal((xml.match(/time-estimates="[^"]+"/g) || []).length, 1, 'the three guesses marked in the instruction');
+});
+
+test('a v717 seed is recognised only whole: every line, exactly its even division', () => {
+  const v717 = Array.from({ length: 5 }, (_, k) => {
+    const start = Math.round((k * 61234) / 5), end = Math.round(((k + 1) * 61234) / 5);
+    return { start, end, guess: [k > 0 ? start : null, k < 4 ? end : null], estSource: 'edit' };
+  });
+  assert.ok(seedsToPending(v717).every((s) => s.timePending), 'the whole text, as v717 laid it down');
+  const edited = v717.map((s) => ({ ...s, guess: s.guess.slice() }));
+  edited[2] = { start: edited[2].start, end: edited[2].end, guess: [null, null] };   // one line kept since
+  assert.ok(seedsToPending(edited).every((s) => !s.timePending), 'once anything in it is somebody\'s time, it is left as estimates');
 });
 
 test('the text box: a placeholder line divided by words stays two placeholders; joined lines stay one', () => {

@@ -11,7 +11,7 @@
 
 // segments.js is pure and imports nothing, so this adds no cycle and no new SHELL entry (it is already
 // precached everywhere app.js is). The per-edge estimate rules live there, once.
-import { isAligned, isEstimate, edgeGuessed, estimateEdges, withGuesses, settleSpan, storableSegments } from './segments.js';
+import { isAligned, isEstimate, edgeGuessed, estimateEdges, withGuesses, settleSpan, storableSegments, seedsToPending } from './segments.js';
 
 export const APP_ITEM_TYPES = new Set(['txt', 'gls', 'segnum', 'punct']);
 
@@ -904,7 +904,9 @@ export function spansForExport(doc) {
   const copy = { paragraphs: doc.paragraphs, timeEstimatesPi: doc.timeEstimatesPi, timeEdges: doc.timeEdges,
     segments: storableSegments(segs).map((s) => (s && Array.isArray(s.guess) ? { ...s, guess: s.guess.slice(0, 2) } : { ...s })) };
   readLegacyEstimates(copy);
-  return withGuesses(copy.segments);
+  /* …and a stored v714/v717 even spread is no time either (v718, case 12): a record exported without
+   * ever being drawn again — from the list, by auto-backup — must not send that seed out as times. */
+  return withGuesses(seedsToPending(copy.segments, (k) => !!lineOffsets(doc, k)));
 }
 
 /* Would the reader's equal-length rule (markFileEstimates, test 3) mark any of these written times? A run

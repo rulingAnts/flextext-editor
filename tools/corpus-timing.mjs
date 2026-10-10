@@ -23,7 +23,12 @@
  *              same files; the two exports are diffed line by line and every difference must be one of
  *              the expected kinds (a `~` restored on an audio note, the time-estimates instruction).
  * --audio-ms   untimed texts are opened twice: without audio (nothing may change) and as if a
- *              recording of this length had decoded (the v714 seed) — the length does not matter.
+ *              recording of this length had decoded (default 60 000 ms). Since v718 that second open
+ *              must draw every line evenly as a placeholder (or, past 400 ms a line, leave them all ⋯),
+ *              write nothing but a one-line text's whole-file span (D7), and export exactly what the
+ *              open without audio exports — no offsets. With --baseline, the older engine's stored
+ *              seed is also handed to this one (on a device decoding 70 ms longer) and must come back
+ *              untimed: `untimed.v714Seeds.missed` 0, nothing exported as times.
  * --expect     { "<path>": "a"|"b"|"d"|"e-full"|"e-partial"|"f" } from the planning audit; the
  *              classes found here are checked against it file by file.
  *
@@ -78,27 +83,30 @@ async function loadEngine(root) {
   const STRIPS = readFileSync(join(root, 'docs/js/segment-strips.js'), 'utf8');
   const normalize = new Function('ft', `const { segmentsFromOffsets, makeSegment, newGuid } = ft;
     ${liftDecl(APP, 'normalizePhraseLines')}; return normalizePhraseLines;`)(ft);
-  const lifted = ['COVER_TOL_MS', 'evenSpread', 'coverTail', 'reconcile'].filter((n) => has(STRIPS, n));
-  let D = 0;
-  const reconcile = new Function('SEG', 'ft', 'SS', 'getD', `
-    const { syncToLines, isAligned } = SEG;
-    const settleSpan = SEG.settleSpan || ((s) => s);
-    const readLegacyEstimates = ft.readLegacyEstimates || (() => {});
-    const docSegments = SS.docSegments;
-    const peaksDurationFor = () => getD();
-    const deps = null;
-    ${lifted.map((n) => liftDecl(STRIPS, n)).join('\n')}
-    return reconcile;`)(SEG, ft, SS, () => D);
+  /* What every tab runs before it draws: since v718 the exported prepareDisplaySpans, which takes the
+   * recording's length outright; before it, reconcile, lifted from the source with a stand-in cache. */
+  let draw = SS.prepareDisplaySpans ? (doc, deps, D) => SS.prepareDisplaySpans(doc, { ...deps, durationMs: D }) : null;
+  if (!draw) {
+    const lifted = ['COVER_TOL_MS', 'evenSpread', 'coverTail', 'reconcile'].filter((n) => has(STRIPS, n));
+    let D0 = 0;
+    const reconcile = new Function('SEG', 'ft', 'SS', 'getD', `
+      const { syncToLines, isAligned } = SEG;
+      const settleSpan = SEG.settleSpan || ((s) => s);
+      const readLegacyEstimates = ft.readLegacyEstimates || (() => {});
+      const docSegments = SS.docSegments;
+      const peaksDurationFor = () => getD();
+      const deps = null;
+      ${lifted.map((n) => liftDecl(STRIPS, n)).join('\n')}
+      return reconcile;`)(SEG, ft, SS, () => D0);
+    draw = (doc, deps, D) => { D0 = D || 0; try { return reconcile(doc, deps); } finally { D0 = 0; } };
+  }
   return {
     ft, SEG,
-    /** reconcile — what the Cut and Baseline tabs run on every draw — counting the writes it asks for. */
+    /** What the Cut, Baseline and Gloss tabs run on every draw — counting the writes it asks for. */
     render(doc, durationMs) {
       const writes = { stamped: 0, quiet: 0 };
-      D = durationMs || 0;
-      try {
-        reconcile(doc, { getParagraphs: (d) => ft.getBaselineParagraphs(d), getDocId: () => 'doc',
-          persist: () => { writes.stamped++; }, persistQuiet: () => { writes.quiet++; } });
-      } finally { D = 0; }
+      draw(doc, { getParagraphs: (d) => ft.getBaselineParagraphs(d), getDocId: () => 'doc',
+        persist: () => { writes.stamped++; }, persistQuiet: () => { writes.quiet++; } }, durationMs || 0);
       return writes;
     },
     /** parse + normalize (+ render), as the editor opens a file. */
@@ -124,6 +132,13 @@ const HERE = resolve(new URL('..', import.meta.url).pathname);
 const NEW = await loadEngine(HERE);
 const OLD = opt('--baseline') ? await loadEngine(resolve(opt('--baseline'))) : null;
 const { isAligned, isEstimate, edgeGuessed, timingReport } = NEW.SEG;
+/* v718: an untimed line is drawn as a PLACEHOLDER (display only). Placed = a time somebody has. Older
+ * engines have no placeholders, so there every aligned span is placed. */
+const V718 = typeof NEW.SEG.storableSegments === 'function';
+const isPlaceholder = NEW.SEG.isPlaceholder || (() => false);
+const isPlaced = NEW.SEG.isPlaced || isAligned;
+const storable = NEW.SEG.storableSegments || ((x) => x);
+const OFFSET = /begin-time-offset=/;
 
 /* What a line's time IS, for comparing two opens: its values, and which edges are guesses. */
 const state = (segs) => JSON.stringify((segs || []).map((s) => (isAligned(s)
@@ -137,9 +152,11 @@ const fileOffsets = (doc) => doc.paragraphs.map((p) => {
 /* The diff of an untouched export against the baseline engine's. Expected kinds only. */
 const PI_LINE = /^\s*<\?flextext-editor v="2" time-estimates="[^"]*"\?>$/;
 function exportDiff(oldXml, newXml) {
-  const o = oldXml.split('\n'), nAll = newXml.split('\n');
-  const n = nAll.filter((l) => !PI_LINE.test(l));
-  const out = { pi: nAll.length - n.length, tilde: 0, other: 0 };
+  // The instruction is compared as a line of its own on both sides (a v717+ baseline writes one too).
+  const oAll = oldXml.split('\n'), nAll = newXml.split('\n');
+  const o = oAll.filter((l) => !PI_LINE.test(l)), n = nAll.filter((l) => !PI_LINE.test(l));
+  const oPi = oAll.filter((l) => PI_LINE.test(l));
+  const out = { pi: nAll.filter((l) => PI_LINE.test(l) && !oPi.includes(l)).length, tilde: 0, other: 0 };
   if (o.length !== n.length) { out.other += Math.abs(o.length - n.length) || 1; return out; }
   for (let k = 0; k < o.length; k++) {
     if (o[k] === n[k]) continue;
@@ -169,8 +186,12 @@ const T = {
   classes: { contiguous: 0, gaps: 0, 'est-full': 0, 'est-partial': 0, damaged: 0, untimed: 0 },
   estimateLines: 0, estimateFiles: 0, estBySource: {}, red: 0, redKinds: {}, amber: 0,
   vsBaseline: OLD ? { identical: 0, tildeRestored: 0, piLines: 0, piFiles: 0, other: 0, otherFiles: 0,
-    classicOther: 0, untimedSeeded: { files: 0, piLines: 0, quietWrites: 0, other: 0 } } : null,
+    classicOther: 0, untimedSeeded: V718 ? null : { files: 0, piLines: 0, quietWrites: 0, other: 0 } } : null,
   expectMismatch: EXPECT ? 0 : null,
+  /* v718 (plans §4 v718, §6.5): untimed lines are drawn in their gap and never stored or exported. */
+  untimed: V718 ? { partlyTexts: 0, placeholders: 0, noRoom: 0, storedPlaceholders: 0,
+    openedWithAudio: 0, spread: 0, noRoomTexts: 0, oneLine: 0, quietWrites: 0, exportedWithOffsets: 0,
+    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0 } : null } : null,
 };
 const flagged = {};
 const flag = (what, rel) => { (flagged[what] = flagged[what] || []).push(rel); };
@@ -194,7 +215,7 @@ for (const path of files) {
   offs.forEach((o, k) => {
     if (!o) return;
     const s = A.doc.segments[k];
-    if (!isAligned(s)) lost++;
+    if (!isPlaced(s)) lost++;
     else if (s.start !== o[0] || s.end !== o[1]) changed++;
   });
   T.timeChanges += changed; T.lostTimes += lost;
@@ -216,22 +237,30 @@ for (const path of files) {
   // Classes, estimates and the banner — for the texts that carry times in the file.
   const texts = NEW.ft.getBaselineParagraphs(A.doc);
   const rep = timingReport(A.doc.segments, texts, { durationMs: D || undefined });
+  // v718: what is drawn is never what is stored — and an untimed line is a placeholder, or ⋯ with no room.
+  if (V718) {
+    const U = T.untimed;
+    U.storedPlaceholders += storable(A.doc.segments).filter((x) => x && ('phAt' in x || 'noRoom' in x || isPlaceholder(x))).length;
+    const ph = A.doc.segments.filter(isPlaceholder).length, cramped = A.doc.segments.filter((x) => x && x.noRoom).length;
+    if (timed && (ph || cramped)) { U.partlyTexts++; U.placeholders += ph; U.noRoom += cramped; flag('partly timed (v718: needs timing)', rel); }
+    if (U.storedPlaceholders) flag('a placeholder in the storable form', rel);
+  }
   let cls = 'untimed';
   if (timed) {
     const n = A.doc.segments.length;
-    const est = A.doc.segments.filter(isEstimate).length;
+    const est = A.doc.segments.filter((x) => isEstimate(x) && !isPlaceholder(x)).length;
     if (rep.level === 'red') cls = 'damaged';
     else if (est && est === n) cls = 'est-full';
     else if (est) cls = 'est-partial';
     else {
       const s = A.doc.segments;
-      const gap = s.some((x, k) => k > 0 && isAligned(x) && isAligned(s[k - 1]) && x.start - s[k - 1].end > 1)
-        || (isAligned(s[0]) && s[0].start > 1);
+      const gap = s.some((x, k) => k > 0 && isPlaced(x) && isPlaced(s[k - 1]) && x.start - s[k - 1].end > 1)
+        || (isPlaced(s[0]) && s[0].start > 1);
       cls = gap ? 'gaps' : 'contiguous';
     }
     if (est) {
       T.estimateLines += est; T.estimateFiles++;
-      for (const s of A.doc.segments) if (isEstimate(s)) T.estBySource[s.estSource || 'edit'] = (T.estBySource[s.estSource || 'edit'] || 0) + 1;
+      for (const s of A.doc.segments) if (isEstimate(s) && !isPlaceholder(s)) T.estBySource[s.estSource || 'edit'] = (T.estBySource[s.estSource || 'edit'] || 0) + 1;
     }
     if (est !== A.fileEstimates) flag('estimates changed by the render', rel);
   }
@@ -239,6 +268,28 @@ for (const path of files) {
   if (rep.level === 'red') { T.red++; for (const it of rep.items) if (it.level === 'red') T.redKinds[it.kind] = (T.redKinds[it.kind] || 0) + 1; flag('red', rel); }
   if (rep.level === 'amber') { T.amber++; flag('amber', rel); }
   if (EXPECT && EXPECT[rel] != null && EXPECT[rel] !== LETTER[cls]) { T.expectMismatch++; flag(`class ${cls}, expected ${EXPECT[rel]}`, rel); }
+
+  /* v718 — an untimed text opened as if its recording had decoded: drawn evenly (D4), nothing written
+   * but D7's one-line span, and an export with no offsets at all (the export of the same text with no
+   * audio, byte for byte). */
+  if (V718 && !timed && !D) {
+    const U = T.untimed;
+    const S = NEW.open(xml, { durationMs: AUDIO_MS });
+    U.openedWithAudio++;
+    U.quietWrites += S.writes.quiet;
+    if (S.writes.stamped) { T.stampedWrites += S.writes.stamped; flag('stamped write on an untimed open', rel); }
+    if (S.doc.paragraphs.length === 1) U.oneLine++;   // D7: its whole-file span is real, and written quietly
+    else {
+      if (S.writes.quiet) flag('an untimed open wrote something', rel);
+      // 400 ms a line or no spread at all (D3): a long text against --audio-ms may simply not fit.
+      const fits = S.doc.paragraphs.length * (NEW.SEG.SPREAD_MIN_MS || 400) <= AUDIO_MS;
+      if (fits ? S.doc.segments.every(isPlaceholder) : S.doc.segments.every((x) => x.timePending && x.noRoom)) U[fits ? 'spread' : 'noRoomTexts']++;
+      else flag('untimed text not spread evenly', rel);
+      if (OFFSET.test(NEW.exportXml(S.doc)) || NEW.exportXml(S.doc) !== NEW.exportXml(A.doc)) {
+        U.exportedWithOffsets++; flag('untimed export carries times', rel);
+      }
+    }
+  }
 
   // An untouched export against the baseline engine's.
   if (OLD) {
@@ -252,8 +303,24 @@ for (const path of files) {
     // Classic mode (segmentation off): the export must be byte-identical.
     const C0 = OLD.open(xml, { render: false }), C1 = NEW.open(xml, { render: false });
     if (OLD.exportXml(C0.doc, false) !== NEW.exportXml(C1.doc, false)) { V.classicOther++; flag('classic export differs', rel); }
+    /* v718: a text v714 (or v717) opened with its recording and STORED with the even spread — recognised as
+     * a seed (segments.js seedsToPending) on a device that decodes 70 ms longer (BM6), drawn untimed again,
+     * and exported with no times at all. */
+    if (V718 && !timed && !D) {
+      const So = OLD.open(xml, { durationMs: AUDIO_MS });
+      const stored = JSON.parse(JSON.stringify(So.doc));   // what v714 left in IndexedDB
+      if (stored.paragraphs.length > 1 && (stored.segments || []).some(isAligned)) {
+        const S7 = T.untimed.v714Seeds;
+        NEW.render(stored, AUDIO_MS + 70);
+        S7.files++; S7.lines += stored.segments.length;
+        const missed = stored.segments.filter(isPlaced).length;
+        S7.missed += missed;
+        if (missed) flag('a v714 seed not recognised', rel);
+        if (OFFSET.test(NEW.exportXml(stored))) { S7.exportedWithOffsets++; flag('a v714 seed exported as times', rel); }
+      }
+    }
     // An untimed text opened with audio carries the v714 seed in v717: the PI line is the only change.
-    if (!timed && !D) {
+    if (!V718 && !timed && !D) {
       const So = OLD.open(xml, { durationMs: AUDIO_MS }), Sn = NEW.open(xml, { durationMs: AUDIO_MS });
       if (Sn.writes.stamped) { T.stampedWrites += Sn.writes.stamped; flag('stamped write on a seeded open', rel); }
       const s = exportDiff(OLD.exportXml(So.doc), NEW.exportXml(Sn.doc));

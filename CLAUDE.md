@@ -519,9 +519,16 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   `segments.js` (never invent a time; out-of-range → `timePending`; text is sacred). ALIGNMENT
   EDITS NEVER TOUCH TEXT: the ⇥ set-boundary control and the seeds write `doc.segments` only, so
   glosses/free translations cannot be lost by construction.
-- **Seeds:** fresh single-line doc → one whole-file span. Pre-transcribed multi-line doc with no
-  alignment → even division marked `timeEstimated` (dashed) — line 1 claiming the whole recording
-  would be a false alignment. All-pending docs heal the same way once audio decodes.
+- **Seeds and untimed lines (v718):** a fresh single-line doc → one whole-file span (D7, a real time,
+  written quietly). Every other line with no time is DRAWN, never written: segments.js
+  `spreadUntimed` shares the gap between its timed neighbours (or [0, D] for a text with no times —
+  v714's old even spread) evenly, 400 ms a line or it stays ⋯ "no room". Those spans are
+  PLACEHOLDERS (`phAt`, `isPlaceholder` — status by value, so a moved copy is not one): they play,
+  drag and cut like any span, and the moment the user places something the line is real (or an
+  estimate, dashed) and stored. Partly timed → amber "needs timing", but only while the untimed lines
+  are the exception (at most half — `needsMarks`); all or mostly untimed → dashed, one info banner.
+  v714/v717's STORED even spread is recognised (`seedsToPending`) and drawn untimed again.
+  Seth's B2, plans/time-gaps-and-estimates.md §4 v718.
 - **Exports (in the save/share zip):** `<title>.eaf` + `<title>.pfsx` (ELAN reads display settings
   from a same-basename sidecar; without it ELAN's remembered `sortAlphabetically` puts every gloss
   tier ABOVE its own vernacular partner — `A_phrase-gls-*` sorts before `A_phrase-txt-*`. The
@@ -550,9 +557,19 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     the setting-based guard read the hidden empty textarea and WIPED the doc's text.
   - Strip/gloss waveform canvases redraw via ResizeObserver + the existing tickers — a draw that
     races layout bakes a tiny buffer that CSS stretches into a blank slab.
-  - `reconcile()`'s seeds/heals persist immediately — and QUIETLY since v717 (`persistQuiet` →
-    app.js `saveQuiet`, no `modified` stamp: opening a text is not an edit, and a stamp re-uploads a
-    text already on Drive); peaks failures `console.warn` instead of vanishing.
+  - `prepareDisplaySpans()` (segment-strips, was `reconcile`; every tab runs it — Gloss too, since v718)
+    writes only D7's one-line span and the tail cover, QUIETLY (`persistQuiet` → app.js `saveQuiet`, no
+    `modified` stamp: opening a text is not an edit, and a stamp re-uploads a text already on Drive);
+    peaks failures `console.warn` instead of vanishing.
+  - **⚠ PLACEHOLDERS NEVER REACH STORAGE OR A FILE (v718).** `db.js putDoc → storableRecord` is the ONE
+    chokepoint (a shallow copy: `current` keeps its drawn lines), covering `doc.segments` and
+    `matchDraft.spans`; every exporter reads `spansForExport`, the storable form; `uploadContentSig`
+    hashes the stored form. Never add a second writer of the docs store — `storage-chokepoint.test.mjs`
+    fails if anything but db.js opens it.
+  - **Keep times (v718)** — on the ACTIVE line only, a guessed line's times (dashed, or "needs timing")
+    become its real ones: one Undo item, one save, our `~` note and instruction entry go with it (case
+    7). Researcher-switchable (`keepTimes`, the `timingBanner` shape) and only where `adjustBoundaries`
+    allows drags.
   - **The timing banner (v717)** — one message per text above the dock (estimates, lines with no time,
     "lines and audio look out of step"), worded from `timingReport`; it changes nothing, its Dismiss is a
     quiet `rec.timingAck`, and it is researcher-switchable (`timingBanner`, the `allowBlankLines`

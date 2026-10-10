@@ -157,6 +157,19 @@ Rules:
 | app.js | new `keepLineTimes(i)` | **Keep these times**, shown only on the active row, when `adjustBoundariesAllowed() && keepTimes`. Sets `guess=[null,null]`, drops `phAt`, and removes our `audio …` note from that phrase's `postItemsXML` (case 7). One `captureUndo` and one save. |
 | css / i18n | — | Adds `seg-needs`, `seg-noroom`, `seg-spread`, `timing.{partly,noRoom}`, `keep.*` and `mg.needsTiming` (replacing "No audio for this line" for placeholder rows). |
 
+*(v718, as built — branch `time-untimed`.)* Where the build settled a question the table left open:
+
+- **A line holding the file's own times (`fileTimes`) is not untimed.** `spreadUntimed` leaves it pending, with its hold, and gives it no share of the room (P4).
+- **A placeholder joined to a line with no room stays a placeholder**; joined to a placed line it is that line's time with the spread's guess on the far edge — dashed, stored, exported with `~`. A nudged cut counts as "not the playhead".
+- **Seeds:** `seedsToPending` takes `step` from the mean length of the candidate estimates (a drag between two seed lines leaves it unchanged) and `k` as the grid point nearest each start; two hits at least. The Segmenter's `mgLoad` applies it too, so a seeded text is untimed there as well.
+- **Gloss:** `prepareDisplaySpans` runs inside `decorateGlossSegments`, so every decorate after a Gloss edit re-spreads.
+- **"Already on Drive":** `uploadContentSig` hashes the stored form (`db.storableRecord`), and `prepareDisplaySpans` tells the host (`keepInSync`) when it changed what storage would hold, so drawing an untimed text is not an edit.
+- **Keep's durability (case 7 and 17):** a writer that holds no estimates writes an instruction listing none (`time-estimates=""`) whenever the times it writes contain an even run the equal-length rule would misread, and a classic device passes that claim on; the reader skips the rule for any file carrying our instruction. Without it, a Kept even run came back dashed after our own export and import. It affects no corpus file (the gate: 170 untouched exports identical to v717's).
+- **Case 22:** `baseSig` hashes the paragraphs (not only their guids) and the stored span values. A changed text asks "Resume matching (discards later edits)" / "Start from the text" (`confirmDialog` gained named buttons); "Start from the text" leaves the old draft untouched until the first edit, so Escape or a look-and-leave loses nothing.
+- **Amber only for the exception (P6):** `seg-needs`/`seg-noroom` and an amber 'partly' apply while untimed lines are at most half the text. Driving U60 showed why: after one drag on seam 5|6, the next render turned the other 58 lines amber. A mostly untimed text keeps the dashed spread and an info line ("Most lines have no audio time yet"). A drag restyles every row on release (`restyleRows`), since it rebuilds none.
+- **Browser (§6.4, headless Firefox, the scratchpad rig — element clicks; file picks, focus and drags synthetic and labelled):** R6 on U60 — 60 dashed rows, the info banner, nothing stored or exported as a time, a pure reopen leaves `modified` alone, seam 5|6 times lines 5–6 only (every other row to the millisecond), one Undo and one Redo; R7 on a partly timed T18 (lines 5–6 untimed) — amber rows, badge and banner, the Gloss bars the same, Keep shown only on the active line, one Undo and one Redo; R8 — the case-3 text in the Audio Segmenter shows rows 5–8 "Needs timing", no ninth row, and Done stores 8 lines with rows 5–8 untimed; R12 — 375 px, no horizontal scroll. Not driven: R11's managed-device gating (node-tested).
+- **Gate (§6.5):** untimed texts opened at 60 s: 101 drawn evenly, 3 "no room" (over 150 lines), 27 one-line (D7), nothing else written, no times exported; v714's stored seed on a device decoding 70 ms longer: 104 texts, 3,797 lines, 0 missed.
+
 ### v719 — gaps (Seth's B1) as display rows plus one-click add
 
 | file | function | change |

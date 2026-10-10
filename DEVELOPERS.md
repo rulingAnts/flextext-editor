@@ -217,6 +217,7 @@ A text ("doc") is:
 { title, paragraphs: [ { guid, segments: [ phrase ] } ], segments: [ span ], … }
 phrase = { attrs, baseline, words: [ { txt, gls, punct, … } ], free, pre/postItemsXML }
 span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   (+ derived timeEstimated, estSource)
+         (+ in memory only, never stored: phAt — a placeholder's values; noRoom — a display mark)
 ```
 - `paragraphs[].segments` are FLEx *phrases* (text structure). `doc.segments` are *time spans*.
 - **A word gloss (`gls`) never contains whitespace.** Two reasons, and the second is the
@@ -257,8 +258,24 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
   report flags). Above the dock, ONE banner per text (`renderTimingBanner`, worded from
   `timingReport`) with Details, Show and Dismiss; researcher-switchable as `timingBanner`. Drags go
   through `dragSeam` with the grabbed edge, judged against the spans at pick-up. Opening a text saves
-  nothing but a seed, heal or tail cover, and those quietly (`saveQuiet`, no `modified` stamp). Drawing,
+  nothing but a one-line text's whole-file span or a tail cover, and those quietly (`saveQuiet`, no
+  `modified` stamp; v717 also saved the even seed, which v718 only draws). Drawing,
   playback (`playEnd`) and the dock's marks clip at the recording's end; the stored time never does.
+- **Untimed lines are drawn, never written (v718, Seth's B2).** Before any tab draws a text,
+  segment-strips `prepareDisplaySpans` lays every line with no time into the gap its timed neighbours
+  leave (segments.js `spreadUntimed`: an even share, 400 ms a line or `noRoom`; an all-untimed text is
+  one room, [0, D] — v714's old spread). Such a span is a PLACEHOLDER: `phAt` records its values and it
+  is one only while it still holds them (`isPlaceholder`), so whatever the user places — a cut, a drag,
+  ✨, Keep — makes it a stored time; a join of two placeholders or a split nobody placed stays one.
+  Placeholders live in `current.doc.segments` and are removed in ONE place, `db.js putDoc →
+  storableRecord` (also `matchDraft.spans`); exports read the same storable form (`spansForExport`) and
+  the "already on Drive" hash does too. Looks: `seg-spread` (all untimed: dashed, one info banner),
+  `seg-needs` (partly timed: amber bar and "needs timing"), `seg-noroom` (⋯ with the amber bar) — the
+  amber only while untimed lines are at most half the text (`needsMarks`; a text still mostly untimed is
+  one being cut, P6), and behind the banner's switch. v714/v717's stored even spread is recognised from the spans
+  themselves (`seedsToPending`) and drawn untimed again. **Keep times** (`keepLineTimes`, active row,
+  researcher switch `keepTimes`) makes a guessed line's times its own; the Audio Segmenter spreads its
+  untimed rows the same way and writes them back untimed on Done.
 - **The text box keeps times with their lines (v717).** `reconcileBaselineWithOrigins` says where each
   new line came from (kept / exact / edit / join / split / new, paired only within the stretch between
   unchanged lines, by shared words first and in order only in the gaps the words leave; `moved` for a
@@ -551,7 +568,11 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
   (placed times changed on open, lines gained, two opens identical, classes, estimate lines, red
   banners, and every line of an untouched export that differs from the older engine's). It reads,
   never writes, and is never run in CI. The expected numbers are in
-  `plans/time-gaps-and-estimates.md` §6.5.
+  `plans/time-gaps-and-estimates.md` §6.5. Since v718 it also opens every untimed text as if its
+  recording had decoded (`untimed`: drawn evenly or "no room", nothing written but a one-line text's
+  span, an export with no times) and, with `--baseline` at v714, hands the old engine's stored seed to
+  the new one (`untimed.v714Seeds.missed` must be 0). The fixtures include U60, an all-untimed FLEx
+  export (60 phrases in one paragraph).
 - **Before your first push: `./install-hooks.sh`.** It installs `hooks/pre-push`, which refuses a
   push carrying a credential (`./check-secrets.sh`), one that touches `.github/workflows/`
   (billable), or one aimed at a production branch. The first has no override on purpose; the other

@@ -314,6 +314,31 @@ function savePending(accountId) {
   catch { /* quota/private mode — the markers degrade to in-memory only */ }
 }
 
+/* DEV-REMOVED TOMBSTONES THIS PANEL HAS ALREADY TRASHED — "<instanceId>|<docId>".
+ *
+ * ⚠ THIS SET EXISTS BECAUSE NOTHING SYNCS BACK, and that was a deliberate choice (Seth's option 1,
+ * 2026-10-10). Telling the device "done" would need a NEW command type, and so a worker allow-list
+ * change and the whole backend-first sequence — for a developer affordance. So the panel remembers
+ * instead: the device keeps naming the tombstone until it expires on its own, and this is what stops
+ * the row being offered again on every poll.
+ *
+ * ⚠ The cost is honest and small: a SECOND panel, or the same panel in another browser, would offer
+ * a row whose folder is already trashed. Trashing an already-trashed folder is a no-op, so the worst
+ * outcome is one redundant click. Same per-account localStorage shape as PENDING_KEY. */
+const TOMB_KEY = 'flextext-rp-tombdone:';
+let devTombDone = new Set();
+const tombKey = (instanceId, docId) => `${instanceId}|${docId}`;
+function loadTombDone(accountId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TOMB_KEY + (accountId || 'anon')) || '[]');
+    devTombDone = new Set(Array.isArray(raw) ? raw : []);
+  } catch { devTombDone = new Set(); }
+}
+function saveTombDone(accountId) {
+  try { localStorage.setItem(TOMB_KEY + (accountId || 'anon'), JSON.stringify([...devTombDone].slice(-500))); }
+  catch { /* quota/private mode — degrades to in-memory, costing a redundant click after a reload */ }
+}
+
 /* COLLAPSED DEVICE CARDS — instanceId -> true (collapsed) | false (expanded). Same per-account
  * localStorage shape as PENDING_KEY above.
  *
@@ -2883,6 +2908,7 @@ async function renderDashboard(prefetched) {
   lastData = data; lastDataAt = Date.now();   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
+  loadTombDone(Researcher.currentAccountId());   // which ☠-removed folders this panel has already trashed
   await loadMoves(Researcher.currentAccountId());
   await loadTtl(Researcher.currentAccountId());
   /* ⚠ EVERY render re-derives the shared pending state, not just the 12s poll. An action-driven
@@ -5015,8 +5041,22 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       const ghosts = [...allPending].filter(([docId, pc]) =>
         pc.kind === 'assign' && !invIds.has(docId))
         .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
+      /* ⚠ DEV-REMOVED TEXTS GET A SYNTHESIZED ROW, for the same reason the ghosts above do: one
+       * renderer, so the state shows "the way it shows a pending delete" instead of as a second
+       * widget behaving differently. `pendingDelete: true` is what strikes it through — the device
+       * no longer has this text at all, which is exactly what that styling already means.
+       *
+       * These are texts a developer ☠ removed WITHOUT a backup. The device is still naming them so
+       * the Drive folder can be TRASHED rather than drifting into Unassigned among texts that are
+       * there for real reasons (Seth, 2026-10-10). Nothing syncs back to the device, so once this
+       * panel has trashed one it remembers and stops listing it — see devTombDone. */
+      const tombs = (ins.inventory && Array.isArray(ins.inventory.devRemoved)) ? ins.inventory.devRemoved : [];
+      const tombRows = tombs
+        .filter((x) => x && x.id && x.folderId && !invIds.has(x.id) && !devTombDone.has(tombKey(it.instance_id, x.id)))
+        .map((x) => ({ id: x.id, title: x.title || '', uploadState: '', hasAudio: false,
+                       pendingDelete: true, __devRemoved: true, __folderId: x.folderId }));
       // Ghosts (incoming assigns) stay on top — they are news; the settled rows sort by #15's rule.
-      const listed = [...ghosts, ...(inv || []).slice().sort(textOrder)];
+      const listed = [...ghosts, ...tombRows, ...(inv || []).slice().sort(textOrder)];
       const rows = listed.length ? listed.map((d) => {
         /* ⚠ 'uploading' HAS A REAL WRITER — see the allow-list note below, which rightly warns
          * against carrying a state nothing can produce. The device now reports it whenever any file
@@ -5119,6 +5159,16 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * cancel, so it is tested first and the row falls through to the ordinary withdrawal. */
         const cancelRemovalBtn = ` <button class="link-btn rp-cancel" data-iact="cancel-removal" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.cancelDelete'))}</button>`;
         const del = (!d.id || d.__assigning || wiped) ? ''
+          /* ⚠ A DEV-REMOVED ROW OFFERS EXACTLY ONE THING, and none of the ordinary actions. The
+           * device does not have this text any more, so Upload / Remove-from-device / Move / Done
+           * would all queue a command to an install that will never find it. The only live work
+           * left is the Drive folder, and the only right end for it is the TRASH: every Drive query
+           * the worker makes is scoped `trashed=false`, so a trashed folder cannot resurface in the
+           * estate or in Unassigned. That is what makes the guarantee hold. */
+          : d.__devRemoved
+            ? (mAssign
+                ? ` <button class="link-btn rp-devdel" data-iact="tomb-trash" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-folder="${esc(d.__folderId)}" data-title="${esc(d.title || '')}" title="${esc(t('panel.dev.tombTip'))}">${esc(t('panel.dev.tombTrash'))}</button>`
+                : '')
           : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete', mAssign) : takenTag)
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
@@ -5525,6 +5575,22 @@ async function instanceActionInner(el) {
       savePending(Researcher.currentAccountId());
       deps.toast(t('panel.inst.delSent'), 5000);
       renderDashboard(lastData || undefined);
+    } else if (act === 'tomb-trash') {
+      /* Finish a ☠ removal on the Drive side: send the text's folder to the TRASH, which is the one
+       * end state that cannot come back as an Unassigned row. The confirm says that plainly, because
+       * after this there is no copy left anywhere. */
+      const folder = el.dataset.folder;
+      if (!folder) return;
+      if (!await confirmModal(t('panel.dev.confirmTombTrash', { title: el.dataset.title || '?' }))) return;
+      try {
+        const r4 = await busy(el, () => Researcher.trashFiles([folder], 'dev-removed text folder'));
+        /* Remembered BEFORE the toast and the repaint, so the row goes away on this render rather
+         * than coming back on the next poll (the device keeps naming it until it expires). */
+        devTombDone.add(tombKey(el.dataset.i, el.dataset.id));
+        saveTombDone(Researcher.currentAccountId());
+        deps.toast(t('panel.dev.tombTrashed', { n: (r4 && r4.trashed) || 1 }), 6000);
+        renderDashboard(lastData || undefined);
+      } catch { deps.toast(t('panel.dev.tombFailed'), 6000); }
     } else if (act === 'del-text-now') {
       /* Developer mode: remove it WITHOUT the upload first. The confirm says so plainly, and names
        * the one thing that will stop it — a device nobody armed refuses this and the text stays. */

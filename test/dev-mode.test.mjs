@@ -267,12 +267,157 @@ test('the panel offers it too, and only while THIS browser is armed', () => {
   assert.match(PANEL, /confirmModal\(t\('panel\.dev\.confirmDelNow'/, 'behind its own confirm');
   // It must sit beside the safe one, not replace it.
   assert.match(PANEL, /data-iact="del-text"/, 'the upload-first Remove is still there');
-  for (const k of ['panel.dev.delNow', 'panel.dev.confirmDelNow', 'panel.dev.delNowSent']) {
+  for (const k of ['panel.dev.delNow', 'panel.dev.confirmDelNow', 'panel.dev.delNowSent',
+                   'panel.dev.tombTrash', 'panel.dev.tombTip', 'panel.dev.confirmTombTrash',
+                   'panel.dev.tombTrashed', 'panel.dev.tombFailed']) {
     assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} in en and id`);
   }
   assert.match(I18N, /panel\.dev\.confirmDelNow': 'Tell the device to delete .{0,12}\{title\}.{0,12} WITHOUT uploading it first\?/);
   assert.match(I18N, /only obey if developer mode is also on there/,
     'and the confirm says the device can still refuse — which is the safety property, stated to the user');
+  // The tombstone confirm must name the outcome Seth cares about, in both directions.
+  // The source has a backslash-escaped apostrophe inside the single-quoted string: Drive\'s
+  assert.match(I18N, /It goes to Drive\\'s trash — not to Unassigned\./,
+    'the English confirm says trash, NOT Unassigned');
+  assert.match(I18N, /Folder masuk ke tempat sampah Drive — bukan ke Belum Ditugaskan\./,
+    'and the Indonesian says the same');
+  assert.match(I18N, /after this there is no copy left anywhere/,
+    'and that nothing survives it, since that is the one thing a researcher must know first');
+});
+
+/* ── the tombstone: ☠ removals must never become Unassigned rows ─────────────────────────────── */
+
+function tombApp(opts = {}) {
+  const env = { store: new Map(Object.entries(opts.store || {})) };
+  const api = new Function('env', 'opts', `
+    const localStorage = {
+      getItem: (k) => (env.store.has(k) ? env.store.get(k) : null),
+      setItem: (k, v) => { if (opts.throwOnWrite) throw new Error('private mode'); env.store.set(k, String(v)); },
+      removeItem: (k) => { env.store.delete(k); },
+    };
+    const Date_now = ${opts.now || 'Date.now()'};
+    ${liftAll(APP, ['DEV_TOMB_KEY', 'DEV_TOMB_TTL_MS', 'devTombs', 'setDevTombs', 'addDevTomb'])}
+    return { devTombs, setDevTombs, addDevTomb, TTL: DEV_TOMB_TTL_MS, KEY: DEV_TOMB_KEY };
+  `)(env, opts);
+  return { env, api };
+}
+
+test('a ☠ removal is flagged with the FOLDER ID, captured before the doc is gone', () => {
+  const { api, env } = tombApp();
+  // A text that reached Drive: its folder must be named, because nothing can resolve it afterwards.
+  assert.equal(api.addDevTomb({ id: 'd1', title: 'Test one', driveFolderId: 'F1' }), true);
+  const list = api.devTombs();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, 'd1');
+  assert.equal(list[0].folderId, 'F1', 'the folder the panel will trash');
+  assert.equal(list[0].title, 'Test one');
+  assert.ok(list[0].at > 0, 'stamped, so it can expire on its own');
+  assert.ok(env.store.has('flextext-dev-removed'), 'persisted — it has to outlive the page');
+
+  // A text that never reached Drive has nothing to clean, so it gets NO tombstone. The common case.
+  const fresh = tombApp();
+  assert.equal(fresh.api.addDevTomb({ id: 'd9', title: 'Never uploaded' }), false);
+  assert.deepEqual(fresh.api.devTombs(), [], 'nothing on Drive, nothing to flag');
+
+  // Re-deleting the same id replaces rather than duplicates.
+  api.addDevTomb({ id: 'd1', title: 'Test one again', driveFolderId: 'F1b' });
+  const again = api.devTombs();
+  assert.equal(again.length, 1, 'one entry per doc id');
+  assert.equal(again[0].folderId, 'F1b', 'the newest folder wins');
+});
+
+test('the forced delete writes the tombstone BEFORE db.deleteDoc, or the folder id is lost', () => {
+  const ud = APP.slice(APP.indexOf('async function userDeleteDoc'), APP.indexOf('async function userDeleteDoc') + 3200);
+  const iTomb = ud.indexOf('addDevTomb(d)');
+  const iDel = ud.indexOf('await db.deleteDoc(docId)');
+  assert.ok(iTomb > 0 && iDel > 0, 'both steps are in there');
+  assert.ok(iTomb < iDel, '⚠ the flag is written while the doc still has its driveFolderId');
+});
+
+test('tombstones expire on their own and are pruned on read', () => {
+  const old = Date.now() - (31 * 24 * 60 * 60 * 1000);
+  const t = tombApp({ store: { 'flextext-dev-removed': JSON.stringify([
+    { id: 'old', title: 'stale', folderId: 'F0', at: old },
+    { id: 'new', title: 'fresh', folderId: 'F1', at: Date.now() },
+  ]) } });
+  const live = t.api.devTombs();
+  assert.deepEqual(live.map((x) => x.id), ['new'], 'the stale one is gone');
+  assert.equal(JSON.parse(t.env.store.get('flextext-dev-removed')).length, 1, 'and pruned from storage, not just filtered');
+  assert.equal(t.api.TTL, 30 * 24 * 60 * 60 * 1000, '30 days');
+
+  // Malformed entries never reach the report.
+  const bad = tombApp({ store: { 'flextext-dev-removed': JSON.stringify([{ id: 'x' }, { folderId: 'y' }, null, 7]) } });
+  assert.deepEqual(bad.api.devTombs(), [], 'an entry without both an id and a folder is dropped');
+  const junk = tombApp({ store: { 'flextext-dev-removed': 'not json' } });
+  assert.deepEqual(junk.api.devTombs(), [], 'and unparseable storage is simply empty');
+});
+
+test('the report carries them, and is byte-identical when there are none', () => {
+  const inv = APP.slice(APP.indexOf('async function syncGatherInventory'), APP.indexOf('async function syncGatherInventory') + 9000);
+  assert.match(inv, /const tombs = devTombs\(\);/);
+  assert.match(inv, /devRemoved: tombs\.length \? tombs : undefined,/,
+    'undefined when empty, so JSON drops the key and the change-gate hash does not move');
+  // ⚠ The report is E2EE and opaque to the worker, which is what makes this additive.
+  const SYNC = readFileSync(new URL('../docs/js/sync.js', import.meta.url), 'utf8');
+  assert.match(SYNC, /reported = await encryptJSON\(instanceKey, inv\)/, 'encrypted client-side');
+  assert.match(SYNC, /body: \{ reported, ack_seq: s\.ackSeq \}/, 'and posted as one opaque blob');
+  assert.doesNotMatch(WORKER, /devRemoved/, 'the worker never names the field — no backend change');
+});
+
+test('the panel renders them through the SAME row renderer, struck through', () => {
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  assert.match(PANEL, /const tombs = \(ins\.inventory && Array\.isArray\(ins\.inventory\.devRemoved\)\)/);
+  assert.match(PANEL, /pendingDelete: true, __devRemoved: true, __folderId: x\.folderId/,
+    'pendingDelete is what strikes it through — the convention already means "gone from the device"');
+  assert.match(PANEL, /const listed = \[\.\.\.ghosts, \.\.\.tombRows, \.\.\.\(inv \|\| \[\]\)\.slice\(\)\.sort\(textOrder\)\]/,
+    'one renderer, like the assign ghosts above it');
+  assert.match(PANEL, /!invIds\.has\(x\.id\)/,
+    'a text the device still reports is NOT a tombstone row, whatever a stale flag says');
+});
+
+test('a dev-removed row offers ONLY the trash, never a command to a device that lost the text', () => {
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const chain = PANEL.slice(PANEL.indexOf('const del = (!d.id || d.__assigning || wiped)'), PANEL.indexOf('const del = (!d.id || d.__assigning || wiped)') + 2200);
+  const iTomb = chain.indexOf('d.__devRemoved');
+  const iNormal = chain.indexOf("p.kind === 'delete'");
+  assert.ok(iTomb > 0 && iTomb < iNormal, 'tested BEFORE the ordinary delete states, so none of them apply');
+  assert.match(chain, /data-iact="tomb-trash"/);
+  assert.match(chain, /data-folder="\$\{esc\(d\.__folderId\)\}"/, 'the folder rides on the button');
+});
+
+test('trashing is remembered locally, because nothing syncs back (option 1)', () => {
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  assert.match(PANEL, /Researcher\.trashFiles\(\[folder\], 'dev-removed text folder'\)/, 'the existing route, no new one');
+  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 1400);
+  assert.ok(h.indexOf('devTombDone.add') < h.indexOf('renderDashboard'),
+    'remembered before the repaint, so the row goes now and not on the next poll');
+  assert.match(h, /saveTombDone\(Researcher\.currentAccountId\(\)\)/, 'and persisted per account');
+  assert.match(PANEL, /loadTombDone\(Researcher\.currentAccountId\(\)\);/, 'loaded with the other per-account state');
+  // No new command type was invented — that would have meant a worker allow-list change.
+  assert.doesNotMatch(PANEL, /pushCommand\([^)]*'clearTombstone'/);
+  assert.match(WORKER, /TEXT_COMMANDS = \['assign', 'delete', 'uploadDelete', 'setDone'\]/, 'command set unchanged');
+});
+
+test('⚠ THE GUARANTEE: a trashed folder cannot reappear in Unassigned', () => {
+  /* This is the load-bearing fact behind the whole design, and it is a property of the WORKER's
+   * queries rather than of anything in the client: every Drive query is scoped to untrashed files,
+   * so once the folder is in the trash the estate cannot see it — and the unassigned computation is
+   * part of the estate. If a future query drops that scope, this test is the thing that notices. */
+  const scoped = (WORKER.match(/trashed=false/g) || []).length;
+  assert.ok(scoped >= 19, `every Drive query stays scoped to untrashed files (found ${scoped})`);
+  // The only reads that deliberately ask for trashed files are the trash-inspection views.
+  const trashedTrue = (WORKER.match(/driveListAll\(access, true\)/g) || []).length;
+  assert.ok(trashedTrue > 0 && trashedTrue <= 4,
+    'and the handful of deliberate trash listings are the only exceptions');
+  assert.match(WORKER, /roleOf\(f\) === 'unassigned'/, 'unassigned is derived from Drive, which is why trashing settles it');
+});
+
+test('fxTombs() lists and clears them, and is the only way to drop one early', () => {
+  assert.match(APP, /window\.fxTombs = \(verb\) =>/, 'console only, like fxDev');
+  const fx = APP.slice(APP.indexOf('window.fxTombs = '), APP.indexOf('window.fxTombs = ') + 900);
+  assert.match(fx, /if \(verb === 'clear'\) \{ setDevTombs\(\[\]\); Sync\.reportNow\(\);/,
+    'clearing reports at once, so the panel stops being offered them');
+  assert.match(fx, /no dev-removed texts are flagged on this device/, 'and says so when there are none');
 });
 
 test('the strings exist in both languages, and the confirm says what it does', () => {

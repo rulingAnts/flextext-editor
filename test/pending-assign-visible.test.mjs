@@ -78,7 +78,10 @@ console.log('\nit renders as a real row, through the same renderer as every othe
      'a ghost row is synthesized only while the text is absent from the inventory');
   // (?:.slice().sort(textOrder))? — v532's #15 sort orders the SETTLED rows; ghosts stay
   // prepended, which is this pin's actual claim.
-  ok(/const listed = \[\.\.\.ghosts, \.\.\.\(inv \|\| \[\]\)(?:\.slice\(\)\.sort\(textOrder\))?\]/.test(panel),
+  /* v722 inserted `...tombRows` (dev-removed texts) between the ghosts and the settled rows — the
+   * same trick for the same reason, so they go through this one renderer too. The claim pinned here
+   * is unchanged and is about ORDER: ghosts stay FIRST, because they are news. */
+  ok(/const listed = \[\.\.\.ghosts, (?:\.\.\.tombRows, )?\.\.\.\(inv \|\| \[\]\)(?:\.slice\(\)\.sort\(textOrder\))?\]/.test(panel),
      'ghosts are prepended to the real inventory and share its renderer');
   ok(/const rows = listed\.length \? listed\.map/.test(panel),
      'the renderer iterates the merged list, not the raw inventory');

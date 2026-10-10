@@ -9,7 +9,11 @@ import { readFileSync } from 'node:fs';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const PANEL = rd('../docs/js/researcher-panel.js'), CSS = rd('../docs/css/app.css'), I18N = rd('../docs/js/i18n.js'), RES = rd('../docs/js/researcher.js');
-const card = PANEL.slice(PANEL.indexOf('async function renderInstanceCard('), PANEL.indexOf('async function renderInstanceCard(') + 40000);
+/* ⚠ A FIXED WINDOW, so it has to be big enough for the function as it GROWS. v722 added the
+ * dev-removed tombstone rows and their action, which pushed the quick-row button markup past 40000
+ * and failed every pin below at once — none of them because the behaviour had changed. Widen it
+ * when that happens; do not relax the pins. */
+const card = PANEL.slice(PANEL.indexOf('async function renderInstanceCard('), PANEL.indexOf('async function renderInstanceCard(') + 48000);
 
 test('the capability and the key are two different absences', () => {
   assert.match(card, /const capManage = !memberCtx \|\| !!mCaps\.manageDevices;\n\s+const capAssign = !memberCtx \|\| !!mCaps\.assignTexts;\n\s+const mManage = capManage && !mKeyless;/);

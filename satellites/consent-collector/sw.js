@@ -17,8 +17,8 @@
  * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
  * browser fetch and install this worker at all. */
 
-const VERSION = 'v721';
-const ENGINE = 'v721';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v722';
+const ENGINE = 'v722';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 /* ⚠ The cache prefix must NOT begin with 'flextext-'. The editor's service worker
  * deletes every 'flextext-*' cache on activate, sparing only names it lists
  * explicitly — a sibling app that adopts that prefix is silently emptied and goes

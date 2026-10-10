@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v721';
+export const ENGINE_VERSION = 'v722';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v721';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'dev-delete v2';
+export const BUILD_TAG = 'dev-delete v3';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -570,6 +570,11 @@ en: {
   'panel.opt.abm.30': '30 minutes',
   'panel.opt.abm.60': '1 hour',
   // Developer mode in the panel — shown only while this browser is armed with fxDev().
+  'panel.dev.tombTrash': 'Remove, no unassign',
+  'panel.dev.tombTip': 'This text was removed from the device without a backup. Send its Google Drive folder to the trash, so it never appears under Unassigned.',
+  'panel.dev.confirmTombTrash': 'Send the Google Drive folder for “{title}” to the trash?\n\nThe device already removed this text without backing it up, so after this there is no copy left anywhere. It goes to Drive\'s trash — not to Unassigned.',
+  'panel.dev.tombTrashed': 'Moved to Drive\'s trash ({n}).',
+  'panel.dev.tombFailed': 'Could not reach the folder — it may already be gone. Try again, or check Drive.',
   'panel.dev.delNow': 'Remove, no backup',
   'panel.dev.confirmDelNow': 'Tell the device to delete “{title}” WITHOUT uploading it first?\n\nNothing is backed up and this cannot be undone. The device will only obey if developer mode is also on there — otherwise it refuses and the text stays.',
   'panel.dev.delNowSent': 'Sent — the device will delete it without a backup (if developer mode is on there).',
@@ -3452,6 +3457,11 @@ id: {
   'panel.opt.abm.30': '30 menit',
   'panel.opt.abm.60': '1 jam',
   // Mode pengembang di panel — hanya tampil selama peramban ini aktif dengan fxDev().
+  'panel.dev.tombTrash': 'Hapus, jangan jadikan belum ditugaskan',
+  'panel.dev.tombTip': 'Teks ini dihapus dari perangkat tanpa cadangan. Kirim foldernya di Google Drive ke tempat sampah, supaya tidak pernah muncul di Belum Ditugaskan.',
+  'panel.dev.confirmTombTrash': 'Kirim folder Google Drive untuk “{title}” ke tempat sampah?\n\nPerangkat sudah menghapus teks ini tanpa mencadangkannya, jadi setelah ini tidak ada salinan yang tersisa di mana pun. Folder masuk ke tempat sampah Drive — bukan ke Belum Ditugaskan.',
+  'panel.dev.tombTrashed': 'Dipindahkan ke tempat sampah Drive ({n}).',
+  'panel.dev.tombFailed': 'Tidak dapat menjangkau folder — mungkin sudah tidak ada. Coba lagi, atau periksa Drive.',
   'panel.dev.delNow': 'Hapus, tanpa cadangan',
   'panel.dev.confirmDelNow': 'Minta perangkat menghapus “{title}” TANPA mengunggahnya lebih dulu?\n\nTidak ada yang dicadangkan dan ini tidak bisa dibatalkan. Perangkat hanya akan menuruti jika mode pengembang juga aktif di sana — kalau tidak, ia menolak dan teksnya tetap ada.',
   'panel.dev.delNowSent': 'Terkirim — perangkat akan menghapusnya tanpa cadangan (jika mode pengembang aktif di sana).',

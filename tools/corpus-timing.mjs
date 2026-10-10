@@ -32,6 +32,13 @@
  * --expect     { "<path>": "a"|"b"|"d"|"e-full"|"e-partial"|"f" } from the planning audit; the
  *              classes found here are checked against it file by file.
  *
+ * PARTLY TIMED (v718, `partly`): the corpus has no partly timed text of its own, so every timed text is
+ * also opened as one — its lines 2, 3, 8, 9, 14, 15… (k % 6 of 2 or 3) made untimed by our own export,
+ * as a line typed while segmentation was off would be — at its recording's length (or, without one, its
+ * last time). Each untimed line must sit in its own room, the room shared evenly (or all ⋯ when it is
+ * under 400 ms a line); no timed line may move; nothing may be written, stored or exported as a time;
+ * and the banner must be amber exactly while the untimed lines are at most half the text.
+ *
  * Runs the engine under node with test/lib's minimal XML DOM, and lifts normalizePhraseLines and
  * reconcile out of the DOM modules' source (test/lib/lift.mjs) — the same code the app runs. */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -101,7 +108,7 @@ async function loadEngine(root) {
     draw = (doc, deps, D) => { D0 = D || 0; try { return reconcile(doc, deps); } finally { D0 = 0; } };
   }
   return {
-    ft, SEG,
+    ft, SEG, SS,
     /** What the Cut, Baseline and Gloss tabs run on every draw — counting the writes it asks for. */
     render(doc, durationMs) {
       const writes = { stamped: 0, quiet: 0 };
@@ -191,7 +198,11 @@ const T = {
   /* v718 (plans §4 v718, §6.5): untimed lines are drawn in their gap and never stored or exported. */
   untimed: V718 ? { partlyTexts: 0, placeholders: 0, noRoom: 0, storedPlaceholders: 0,
     openedWithAudio: 0, spread: 0, noRoomTexts: 0, oneLine: 0, quietWrites: 0, exportedWithOffsets: 0,
-    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0, exportedUnopened: 0 } : null } : null,
+    infoBanner: 0, lineMarks: 0,
+    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0, exportedUnopened: 0 } : null,
+    partly: { files: 0, lines: 0, placeholders: 0, noRoom: 0, amber: 0, info: 0, placedChanged: 0,
+      edgesChanged: 0, outsideRoom: 0, storedTimes: 0, exportedTimes: 0, exportChanged: 0, writes: 0,
+      levelWrong: 0, opensDiffer: 0, rerenderChanges: 0 } } : null,
 };
 const flagged = {};
 const flag = (what, rel) => { (flagged[what] = flagged[what] || []).push(rel); };
@@ -269,6 +280,81 @@ for (const path of files) {
   if (rep.level === 'amber') { T.amber++; flag('amber', rel); }
   if (EXPECT && EXPECT[rel] != null && EXPECT[rel] !== LETTER[cls]) { T.expectMismatch++; flag(`class ${cls}, expected ${EXPECT[rel]}`, rel); }
 
+  /* v718 — PARTLY TIMED (B2, D3): this timed text with every k % 6 of 2 or 3 line made untimed. See the
+   * header. The untimed lines are made by our own export (no offsets, no note), as the editor writes a
+   * line with no time, and the copy is then opened as a file. */
+  if (V718 && timed) {
+    const P0 = NEW.open(xml, { render: false });
+    const n = P0.doc.paragraphs.length;
+    const strip = [];
+    for (let k = 0; k < n; k++) if (k % 6 >= 2 && k % 6 <= 3 && isPlaced(P0.doc.segments[k])) strip.push(k);
+    if (strip.length) {
+      const PU = T.untimed.partly;
+      PU.files++; PU.lines += strip.length;
+      const cut = JSON.parse(JSON.stringify(P0.doc));
+      for (const k of strip) {
+        cut.segments[k] = { timePending: true };
+        for (const ph of cut.paragraphs[k].segments || []) {
+          if (ph.attrs) { delete ph.attrs['begin-time-offset']; delete ph.attrs['end-time-offset']; }
+          if (Array.isArray(ph.postItemsXML)) ph.postItemsXML = ph.postItemsXML.filter((x) => !/type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/.test(x));
+        }
+      }
+      const xmlP = NEW.exportXml(cut);
+      const placedEnds = P0.doc.segments.filter(isPlaced).map((x) => x.end);
+      const Dp = D || Math.max(...placedEnds);
+      const P = NEW.open(xmlP, { durationMs: Dp }), P2 = NEW.open(xmlP, { durationMs: Dp });
+      const segs = P.doc.segments;
+      if (state(segs) !== state(P2.doc.segments)) { PU.opensDiffer++; flag('partly: two opens differ', rel); }
+      PU.writes += P.writes.stamped + P.writes.quiet;
+      if (P.writes.stamped || P.writes.quiet) flag('partly: a write on open', rel);
+      // No timed line moves (values), and none changes which of its edges are guesses.
+      const stripped = new Set(strip);
+      P0.doc.segments.forEach((o, k) => {
+        if (stripped.has(k) || !isPlaced(o)) return;
+        const s = segs[k];
+        if (!isPlaced(s) || s.start !== o.start || s.end !== o.end) { PU.placedChanged++; flag('partly: a timed line moved', rel); }
+        else if (edgeGuessed(s, 0) !== edgeGuessed(o, 0) || edgeGuessed(s, 1) !== edgeGuessed(o, 1)) { PU.edgesChanged++; flag('partly: a timed line changed its guessed edges', rel); }
+      });
+      for (const k of strip) { if (isPlaceholder(segs[k])) PU.placeholders++; else if (segs[k] && segs[k].timePending && segs[k].noRoom) PU.noRoom++; }
+      // Every run of untimed lines: inside its room, shared evenly and edge to edge — or all ⋯.
+      const minMs = NEW.SEG.SPREAD_MIN_MS || 400;
+      for (let k = 0; k < segs.length;) {
+        if (isPlaced(segs[k]) && !isPlaceholder(segs[k])) { k++; continue; }
+        let j = k;
+        while (j + 1 < segs.length && !(isPlaced(segs[j + 1]) && !isPlaceholder(segs[j + 1]))) j++;
+        const lo = k > 0 ? segs[k - 1].end : 0, hi = j < segs.length - 1 ? segs[j + 1].start : Dp;
+        const members = [];
+        for (let q = k; q <= j; q++) if (!Array.isArray(segs[q].fileTimes)) members.push(segs[q]);
+        const m = members.length, fits = m > 0 && hi - lo >= m * minMs;
+        const ok = fits
+          ? members.every((x, q) => isPlaceholder(x) && x.start >= lo && x.end <= hi
+              && Math.abs(x.end - x.start - (hi - lo) / m) <= 1 && (q === 0 ? x.start === Math.round(lo) : x.start === members[q - 1].end))
+            && members[m - 1].end === Math.round(hi)
+          : members.every((x) => x.timePending && x.noRoom);
+        if (!ok) { PU.outsideRoom++; flag('partly: an untimed run not shared evenly within its room', rel); }
+        k = j + 1;
+      }
+      // Stored: the untimed lines as { timePending } only. Exported: no offsets on them, the rest unchanged.
+      const st = storable(segs);
+      for (const k of strip) if (!st[k] || !st[k].timePending || 'start' in st[k] || 'phAt' in st[k] || 'noRoom' in st[k]) { PU.storedTimes++; flag('partly: an untimed line stored with a time', rel); }
+      const E = NEW.open(NEW.exportXml(P.doc), { render: false });
+      const eo = fileOffsets(E.doc), po = fileOffsets(P0.doc);
+      eo.forEach((o, k) => {
+        if (stripped.has(k)) { if (o) { PU.exportedTimes++; flag('partly: an untimed line exported with times', rel); } }
+        else if (JSON.stringify(o) !== JSON.stringify(po[k])) { PU.exportChanged++; flag('partly: a timed line exported differently', rel); }
+      });
+      // The banner: amber ('partly', "needs timing" on the lines) exactly while the untimed lines are at most half.
+      const u = segs.filter((x) => !(isPlaced(x) && !isPlaceholder(x))).length;
+      const pr = timingReport(segs, NEW.ft.getBaselineParagraphs(P.doc), { durationMs: Dp });
+      const pi = pr.items.find((it) => it.kind === 'partly');
+      const amber = 2 * u <= segs.length;
+      if (amber) PU.amber++; else PU.info++;
+      if (!pi || pi.level !== (amber ? 'amber' : 'info') || NEW.SS.needsMarks(segs) !== amber) { PU.levelWrong++; flag('partly: banner level or line marks wrong', rel); }
+      const before = state(segs), again = NEW.render(P.doc, Dp);
+      if (state(P.doc.segments) !== before || again.stamped || again.quiet) { PU.rerenderChanges++; flag('partly: a second render changed or saved', rel); }
+    }
+  }
+
   /* v718 — an untimed text opened as if its recording had decoded: drawn evenly (D4), nothing written
    * but D7's one-line span, and an export with no offsets at all (the export of the same text with no
    * audio, byte for byte). */
@@ -285,6 +371,12 @@ for (const path of files) {
       const fits = S.doc.paragraphs.length * (NEW.SEG.SPREAD_MIN_MS || 400) <= AUDIO_MS;
       if (fits ? S.doc.segments.every(isPlaceholder) : S.doc.segments.every((x) => x.timePending && x.noRoom)) U[fits ? 'spread' : 'noRoomTexts']++;
       else flag('untimed text not spread evenly', rel);
+      // P6: ONE quiet banner for the text ("No audio times yet…") and no mark on any line.
+      const sr = timingReport(S.doc.segments, NEW.ft.getBaselineParagraphs(S.doc), { durationMs: AUDIO_MS });
+      if (sr.items.length === 1 && sr.items[0].kind === 'noTimes' && sr.level === 'info' && sr.items[0].spread === fits) U.infoBanner++;
+      else flag('untimed text: not exactly one info banner', rel);
+      if (NEW.SS.needsMarks(S.doc.segments) || S.doc.segments.some((x, k) => NEW.SS.timeStateClass(x, false, false).trim()
+        !== (fits ? 'seg-spread' : 'seg-pending'))) { U.lineMarks++; flag('untimed text: a line is marked', rel); }
       if (OFFSET.test(NEW.exportXml(S.doc)) || NEW.exportXml(S.doc) !== NEW.exportXml(A.doc)) {
         U.exportedWithOffsets++; flag('untimed export carries times', rel);
       }

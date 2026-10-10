@@ -571,8 +571,12 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
   `plans/time-gaps-and-estimates.md` §6.5. Since v718 it also opens every untimed text as if its
   recording had decoded (`untimed`: drawn evenly or "no room", nothing written but a one-line text's
   span, an export with no times) and, with `--baseline` at v714, hands the old engine's stored seed to
-  the new one (`untimed.v714Seeds.missed` must be 0). The fixtures include U60, an all-untimed FLEx
-  export (60 phrases in one paragraph).
+  the new one (`untimed.v714Seeds.missed` must be 0); each multi-line untimed text must show exactly one
+  info banner and no marked line. The corpus has no partly timed text, so every timed text is also opened
+  as one (`untimed.partly`: every line k % 6 = 2, 3 made untimed by our own export): each untimed run
+  inside its own room and shared evenly, no timed line moved, nothing stored or exported as a time, amber
+  exactly while untimed lines are at most half. The fixtures include U60, an all-untimed FLEx export
+  (60 phrases in one paragraph).
 - **Before your first push: `./install-hooks.sh`.** It installs `hooks/pre-push`, which refuses a
   push carrying a credential (`./check-secrets.sh`), one that touches `.github/workflows/`
   (billable), or one aimed at a production branch. The first has no override on purpose; the other

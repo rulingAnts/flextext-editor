@@ -33,14 +33,15 @@ test('the Player takes touch pointers at the capture phase; the mouse keeps wave
 });
 
 test('the marks show on every tab, follow a grip drag, and the player zooms in on the seam meanwhile', () => {
-  assert.match(STRIPS, /export function overviewMarks\(segs\)/);
-  assert.match(STRIPS, /function cutBoundaryTimes\(\) \{ return overviewMarks\(cutSegs\(\)\); \}/, 'the Cut tab');
+  // v717: every caller passes the recording's length, so a stored end past it is drawn at the end.
+  assert.match(STRIPS, /export function overviewMarks\(segs, durationMs\)/);
+  assert.match(STRIPS, /function cutBoundaryTimes\(\) \{ return overviewMarks\(cutSegs\(\), cutDeps\.getPlayer\?\.\(\)\?\.durationMs\?\.\(\)\); \}/, 'the Cut tab');
   assert.match(STRIPS, /syncOverviewMarks\(deps\.getPlayer, segs\);\s*\/\/ the dock's marks, on this tab too/, 'the Baseline tab');
   assert.match(APP, /syncOverviewMarks\(\(\) => player, segs\);\s*\/\/ the dock's marks, on this tab too/, 'the Gloss tab');
-  assert.match(STRIPS, /const want = overviewMarks\(docSegments\(doc\)\);\s*\n\s*if \(p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length\) p\.setBoundaries\(want\);/, 'Baseline ticker backstop');
-  assert.match(APP, /const want = overviewMarks\(docSegments\(current\.doc\)\);\s*\n\s*if \(player\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length\) player\.setBoundaries\(want\);/, 'Gloss ticker backstop');
+  assert.match(STRIPS, /const want = overviewMarks\(docSegments\(doc\), p\.durationMs\(\)\);\s*\n\s*if \(p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length\) p\.setBoundaries\(want\);/, 'Baseline ticker backstop');
+  assert.match(APP, /const want = overviewMarks\(docSegments\(current\.doc\), player\.durationMs\(\)\);\s*\n\s*if \(player\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length\) player\.setBoundaries\(want\);/, 'Gloss ticker backstop');
   const drag = STRIPS.slice(STRIPS.indexOf('export function makeBoundaryDrag(o)'), STRIPS.indexOf('let stripsDragFn = null;'));
-  assert.match(drag, /p\?\.boundaryFocus\?\.\('start', s\.end\)/, 'zoom in when the grip is picked up');
+  assert.match(drag, /p\?\.boundaryFocus\?\.\('start', grabbed === 'start' && s2 \? s2\.start : s\.end\)/, 'zoom in when the grip is picked up — on the edge it grabbed (v717)');
   assert.match(drag, /p\?\.boundaryFocus\?\.\('move', r\.t\)/, 'keep the seam centred while it moves');
   assert.match(drag, /p\?\.boundaryFocus\?\.\('end'\)/, 'and put the zoom back on release');
   assert.match(STRIPS, /syncMarks: \(\) => syncOverviewMarks\(deps\.getPlayer, docSegments\(deps\.getDoc\(\)\)\),/, 'Baseline drags move the marks');

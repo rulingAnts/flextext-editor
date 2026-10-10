@@ -65,7 +65,7 @@ test('the seam being dragged is a thick dashed blue mark on the dock, distinct f
   assert.match(AUDIO, /boundaryLive\(j\) \{\s*\n\s*this\._liveSeam = \(j == null\) \? null : j;/);
   assert.match(AUDIO, /styleMark\(el, this\._liveSeam === j\);\s*\n\s*\}\);\s*\n\s*return;/, 'the reuse path (every move) keeps the live style');
   assert.match(AUDIO, /styleMark\(b, this\._liveSeam === j\);/, 'and a rebuild restores it');
-  const drag = STRIPS.slice(STRIPS.indexOf('export function makeBoundaryDrag(o)'), STRIPS.indexOf('export function overviewMarks(segs)'));
+  const drag = STRIPS.slice(STRIPS.indexOf('export function makeBoundaryDrag(o)'), STRIPS.indexOf('export function overviewMarks(segs, durationMs)'));
   assert.match(drag, /p\?\.boundaryLive\?\.\(bi\);/, 'lit at pick-up');
   assert.match(drag, /p\?\.boundaryFocus\?\.\('end'\); \} catch \{[^}]*\}\s*\n\s*try \{ p\?\.boundaryLive\?\.\(null\);/, 'put back on release');
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.liveMark': '/g) || []).length, 2);
@@ -74,14 +74,16 @@ test('the seam being dragged is a thick dashed blue mark on the dock, distinct f
 
 test('the segmenter\'s row edge handles open the dock close-up; the dock\'s own mark drag does not (Seth, 2026-09-07)', () => {
   const APP2 = rd('../docs/js/app.js');
-  const fn = APP2.slice(APP2.indexOf('function mgBoundaryDrag(i, ms, phase, src)'), APP2.indexOf('// ── independent editing, left side'));
-  assert.match(fn, /if \(src === 'row'\) \{ try \{ const s = MG\.spans\[i\]; if \(s && !s\.timePending\) player\?\.boundaryFocus\?\.\('start', s\.end\); \}/);
+  const fn = APP2.slice(APP2.indexOf('function mgBoundaryDrag(i, ms, phase, src, edge)'), APP2.indexOf('// ── independent editing, left side'));
+  // v717: the close-up follows the GRABBED edge — across a pause the left handle is the next piece's start.
+  assert.match(fn, /if \(src === 'row'\) \{ try \{ const s = MG\.spans\[i\]; if \(s && !s\.timePending\) player\?\.boundaryFocus\?\.\('start', mgGrabbedAt\(i\)\); \}/);
   assert.match(fn, /if \(src === 'row'\) \{ try \{ player\?\.boundaryFocus\?\.\('end'\); \}/);
-  assert.match(fn, /if \(src === 'row'\) \{ try \{ const s = MG\.spans\[i\]; if \(s\) player\?\.boundaryFocus\?\.\('move', s\.end\); \}/);
+  assert.match(fn, /if \(src === 'row'\) \{ try \{ const s = MG\.spans\[i\]; if \(s\) player\?\.boundaryFocus\?\.\('move', mgGrabbedAt\(i\)\); \}/);
+  assert.match(fn, /return mgDragFrom && mgDragFrom\.edge === 'start' && s2 \? s2\.start : s\.end;/);
   assert.equal((fn.match(/player\?\.boundaryLive\?\./g) || []).length, 2, 'the blue seam is shown for both gestures');
-  assert.match(APP2, /mgBoundaryDrag\(bi, null, 'start', 'row'\);/, 'the row handle says which gesture it is');
-  assert.match(APP2, /mgBoundaryDrag\(bi, t0 \+ \(e2\.clientX - x0\) \* perPx, 'move', 'row'\);/);
-  assert.match(APP2, /mgBoundaryDrag\(bi, null, 'end', 'row'\);/);
+  assert.match(APP2, /mgBoundaryDrag\(bi, null, 'start', 'row', edge\);/, 'the row handle says which gesture it is — and which edge (v717)');
+  assert.match(APP2, /mgBoundaryDrag\(bi, t0 \+ \(e2\.clientX - x0\) \* perPx, 'move', 'row', edge\);/);
+  assert.match(APP2, /mgBoundaryDrag\(bi, null, 'end', 'row', edge\);/);
   assert.match(APP2, /p\.onBoundaryDrag\?\.\(\(i, t, phase\) => mgBoundaryDrag\(i, t, phase\)\);/, 'the dock mark passes no source, so it never zooms itself');
   assert.equal((I18N.match(/\n    ,'panel\.rel\.new\.segFocus': '/g) || []).length, 2);
 });

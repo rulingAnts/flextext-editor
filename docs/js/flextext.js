@@ -9,6 +9,10 @@
  * actually changed in the baseline (where stale analyses are dropped, as FLEx does).
  */
 
+// segments.js is pure and imports nothing, so this adds no cycle and no new SHELL entry (it is already
+// precached everywhere app.js is). The per-edge estimate rules live there, once.
+import { isAligned, isEstimate, edgeGuessed, estimateEdges, withGuesses, settleSpan, storableSegments, seedsToPending } from './segments.js';
+
 export const APP_ITEM_TYPES = new Set(['txt', 'gls', 'segnum', 'punct']);
 
 export function newGuid() {
@@ -161,6 +165,7 @@ export function makeDoc(settings, title = '') {
     objectsXML: '',
     mediaXML: [],
     paragraphs: [{ guid: newGuid(), segments: [] }],
+    timeEdges: true,   // made by the per-edge time model (v717) — see readLegacyEstimates
   };
 }
 
@@ -243,6 +248,7 @@ function parseInterlinearText(itEl, version, prefs = {}) {
     objectsXML: '',
     mediaXML: [],
     paragraphs: [],
+    timeEdges: true,   // read by the per-edge time model (v717) — see readLegacyEstimates
   };
   for (const a of itEl.attributes) doc.textAttrs[a.name] = a.value;
   if (!doc.textAttrs.guid) doc.textAttrs.guid = newGuid();
@@ -291,6 +297,15 @@ function parseInterlinearText(itEl, version, prefs = {}) {
         }
         break;
     }
+  }
+
+  // Which edges were estimates when this file was written (TIME_ESTIMATES_PI). A processing
+  // instruction is not an element, so it never reaches the switch above. segmentsFromOffsets reads it.
+  for (const node of Array.from(itEl.childNodes || [])) {
+    if (!node || node.nodeType !== 7 || node.target !== TIME_ESTIMATES_PI) continue;
+    const entries = parseTimeEstimatesPi(node.data);
+    // An instruction listing NONE is a statement too (v718 — NO_TIME_ESTIMATES_PI): kept as an empty list.
+    if (entries.length || /\btime-estimates=""/.test(String(node.data || ''))) doc.timeEstimatesPi = (doc.timeEstimatesPi || []).concat(entries);
   }
 
   // Determine writing systems: prefer <languages>, fall back to usage.
@@ -469,6 +484,58 @@ function indentFragment(xml, pad) {
   return xml.split('\n').map(l => pad + l.trim()).join('\n');
 }
 
+/* ⚠ WHICH TIMES ARE ESTIMATES, IN THE FILE ITSELF (v717 — plans/time-gaps-and-estimates.md D5/D6).
+ *
+ * The `~` in our "audio ~0:04.000–0:06.000" note was the only mark an estimate left in an export, and
+ * v714 never read it back: a text whose times were the editor's own even-spread guesses came back as
+ * measured times (E78 and E19 are made of nothing else), and every round trip laundered a little
+ * more. The note also says "estimated" for the whole line when only one EDGE is a guess, and it is
+ * absent altogether on a device with segTimeNotes off. So the serializer writes, inside
+ * <interlinear-text>, one XML processing instruction listing each estimated phrase by guid with its
+ * offsets, `~` before each GUESSED edge:
+ *
+ *     <?flextext-editor v="2" time-estimates="9d5e…931@~5346-~6846 1ed0…dca@2230-~4153"?>
+ *
+ * written whenever times are (segTimes), regardless of timeNotes. A processing instruction is XML's
+ * own place for one application's data (XML 1.0 §2.6): not an element, so outside what
+ * FlexInterlinear.xsd governs, and skipped by FLEx and ELAN (both proven with v713's, which used the
+ * same target with a different pseudo-attribute — that one, `blank-lines`, is NOT read: D17).
+ * An entry counts only for the one phrase with its guid whose offsets still equal its times within
+ * 1 ms (markFileEstimates), so a file edited elsewhere can never mark a time it did not write.
+ *
+ * ⚠ "SKIPPED" MEANS DROPPED: the instruction carries the per-edge marks through OUR OWN round trips
+ * (another device, a re-import) and through nothing else. FLEx re-writes the file without it and an EAF
+ * has nowhere to put it, so after a trip through FLEx what is left is the `~` note — per line, read
+ * back conservatively (both seams of a dashed line guessed, never a guess made real) — and with the
+ * notes switched off, only the equal-length rule, which catches an even spread and nothing else
+ * (v717 review). The notes are the FLEx-facing carrier; the instruction is ours. */
+export const TIME_ESTIMATES_PI = 'flextext-editor';
+/* ⚠ AND AN EMPTY ONE SAYS "NONE OF THESE ARE GUESSES" (v718, case 7/17). A run of three or more equal
+ * lines is read back as an estimate when a file carries no instruction (the equal-length rule, for
+ * devices that had notes off) — so a line the user KEPT, in a run that happens to be even, came back
+ * dashed after our own export and import. A writer holding no estimates says so with an instruction
+ * that lists none, written only when the reader's rule would otherwise misfire (serializeFlextext). */
+export const NO_TIME_ESTIMATES_PI = `<?${TIME_ESTIMATES_PI} v="2" time-estimates=""?>`;
+export function timeEstimatesPi(entries) {
+  const list = (entries || []).filter((e) => e && e.guid && Number.isFinite(e.start) && Number.isFinite(e.end) && (e.gs || e.ge));
+  if (!list.length) return '';
+  const body = list.map((e) => `${e.guid}@${e.gs ? '~' : ''}${Math.round(e.start)}-${e.ge ? '~' : ''}${Math.round(e.end)}`).join(' ');
+  return `<?${TIME_ESTIMATES_PI} v="2" time-estimates="${esc(body)}"?>`;
+}
+// The entries a processing instruction's data names ('v="2" time-estimates="…"'), in the order written.
+export function parseTimeEstimatesPi(data) {
+  const m = String(data ?? '').match(/\btime-estimates="([^"]*)"/);
+  if (!m) return [];
+  const out = [];
+  for (const tok of m[1].trim().split(/\s+/)) {
+    const t = tok.match(/^([^@\s]+)@(~?)(\d+)-(~?)(\d+)$/);
+    if (!t) continue;
+    const start = +t[3], end = +t[5];
+    if (end > start && (t[2] || t[4])) out.push({ guid: t[1], start, end, gs: !!t[2], ge: !!t[4] });
+  }
+  return out;
+}
+
 export function serializeFlextext(doc, settings = {}, opts = {}) {
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
@@ -517,8 +584,22 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   // opts.segTimes === false suppresses OUR timing emission entirely (Seth, 2026-08-03: no audio
   // segmentation going on → none in the flextext). Preserved attrs/notes from an IMPORTED file
   // still round-trip verbatim below — suppressing emission must never strip imported data.
-  const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? doc.segments : [];
-  const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
+  /* ⚠ D8 (v717): WHEN WE WRITE TIMES, THE LIVE SPAN IS THE ONLY SOURCE. A single-phrase paragraph
+   * used to fall back to whatever begin/end-time-offset its phrase carried from an earlier import
+   * whenever its live span had no time — so a line the Segmenter left without audio went out with
+   * its stale times, and an E78-style re-cut produced two phrases claiming overlapping audio. Now a
+   * line whose live span is pending is written with NO offsets and no "audio" note. Only when the
+   * doc has a live time model at all (doc.segments non-empty); with segTimes off, or a doc that never
+   * had spans, imported offsets pass through verbatim as before. Multi-phrase paragraphs keep each
+   * phrase's own offsets (no live span pairs with them). The `~` comes from isEstimate per edge, and
+   * a pre-v717 doc's estimates are read back first (spansForExport) — on a copy; the doc is never
+   * touched here. One exception to "no offsets": a line the model could not place but nobody changed
+   * (`fileTimes` — nested ELAN phrases, a sliver, an older build's duration clamp) writes the file's
+   * own offsets and notes back as they came (P4); heldFileTimes says when that still holds. */
+  const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? spansForExport(doc) : [];
+  const liveModel = spans.length > 0;
+  const hasSpans = spans.some(isAligned);
+  const estimates = [];   // TIME_ESTIMATES_PI entries, one per estimated phrase that has a guid
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
   const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
@@ -563,15 +644,22 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     const para = doc.paragraphs[li];
     pi = li;
     for (const seg of para.segments) {
-      const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
-      const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
+      const own = liveModel && para.segments.length === 1;
+      const span = own ? spans[pi] : null;
+      const timed = isAligned(span);   // a placeholder arrives here pending (spansForExport, v718): untimed
+      // D8: the live span says "no time" — so does the file, unless these are the file's own, untouched.
+      const untimed = own && !timed && !heldFileTimes(span, seg.attrs);
+      if (timed && isEstimate(span) && seg.attrs && seg.attrs.guid) {
+        estimates.push({ guid: seg.attrs.guid, start: span.start, end: span.end, gs: edgeGuessed(span, 0), ge: edgeGuessed(span, 1) });
+      }
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
       // the stale copies or the phrase would carry the attribute twice (invalid XML). media-file
       // is filtered ONLY when we mint our own guid: an imported doc keeps its media-files block
       // (mediaGuid null), so its phrases must keep their original media-file references too —
       // filtering unconditionally silently unlinked every phrase from its media (audit find).
       const pAttrs = Object.entries(seg.attrs || {})
-        .filter(([k]) => !(timed && (k === 'begin-time-offset' || k === 'end-time-offset' || (k === 'media-file' && mediaGuid))))
+        .filter(([k]) => !((timed || untimed) && (k === 'begin-time-offset' || k === 'end-time-offset'))
+          && !(timed && k === 'media-file' && mediaGuid))
         .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
         + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
       lines.push(`          <phrase${pAttrs}>`);
@@ -623,9 +711,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       // opts.timeNotes === false keeps the ATTRIBUTES and drops the note (the device setting
       // segTimeNotes, Seth 2026-09-04) — the times still round-trip; FLEx just shows no Note line.
       if (timed && opts.timeNotes !== false) {
-        lines.push(`            <item type="note" lang="${esc(anal)}">audio ${span.timeEstimated ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
+        lines.push(`            <item type="note" lang="${esc(anal)}">audio ${isEstimate(span) ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
       }
-      for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
+      for (const xml of (seg.postItemsXML || []).filter((x) => !((timed || untimed) && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
       lines.push('          </phrase>');
       }
     }
@@ -633,6 +721,24 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     lines.push('      </paragraph>');
   }
   lines.push('    </paragraphs>');
+  /* With no live time model to write from (segmentation off — `segTimes: false` — or a doc that never
+   * had spans), the phrases go out with their imported offsets verbatim, and so does the file's own
+   * instruction: each entry whose phrase still carries that guid and those offsets, so the per-edge
+   * marks survive a device with segmentation off (P4) and can never point at a time that moved. */
+  if (!liveModel && Array.isArray(doc.timeEstimatesPi)) {
+    const written = doc.paragraphs.flatMap((p) => (p.segments || []).map((ph) => ph.attrs || {}))
+      .map((a) => [a.guid, parseInt(a['begin-time-offset'], 10), parseInt(a['end-time-offset'], 10)]);
+    for (const x of doc.timeEstimatesPi) {
+      const at = written.filter(([g, b, e]) => g === x.guid && Math.abs(b - x.start) <= 1 && Math.abs(e - x.end) <= 1);
+      if (at.length === 1) estimates.push({ guid: x.guid, start: at[0][1], end: at[0][2], gs: x.gs, ge: x.ge });
+    }
+  }
+  // Which of the times above are estimates, per edge — regardless of timeNotes (TIME_ESTIMATES_PI).
+  const estPi = timeEstimatesPi(estimates);
+  if (estPi) lines.push('    ' + estPi);
+  /* None at all — and the times written hold an even run the reader would take for a guess, or the file
+   * came with an instruction (a classic device passes its claim on): say "none" (NO_TIME_ESTIMATES_PI). */
+  else if (liveModel ? evenRealRun(spans, doc) : Array.isArray(doc.timeEstimatesPi)) lines.push('    ' + NO_TIME_ESTIMATES_PI);
   // languages element. Authored docs SKIP doc.languages (that's the stale snapshot
   // frozen at creation) and emit purely from the live settings; imported docs emit
   // their own languages first, with the settings only as gap-fillers.
@@ -678,7 +784,13 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
  * (the editor's line): a single-phrase paragraph takes its own offsets; a multi-phrase paragraph
  * (e.g. merged in ELAN) takes the envelope first-begin..last-end (per-phrase detail stays
  * preserved in seg.attrs for round-trip). Paragraphs without offsets come back timePending.
- * Returns null when nothing in the doc carries offsets. */
+ * Returns null when nothing in the doc carries offsets.
+ *
+ * ⚠ AND WHICH OF THOSE TIMES ARE ESTIMATES (v717, D5) — read back, not lost. Each span from the file
+ * gets `guess` (markFileEstimates): from our processing instruction first, else our `~` note, else an
+ * equal-length run; a span none of them marks is real, explicitly (`guess: [null, null]`). This is
+ * the one reader every caller shares (the editor's import, PAT, lameta, the researcher panel), so
+ * they all agree on what is an estimate. */
 export function segmentsFromOffsets(doc) {
   let any = false;
   const spans = (doc.paragraphs || []).map((p) => {
@@ -694,14 +806,226 @@ export function segmentsFromOffsets(doc) {
   // previous one ends; an unsalvageable span demotes to timePending). Without this a bad file
   // could smuggle crossing spans into the model — and out again as an INVALID EAF, since ELAN
   // requires aligned annotations on a tier to be ordered and non-overlapping (audit find).
+  // A start this moves is no longer the file's time: it is recorded as a guess (C0 aside).
+  // A span this demotes (nested inside the line before, as overlapping ELAN speakers are) keeps the
+  // file's own times as `fileTimes`: the model cannot place them, but the export writes them back (P4).
   let floor = 0;
-  for (const s of spans) {
-    if (typeof s.start !== 'number') continue;
-    if (s.start < floor) s.start = floor;
-    if (s.end <= s.start) { delete s.start; delete s.end; s.timePending = true; continue; }
+  spans.forEach((s, k) => {
+    if (typeof s.start !== 'number') return;
+    const own = [s.start, s.end];
+    if (s.start < floor) {
+      s.start = floor;
+      if (s.end > s.start && k > 0) { s.guess = [s.start, null]; s.estSource = 'edit'; }
+    }
+    if (s.end <= s.start) { delete s.start; delete s.end; delete s.guess; delete s.estSource; s.timePending = true; s.fileTimes = own; return; }
     floor = s.end;
-  }
+  });
+  markFileEstimates(doc, spans, { todo: () => true });
   return spans;
+}
+
+/* A PRE-v717 DOC'S ESTIMATES, read back in memory (v717, case 11). A doc stored by v714 holds spans
+ * with no `guess` field: its import ignored the `~`, and its own estimates carry only the flag. This
+ * looks at those spans ONLY — a span that has `guess` was decided by v717 and is never re-decided,
+ * which is what keeps an explicit "these times are right" from being undone by an old note (case 7) —
+ * plus any span an older build flagged beside a copied `guess` it did not understand (segments.js
+ * flagOnly: a rollback to v716 and back). Same tests as on import, but a mark counts only if it equals
+ * the CURRENT span as well as the phrase's offsets: a seam dragged in v714 moved the span and not the
+ * note, and must not come back as a guess. A flag no file mark explains is migrated per edge
+ * ('legacy'). Mutates doc.segments in place and writes nothing — the result is saved with the next
+ * real edit, and app.js carries an upload's "already on Drive" record across it (opening is not an
+ * edit). Returns whether anything changed.
+ *
+ * ⚠ AND A LINE AN OLDER BUILD CLAMPED AWAY KEEPS THE FILE'S TIMES ON EXPORT. v714–v716 cut stored
+ * times to the DECODED length on every render with audio, and saved the result: open T53 against a
+ * recording that decodes short and every line past the end became pending, while its phrase still
+ * carried the file's real offsets — which v716 went on exporting, and v717's export (live span only,
+ * D8) dropped. In a doc this model has not read before (no `timeEdges` mark), a pending line whose
+ * phrase's offsets sit in order between its timed neighbours is marked `fileTimes`, so its times go
+ * back out as they came (P4). Offsets that overlap a timed neighbour are an edit's leftovers (an older
+ * split shared one attrs object between two lines) and stay out, as D8 means them to. */
+export function readLegacyEstimates(doc) {
+  const spans = doc && Array.isArray(doc.segments) ? doc.segments : null;
+  if (!spans || !spans.length) return false;
+  const todo = spans.map((s) => isAligned(s) && (!Array.isArray(s.guess) || olderFlag(s)));
+  const hold = doc.timeEdges ? [] : spans.map((s, k) => !isAligned(s) && !Array.isArray(s.fileTimes) && heldOffsetsFit(doc, spans, k));
+  if (!todo.some(Boolean) && !hold.some(Boolean) && doc.timeEdges) return false;
+  const before = JSON.stringify(spans);
+  if (todo.some(Boolean)) markFileEstimates(doc, spans, { todo: (k) => todo[k], legacy: true });
+  hold.forEach((h, k) => { if (h) spans[k].fileTimes = h; });
+  const changed = JSON.stringify(spans) !== before || !doc.timeEdges;
+  /* Read once by this model: from here on a pending line is THIS model's verdict (a Segmenter row left
+   * without audio, a moved line), and its phrase's old offsets are stale — never held (D8). Every doc
+   * parsed or made by v717 carries the mark from the start. */
+  doc.timeEdges = true;
+  return changed;
+}
+// A flag no live guessed edge explains (segments.js flagOnly — not exported, it is one line).
+const olderFlag = (s) => !!s.timeEstimated && !edgeGuessed(s, 0) && !edgeGuessed(s, 1);
+// A phrase's own offsets, when it is its line's only phrase and they are well formed.
+function lineOffsets(doc, k) {
+  const p = (doc.paragraphs || [])[k];
+  if (!p || (p.segments || []).length !== 1) return null;
+  const a = p.segments[0].attrs || {};
+  const b = parseInt(a['begin-time-offset'], 10), e = parseInt(a['end-time-offset'], 10);
+  return Number.isFinite(b) && Number.isFinite(e) && e > b ? [b, e] : null;
+}
+// Line k's offsets, if they sit between the timed lines around it (within 1 ms), else null.
+function heldOffsetsFit(doc, spans, k) {
+  const off = lineOffsets(doc, k);
+  if (!off) return null;
+  for (let j = k - 1; j >= 0; j--) if (isAligned(spans[j])) { if (spans[j].end > off[0] + 1) return null; break; }
+  for (let j = k + 1; j < spans.length; j++) if (isAligned(spans[j])) { if (spans[j].start < off[1] - 1) return null; break; }
+  return off;
+}
+/* The file's own times a PENDING line still carries (segments.js `fileTimes`), or null — only while its
+ * phrase's offsets are still exactly the times that were held, so an edit that changed the phrase (a
+ * split drops the offsets; a join keeps only the first line's) can never send stale ones out. The
+ * .flextext writes them back as they came; seg-exports' phraseRows uses them where they keep the tier
+ * in order. */
+export function heldFileTimes(span, attrs) {
+  const h = span && !isAligned(span) && Array.isArray(span.fileTimes) ? span.fileTimes : null;
+  if (!h) return null;
+  const b = parseInt(attrs && attrs['begin-time-offset'], 10), e = parseInt(attrs && attrs['end-time-offset'], 10);
+  if (!Number.isFinite(b) || !Number.isFinite(e) || e <= b) return null;
+  return Math.abs(b - h[0]) <= 1 && Math.abs(e - h[1]) <= 1 ? [b, e] : null;
+}
+/* THE SPANS AN EXPORT WRITES: copies, with a pre-v717 doc's estimates read back exactly as an open would
+ * (readLegacyEstimates, on the copy). ⚠ Every export path needs this, not only the open one: a stored
+ * record can be serialized without ever being opened on a tab that reads it back — uploaded from the
+ * list, sent by auto-backup, built on the Gloss tab with the banner switched off — and before this its
+ * `~` marks were dropped there and the guesses went to Drive as measured times (v717 review). */
+export function spansForExport(doc) {
+  const segs = doc && Array.isArray(doc.segments) ? doc.segments : [];
+  if (!segs.length) return [];
+  /* ⚠ THE STORABLE FORM FIRST (v718, D8/D12): a placeholder — an untimed line drawn evenly in its gap —
+   * is written exactly as storage would hold it, { timePending: true }, so it goes out with no offsets,
+   * no "audio" note and no instruction entry, from every exporter at once. */
+  const copy = { paragraphs: doc.paragraphs, timeEstimatesPi: doc.timeEstimatesPi, timeEdges: doc.timeEdges,
+    segments: storableSegments(segs).map((s) => (s && Array.isArray(s.guess) ? { ...s, guess: s.guess.slice(0, 2) } : { ...s })) };
+  readLegacyEstimates(copy);
+  /* …and a stored v714/v717 even spread is no time either (v718, case 12): a record exported without
+   * ever being drawn again — from the list, by auto-backup — must not send that seed out as times. */
+  return withGuesses(seedsToPending(copy.segments, (k) => !!lineOffsets(doc, k)));
+}
+
+/* Would the reader's equal-length rule (markFileEstimates, test 3) mark any of these written times? A run
+ * of ≥ 3 timed single-phrase lines, each within ±2 ms of the first one's length and meeting end to start.
+ * Only consulted when the live model holds no estimate at all, so every line in such a run is real. */
+function evenRealRun(spans, doc) {
+  const paras = doc.paragraphs || [];
+  const ok = (k) => isAligned(spans[k]) && paras[k] && (paras[k].segments || []).length === 1;
+  for (let k = 0; k < spans.length;) {
+    if (!ok(k)) { k++; continue; }
+    const len = spans[k].end - spans[k].start;
+    let j = k;
+    while (j + 1 < spans.length && ok(j + 1) && Math.abs((spans[j + 1].end - spans[j + 1].start) - len) <= 2
+      && Math.abs(spans[j + 1].start - spans[j].end) <= 1) j++;
+    if (j - k >= 2) return true;
+    k = j + 1;
+  }
+  return false;
+}
+
+// Our own note: "audio ~0:04.000–0:06.000". Attribute order varies by writer, so only `type` is pinned.
+const EST_NOTE = /type="note"[^>]*>audio ~(\d+):(\d\d)\.(\d{3})[–-](\d+):(\d\d)\.(\d{3})/;
+const noteMs = (m, s, f) => (+m) * 60000 + (+s) * 1000 + (+f);
+
+/* THE THREE READ-BACK TESTS, in order, for the spans `todo(k)` selects (in place):
+ *   1. a TIME_ESTIMATES_PI entry with the phrase's guid AND its offsets (within 1 ms), unambiguous
+ *      both ways; gives the edges exactly;
+ *   2. else our `~` note, its times equal to the offsets within 1 ms;
+ *   3. else an equal-length run: ≥ 3 neighbouring spans from the file, each within ±2 ms of the run's
+ *      first and meeting end to start — the shape of an even spread, which real speech never has
+ *      (real lines differ by seconds; v714's spreads by 1 ms). Covers devices that had notes off.
+ * Every test needs the span to EQUAL its phrase's offsets (the span came from the file, unchanged):
+ * a split piece carries no offsets, so it can never be mistaken for an equal-length run (BM2).
+ * For 2 and 3 the edges come from estimateEdges. Unmarked spans: `[null, null]`, or, with
+ * opts.legacy, a pre-v717 flag migrated per edge. */
+function markFileEstimates(doc, spans, opts = {}) {
+  const paras = doc.paragraphs || [];
+  const n = spans.length;
+  const todo = (k) => opts.todo(k) && isAligned(spans[k]);
+  const fromFile = spans.map((s, k) => {
+    if (!todo(k)) return null;
+    const p = paras[k];
+    if (!p || (p.segments || []).length !== 1) return null;
+    const ph = p.segments[0];
+    const b = parseInt(ph.attrs && ph.attrs['begin-time-offset'], 10), e = parseInt(ph.attrs && ph.attrs['end-time-offset'], 10);
+    if (!Number.isFinite(b) || !Number.isFinite(e)) return null;
+    if (Math.abs(s.start - b) > 1 || Math.abs(s.end - e) > 1) return null;
+    return { ph, b, e };
+  });
+  /* An entry belongs to the ONE phrase with its guid AND its times. Not the guid alone: real files
+   * carry the same phrase guid on two lines (an older split passed one attrs object to both pieces;
+   * L29 and T18 do), and those are exactly the nudged-cut pairs that hold estimates. An entry that
+   * fits two phrases, or a phrase that two entries fit, is ambiguous and used for neither. */
+  const entries = Array.isArray(doc.timeEstimatesPi) ? doc.timeEstimatesPi : [];
+  const fits = (x, guid, b, e) => x.guid === guid && Math.abs(x.start - b) <= 1 && Math.abs(x.end - e) <= 1;
+  const phrases = paras.flatMap((p) => (p.segments || []).map((ph) => ph.attrs || {}))
+    .map((a) => [a.guid, parseInt(a['begin-time-offset'], 10), parseInt(a['end-time-offset'], 10)]);
+  const how = new Array(n).fill(null);
+  const exact = new Array(n).fill(null);
+  fromFile.forEach((f, k) => {
+    if (!f) return;
+    const guid = f.ph.attrs && f.ph.attrs.guid;
+    const mine = guid ? entries.filter((x) => fits(x, guid, f.b, f.e)) : [];
+    const entry = mine.length === 1 && phrases.filter(([g, b, e]) => fits(mine[0], g, b, e)).length === 1 ? mine[0] : null;
+    if (entry) {
+      how[k] = 'marker';
+      exact[k] = [entry.gs ? spans[k].start : null, entry.ge ? spans[k].end : null];
+      return;
+    }
+    for (const x of f.ph.postItemsXML || []) {
+      const m = EST_NOTE.exec(x);
+      if (m && Math.abs(noteMs(m[1], m[2], m[3]) - f.b) <= 1 && Math.abs(noteMs(m[4], m[5], m[6]) - f.e) <= 1) { how[k] = 'note'; break; }
+    }
+  });
+  for (let k = 0; k < n;) {
+    if (!fromFile[k]) { k++; continue; }
+    const len = spans[k].end - spans[k].start;
+    let j = k;
+    while (j + 1 < n && fromFile[j + 1] && Math.abs((spans[j + 1].end - spans[j + 1].start) - len) <= 2
+      && Math.abs(spans[j + 1].start - spans[j].end) <= 1) j++;
+    if (j - k >= 2) for (let q = k; q <= j; q++) if (!how[q]) how[q] = 'pattern';
+    k = j + 1;
+  }
+  /* ⚠ NOT WHEN THE FILE CARRIES OUR PROCESSING INSTRUCTION. A writer that wrote it listed every
+   * estimate it held, per edge — so a run the instruction does not list is real, however even it looks.
+   * Without this a real line after a word-fraction split into two equal halves (three equal lengths in a
+   * row) came back marked, and every later export wrote `~` on it (v717 review). */
+  // (v718) …an instruction that lists NONE included: it says the same about every run in the file.
+  if (Array.isArray(doc.timeEstimatesPi)) for (let k = 0; k < n; k++) if (how[k] === 'pattern') how[k] = null;
+  const est = (j) => (todo(j) ? !!how[j] || (opts.legacy && !!spans[j].timeEstimated) : isEstimate(spans[j]));
+  /* A legacy flag with the phrase's own offsets to compare against: the edges that DIFFER from the
+   * file's are the ones somebody moved (v714–v716's normalize pushed a start to the previous line's end
+   * and flagged the span; the neighbour rule alone marked its untouched end instead). C0 as ever. */
+  const movedEdges = (k) => {
+    const off = lineOffsets(doc, k);
+    if (!off) return null;
+    const s = spans[k];
+    const gs = k > 0 && Math.abs(s.start - off[0]) > 1, ge = k < n - 1 && Math.abs(s.end - off[1]) > 1;
+    return gs || ge ? [gs ? s.start : null, ge ? s.end : null] : null;
+  };
+  const decided = spans.map((s, k) => {
+    if (!todo(k)) return null;
+    if (how[k] === 'marker') return { guess: exact[k], src: 'marker' };
+    if (how[k]) return { guess: estimateEdges(spans, k, est), src: how[k] };
+    if (opts.legacy && s.timeEstimated) return { guess: movedEdges(k) || estimateEdges(spans, k, est), src: s.estSource || 'legacy' };
+    return { guess: Array.isArray(s.guess) ? s.guess : [null, null], src: s.estSource };
+  });
+  decided.forEach((d, k) => {
+    if (!d) return;
+    const s = spans[k];
+    s.guess = d.guess.slice(0, 2);
+    /* C0 is decided where guesses are made: estimateEdges and movedEdges never mark the first start or
+     * the last end. A marker entry says exactly what our writer held — after the first line of an
+     * estimated text was deleted, its new first start IS a guess — except that 0, the recording's own
+     * start, is a fact whatever anyone wrote. */
+    if (k === 0 && s.guess[0] != null && s.start <= 1) s.guess[0] = null;
+    if (d.src) s.estSource = d.src; else delete s.estSource;
+    settleSpan(s);
+  });
 }
 
 export function getBaselineParagraphs(doc) {
@@ -722,6 +1046,28 @@ export function getBaselineParagraphs(doc) {
  * line <-> paragraph <-> phrase <-> time span is 1:1:1:1 and nothing is inferred.
  */
 export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
+  reconcileLines(doc, paragraphTexts, opts);
+  return doc;
+}
+
+/* THE SAME EDIT, SAYING WHERE EVERY NEW LINE CAME FROM (v717, D10). Returns `origins`, one per line
+ * of the reconciled doc (doc.paragraphs[j]), each naming OLD line indices (the doc.segments indices
+ * before the edit):
+ *   { kind: 'kept',  from: i }           the line is untouched (the very same paragraph object)
+ *   { kind: 'exact', from: i }           the same text, matched phrase by phrase
+ *   { kind: 'edit',  from: i }           a changed line paired with old line i (a typo fix)
+ *   { kind: 'join',  from: [i, i+1, …] } several old lines joined into this one
+ *   { kind: 'split', from: i, frac: [a, b] }  this line is old line i's words a..b (fractions 0–1)
+ *   { kind: 'new' }                      a fresh line — no time, guid, offsets or translation inherited
+ * A line moved past others also carries `moved: true` — it is still that line (words, guid,
+ * translation), but its audio stayed where it was.
+ * segmentsFollowLines (segments.js) turns this into the time list, so the text box can never again
+ * pair lines with times by position. */
+export function reconcileBaselineWithOrigins(doc, paragraphTexts, opts = {}) {
+  return reconcileLines(doc, paragraphTexts, opts);
+}
+
+function reconcileLines(doc, paragraphTexts, opts = {}) {
   const flat = !!opts.flatSegments;
   const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
@@ -734,9 +1080,26 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   const keptOldByNew = new Map(paraPairs.map(([i, j]) => [j, i]));
   const keptOld = new Set(paraPairs.map(([i]) => i));
 
-  // Carry-over pool: segments from old paragraphs that were not kept verbatim.
+  // Carry-over pool: segments from old paragraphs that were not kept verbatim. Every old phrase also
+  // records its line, its position in the old text and where its words sit within its line — the
+  // stretches below and the origins at the end are measured in those.
   const oldSegs = [];
-  oldParas.forEach((p, i) => { if (!keptOld.has(i)) oldSegs.push(...p.segments); });
+  const oldInfo = new Map();   // old phrase -> { line, pos, tokFrom, tokTotal }
+  const oldLinePos = [];       // old line -> position of its first phrase
+  {
+    let pos = 0;
+    oldParas.forEach((p, i) => {
+      oldLinePos[i] = pos;
+      const toks = p.segments.map((sg) => tokenize(sg.baseline || '').length);
+      const total = toks.reduce((x, y) => x + y, 0);
+      let from = 0;
+      p.segments.forEach((sg, k) => {
+        oldInfo.set(sg, { line: i, pos: pos++, tokFrom: from, tokTotal: total });
+        from += toks[k];
+        if (!keptOld.has(i)) oldSegs.push(sg);
+      });
+    });
+  }
 
   // Skeleton for changed/new paragraphs only.
   const newParas = paragraphTexts.map((text, j) => {
@@ -747,9 +1110,20 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   });
 
   const newSegsFlat = [];
-  for (const p of newParas) {
-    if (!p.segTexts) continue; // kept paragraph
-    for (const t of p.segTexts) newSegsFlat.push({ text: t, para: p });
+  /* [oldPos, newPos, weight] of everything kept or matched exactly — see Pass 2. The weight decides
+   * which of two crossing anchors is the one that MOVED: a line with words outweighs a blank one, and a
+   * paragraph kept verbatim outweighs an exact match by a hair. */
+  const anchors = [];
+  const anchorWeight = (text, kept) => (norm(text || '') ? 2 : 1) + (kept ? 0.001 : 0);
+  {
+    let pos = 0;
+    newParas.forEach((p, j) => {
+      if (!p.segTexts) { // kept paragraph
+        anchors.push([oldLinePos[keptOldByNew.get(j)], pos, anchorWeight(p.segments.map((s) => s.baseline).join(' '), true)]);
+        pos += p.segments.length; return;
+      }
+      for (const t of p.segTexts) newSegsFlat.push({ text: t, para: p, pos: pos++ });
+    });
   }
 
   // Pass 1: LCS over changed segments with exact (whitespace-normalized) text equality.
@@ -758,7 +1132,26 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   const pairs = lcsPairs(a, b);
   const oldMatched = new Map(); // newIdx -> oldSeg
   const oldUsed = new Set();
-  for (const [i, j] of pairs) { oldMatched.set(j, oldSegs[i]); oldUsed.add(i); }
+  for (const [i, j] of pairs) {
+    oldMatched.set(j, oldSegs[i]); oldUsed.add(i);
+    anchors.push([oldInfo.get(oldSegs[i]).pos, newSegsFlat[j].pos, anchorWeight(newSegsFlat[j].text, false)]);
+  }
+  /* …and the exact matches an order-preserving LCS cannot take: two lines that crossed (one moved down
+   * past the other) are both still there word for word, and the LCS keeps only one. The same text is
+   * the same line, moved — paired here, so it keeps its own words, guid and translation and can never
+   * be taken for an edit of the line whose place it landed in (v717 review: a line moved into a deleted
+   * line's slot inherited that line's time and translation). Off the chain below, it is `moved`. */
+  {
+    const byText = new Map();
+    oldSegs.forEach((sg, i) => { if (!oldUsed.has(i)) { if (!byText.has(a[i])) byText.set(a[i], []); byText.get(a[i]).push(i); } });
+    newSegsFlat.forEach((ns, j) => {
+      const list = oldMatched.has(j) ? null : byText.get(b[j]);
+      if (!list || !list.length) return;
+      const i = list.shift();
+      oldMatched.set(j, oldSegs[i]); oldUsed.add(i);
+      anchors.push([oldInfo.get(oldSegs[i]).pos, ns.pos, anchorWeight(ns.text, false)]);
+    });
+  }
 
   /* Pass 2: pair leftover old/new segments in order — but FIRST recognise the two edits that move
    * a boundary rather than the text: a JOIN (one new line == several old ones) and a SPLIT (one old
@@ -774,48 +1167,154 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
    * real sentences and neither is more correct than the other).
    * SPLIT: each piece takes the words that fall in it; the free translation goes to the LONGEST
    * piece and the other pieces start blank — a guess, but the honest one, and Seth's rule is that
-   * the transcriber checks it afterwards. */
-  const leftoverOld = oldSegs.map((s, i) => ({ s, i })).filter(x => !oldUsed.has(x.i)).map(x => x.s);
-  const unmatchedNew = newSegsFlat.map((s, j) => j).filter(j => !oldMatched.has(j));
+   * the transcriber checks it afterwards.
+   *
+   * ⚠ AND ONLY WITHIN A STRETCH (v717, plans/time-gaps-and-estimates.md D10, cases 1 and 8). The pairing
+   * used to run over the WHOLE document in order: delete line 2 and add a line at line 30, and line 30
+   * inherited line 2's free translation, guid and offsets — and once times follow lines, its audio.
+   * Now the leftovers are grouped into STRETCHES between exact anchors (kept lines, exact matches), so
+   * nothing can pair across a line that did not change. Within a stretch:
+   *   · first the order-preserving alignment with the most shared words, where a 1:1 pair needs at
+   *     least half of the OLD line's words and joins and splits are recognised exactly as above;
+   *   · then each GAP that evidence leaves (between two of its pairs, or a stretch end) pairs in
+   *     order when it holds as many new lines as old ones — a line rewritten in place, a one-word typo
+   *     fix, keeps its line's everything, as before — and otherwise its new lines are FRESH: no
+   *     offsets, guid or free translation copied.
+   *     ("a b / NEW LINE / c x / e f" over "a b / c d / e f": "c x" keeps c d's guid, translation
+   *     and time; NEW LINE gets none of them.)
+   * ⚠ EVIDENCE FIRST, EVEN WHEN THE COUNTS AGREE. Two edits that cancel out in line count — delete
+   * "bb b1", fix a typo in "cc c1", add "new n1" after it — used to take the in-order path because the
+   * stretch had two old lines and two new ones, and handed "cc c1x" bb's time, guid and translation and
+   * "new n1" cc's (v717 review: ~1 in 60 random two-edit sequences). Counting lines says nothing about
+   * which line is which; the shared words do. */
+  const leftoverOld = oldSegs.filter((sg, i) => !oldUsed.has(i));
+  const unmatchedNew = newSegsFlat.map((sg, j) => j).filter(j => !oldMatched.has(j));
   const fuzzyPair = new Map();   // newIdx -> { olds:[seg], wordSlice?:[from,to], takesFree?:bool }
-  {
+  const newText = (j) => norm(newSegsFlat[j].text);
+  // A split of old line `old` across the new lines `js` (consecutive), its free translation to the longest.
+  const planSplit = (old, js) => {
+    let longest = 0;
+    for (let p = 1; p < js.length; p++) if (newText(js[p]).length > newText(js[longest]).length) longest = p;
+    let at = 0;
+    js.forEach((j, p) => {
+      const n = tokenize(newSegsFlat[j].text).length;
+      fuzzyPair.set(j, { olds: [old], wordSlice: [at, at + n], takesFree: p === longest });
+      at += n;
+    });
+  };
+  /* How many olds from i build exactly to new line j (a JOIN), or how many news from j rebuild old
+   * line i (a SPLIT). Compared with the whitespace taken out: the Gloss tab rebuilds each half of a
+   * split from its WORDS joined by spaces ("a , b ." for "a, b."), and that is still the same line. */
+  const squash = (t) => String(t || '').replace(/\s+/g, '');
+  const build = (parts, from, whole) => {
+    let acc = parts[from], take = 1;
+    while (acc !== whole && whole.startsWith(acc) && from + take < parts.length) { acc += parts[from + take]; take++; }
+    return acc === whole && take > 1 ? take : 0;
+  };
+  const stretchText = (olds, news) => ({ sqO: olds.map((sg) => squash(sg.baseline)), sqN: news.map((j) => squash(newSegsFlat[j].text)) });
+  // The as-many-as-there-were walk (the pre-v717 pass, now inside one stretch).
+  // `allow(old, newIdx)` vetoes a plain positional pair (joins and splits are exact, so never vetoed).
+  const inOrder = (olds, news, allow = () => true) => {
+    const { sqO, sqN } = stretchText(olds, news);
     let oi = 0, ui = 0;
-    const newTextAt = (u) => norm(newSegsFlat[unmatchedNew[u]].text);
-    while (ui < unmatchedNew.length && oi < leftoverOld.length) {
-      const j = unmatchedNew[ui];
-      const want = newTextAt(ui);
-
-      // JOIN — consume consecutive olds while they still build toward this one new line.
-      let acc = norm(leftoverOld[oi].baseline), take = 1;
-      while (acc !== want && want.startsWith(acc) && oi + take < leftoverOld.length) {
-        acc = norm(acc + ' ' + leftoverOld[oi + take].baseline); take++;
-      }
-      if (acc === want && take > 1) {
-        fuzzyPair.set(j, { olds: leftoverOld.slice(oi, oi + take) });
-        oi += take; ui++; continue;
-      }
-
-      // SPLIT — one old line spread across consecutive new lines.
-      const whole = norm(leftoverOld[oi].baseline);
-      let acc2 = want, take2 = 1;
-      while (acc2 !== whole && whole.startsWith(acc2) && ui + take2 < unmatchedNew.length) {
-        acc2 = norm(acc2 + ' ' + newTextAt(ui + take2)); take2++;
-      }
-      if (acc2 === whole && take2 > 1) {
-        const old = leftoverOld[oi];
-        let longest = 0;
-        for (let p = 1; p < take2; p++) if (newTextAt(ui + p).length > newTextAt(ui + longest).length) longest = p;
-        let at = 0;
-        for (let p = 0; p < take2; p++) {
-          const n = tokenize(newSegsFlat[unmatchedNew[ui + p]].text).length;
-          fuzzyPair.set(unmatchedNew[ui + p], { olds: [old], wordSlice: [at, at + n], takesFree: p === longest });
-          at += n;
-        }
-        oi++; ui += take2; continue;
-      }
-
-      fuzzyPair.set(j, { olds: [leftoverOld[oi]] });
+    while (ui < news.length && oi < olds.length) {
+      const take = build(sqO, oi, sqN[ui]);
+      if (take) { fuzzyPair.set(news[ui], { olds: olds.slice(oi, oi + take) }); oi += take; ui++; continue; }
+      const take2 = build(sqN, ui, sqO[oi]);
+      if (take2) { planSplit(olds[oi], news.slice(ui, ui + take2)); oi++; ui += take2; continue; }
+      if (allow(olds[oi], news[ui])) fuzzyPair.set(news[ui], { olds: [olds[oi]] });
       oi++; ui++;
+    }
+  };
+  /* The best order-preserving alignment by shared words: a dynamic programme over the stretch whose
+   * moves are join, split, pair (≥ half the old line's words shared), drop an old line, take a new
+   * line fresh — preferred in that order on a tie. Words are compared as sorted lists. */
+  const wordsOf = (t) => tokenize(t || '').filter((x) => !x.punct).map((x) => x.txt.toLowerCase()).sort();
+  const shared = (a, b) => { let n = 0; for (let x = 0, y = 0; x < a.length && y < b.length;) { if (a[x] === b[y]) { n++; x++; y++; } else if (a[x] < b[y]) x++; else y++; } return n; };
+  const JOIN = 1, SPLIT = 2, PAIR = 3, DROP = 4;
+  // Returns the blocks it paired, in order, as [oldFrom, oldTo, newFrom, newTo) — the gaps between them
+  // are what pairStretch then fills in order where the counts agree.
+  const byWords = (olds, news) => {
+    const blocks = [];
+    const m = olds.length, n = news.length, W = n + 1;
+    const { sqO, sqN } = stretchText(olds, news);
+    const oW = olds.map((sg) => wordsOf(sg.baseline)), nW = news.map((j) => wordsOf(newSegsFlat[j].text));
+    const best = new Uint32Array((m + 1) * W), pick = new Uint8Array((m + 1) * W), take = new Uint32Array((m + 1) * W);
+    for (let i = m - 1; i >= 0; i--) {
+      for (let j = n - 1; j >= 0; j--) {
+        const at = i * W + j;
+        let top = -1, code = 0, k = 0;
+        const tj = sqN[j].startsWith(sqO[i]) ? build(sqO, i, sqN[j]) : 0;
+        if (tj) { top = Math.max(1, nW[j].length) + best[(i + tj) * W + j + 1]; code = JOIN; k = tj; }
+        const ts = sqO[i].startsWith(sqN[j]) ? build(sqN, j, sqO[i]) : 0;
+        if (ts) { const v = Math.max(1, oW[i].length) + best[(i + 1) * W + j + ts]; if (v > top) { top = v; code = SPLIT; k = ts; } }
+        if (oW[i].length) {
+          const sh = shared(oW[i], nW[j]);
+          if (2 * sh >= oW[i].length) { const v = sh + best[(i + 1) * W + j + 1]; if (v > top) { top = v; code = PAIR; } }
+        }
+        if (best[(i + 1) * W + j] > top) { top = best[(i + 1) * W + j]; code = DROP; }
+        if (best[at + 1] > top) { top = best[at + 1]; code = 0; }
+        best[at] = top; pick[at] = code; take[at] = k;
+      }
+    }
+    for (let i = 0, j = 0; i < m && j < n;) {
+      const at = i * W + j, k = take[at];
+      if (pick[at] === JOIN) { fuzzyPair.set(news[j], { olds: olds.slice(i, i + k) }); blocks.push([i, i + k, j, j + 1]); i += k; j++; }
+      else if (pick[at] === SPLIT) { planSplit(olds[i], news.slice(j, j + k)); blocks.push([i, i + 1, j, j + k]); i++; j += k; }
+      else if (pick[at] === PAIR) { fuzzyPair.set(news[j], { olds: [olds[i]] }); blocks.push([i, i + 1, j, j + 1]); i++; j++; }
+      else if (pick[at] === DROP) i++;
+      else j++;
+    }
+    return blocks;
+  };
+  /* One stretch: word evidence first, then the gaps it leaves, in order where the counts agree — but a
+   * positional pair is vetoed when either line shares MORE words with another leftover line, in this
+   * stretch or any other, than with its partner: "bb b1 y" sitting in dd's slot is bb, edited and
+   * moved, not a rewrite of dd, and must not inherit dd's time or translation. (Across stretches too: a
+   * line split and then passed by a moved line has its pieces in one stretch and itself in the next.)
+   * A line that shares nothing with anything (a rewrite, a one-word typo fix) still pairs with the
+   * line whose place it took. */
+  const leftW = new Map(leftoverOld.map((sg) => [sg, wordsOf(sg.baseline)]));
+  const freshW = new Map(unmatchedNew.map((j) => [j, wordsOf(newSegsFlat[j].text)]));
+  const allow = (old, nj) => {
+    const ow = leftW.get(old), nw = freshW.get(nj);
+    const own = shared(ow, nw);
+    for (const [q, w] of freshW) if (q !== nj && shared(ow, w) > own) return false;
+    for (const [o2, w] of leftW) if (o2 !== old && shared(w, nw) > own) return false;
+    return true;
+  };
+  const pairStretch = (olds, news) => {
+    let oi = 0, nj = 0;
+    for (const [o0, o1, n0, n1] of [...byWords(olds, news), [olds.length, olds.length, news.length, news.length]]) {
+      if (o0 - oi > 0 && o0 - oi === n0 - nj) inOrder(olds.slice(oi, o0), news.slice(nj, n0), allow);
+      oi = o1; nj = n1;
+    }
+  };
+  const movedNew = new Set();   // new positions of anchors off the chain: lines MOVED to another place
+  {
+    /* The stretches. Anchors that cross each other (a line moved past another) cannot both bound a
+     * stretch, so the boundaries are the heaviest chain of anchors increasing on both sides. An anchor
+     * off the chain is a line that moved: it keeps its words, guid and translation — it is the same
+     * line — but its origin says `moved`, so segmentsFollowLines does not carry its time out of order. */
+    anchors.sort((x, y) => x[1] - y[1] || x[0] - y[0]);
+    const len = anchors.map((x) => x[2]), prev = anchors.map(() => -1);
+    for (let k = 0; k < anchors.length; k++) {
+      for (let q = 0; q < k; q++) if (anchors[q][0] <= anchors[k][0] && anchors[q][1] <= anchors[k][1] && len[q] + anchors[k][2] > len[k]) { len[k] = len[q] + anchors[k][2]; prev[k] = q; }
+    }
+    const chain = [];
+    let top = -1;
+    for (let k = 0; k < anchors.length; k++) if (top < 0 || len[k] > len[top]) top = k;
+    const onChain = new Set();
+    for (let k = top; k >= 0; k = prev[k]) { chain.unshift(anchors[k]); onChain.add(k); }
+    anchors.forEach((x, k) => { if (!onChain.has(k)) movedNew.add(x[1]); });
+    const stretchOf = (posIdx, side) => { let c = 0; while (c < chain.length && chain[c][side] <= posIdx) c++; return c; };
+    const groups = new Map();
+    const group = (id) => { if (!groups.has(id)) groups.set(id, { olds: [], news: [] }); return groups.get(id); };
+    for (const sg of leftoverOld) group(stretchOf(oldInfo.get(sg).pos, 0)).olds.push(sg);
+    for (const j of unmatchedNew) group(stretchOf(newSegsFlat[j].pos, 1)).news.push(j);
+    for (const { olds, news } of groups.values()) {
+      if (!olds.length || !news.length) continue;
+      pairStretch(olds, news);
     }
   }
 
@@ -870,9 +1369,53 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   // following line paired with the WRONG waveform (Seth's misalignment report). The baseline tab
   // masked the defect by rendering from paragraph texts.
   if (flat) for (const p of newParas) { if (!p.segments.length) p.segments.push(makeSegment('', [])); }
+
+  /* WHERE EACH LINE CAME FROM, line by line (reconcileBaselineWithOrigins). A line is usually one
+   * phrase; a line the default (non-flat) mode split into sentences is several, and is described by
+   * the old lines its phrases came from together. */
+  const phraseFrom = newSegsFlat.map((ns, j) => {
+    const exact = oldMatched.get(j);
+    if (exact) return { kind: 'exact', olds: [exact] };
+    const plan = fuzzyPair.get(j);
+    if (!plan) return { kind: 'new', olds: [] };
+    if (plan.wordSlice) return { kind: 'split', olds: plan.olds, slice: plan.wordSlice };
+    return { kind: plan.olds.length > 1 ? 'join' : 'edit', olds: plan.olds };
+  });
+  /* `moved` (one of the line's anchors fell off the chain above) rides on its origin for
+   * segmentsFollowLines, which keeps times only where the old order holds. */
+  const keptPos = new Map();
+  {
+    let pos = 0;
+    newParas.forEach((p, j) => { if (!p.segTexts) keptPos.set(j, pos); pos += p.segTexts ? p.segTexts.length : p.segments.length; });
+  }
+  const origins = newParas.map((p, j) => {
+    if (!p.segTexts) {
+      const o = { kind: 'kept', from: keptOldByNew.get(j) };
+      if (movedNew.has(keptPos.get(j))) o.moved = true;
+      return o;
+    }
+    const moved = newSegsFlat.some((ns) => ns.para === p && movedNew.has(ns.pos));
+    const mine = phraseFrom.filter((o, k) => newSegsFlat[k].para === p && o.kind !== 'new');
+    if (!mine.length) return { kind: 'new' };
+    const lines = [...new Set(mine.flatMap((o) => o.olds.map((sg) => oldInfo.get(sg).line)))].sort((x, y) => x - y);
+    const tag = (o) => { if (moved) o.moved = true; return o; };
+    if (lines.length > 1) return tag({ kind: 'join', from: lines });
+    if (mine.every((o) => o.kind === 'split')) {
+      let a = 1, b = 0;
+      for (const o of mine) {
+        const inf = oldInfo.get(o.olds[0]);
+        if (!(inf.tokTotal > 0)) { a = 0; b = 1; break; }
+        a = Math.min(a, (inf.tokFrom + o.slice[0]) / inf.tokTotal);
+        b = Math.max(b, (inf.tokFrom + o.slice[1]) / inf.tokTotal);
+      }
+      if (a > 0 || b < 1) return tag({ kind: 'split', from: lines[0], frac: [a, Math.min(1, b)] });
+    }
+    return tag({ kind: mine.every((o) => o.kind === 'exact') ? 'exact' : 'edit', from: lines[0] });
+  });
+
   doc.paragraphs = newParas.map(p => { delete p.segTexts; return p; });
-  if (!doc.paragraphs.length) doc.paragraphs.push({ guid: newGuid(), segments: [] });
-  return doc;
+  if (!doc.paragraphs.length) { doc.paragraphs.push({ guid: newGuid(), segments: [] }); origins.push({ kind: 'new' }); }
+  return origins;
 }
 
 // Word-level carry-over inside a changed segment: LCS over token text, where a

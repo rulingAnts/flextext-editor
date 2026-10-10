@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { moveBoundary, MIN_SEGMENT_MS } from '../docs/js/segments.js';
+import { moveBoundary, MIN_SEGMENT_MS, edgeGuessed } from '../docs/js/segments.js';
 
 const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 const STRIPS = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
@@ -34,6 +34,14 @@ test('moveBoundary refuses what it cannot know', () => {
   assert.equal(moveBoundary([{ start: 0, end: 120 }, { start: 120, end: 240 }], 0, 130).reason, 'room', 'no room to move: each side is already exactly the floor');
   const est = [{ start: 0, end: 1000 }, { start: 1000, end: 2000, timeEstimated: true }];
   assert.equal('timeEstimated' in moveBoundary(est, 0, 1200).segments[1], false, 'a seam placed by hand is no longer a guess');
+  /* Per edge (v717): the dragged edge becomes real on both sides; the FAR edge of a span keeps its
+   * guess when it meets another estimate, so the line stays dashed until that seam is placed too. */
+  const pair = [{ start: 0, end: 1000 }, { start: 1000, end: 2000, guess: [1000, 2000] }, { start: 2000, end: 3000, guess: [2000, null] }];
+  const r = moveBoundary(pair, 0, 1200);
+  assert.deepEqual([edgeGuessed(r.segments[1], 0), edgeGuessed(r.segments[1], 1)], [false, true]);
+  assert.equal(r.segments[1].timeEstimated, true, 'still an estimate: its far edge is still a guess');
+  const r2 = moveBoundary(r.segments, 1, 2100);
+  assert.ok(!r2.segments.some((s) => s.timeEstimated), 'placing that seam too makes both lines real');
 });
 
 test('the Player numbers marks by SEAM, so a line without a time mid-text cannot shift the drag onto the wrong seam', () => {
@@ -41,7 +49,7 @@ test('the Player numbers marks by SEAM, so a line without a time mid-text cannot
   assert.match(AUDIO, /this\._bounds\.map\(\(ms, j\) => \(\{ ms, j \}\)\)\.filter\(\(\{ ms \}\) => \{\s*\n\s*if \(!Number\.isFinite\(ms\)\) return false;/, 'undrawable seams are skipped but keep their number');
   assert.match(AUDIO, /drag\(j, null, 'start'\);/); assert.match(AUDIO, /drag\(j, t - grab, 'move'\)/); assert.match(AUDIO, /drag\(j, null, 'end'\);/);
   assert.match(AUDIO, /el\.dataset\.bi = String\(j\);/, 'the reuse path too');
-  assert.match(STRIPS, /marks\.push\(isAligned\(s\) \? s\.end : NaN\);/, 'the Cut tab pushes one entry per seam');
+  assert.match(STRIPS, /marks\.push\(isAligned\(s\) \? Math\.min\(s\.end, D\) : NaN\);/, 'the Cut tab pushes one entry per seam (v717: clipped to the recording, the stored time kept)');
   assert.match(APP, /out\.push\(sp\.timePending \? NaN : sp\.end\);/, 'and so does the matcher');
   assert.match(STRIPS, /p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length/, 'the Cut ticker compares drawn marks with drawable seams');
   assert.match(APP, /p\.boundaryCount\(\) !== want\.filter\(Number\.isFinite\)\.length/, 'the matcher ticker too');
@@ -57,9 +65,14 @@ test('one gesture, one consumer, three tabs and the top player, one switch', () 
   assert.match(attach, /ev\.preventDefault\(\); ev\.stopPropagation\(\);/, 'not a seek, not a row select');
   assert.match(attach, /const perPx = Math\.max\(1, seg\.end - seg\.start\) \/ \(wave\.clientWidth \|\| 1\);/, 'scale frozen at pick-up');
   const drag = STRIPS.slice(STRIPS.indexOf('export function makeBoundaryDrag(o)'), STRIPS.indexOf('let stripsDragFn = null;'));
-  assert.match(drag, /if \(o\.capture\) o\.capture\(\);\s*\n\s*seam = bi;/, 'one undo per drag, at pick-up');
-  assert.match(drag, /const r = moveBoundary\(segs, bi, ms\);\s*\n\s*if \(!r\.ok\) return;\s*\n\s*segs\[bi\]\.end = r\.t;\s*\n\s*segs\[bi \+ 1\]\.start = r\.t;/, 'the live objects move in place');
-  assert.match(drag, /if \(o\.persist\) o\.persist\(\);\s*\n\s*if \(o\.onEnd\) o\.onEnd\(bi\);/, 'one persist on release');
+  assert.match(drag, /if \(!moved\) \{[\s\S]{0,200}if \(o\.capture\) o\.capture\(\);\s*\n\s*moved = true;/, 'one undo per drag, at its first move that moves something (v717 review)');
+  assert.match(drag, /if \(moved && o\.persist\) o\.persist\(\);/, 'and a save only when something moved');
+  assert.match(drag, /const r = dragSeam\(segs, before, bi, ms, grabbed\);\s*\n\s*if \(!r\) return;/, 'the live objects move in place (v717: dragSeam — the grabbed edge, judged against the spans at pick-up)');
+  assert.match(drag, /before = segs\[bi\] && segs\[bi \+ 1\] \? \[\{ \.\.\.segs\[bi\] \}, \{ \.\.\.segs\[bi \+ 1\] \}\] : null;/, 'copied at pick-up');
+  assert.doesNotMatch(drag, /delete segs\[bi \+ 1\]\.timeEstimated/, 'no flag deleted outright: the placed edge stops being a guess, the far edge keeps its own');
+  const attach2 = STRIPS.slice(STRIPS.indexOf('export function attachEdgeHandles(row, wave, i, ctx)'), STRIPS.indexOf('export function makeBoundaryDrag(o)'));
+  assert.match(attach2, /const edge = side === 'r' \? 'end' : 'start';/, 'each grip says which edge it is (D11)');
+  assert.match(drag, /if \(moved && o\.persist\) o\.persist\(\);[^\n]*\n\s*if \(o\.onEnd\) o\.onEnd\(bi\);/, 'one persist on release');
   assert.match(STRIPS, /attachEdgeHandles\(row, wave, i, cutEdgeCtx\(segs\)\);/, 'Cut rows');
   assert.match(STRIPS, /attachEdgeHandles\(row, wave, i, stripsEdgeCtx\(segs\)\);/, 'Baseline rows');
   assert.match(APP, /attachEdgeHandles\(waveWrap, wave, i, \{ allowed: adjustBoundariesAllowed,/, 'Gloss rows');

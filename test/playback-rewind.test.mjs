@@ -100,9 +100,10 @@ console.log('\nevery resume-from-playhead call site passes the real start as hom
 {
   const strips = readFileSync(new URL('../docs/js/segment-strips.js', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
-  const resumes = [...strips.matchAll(/playSpan\(from,[^)]*\)/g)].map(m => m[0]);
+  // One level of nesting allowed: since v717 the stop is playEnd(p, seg), clipped to the recording.
+  const resumes = [...strips.matchAll(/playSpan\(from,(?:[^()]|\([^()]*\))*\)/g)].map(m => m[0]);
   ok(resumes.length === 2, 'both strip transports found (baseline + gloss), got ' + resumes.length);
-  ok(resumes.every(c => /seg\.start\)/.test(c)), 'both pass seg.start as home: ' + resumes.join(' | '));
+  ok(resumes.every(c => /, seg\.start\)$/.test(c)), 'both pass seg.start as home: ' + resumes.join(' | '));
   const space = app.match(/playSpan\(inside \? at : [^)]*\)/);
   ok(!!space && /lastPlayTarget\.start\)$/.test(space[0]),
      'the Space key resumes in span but goes home to the segment: ' + (space ? space[0] : 'NOT FOUND'));

@@ -72,8 +72,8 @@ ok(/export function wireWaveSeek/.test(strips), 'the click-to-position/drag-to-s
 const render = strips.match(/export function renderCut\(anchorIdx\) \{[\s\S]*?\n\}/)[0];
 ok(/wireWaveSeek\(wave, seg, cutDeps\.getPlayer/.test(render), 'the Cut tab strips use it');
 ok(/wireWaveSeek\(wave, seg, deps\.getPlayer/.test(strips), 'and so do the Baseline strips — one behaviour, not two');
-ok(/const ms = seg\.start \+ f \* \(seg\.end - seg\.start\);\s*\n\s*getPlayer\(\)\?\.seekMs\?\.\(ms\);/.test(strips),
-   'a click maps to a time INSIDE that segment\'s own span');
+ok(/const ms = Math\.min\(seg\.start \+ f \* \(seg\.end - seg\.start\), playEnd\(p, seg\)\);\s*\n\s*p\?\.seekMs\?\.\(ms\);/.test(strips),
+   'a click maps to a time INSIDE that segment\'s own span (v717: clipped at the recording\'s end, never past it)');
 ok(/wireWaveSeek\(wave, \(\) => player|wireWaveSeek\(wave, seg, \(\) => player/.test(app),
    '…and so does the GLOSS tab, which had its own copy until the pause behaviour needed writing twice');
 
@@ -118,8 +118,10 @@ ok(!/playThrough/.test(render), 'but the ROW button does not — no play-through
 ok(/wireSegPlay\(play, seg, cutDeps\.getPlayer/.test(render),
    'it uses the SAME wireSegPlay as Baseline and Gloss, so "play this line" means one thing');
 const wsp = strips.match(/export function wireSegPlay[\s\S]*?\n\}/)[0];
-ok(/playSpan\(from, seg\.end, seg\.start\)/.test(wsp),
+ok(/playSpan\(from, playEnd\(p, seg\), seg\.start\)/.test(wsp),
    'which is span-limited (playSpan) and rewinds to the segment when it finishes');
+ok(/return D > 0 && seg\.end > D \? Math\.max\(seg\.start, D\) : seg\.end;/.test(strips),
+   '…its stop clipped to the recording (v717, P8): a stored end past the decoded length is kept, not played past');
 ok(!/function cutPlaySeg/.test(strips), 'and the tab keeps no play-through copy of that wiring');
 const cutEntry = app.match(/if \(tab === 'cut'\) \{[\s\S]*?prepareCutAudio\(\);/)[0];
 ok(/lastPlayTarget = null;/.test(cutEntry),
@@ -284,17 +286,20 @@ ok(/baseline\.hintSeg/.test(app) && /baseline\.hintSeg/.test(i18n),
 console.log('\nthe segments account for ALL of the recording');
 const cover = fn(strips, 'coverTail');
 ok(!!cover, 'there is a step that extends an unfinished tail to the end of the recording');
-ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /last\.attrs/.test(cover),
-   '…which never touches a line that has text, nor one whose times were imported');
+ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /phrase\.attrs\['end-time-offset'\] != null\) return false;/.test(cover),
+   '…which never touches a line that has text, nor one whose times were imported (v717: read from the PHRASE — the span never had attrs, so the old guard guarded nothing)');
+ok(!/last\.attrs/.test(cover), '…and the dead span-attrs test is gone');
 ok(/COVER_TOL_MS/.test(cover) && /COVER_TOL_MS = 1000/.test(strips),
    '…and leaves rounding and encoder priming alone (a second of tolerance)');
-ok(/if \(coverTail\(doc\.segments, paras, known\)\) repaired = true;/.test(fn(strips, 'reconcile')),
-   'reconcile runs it, and a repair it makes is persisted like any other');
+ok(/if \(coverTail\(doc, paras, known\)\) wrote = true;/.test(fn(strips, 'prepareDisplaySpans')),
+   'prepareDisplaySpans (v718, was reconcile) runs it, and a repair it makes is saved like D7\'s one-line span —');
+ok(/if \(wrote\) \(d\.persistQuiet \|\| d\.persist\)\?\.\(\);/.test(fn(strips, 'prepareDisplaySpans')) && /persistQuiet: \(\) => saveQuiet\(\),/.test(app),
+   '…QUIETLY (v717, P1): opening a text is not an edit, so no `modified` stamp and no re-upload');
 const durFor = fn(strips, 'peaksDurationFor');
 ok(/id !== peaksCache\.docId/.test(durFor) && /return 0/.test(durFor),
    'a peaks cache belonging to ANOTHER text can never seed this one\'s spans');
-ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 2,
-   '…and both the Baseline strips and the Cut tab tell it which text they are showing');
+ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 3,
+   '…and the Baseline strips, the Cut tab and (v718) the Gloss bars all tell it which text they are showing');
 
 console.log('\na cut or a join does not throw the user back to the top of the recording');
 ok(/const keepTop = scroller \? scroller\.scrollTop : 0;/.test(render), 'the scroll offset is read BEFORE the rebuild');
@@ -373,10 +378,10 @@ ok(/switchTab\(landingTab\(tab\), \/\* landing \*\/ true\);/.test(app),
 // …as a STATEMENT: the function's comment names schedulePersist to explain why it is not used.
 ok(!/\n\s*schedulePersist\(\);/.test(fn(app, 'rememberTab')),
    'and remembering never goes through persist() — looking at a tab must not stamp the text modified');
-ok(/db\.putDoc\(rec\)/.test(fn(app, 'rememberTab')),
+ok(/saveQuiet\(\);/.test(fn(app, 'rememberTab')) && /return db\.putDoc\(rec\)\.catch/.test(fn(app, 'saveQuiet')) && !/modified/.test(fn(app, 'saveQuiet').replace(/\/\*[\s\S]*?\*\//g, '')),
    'it writes the record quietly instead (a modified stamp would re-upload a text already on Drive)');
-ok(/!docSegments\(current\.doc\)\.some\(isAligned\)/.test(landing),
-   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen');
+ok(/!\(docSegments\(current\.doc\)\.some\(isAligned\) \|\| current\.audioSource\)/.test(landing),
+   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen (v718: an aligned span, or the recording itself — an untimed text stores no span)');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

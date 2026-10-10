@@ -2,19 +2,25 @@
  * because CI runs `node test/*.test.mjs` with no install step. Implements exactly what
  * parseFlextext/parsePhrase/parseWord touch: parseFromString, querySelector('parsererror'),
  * documentElement, tagName, getAttribute, attributes, children, textContent, XMLSerializer.
- * No namespaces, CDATA, comments, or processing instructions beyond skipping the <?xml?> prolog —
- * test fixtures must stay within that. NOT a general parser; do not reuse outside tests. */
+ * No namespaces, CDATA or comments. Processing instructions: the <?xml?> prolog is skipped, and one
+ * inside an element becomes a node with nodeType 7, `target` and `data`, as in a browser (v717 reads
+ * its own time-estimates instruction that way) — invisible to `children` and `textContent`, as there.
+ * Test fixtures must stay within that. NOT a general parser; do not reuse outside tests. */
 
 const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 const decode = (s) => s.replace(/&(amp|lt|gt|quot|apos);/g, (_, n) => ENT[n]);
 const encode = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const encodeAttr = (s) => encode(s).replace(/"/g, '&quot;');
 
+class MiniPI {
+  constructor(target, data) { this.nodeType = 7; this.target = target; this.data = data; }
+}
+
 class MiniElement {
   constructor(tagName) {
     this.tagName = tagName;
     this.attributes = [];          // [{ name, value }]
-    this.childNodes = [];          // MiniElement | string (text)
+    this.childNodes = [];          // MiniElement | MiniPI | string (text)
   }
   get children() { return this.childNodes.filter((c) => c instanceof MiniElement); }
   getAttribute(name) {
@@ -22,7 +28,7 @@ class MiniElement {
     return a ? a.value : null;
   }
   get textContent() {
-    return this.childNodes.map((c) => (typeof c === 'string' ? c : c.textContent)).join('');
+    return this.childNodes.map((c) => (typeof c === 'string' ? c : c instanceof MiniPI ? '' : c.textContent)).join('');
   }
 }
 
@@ -59,6 +65,16 @@ function parseXml(src) {
           i += close[0].length;
           return el;
         }
+        if (s[i + 1] === '?') {
+          const end = s.indexOf('?>', i);
+          if (end < 0) throw new Error('unclosed processing instruction at ' + i);
+          const body = s.slice(i + 2, end);
+          const m = body.match(/^([\w:.-]+)\s*([\s\S]*)$/);
+          if (!m) throw new Error('bad processing instruction at ' + i);
+          el.childNodes.push(new MiniPI(m[1], m[2]));
+          i = end + 2;
+          continue;
+        }
         el.childNodes.push(parseElement());
       } else {
         const next = s.indexOf('<', i);
@@ -78,9 +94,28 @@ function parseXml(src) {
 
 function serialize(el) {
   if (typeof el === 'string') return encode(el);
+  if (el instanceof MiniPI) return `<?${el.target} ${el.data}?>`;
   const attrs = el.attributes.map((a) => ` ${a.name}="${encodeAttr(a.value)}"`).join('');
   if (!el.childNodes.length) return `<${el.tagName}${attrs}/>`;
   return `<${el.tagName}${attrs}>${el.childNodes.map(serialize).join('')}</${el.tagName}>`;
+}
+
+/* querySelectorAll for ONE shape, `parent > child[attr="v"]`, in document order: parseWord's fallback
+ * for a word that has morphemes but no top-level txt ('morph > item[type="txt"]'). A FLEx text with
+ * such words is in the real corpus (tools/corpus-timing.mjs). Any other selector throws, so a test
+ * can never pass on a query this DOM only pretends to answer. */
+function selectAll(root, sel) {
+  const m = /^([\w-]+)\s*>\s*([\w-]+)(?:\[([\w-]+)="([^"]*)"\])?$/.exec(String(sel).trim());
+  if (!m) throw new Error('mini-xml-dom: unsupported selector ' + sel);
+  const out = [];
+  const visit = (el) => {
+    for (const c of el.children) {
+      if (el.tagName === m[1] && c.tagName === m[2] && (!m[3] || c.getAttribute(m[3]) === m[4])) out.push(c);
+      visit(c);
+    }
+  };
+  visit(root);
+  return out;
 }
 
 export function installMiniXmlDom() {
@@ -88,7 +123,7 @@ export function installMiniXmlDom() {
     parseFromString(str /*, type */) {
       try {
         const root = parseXml(str);
-        return { documentElement: root, querySelector: () => null };
+        return { documentElement: root, querySelector: () => null, querySelectorAll: (sel) => selectAll(root, sel) };
       } catch (e) {
         const errEl = { textContent: String(e.message || e) };
         return { documentElement: new MiniElement('parsererror'), querySelector: (sel) => (sel === 'parsererror' ? errEl : null) };

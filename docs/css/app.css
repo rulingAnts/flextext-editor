@@ -254,6 +254,28 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 }
 .banner-dismiss:hover { opacity: 1; }
 
+/* ⚠ THE TIMING BANNER (v717) — one per text, worded by severity. Wraps instead of scrolling: at
+   375 px the actions drop under the message and nothing runs off the side. Its own colours in light
+   and dark, like the operator notices, so it reads the same over whatever is behind it. */
+.timing-banner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 0 10px; }
+.timing-banner .timing-msg { flex: 1 1 18em; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.timing-banner .timing-actions { display: flex; flex-wrap: wrap; gap: 0 4px; margin-left: auto; }
+.timing-banner .link-btn { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; padding: 4px 6px; font-size: 14px; }
+.timing-banner .timing-list { flex: 1 0 100%; margin: 4px 0 2px; padding-left: 1.2em; }
+.timing-banner .timing-list li { margin: 2px 0; overflow-wrap: anywhere; }
+.timing-banner.timing-info { border-color: #a9b8c6; background: #f3f6f9; color: #2a3b4c; }
+.timing-banner.timing-estimate { border-color: #9fb3d6; background: #eef3fb; color: #1f3b66; }
+.timing-banner.timing-amber { border-color: #e4c95b; background: #fdf3d7; color: #6b5310; }
+.timing-banner.timing-red { border-color: #d0654f; background: #fdefec; color: #5a1f14; }
+@media (prefers-color-scheme: dark) {
+  .timing-banner.timing-info { border-color: #4a5c6e; background: #1c2630; color: #d3dde7; }
+  .timing-banner.timing-estimate { border-color: #4b6390; background: #172238; color: #d4e0f5; }
+  .timing-banner.timing-amber { border-color: #8a6400; background: #2b2310; color: #f0dfae; }
+  .timing-banner.timing-red { border-color: #a0492f; background: #33160f; color: #f2d4cc; }
+}
+/* Show: the line it jumped to, outlined for a moment. */
+.timing-flash { outline: 3px solid var(--seg-check); outline-offset: 2px; transition: outline-color .3s; }
+
 .doc-list { list-style: none; margin: 0; padding: 0; }
 
 .doc-list li {
@@ -318,8 +340,50 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 .seg-strip { position: relative; display: grid; grid-template-columns: auto 1fr;
              grid-template-rows: auto auto; gap: 2px 10px;
              border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: #fff; }
-.seg-strip.seg-pending { border-style: dashed; }
-.seg-strip.seg-est { border-style: dashed; }   /* estimated times: playable but unconfirmed */
+/* ⚠ THE THREE STATES OF A LINE'S TIME (v717) — three looks, never one. v714 drew "no time" and
+   "a guessed time" identically dashed, and a text full of guesses (E78) was indistinguishable from
+   one with no times at all. Now: PENDING is dotted and muted (and its ▶ is ⋯) — there is nothing to
+   play; an ESTIMATE is dashed in a stronger blue-grey — it plays, but an edge is a guess; CHECK is a
+   red bar down the left with a "!" — the timing report singles the line out (segment-strips
+   timeStateClass). The same classes on .seg-strip (Baseline and Cut), .gseg-bar and .mg-span. */
+:root { --seg-pend: #9aa3af; --seg-est: #5b7bb3; --seg-check: #c0392b; --seg-check-bg: #fdf0ee;
+        --seg-needs: #b7791f; --seg-needs-bg: #fdf3d7; --seg-needs-ink: #6b5310; }
+@media (prefers-color-scheme: dark) {
+  :root { --seg-pend: #8a93a0; --seg-est: #6f8fc7; --seg-check: #d0654f; --seg-check-bg: #fbe9e5;
+          --seg-needs: #d69e2e; --seg-needs-bg: #2b2310; --seg-needs-ink: #f0dfae; }
+}
+.seg-strip.seg-pending { border-style: dotted; border-color: var(--seg-pend); }
+.seg-strip.seg-pending .seg-play { color: var(--muted); }
+.seg-strip.seg-est { border-style: dashed; border-color: var(--seg-est); }   /* playable, but an edge is a guess */
+.seg-strip.seg-check { box-shadow: inset 4px 0 0 var(--seg-check); }
+.seg-strip.seg-check::after, .gseg-bar.seg-check::after, .mg-span.seg-check::after {
+  content: '!'; position: absolute; top: 4px; right: 6px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--seg-check); color: #fff; font: 700 11px/16px sans-serif; text-align: center; pointer-events: none; }
+/* ⚠ AND THE UNTIMED LINES (v718, Seth: "some kind of styling that indicates they have an audio
+   segmenting error that needs fixing"). A placeholder — an untimed line drawn evenly in its gap — plays
+   like any line, but it is nobody's time. SPREAD (the whole text is untimed: every FLEx export with no
+   times) is dashed in the muted grey and nothing more; the one info banner speaks for the text (P6).
+   NEEDS (a partly timed text, where it is the exception) is dashed amber with an amber bar and a "needs
+   timing" pill on the top border; NOROOM (no room in its gap) is the dotted ⋯ with the amber bar. The
+   pill's words come from data-needs (translated in segment-strips applyNeedsBadge), and it sits 44px in
+   from the right so a thumb on the right-hand grip never lands on it. */
+.seg-strip.seg-spread { border-style: dashed; border-color: var(--seg-pend); }
+.seg-strip.seg-needs { border-style: dashed; border-color: var(--seg-needs); box-shadow: inset 4px 0 0 var(--seg-needs); }
+.seg-strip.seg-noroom { box-shadow: inset 4px 0 0 var(--seg-needs); }
+.seg-strip.seg-needs::after, .gseg-bar.seg-needs::after {
+  content: attr(data-needs); position: absolute; top: -9px; right: 44px; padding: 0 7px; border-radius: 9px;
+  border: 1px solid var(--seg-needs); background: var(--seg-needs-bg); color: var(--seg-needs-ink);
+  font: 600 11px/16px sans-serif; white-space: nowrap; pointer-events: none; z-index: 2; }
+/* "Keep these times" (v718): on the ACTIVE line only — the one the playhead is in, or the one being
+   typed in — in the pill's place, which it takes over while it shows. */
+.seg-keep { display: none; position: absolute; top: -10px; right: 44px; z-index: 4; appearance: none;
+  border: 1px solid var(--seg-needs); background: var(--seg-needs-bg); color: var(--seg-needs-ink);
+  border-radius: 10px; height: 20px; padding: 0 9px; font: 600 12px/18px sans-serif; cursor: pointer; white-space: nowrap; }
+.seg-keep:hover { filter: brightness(.96); }
+.seg-strip.seg-on > .seg-keep, .seg-strip:focus-within > .seg-keep,
+.segment.gseg-on > .gseg-bar > .seg-keep, .segment:focus-within > .gseg-bar > .seg-keep { display: inline-block; }
+.seg-strip.has-keep.seg-on.seg-needs::after, .seg-strip.has-keep:focus-within.seg-needs::after,
+.segment.gseg-on > .gseg-bar.has-keep.seg-needs::after, .segment:focus-within > .gseg-bar.has-keep.seg-needs::after { display: none; }
 .seg-play { appearance: none; border: 1px solid var(--border); background: var(--panel);
             border-radius: 7px; min-width: 38px; height: 38px; font-size: 15px; cursor: pointer;
             grid-row: 1 / span 2; align-self: center; }
@@ -410,6 +474,15 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
 .gseg-play:hover { background: #e8ecf2; }
 .gseg-wavewrap { position: relative; flex: 1; }
 .gseg-wave { width: 100%; height: 22px; display: block; cursor: crosshair; touch-action: pan-y; }
+/* The Gloss tab's bar: the wave itself carries the state (the bar has no border of its own). */
+.gseg-bar { position: relative; }
+.gseg-bar.seg-pending .gseg-wave { outline: 1px dotted var(--seg-pend); outline-offset: 1px; opacity: .6; }
+.gseg-bar.seg-est .gseg-wave { outline: 1px dashed var(--seg-est); outline-offset: 1px; }
+.gseg-bar.seg-check { box-shadow: inset 3px 0 0 var(--seg-check); }
+.gseg-bar.seg-check::after { top: 2px; right: 2px; }
+.gseg-bar.seg-spread .gseg-wave { outline: 1px dashed var(--seg-pend); outline-offset: 1px; }
+.gseg-bar.seg-needs .gseg-wave { outline: 1px dashed var(--seg-needs); outline-offset: 1px; }
+.gseg-bar.seg-needs, .gseg-bar.seg-noroom { box-shadow: inset 3px 0 0 var(--seg-needs); }
 .gseg-cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #c9772a; pointer-events: none; }
 /* The join control between line-groups: big enough to tap, positional meaning (it sits between
    the two lines it joins), icon-only per the low-literacy design rule. */
@@ -3573,6 +3646,15 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 .mg-span .mg-time{grid-column:3;grid-row:2;padding-top:0;font-size:.8rem;color:var(--muted,#667)}
 .mg-span .mg-actions{grid-column:4;grid-row:1 / span 2;margin-left:0}
 .mg-span.seg-pending .seg-wave{opacity:.45}
+.mg-span.seg-pending .mg-wavewrap{outline:1px dotted var(--seg-pend);outline-offset:1px}
+.mg-span.seg-est .mg-wavewrap{outline:1px dashed var(--seg-est);outline-offset:1px}
+.mg-span.seg-check{box-shadow:inset 4px 0 0 var(--seg-check)}
+/* v718: a row shown in its gap (its time line already says "Needs timing") — no pill here; the
+   actions column sits where it would go. */
+.mg-span.seg-spread .mg-wavewrap{outline:1px dashed var(--seg-pend);outline-offset:1px}
+.mg-span.seg-needs .mg-wavewrap{outline:1px dashed var(--seg-needs);outline-offset:1px}
+.mg-span.seg-needs,.mg-span.seg-noroom{box-shadow:inset 4px 0 0 var(--seg-needs)}
+.mg-span.seg-needs .mg-time{color:var(--seg-needs-ink)}
 .mg-span.seg-on{outline:2px solid #93c5fd;outline-offset:-2px}
 /* The other half of a matched pair, while one half is current. Deliberately a RING rather than a
    fill: the row already carries its pair's hue as a background, and a second colour on top would

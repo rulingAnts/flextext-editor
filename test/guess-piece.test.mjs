@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { guessSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_WINDOW_MS, MIN_SEGMENT_MS } from '../docs/js/segments.js';
+import { guessSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_WINDOW_MS, MIN_SEGMENT_MS, edgeGuessed } from '../docs/js/segments.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const MPB = 0.5;   // ms per bucket, as ensurePeaks produces
@@ -51,6 +51,11 @@ test('applyGuessedSplitsWithin replaces ONE piece and carries everything else ov
   assert.deepEqual(r.segments[0], { start: 0, end: 6000 }, 'the texted neighbour is byte-for-byte what it was');
   assert.deepEqual(r.segments.slice(1).map((s) => [s.start, s.end]), [[6000, 7000], [7000, 11000], [11000, total]]);
   assert.ok(r.segments.slice(1).every((s) => s.timeEstimated === true), 'the piece\'s own flags travel with its pieces');
+  // v717, per edge: the detector's boundaries are guesses; the piece's own end is the last line's (C0).
+  assert.deepEqual(r.segments.slice(1).map((s) => [edgeGuessed(s, 0), edgeGuessed(s, 1)]), [[true, true], [true, true], [true, false]]);
+  const real = applyGuessedSplitsWithin([{ start: 0, end: 6000 }, { start: 6000, end: total }], ['words', ''], 1, [11000, 7000]);
+  assert.deepEqual(real.segments.slice(1).map((s) => [edgeGuessed(s, 0), edgeGuessed(s, 1)]), [[false, true], [true, true], [true, false]],
+    'a real piece keeps its real outer edges; only the detected boundaries are guesses');
   assert.deepEqual(r.paragraphs, ['first piece has words', '', '', ''], 'paragraph i becomes k+1 empty lines; the texted line keeps its text');
   assert.deepEqual(segs, [{ start: 0, end: 6000 }, { start: 6000, end: total, timeEstimated: true }], 'inputs are not mutated');
 });

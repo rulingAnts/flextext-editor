@@ -124,6 +124,10 @@
   </footer>
 </section>
 
+<!-- THE TIMING BANNER (v717): one message per text about its audio times, on the editor tabs only.
+     Built by renderTimingBanner (app.js); above the dock so it scrolls away and never sticks. -->
+<div id="timing-banner" class="banner timing-banner" role="status" hidden></div>
+
 <!-- ===== Editor: Baseline tab ===== -->
 <!-- SHARED MEDIA DOCK: one Player instance serving BOTH editor tabs (baseline strips + gloss).
      Outside the view sections so switching tabs never re-creates it — playback position survives

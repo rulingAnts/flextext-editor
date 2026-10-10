@@ -118,8 +118,9 @@ console.log('\nevery foreign .flextext is normalised where it ENTERS the library
     ok(!!src && /normalizePhraseLines\(doc\)/.test(src), `${name} normalises before storing`);
   }
   // The export surfaces need no such call: phraseRows already refuses the paragraph-indexed span
-  // when a paragraph holds several phrases, falling back to each phrase's own offsets.
-  ok(/para\.segments\.length === 1 \? \(segs\[i\] \|\| null\) : null/.test(read('docs/js/seg-exports.js')),
+  // when a paragraph holds several phrases, falling back to each phrase's own offsets. (v717: and a
+  // single-phrase paragraph takes ONLY its live span — no fallback to stale offsets, D8.)
+  ok(/const single = para\.segments\.length === 1;\s*\n\s*const span = \(single && live\) \? \(segs\[i\] \|\| null\) : own;/.test(read('docs/js/seg-exports.js')),
      'and the export path was already phrase-aware, so it is deliberately left alone');
 }
 
@@ -147,12 +148,12 @@ console.log('\nspans live in doc.segments — the field the rest of the suite re
 const stripsW = read('docs/js/segment-strips.js');
 ok(/doc\.segments = /.test(stripsW), 'segment-strips writes doc.segments on every cut, join and guess');
 ok(/Array\.isArray\(doc\.segments\)/.test(read('docs/js/flextext.js')), 'the flextext exporter reads doc.segments');
-ok(/Array\.isArray\(doc\.segments\)/.test(read('docs/js/seg-exports.js')), 'and so do the EAF/bundle builders');
+ok(/const segs = spansForExport\(doc\);/.test(read('docs/js/seg-exports.js')), 'and so do the EAF/bundle builders (through the exporter\'s own read of doc.segments)');
 const load0 = fn(app, 'mgLoad');
 ok(/docSegments\(rec\.doc\)/.test(load0),
    'mgLoad reads doc.segments (a top-level rec.segments found NOTHING on any text the Cut tab made — an empty left pane on every real document)');
 const commit0 = asyncFn(app, 'mgCommit');
-ok(/rec\.doc\.segments = lines\.map\(\(l, i\) =>/.test(commit0),
+ok(/rec\.doc\.segments = withGuesses\(lines\.map\(\(l, i\) =>/.test(commit0),
    'mgCommit writes doc.segments (writing rec.segments meant the toast said "saved" and the alignment did not change)');
 ok(!/\brec\.segments\b/.test(code(commit0)) && !/\brec\.segments\b/.test(code(load0)),
    'and neither touches a top-level rec.segments at all');
@@ -169,8 +170,10 @@ ok(/have\.has\(d\.id\)/.test(state),
    'sgStateOf asks the media keys (gating Open on mediaName disabled every text on a real device)');
 ok(/spanCount/.test(code(state)) && !/segCount/.test(code(state)),
    'and counts spanCount, not segCount (a 30-line transcript with no cuts reported itself fully segmented)');
-ok(/const spanCount = segs\.filter/.test(dbjs) && /!s\.timePending/.test(dbjs),
+ok(/const aligned = segs\.filter/.test(dbjs) && /!s\.timePending/.test(dbjs),
    'spanCount is computed in the projection from doc.segments, aligned spans only');
+ok(/const spanCount = aligned\.every\(\(s\) => s\.timeEstimated\) \? 0 : aligned\.length;/.test(dbjs),
+   'and a text whose spans are ALL estimates counts as uncut — docIsUncut\'s rule (v717)');
 ok(/d\.pendingAudio \? 'coming'/.test(state),
    'a recording still downloading reads as arriving, not as "no recording" — that would send a user to attach a file already on its way');
 
@@ -214,12 +217,13 @@ ok(/player\?\.clearSpan\?\.\(\)/.test(split), 'the span watcher is cleared: the 
 console.log('\ncommitting collapses to the index-locked model the rest of the suite reads');
 const commit = asyncFn(app, 'mgCommit');
 ok(!!commit, 'mgCommit exists');
-ok(/const sp = MG\.spans\[i\];/.test(commit) && /return sp\.timeEstimated \? \{ start: sp\.start, end: sp\.end, timeEstimated: true \}/.test(commit),
+ok(/const sp = MG\.spans\[i\];/.test(commit) && /const out = \{ start: sp\.start, end: sp\.end \};/.test(commit),
    'row i\'s line takes row i\'s span, exactly — one piece of audio per line, by position');
-ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
-   'a row with no real audio is written timePending');
-ok(/timeEstimated: true/.test(commit), 'an estimated boundary is written back as estimated, not promoted to a measurement');
-ok(/rec\.doc\.paragraphs = lines\.map/.test(commit) && /rec\.doc\.segments = lines\.map/.test(commit),
+ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, \.\.\.\(sp && Array\.isArray\(sp\.fileTimes\))/.test(commit),
+   'a row with no real audio is written timePending (holding the file\'s own times, if it had them — v718 review, P4)');
+ok(/if \(Array\.isArray\(sp\.guess\)\) \{ out\.guess = sp\.guess\.slice\(0, 2\);/.test(commit) && /else if \(sp\.timeEstimated\) out\.timeEstimated = true;/.test(commit),
+   'an estimated boundary is written back as estimated, not promoted to a measurement — per EDGE since v717 (guess rides; withGuesses re-derives the flag)');
+ok(/rec\.doc\.paragraphs = lines\.map/.test(commit) && /rec\.doc\.segments = withGuesses\(lines\.map/.test(commit),
    'segments and paragraphs come out of the SAME padded list, same length and order — segments[i] IS paragraph i');
 
 console.log('\ndragging a boundary — and it can never pass its neighbours');
@@ -228,15 +232,20 @@ console.log('\ndragging a boundary — and it can never pass its neighbours');
    * they have to stay in sequence." */
   const mv = fn(app, 'mgMoveBoundary');
   ok(!!mv, 'mgMoveBoundary exists');
-  ok(/const lo = a\.start \+ MIN_SEGMENT_MS;/.test(mv) && /const hi = b\.end - MIN_SEGMENT_MS;/.test(mv),
-     'clamped against the NEIGHBOURING SPANS — the ordering constraint in the form that cannot be got wrong');
-  ok(/Math\.min\(hi, Math\.max\(lo, ms\)\)/.test(mv), 'so a drag stops at the neighbour instead of passing it');
-  ok(/if \(hi <= lo\) return false;/.test(mv), 'and refuses outright when there is no room between them');
-  ok(/if \(t === a\.end\) return false;/.test(mv), 'a drag that does not move it does not churn the display');
-  ok(/a\.end = t;\s*\n\s*b\.start = t;/.test(mv), 'both sides of the join move together — no gap, no overlap');
+  /* v717: the editor's rule, not a copy of it — segments.js dragSeam (moveBoundary judged against the
+   * spans at pick-up, placeSeam on the live ones). Its clamp, its no-room refusal, its "nothing moved"
+   * null and the seam-vs-pause rule are tested there (time-drag-undo.test.mjs). */
+  ok(/if \(!a \|\| !b \|\| a\.timePending \|\| b\.timePending\) return false;/.test(mv),
+     'a boundary next to a piece with no audio is refused, not guessed');
+  ok(/return !!dragSeam\(MG\.spans, before \|\| \[\{ \.\.\.a \}, \{ \.\.\.b \}\], i, ms, edge\);/.test(mv),
+     'clamped against the NEIGHBOURING SPANS by the shared rule — and false when nothing moved, so a drag at the stop does not churn the display');
+  ok(/mgDragFrom = MG\.spans\[i\] && MG\.spans\[i \+ 1\]\s*\n\s*\? \{ before: \[\{ \.\.\.MG\.spans\[i\] \}, \{ \.\.\.MG\.spans\[i \+ 1\] \}\], edge:/.test(fn(app, 'mgBoundaryDrag')),
+     'the spans are copied at pick-up, so a pause cannot turn into a seam half-way through a drag');
 
   const drag = fn(app, 'mgBoundaryDrag');
-  ok(/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag), 'ONE undo per drag, captured at pick-up');
+  ok(/if \(mgDragFrom && !mgDragFrom\.captured\) \{[\s\S]{0,300}mgCapture\(\);\s*\n\s*mgDragFrom\.captured = true;/.test(drag)
+     && !/phase === 'start'[\s\S]{0,80}mgCapture\(\)/.test(drag),
+     'ONE undo per drag, captured at the first move that moves something (v717 review: not at pick-up, where a still grip left an empty step)');
   ok(/phase === 'end'[\s\S]{0,40}mgDraw\(\)/.test(drag), 'and one full redraw on release');
   ok(/mgLiveBoundary\(i\)/.test(drag), 'with a cheap live repaint in between');
   const live = fn(app, 'mgLiveBoundary');
@@ -284,9 +293,9 @@ console.log('\nPAIRING IS THE ROW NUMBER — nothing is picked, nothing is linke
   const commit = asyncFn(app, 'mgCommit');
   ok(/for \(let i = lines\.length; i < padTo; i\+\+\)/.test(commit) && /makeSegment\(''/.test(commit),
      'audio past the last line gets a blank line each at the end — no piece is dropped for want of words');
-  ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(s\.timePending \? m : i \+ 1\), 0\)/.test(commit),
-     'up to the last piece of REAL audio — a trailing "no audio" placeholder earns no blank line');
-  ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
+  ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(isPlaced\(s\) \? i \+ 1 : m\), 0\)/.test(commit),
+     'up to the last piece of REAL audio — a trailing "no audio" row earns no blank line, nor (v718) a row shown in its gap');
+  ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, )/.test(commit),
      'a line past the last piece of audio is written timePending — the engine\'s own word for it');
   ok(/blankAdded/.test(commit) && /mg\.committedLeftover/.test(commit),
      'both are REPORTED after the save — padded is fine, padded silently is not');
@@ -308,11 +317,15 @@ console.log('\nplaceholders KEEP THEIR ROW, and the uncut remainder is never los
   ok(/if \(!MG\.spans\.some\(\(sp\) => !sp\.timePending\)\) MG\.spans = \[\];/.test(load),
      'and a text with no audio anywhere starts empty, so the whole recording is seeded as one span');
   const prep = asyncFn(app, 'mgPrepareAudio');
-  ok(/MG\.spans\.push\(\{ id: 'tail', start: lastEnd/.test(prep),
+  const seed = fn(app, 'mgSeedSpans');   // v718: the rule, pure, out of mgPrepareAudio
+  ok(/MG\.spans = mgSeedSpans\(MG\.spans, dur, MG\.resumed\);/.test(prep)
+     && /return \[\.\.\.spans, \{ id: 'tail', start: lastEnd/.test(seed),
      'whatever follows the last piece of AUDIO is appended, so the pane accounts for the whole recording');
-  ok(/const lastEnd = Math\.max\(0, \.\.\.MG\.spans\.filter\(\(s\) => !s\.timePending\)\.map\(\(s\) => s\.end\)\)/.test(prep)
-     && /dur - lastEnd > 1000/.test(prep),
-     'measured from the last REAL span (a trailing placeholder ends at 0), with coverTail\'s 1s tolerance');
+  ok(/const lastEnd = Math\.max\(0, \.\.\.spans\.filter\(isPlaced\)\.map\(\(s\) => s\.end\)\)/.test(seed)
+     && /dur - lastEnd > 1000/.test(seed),
+     'measured from the last REAL span (a trailing "no audio" row ends at 0), with coverTail\'s 1s tolerance');
+  ok(/if \(isPlaced\(spans\[spans\.length - 1\]\) && dur - lastEnd > 1000\)/.test(seed),
+     '…and only after a last row that HAS a time (v718, case 3): untimed rows at the end share the remainder instead');
 }
 
 console.log('\none list, row i left beside row i right');
@@ -405,7 +418,7 @@ console.log('\nwork in progress is autosaved — losing it was the one unaccepta
   ok(/const draft = rec\.matchDraft;/.test(open) && /MG\.resumed/.test(open),
      'reopening resumes it rather than asking — the draft is newer than the doc by construction');
   const prep = asyncFn(app, 'mgPrepareAudio');
-  ok(/dur > 0 && !MG\.resumed/.test(prep),
+  ok(/if \(!\(dur > 0\) \|\| resumed\) return spans;/.test(fn(app, 'mgSeedSpans')) && /mgSeedSpans\(MG\.spans, dur, MG\.resumed\)/.test(prep),
      'and a resumed draft is not re-seeded or given a tail, which would invent spans the user did not make');
   ok(/await mgClearDraft\(MG\.docId\)/.test(asyncFn(app, 'mgCommit')), 'Done clears it');
   /* ⚠ TWO WRITERS, ONE RECORD. mgSaveDraft re-reads the record from storage; persist() writes the
@@ -500,7 +513,7 @@ console.log('\nDone points `current` at the committed record — or the next upd
 console.log('\nan older draft still resumes — its spans and lines, with any map it carried ignored');
 {
   const open = asyncFn(app, 'mgOpen');
-  ok(/MG\.spans = draft\.spans;\s*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
+  ok(/MG\.spans = withGuesses\(draft\.spans\);[^\n]*\n\s*MG\.lines = draft\.lines;/.test(open) && !/draft\.map/.test(open),
      'a v567–v570 draft (149 cuts, nine joins, a map of picks) comes back as rows; the picks are simply not a thing any more');
 }
 

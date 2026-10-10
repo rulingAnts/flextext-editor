@@ -100,10 +100,14 @@ console.log('\nnormalizeSegments repairs hostile input without reordering');
   ok(!isAligned(out[1]) || out[1].start >= out[0].end, 'the later row is either pending or pushed after');
 }
 {
+  /* ⚠ NO DURATION CLAMP (v717, D9). A stored time is never cut to fit the decoded length — decoders
+   * disagree by tens of ms between devices, and the clamp shortened T53's last line on every edit.
+   * Drawing and playback clip at use; an end far past the recording raises the timing banner. */
   const out = normalizeSegments([{ start: -500, end: 3000 }, { start: 8000, end: 99999 }], opts);
-  ok(valid(out, opts), `out-of-range ends are clamped — ${why(out, opts)}`);
+  ok(valid(out), `out-of-range input still normalizes — ${why(out)}`);
   ok(out[0].start === 0, 'negative start pinned to zero');
-  ok(out[1].end === DUR, 'end past the media pinned to the duration');
+  ok(out[1].end === 99999, 'an end past the media is KEPT, not pinned to the duration');
+  ok(normalizeSegments([{ start: 12000, end: 13000 }], opts)[0].start === 12000, 'and a span starting past it is not demoted');
 }
 {
   const out = normalizeSegments([{ start: 100, end: 150 }], opts);
@@ -133,8 +137,15 @@ console.log('\nmerge — one operation, used by both the baseline and gloss tabs
   ok(out.length === 1 && out[0].timePending === true, 'two pending segments merge to one pending');
 }
 {
-  const out = mergeSegments([{ start: 0, end: 2000, timeEstimated: true }, { start: 2000, end: 4000 }], 0, opts);
-  ok(out[0].timeEstimated === true, 'an estimated half taints the merge (no false confidence)');
+  /* Per edge (v717): the merge takes its start-side guess from the left half and its end-side guess
+   * from the right, so a guessed OUTER edge keeps the merge an estimate (no false confidence) while a
+   * guessed INNER boundary disappears with the boundary. */
+  const out = mergeSegments([{ start: 0, end: 2000 }, { start: 2000, end: 4000, guess: [null, 4000] }, { start: 4000, end: 6000 }], 0, opts);
+  ok(out[0].timeEstimated === true && out[0].guess[1] === 4000, 'a guessed outer edge taints the merge (no false confidence)');
+  const inner = mergeSegments([{ start: 0, end: 2000, guess: [null, 2000] }, { start: 2000, end: 4000, guess: [2000, null] }], 0, opts);
+  ok(!inner[0].timeEstimated, 'a guessed inner boundary disappears with the boundary');
+  const legacy = mergeSegments([{ start: 0, end: 2000 }, { start: 2000, end: 4000, timeEstimated: true }, { start: 4000, end: 6000, timeEstimated: true }], 0, opts);
+  ok(legacy[0].timeEstimated === true, 'a pre-v717 flag is read per edge too: the far edge meets an estimate, so it stays a guess');
 }
 {
   const segs = [{ start: 0, end: 2000 }];

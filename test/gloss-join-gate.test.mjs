@@ -49,6 +49,6 @@ test('a pushed flip of the switch re-enters the visible tab so its controls are 
   assert.match(live, /const gateSig = \(tab\) => `\$\{joinLinesAllowed\(tab\)\}\/\$\{splitLinesAllowed\(tab\)\}`;\n\s*const joinBefore = \{ baseline: gateSig\('baseline'\), gloss: gateSig\('gloss'\) \};\n\s*settings = loadSettings\(\);/,
                'the gates are read BEFORE the settings reload');
   assert.match(live, /const joinFlipped = \(v === 'baseline' \|\| v === 'gloss'\) && gateSig\(v\) !== joinBefore\[v\];/);
-  assert.match(live, /\(\(settings\.segmentation === true\) !== segBefore \|\| joinFlipped\)\) \{\s*\n\s*switchTab\(v\);/,
+  assert.match(live, /\(\(settings\.segmentation === true\) !== segBefore \|\| joinFlipped(?: \|\| timeFlipped)?\)\) \{\s*\n\s*switchTab\(v\);/,
                'the existing live re-enter fires on a join/split flip too — and still only when something actually changed');
 });

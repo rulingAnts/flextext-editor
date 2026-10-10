@@ -11,7 +11,7 @@
  * segment altogether, or a segment too short to hold two viable halves. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boundaryAtPlayhead, normalizeSegments, isAligned, MIN_SEGMENT_MS } from '../docs/js/segments.js';
+import { boundaryAtPlayhead, normalizeSegments, isAligned, MIN_SEGMENT_MS, edgeGuessed } from '../docs/js/segments.js';
 
 const OPTS = { duration: 10000 };
 const LINE = [{ start: 0, end: 5000 }];
@@ -39,6 +39,8 @@ test('a nudged boundary says it was nudged, on both sides', () => {
   const out = boundaryAtPlayhead(LINE, 0, 50, OPTS);
   assert.equal(out[0].timeEstimated, true);
   assert.equal(out[1].timeEstimated, true, '⚠ set AFTER the delete that clears the inherited flag');
+  // v717: per edge — the nudged boundary is the guess; the line's own start and end are not (C0).
+  assert.deepEqual([edgeGuessed(out[0], 0), edgeGuessed(out[0], 1), edgeGuessed(out[1], 0), edgeGuessed(out[1], 1)], [false, true, true, false]);
 });
 
 test('an ordinary cut is untouched and claims nothing', () => {
@@ -46,6 +48,7 @@ test('an ordinary cut is untouched and claims nothing', () => {
   assert.equal(out[0].end, 2500, 'the exact position, not a nudged one');
   assert.equal(out[1].start, 2500);
   assert.ok(!out[0].timeEstimated && !out[1].timeEstimated, 'nothing was moved, so nothing is flagged');
+  assert.ok(!out.some((s) => edgeGuessed(s, 0) || edgeGuessed(s, 1)), 'and no edge is a guess');
 });
 
 /* ⚠ THE TWO REFUSALS THAT MUST SURVIVE — also asserted in segments-ordering. */

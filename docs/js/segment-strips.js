@@ -23,7 +23,8 @@
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned, isEstimate, dragSeam, settleSpan,
          isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed, timingReport,
-         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed } from './segments.js';
+         guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed,
+         gapRowsFor, gapHasSpeech } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 // Already in every SHELL (seg-exports.js imports it), so this adds no precache path.
 import { readLegacyEstimates } from './flextext.js';
@@ -894,40 +895,16 @@ function peaksDurationFor(d) {
   return peaksCache.durationMs || 0;
 }
 
-/* ⚠ THE RECORDING MUST BE ACCOUNTED FOR, ALL OF IT (Seth, 2026-08-14: "showing part (not all) of the
- * recording on the first and only line such that the segments don't render all of it is not OK").
+/* ⚠ coverTail IS GONE (v719; plans/time-gaps-and-estimates.md §4 v719).
  *
- * Cuts and joins preserve coverage by construction and the seed spans the whole file, so a tail of
- * unaccounted audio can only come from a disagreement about the duration — a seed written before the
- * decode landed, a cache belonging to another document, a player and a decoder reporting different
- * lengths for the same lossy file. Whatever the route, the result on screen is the same and is
- * indefensible: a single strip showing a fraction of the take, playback running past its end, and no
- * way to reach the rest.
- *
- * So the tail is extended to the end of the recording — but ONLY when doing so cannot lose an
- * alignment somebody meant:
- *   - the last line has no text, so nothing is being re-timed against words;
- *   - its phrase carries no `end-time-offset` from a file, so a FLEx/ELAN alignment that
- *     deliberately stops early (trailing room tone left unannotated) is never overwritten. ⚠ (v717,
- *     EX4) This used to test `last.attrs` — on the SPAN, which never has attrs — so it guarded nothing;
- *     the offsets live on the line's phrase;
- *   - and the shortfall is more than a second, so rounding and encoder priming are left alone.
- */
-const COVER_TOL_MS = 1000;
-function coverTail(doc, paras, durationMs) {
-  const segments = docSegments(doc);
-  if (!(durationMs > 0) || !segments.length) return false;
-  const i = segments.length - 1;
-  const last = segments[i];
-  if (!isPlaced(last)) return false;   // a placeholder is nobody's time to extend (v718)
-  const phrase = doc.paragraphs && doc.paragraphs[i] && (doc.paragraphs[i].segments || [])[0];
-  if (phrase && phrase.attrs && phrase.attrs['end-time-offset'] != null) return false;
-  if (String(paras[i] ?? '').trim()) return false;
-  if (durationMs - last.end <= COVER_TOL_MS) return false;
-  last.end = durationMs;
-  settleSpan(last);   // the recording's end is a fact: a guess that stood there is no longer one
-  return true;
-}
+ * It existed for a real rule — Seth, 2026-08-14: "showing part (not all) of the recording on the
+ * first and only line such that the segments don't render all of it is not OK" — and it kept that
+ * rule by SILENTLY stretching an untexted last line to the end of the recording. That was the best
+ * available answer while nothing else could account for the tail. v719 has a better one: the tail
+ * shows as its own gap row, with ▶, its waveform and its length. The recording is still all
+ * accounted for, on screen, and no line's time is changed to do it — which matters most on the
+ * damaged L29 export, where the 2.1 s tail is evidence of a broken file and absorbing it into the
+ * last line would have hidden exactly the thing the red banner is pointing at (case 16). */
 
 // Does line k's phrase carry begin/end offsets of its own (a time that came from a file)? A v714 seed
 // never did (seedsToPending). Exported for the Segmenter's mgLoad, so the two read one rule.
@@ -945,7 +922,8 @@ export function lineHasOffsets(doc, k) {
  *   3. one span per line (syncToLines) — never a time cut to the decoded length (v717, D9);
  *   4. D7: a ONE-line text with its recording keeps the real whole-file span v714 gave it — a single line
  *      over one recording is a fact, recording-mode transcription depends on it, and the export may have
- *      no decoded length to hand — and that one is WRITTEN, quietly. So is coverTail's (until v719);
+ *      no decoded length to hand — and that one is WRITTEN, quietly. (v719: the unaccounted tail is a
+ *      gap row now, not a silent stretch of the last line — coverTail is gone);
  *   5. every line with no time is drawn in its gap (segments.js spreadUntimed): Seth's B2.
  *
  * ⚠ AND NOTHING ELSE IS SAVED — the v714 seed and heal are gone. A placeholder lives in memory only and
@@ -974,8 +952,6 @@ export function prepareDisplaySpans(doc, d = deps) {
     doc.segments = [{ start: 0, end: known }];   // D7: the fresh recording's one line, and the first Enter's span
     wrote = true;
   }
-  // …and whatever produced them, the timed lines must reach the end of the recording. See coverTail.
-  if (coverTail(doc, paras, known)) wrote = true;
   doc.segments = spreadUntimed(doc.segments, known);
   /* ⚠ QUIETLY (v717, P1, D7): writing the one-line span is not an edit. persist() stamps `modified`, and
    * opening a text then read as changing it — a text already safe on Drive queued itself for upload. */
@@ -1101,6 +1077,130 @@ function scrollerFor(host) {
   return document.scrollingElement || document.documentElement;
 }
 
+/* ═══ v719 — THE GAP ROWS (plans/time-gaps-and-estimates.md §4 v719, D1; case 15) ═══
+ *
+ * ⚠ A GAP ROW IS NOT A LINE, AND NOTHING THAT COUNTS LINES MAY SEE IT. The Baseline strips, the Cut
+ * rows and the Gloss bars are all addressed by position — `focusStripAfter` walks `.seg-text`, the
+ * tickers walk `.cut-row[data-i]`, app.js's `linesOf` walks `.seg-strip`, and every one of them
+ * would miscount if a gap row wore those clothes. So a gap row carries `.gap-row` and `data-gap`
+ * and NONE of `.seg-strip`, `.cut-row`, `.seg-text`, `data-i` (gap-rows.test.mjs holds it to that).
+ *
+ * The row shows: ▶ for the unclaimed audio, its waveform, the range, and — only when the researcher
+ * allows writes and no red alignment warning is outstanding — "Add a line here". */
+function gapRowEl(gap, d, onAdd, speech) {
+  const row = document.createElement('div');
+  row.className = 'gap-row' + (speech ? ' gap-speech' : '');
+  row.dataset.gap = String(gap.k);
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', d.t('gap.rowLabel', { range: gapRangeText(gap) }));
+
+  const play = document.createElement('button');
+  play.type = 'button';
+  play.className = 'gap-play';
+  play.tabIndex = -1;          // same rule as a strip's ▶: Tab walks text boxes, not transports
+  play.textContent = '▶';
+  play.setAttribute('aria-label', d.t('gap.playTip'));
+  play.addEventListener('click', () => {
+    const p = d.getPlayer && d.getPlayer();
+    if (!p) return;
+    d.onPlayTarget?.(null);
+    const t = p.playheadMs?.();
+    if (p.playing?.() && typeof t === 'number' && t >= gap.start && t < gap.end) { p.pause(); return; }
+    const from = (typeof t === 'number' && t > gap.start && t < gap.end - 150) ? t : gap.start;
+    p.playSpan(from, gap.end, gap.start);
+  });
+
+  const wave = document.createElement('canvas');
+  wave.className = 'gap-wave';
+  wave.height = 24;
+  wireWaveSeek(wave, { start: gap.start, end: gap.end }, d.getPlayer, () => d.onPlayTarget?.(null));
+
+  const label = document.createElement('span');
+  label.className = 'gap-range';
+  label.textContent = gapRangeText(gap);
+
+  row.append(play, wave, label);
+
+  /* ⚠ ADD IS HIDDEN, NOT DISABLED, WHILE A RED CHECK-ALIGNMENT BANNER STANDS (case 16). On the
+   * damaged L29 export the tail row exists because the FILE is wrong; offering to fill it invites
+   * retyping a sentence that is already there. The row still shows — that 2.1 s is the evidence —
+   * and says why there is nothing to press. */
+  if (d.gapAddBlocked && d.gapAddBlocked()) {
+    const note = document.createElement('span');
+    note.className = 'gap-blocked';
+    note.textContent = d.t('gap.checkFirst');
+    row.appendChild(note);
+  } else if (!d.gapAddAllowed || d.gapAddAllowed()) {
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'gap-add link-btn';
+    add.textContent = d.t('gap.addHere');
+    add.addEventListener('click', () => onAdd(gap.k));
+    row.appendChild(add);
+  }
+  observeWave(wave, () => drawGapWave(wave, gap));
+  return row;
+}
+
+function gapRangeText(gap) { return `${fmtClock(gap.start)}–${fmtClock(gap.end)}`; }
+function fmtClock(ms) {
+  const s = Math.max(0, ms) / 1000;
+  const m = Math.floor(s / 60);
+  return `${m}:${String(Math.floor(s - m * 60)).padStart(2, '0')}.${String(Math.round((s % 1) * 10)).slice(0, 1)}`;
+}
+
+/* The gap's own slice of the waveform, drawn flat and grey — it is audio nobody has claimed, and it
+ * must not read as a line. Same peaks, same msPerBucket conversion as drawStrip (never a duration
+ * proportion: see ensurePeaks). */
+function drawGapWave(canvas, gap) {
+  observeWave(canvas, () => drawGapWave(canvas, gap));
+  canvas.__peaksGen = peaksGen;
+  const ctx = canvas.getContext && canvas.getContext('2d');
+  if (!ctx) return;
+  const W = Math.max(1, Math.round(canvas.clientWidth || 1));
+  const H = canvas.height || 24;
+  if (canvas.width !== W) canvas.width = W;
+  ctx.clearRect(0, 0, W, H);
+  const peaks = peaksCache.peaks;
+  if (!peaks || !peaks.length) return;
+  const mpb = peaksCache.msPerBucket;
+  if (!(mpb > 0)) return;
+  const from = Math.max(0, Math.floor(gap.start / mpb));
+  const to = Math.min(peaks.length, Math.ceil(gap.end / mpb));
+  if (to <= from) return;
+  ctx.fillStyle = GAP_WAVE;
+  const per = (to - from) / W;
+  for (let x = 0; x < W; x++) {
+    let m = 0;
+    const a = from + Math.floor(x * per), b = Math.max(a + 1, from + Math.floor((x + 1) * per));
+    for (let i = a; i < b && i < peaks.length; i++) if (peaks[i] > m) m = peaks[i];
+    const h = Math.max(1, Math.round(m * (H - 2)));
+    ctx.fillRect(x, Math.round((H - h) / 2), 1, h);
+  }
+}
+const GAP_WAVE = 'rgba(120,130,150,.55)';
+
+/* The gap rows a tab should draw right now: the device's showGaps preference, then the spans. `d`
+ * is the tab's own deps, so the Baseline strips and the Cut tab cannot disagree about what a gap is. */
+function gapsToDraw(segs, d) {
+  if (!d || !d.showGaps || !d.showGaps()) return [];
+  const D = peaksDurationFor(d);
+  if (!(D > 0)) return [];
+  return gapRowsFor(segs, D);
+}
+/* Does this gap hold speech? Measured once per render per row, against the whole recording's levels. */
+function gapSpeech(gap) {
+  try { return gapHasSpeech(peaksCache.peaks, peaksCache.msPerBucket, gap.start, gap.end); }
+  catch { return false; }
+}
+/* The dock player's gap layer — SEPARATE from setBoundaries, which holds one entry per seam and
+ * hands a drag that seam's number (case 15). */
+function syncGapMarks(getPlayer, segs, d) {
+  const p = getPlayer && getPlayer();
+  if (!p || !p.setGapMarks) return;
+  try { p.setGapMarks(gapsToDraw(segs, d).map(({ start, end }) => ({ start, end }))); } catch { /* mid-load */ }
+}
+
 export function renderStrips() {
   const doc = deps.getDoc();
   if (!doc) return;
@@ -1121,8 +1221,16 @@ export function renderStrips() {
   const marksOn = !deps.timingMarks || deps.timingMarks();
   const checks = checkedLines(segs, paras, marksOn);
   const needs = needsMarks(segs, marksOn);   // v718: untimed lines are the exception only in a partly timed text
+  /* v719: the unclaimed audio, drawn between the lines it sits between. Keyed by the index a line
+   * WOULD be inserted at, so gaps[i] belongs before line i and gaps[n] after the last. */
+  const gaps = new Map(gapsToDraw(segs, deps).map((g) => [g.k, g]));
+  const addGap = (k) => {
+    const g = gaps.get(k);
+    if (g) host.appendChild(gapRowEl(g, deps, (at) => deps.addGapLine?.(at), gapSpeech(g)));
+  };
 
   paras.forEach((text, i) => {
+    addGap(i);
     const seg = segs[i] || { timePending: true };
     const row = document.createElement('div');
     row.className = 'seg-strip' + timeStateClass(seg, checks.has(i), needs) + (text.trim() ? '' : ' seg-empty')
@@ -1286,10 +1394,12 @@ export function renderStrips() {
     }
     observeWave(wave, () => drawStrip(wave, seg, dur));   // drawn when it is near the screen, not now
   });
+  addGap(paras.length);   // v719: the tail — what coverTail used to swallow into the last line
   // The offset first, then focusStrip (called by our callers) may still bring an edited line into
   // view — restore-then-focus is what keeps both the chop gesture and the typing gesture anchored.
   if (scroller) scroller.scrollTop = keepTop;
   syncOverviewMarks(deps.getPlayer, segs);   // the dock's marks, on this tab too (Seth, 2026-09-06)
+  syncGapMarks(deps.getPlayer, segs, deps);  // …and the gaps, in their OWN layer (case 15)
   positionCursor();
   deps.onRendered?.();   // the host's timing banner follows what was just drawn
 }
@@ -1442,7 +1552,11 @@ export function stripSplitAtPlayhead() {
   if (!doc || !splitOk()) return false;
   const ms = deps.getPlayer()?.playheadMs?.();
   const i = segmentIndexAt(docSegments(doc), ms);
-  if (i < 0) return false;
+  /* v719: no line holds the playhead because it is in a GAP — add the line there (see cutHere). */
+  if (i < 0) {
+    const g = gapsToDraw(docSegments(doc), deps).find((x) => typeof ms === 'number' && ms >= x.start && ms < x.end);
+    return !!(g && deps.addGapLine && deps.addGapLine(g.k));
+  }
   // The AUDIO tier of the pending split (one undo per completed split — see stripsSpec's commit).
   return stripsPlace(i, 'audio', ms) !== 'ignored';
 }
@@ -2275,8 +2389,14 @@ export function renderCut(anchorIdx) {
   const marksOn = !cutDeps.timingMarks || cutDeps.timingMarks();
   const checks = checkedLines(segs, paras, marksOn);
   const needs = needsMarks(segs, marksOn);   // v718 — see timeStateClass
+  const gaps = new Map(gapsToDraw(segs, cutDeps).map((g) => [g.k, g]));   // v719 — see gapRowEl
+  const addGap = (k) => {
+    const g = gaps.get(k);
+    if (g) host.appendChild(gapRowEl(g, cutDeps, (at) => cutDeps.addGapLine?.(at), gapSpeech(g)));
+  };
 
   segs.forEach((seg, i) => {
+    addGap(i);
     const row = document.createElement('div');
     /* ⚠ .seg-strip IS THE BASELINE ROW CLASS — not .seg-row, which does not exist. Getting this
      * wrong cost the whole layout: no grid (so the wave and caption ignored their columns), no
@@ -2347,6 +2467,7 @@ export function renderCut(anchorIdx) {
       host.appendChild(jr);
     }
   });
+  addGap(segs.length);   // v719: the tail
 
   /* The Guess button is dead once the text has words, so it says so by being disabled rather than by
    * refusing on click — the suite's standing rule against controls that look live and do nothing.
@@ -2373,6 +2494,7 @@ export function renderCut(anchorIdx) {
   }
 
   syncCutBoundaries();
+  syncGapMarks(cutDeps.getPlayer, segs, cutDeps);   // v719: the gaps, in their own layer (case 15)
   /* Put the view back where it was — see cutScroller(). The offset first (correct whenever nothing
    * above the fold changed height), then the anchor row's own pixel, which is correct even when
    * something did. Both reads are after the rebuild, so layout is final. */
@@ -2471,6 +2593,14 @@ function startCutTicker() {
   cutRaf = requestAnimationFrame(tick);
 }
 
+/* Which gap row holds `ms`, or null. Read from the same gapsToDraw every row came from, so the
+ * playhead can only land in a gap the user can actually see. */
+function cutGapAt(ms) {
+  if (!(typeof ms === 'number')) return null;
+  const g = gapsToDraw(cutSegs(), cutDeps).find((x) => ms >= x.start && ms < x.end);
+  return g ? g.k : null;
+}
+
 /* ENTER / ✂ — cut the segment holding the playhead, AT the playhead. */
 export function cutHere() {
   const doc = cutDeps && cutDeps.getDoc();
@@ -2478,6 +2608,15 @@ export function cutHere() {
   const ms = cutDeps.getPlayer()?.playheadMs?.();
   const at = cutCurrentIndex();                    // the row to hold still across the rebuild
   const r = cutAtPlayhead(cutSegs(), cutDeps.getParagraphs(doc), ms, { duration: peaksCache.durationMs || null });
+  /* ⚠ v719: 'outside' MEANS THE PLAYHEAD IS IN A GAP, and a gap is now something we can act on
+   * (Seth, 10 Oct: "✂ or Enter with the playhead inside a gap adds the line there instead of
+   * refusing"). The user listening across a pause and pressing ✂ wants a line for what they just
+   * heard; before v719 the only honest answer was "that is not in any line", which is true and
+   * useless. addGapLine does its own capture, save and redraw — one Undo, like every other Add. */
+  if (!r.ok && r.reason === 'outside' && cutDeps.addGapLine) {
+    const k = cutGapAt(ms);
+    if (k != null && cutDeps.addGapLine(k)) { cutSay(''); return; }
+  }
   if (!r.ok) { cutSay(cutRefusal(r.reason)); return; }
   /* ⚠ A SPAN WATCHER ARMED BEFORE THE CUT NOW DESCRIBES A SPAN THAT NO LONGER EXISTS. playSpan
    * captures its stop time and its rewind-home when the button is pressed, so auditioning a line and

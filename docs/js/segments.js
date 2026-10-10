@@ -713,6 +713,88 @@ export function spreadUntimed(segments, D, opts = {}) {
   return out;
 }
 
+/* ═══ v719 — THE AUDIO NOBODY HAS CLAIMED (plans/time-gaps-and-estimates.md §4 v719, D1, D2) ═══
+ *
+ * ⚠ DISPLAY ROWS, NOT LINES. Seth asked for a line in every pause; the cost of taking that literally
+ * is in D1 — ELAN40 would grow from 40 lines to 79, 93–100% of the new ones silence, every later
+ * line number out of step with FLEx, and about 40 empty phrases going to FLEx on the next export, all
+ * without anyone asking. So the pause is DRAWN, with a one-click Add, and `doc` is untouched until a
+ * finger lands. Opening a text still writes nothing (P1).
+ *
+ * A gap row is named by the index it would INSERT AT, which is the only number the Add path needs:
+ *   k = 0   the lead  — [0, segs[0].start)
+ *   0<k<n   interior  — [segs[k-1].end, segs[k].start)
+ *   k = n   the tail  — [segs[n-1].end, D)
+ *
+ * ⚠ BOTH NEIGHBOURS MUST BE PLACED. A pending line or a placeholder means the room is already
+ * spoken for — spreadUntimed has shared it out among the untimed run (D3) — and drawing a gap row
+ * inside that room would offer the user audio that a line already claims. So a gap is only ever
+ * between two REAL times, which is also why `isPlaced` and not `isAligned` is the test.
+ *
+ * 350 ms (D2) excludes all 22 ELAN holes under it (snapping slivers) and the 48–70 ms differences
+ * between decoders. On the three real ELAN texts it gives 39, 51 and 33 rows; on every healthy
+ * contiguous text, 0. */
+export const GAP_MIN_MS = 350;
+export function gapRowsFor(spans, D, opts = {}) {
+  const minMs = isNum(opts.minMs) ? opts.minMs : GAP_MIN_MS;
+  const segs = Array.isArray(spans) ? spans : [];
+  const n = segs.length;
+  const out = [];
+  if (!n) return out;
+  const placed = segs.map(isPlaced);
+  const add = (k, start, end) => { if (end - start >= minMs) out.push({ k, start, end, ms: end - start }); };
+  if (placed[0]) add(0, 0, segs[0].start);
+  for (let k = 1; k < n; k++) if (placed[k - 1] && placed[k]) add(k, segs[k - 1].end, segs[k].start);
+  /* The tail replaces v718's coverTail, which SILENTLY stretched the last line to the end of the
+   * recording. That write was defensible while nothing else accounted for the tail; now something
+   * does, and a 2.1 s tail on the damaged L29 export is exactly the evidence a user needs to see
+   * rather than have absorbed into a line (case 16). */
+  if (placed[n - 1] && isNum(D) && D > 0) add(n, segs[n - 1].end, D);
+  return out;
+}
+
+/* Is there VOICE in this stretch, or only room tone? Reuses the ✨ detector's framing and its
+ * relative levels — every threshold measured from the recording's own distribution, because a
+ * whispered take and a shouted one share no absolute number (see guessSplits).
+ *
+ * D2: a gap of ≥ 1000 ms with ≥ 400 ms voiced. On the corpus that picks 11 of 197 holes and every
+ * large speech hole — the ones where a sentence really is sitting unclaimed. Short gaps are not
+ * tested at all: a 400 ms pause cannot hold 400 ms of speech, and tinting every breath would make
+ * the mark mean nothing. */
+export const GAP_SPEECH_MIN_MS = 1000;
+export const GAP_SPEECH_VOICED_MS = 400;
+export function gapHasSpeech(peaks, msPerBucket, s, e, opts = {}) {
+  const mpb = isNum(msPerBucket) && msPerBucket > 0 ? msPerBucket : 0;
+  if (!peaks || !peaks.length || !mpb) return false;
+  const minMs = isNum(opts.minMs) ? opts.minMs : GAP_SPEECH_MIN_MS;
+  const voicedMs = isNum(opts.voicedMs) ? opts.voicedMs : GAP_SPEECH_VOICED_MS;
+  if (!(isNum(s) && isNum(e)) || e - s < minMs) return false;
+  const { env, frameMs } = frames(peaks, mpb, isNum(opts.frameMs) ? opts.frameMs : 10);
+  if (!env.length || !(frameMs > 0)) return false;
+  /* ⚠ THE LEVELS COME FROM THE WHOLE RECORDING, THE COUNT FROM THE GAP. Measuring the floor inside
+   * the gap alone would normalise the gap against itself: a stretch of pure room tone has a floor
+   * and a "speech level" too, and its loudest 5% would read as voice every time. */
+  const sorted = Array.from(env).sort((a, b) => a - b);
+  const floor = pct(sorted, 0.1);
+  const speech = pct(sorted, 0.95);
+  if (!(speech > floor)) return false;
+  const gate = floor + (speech - floor) * 0.35;
+  const from = Math.max(0, Math.floor(s / frameMs));
+  const to = Math.min(env.length, Math.ceil(e / frameMs));
+  let voiced = 0;
+  for (let f = from; f < to; f++) if (env[f] >= gate) voiced++;
+  return voiced * frameMs >= voicedMs;
+}
+
+/* The gap stretches, for the dock player's own layer (Player.setGapMarks).
+ *
+ * ⚠ A SEPARATE LAYER, NOT MORE BOUNDARIES (case 15). `setBoundaries` holds exactly one entry per
+ * SEAM and hands a drag the seam's own number; pushing gap marks into that list would renumber every
+ * seam after the first gap, so dragging mark k would move a boundary the user never touched. */
+export function gapMarks(spans, D, opts = {}) {
+  return gapRowsFor(spans, D, opts).map(({ start, end }) => ({ start, end }));
+}
+
 /* WHAT STORAGE AND EXPORTS SEE (v718): every placeholder written as { timePending: true } (any non-time
  * field it carried — a Segmenter row's id — kept), and the display-only marks (`phAt`, `noRoom`)
  * dropped from every span. db.js putDoc runs each record through this — the ONE chokepoint — and

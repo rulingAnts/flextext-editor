@@ -185,7 +185,10 @@ test('wired where it must be: the element, every render path, the live-settings 
   assert.match(liftAll(APP, ['show']), /renderTimingBanner\(\);/, 'show() — so leaving the editor hides it');
   assert.match(liftAll(APP, ['schedulePersist']), /renderTimingBanner\(\);/, 'every edit');
   assert.match(liftAll(APP, ['applyLiveSettings']), /renderTimingBanner\(\);/, 'a pushed switch lands live');
-  assert.equal((APP.match(/onRendered: \(\) => renderTimingBanner\(\),/g) || []).length, 2, 'the Baseline strips and the Cut tab, once drawn');
+  // v719: the dock's gap controls are refreshed from the same hook, so the banner and the gap count
+  // can never describe different states of the same text.
+  assert.equal((APP.match(/onRendered: \(\) => \{ renderTimingBanner\(\); syncGapTools\(\); \},/g) || []).length, 2,
+    'the Baseline strips and the Cut tab, once drawn');
   assert.match(APP, /decorateGlossSegments\(\);\s*\n\s*renderTimingBanner\(\);/, 'the Gloss tab, once its peaks exist');
   const render = liftAll(APP, ['renderTimingBanner']);
   assert.match(render, /saveQuiet\(rec\);/, 'Dismiss saves quietly');

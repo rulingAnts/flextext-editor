@@ -169,6 +169,11 @@
                data-i18n-aria="player.zoom">
       </label>
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
+      <!-- v719 — the gap controls, before ✨ so it keeps the far-right corner it was given (Seth,
+           2026-10-04). Shown by syncGapTools only when the text has unassigned audio; labels carry
+           their counts. On the dock because the rows they govern are on two tabs and it is sticky. -->
+      <button id="btn-gap-show" class="player-gap link-btn" hidden></button>
+      <button id="btn-gap-addall" class="player-gap link-btn" hidden></button>
       <!-- ✨ GUESS THE LINES, on the dock (Seth, 2026-10-04: "put it on the overview player … far
            right-hand bottom corner"): the dock is sticky, so ✨ stays reachable however far the Cut
            tab's strips are scrolled — and in piece mode it is about the piece under the playhead,

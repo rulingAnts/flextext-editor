@@ -839,6 +839,7 @@ export class Player {
       // Boundary marks need the duration, and a set() that arrived before the load did is still
       // remembered on the instance — so re-draw them here rather than losing them to the race.
       this.renderBoundaries();
+      this.renderGapMarks();   // v719: the gap bands need the duration too, same race
       this.renderCursorHit();
       // First load: persist decoded peaks so future opens skip decoding.
       if (!media.peaks && this.onPeaks) {
@@ -1206,6 +1207,56 @@ export class Player {
     // without a time yet) and it keeps its number — see renderBoundaries for why the index matters.
     this._bounds = Array.isArray(list) ? list.map((n) => (Number.isFinite(n) ? n : NaN)) : [];
     this.renderBoundaries();
+  }
+
+  /* ═══ v719 — THE GAPS, IN A LAYER OF THEIR OWN (case 15) ═══
+   *
+   * ⚠ NOT ENTRIES IN `_bounds`. That list is one entry per SEAM and its INDEX is the seam number a
+   * drag is handed back (see renderBoundaries): slipping a gap into it would renumber every seam
+   * after the first gap, so dragging the mark between lines 5 and 6 would move some other boundary
+   * entirely. A gap is a RANGE, not a seam, and it belongs to a different layer that nothing drags.
+   *
+   * Each entry is { start, end } in ms. Drawn as a translucent band behind the boundary marks, so
+   * the whole-file waveform shows where the unclaimed audio is without competing with the seams. */
+  setGapMarks(list) {
+    this._gaps = Array.isArray(list)
+      ? list.filter((g) => g && Number.isFinite(g.start) && Number.isFinite(g.end) && g.end > g.start)
+      : [];
+    this.renderGapMarks();
+  }
+
+  gapMarkCount() {
+    const l = this._gapLayer;
+    return l && l.isConnected ? l.children.length : -1;
+  }
+
+  renderGapMarks() {
+    let wrap = null;
+    try { wrap = this.ws?.getWrapper?.() || null; } catch { wrap = null; }
+    if (!wrap) return;
+    let layer = this._gapLayer;
+    if (!layer || layer.parentNode !== wrap) {
+      // z-index 3: UNDER the boundary layer (4), so a seam mark is never hidden by a band.
+      layer = document.createElement('div');
+      layer.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:3;';
+      wrap.appendChild(layer);
+      this._gapLayer = layer;
+    }
+    let dur = 0;
+    try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
+    const want = (dur && this._gaps) ? this._gaps : [];
+    if (!want.length) { if (layer.children.length) layer.replaceChildren(); return; }
+    // Reuse the nodes when the count has not changed, for the same reason setBoundaries does.
+    const style = (el, g) => {
+      const a = Math.max(0, Math.min(1, (g.start / 1000) / dur));
+      const b = Math.max(0, Math.min(1, (g.end / 1000) / dur));
+      el.style.cssText = `position:absolute;top:0;bottom:0;left:${a * 100}%;width:${Math.max(0, b - a) * 100}%;`
+        + 'background:rgba(120,130,150,.18);border-left:1px dashed rgba(120,130,150,.5);'
+        + 'border-right:1px dashed rgba(120,130,150,.5);box-sizing:border-box;';
+    };
+    if (layer.children.length === want.length) { want.forEach((g, i) => style(layer.children[i], g)); return; }
+    layer.replaceChildren();
+    for (const g of want) { const el = document.createElement('span'); style(el, g); layer.appendChild(el); }
   }
 
   /* How many marks are actually on screen right now, or -1 if the layer has been thrown away with

@@ -8,9 +8,9 @@
  * Here it is run against the timing skeletons — since v718 as prepareDisplaySpans, exported, with the
  * recording's length handed in (d.durationMs):
  *   · a timed text opens with every placed span unchanged and nothing saved at all;
- *   · D7's one-line span and a tail cover are saved QUIETLY (persistQuiet, never persist); an untimed
- *     text's even spread is not saved at all (v718: placeholders, in memory only);
- *   · the coverTail guard reads the line's phrase offsets (it read the span's, which never exist);
+ *   · D7's one-line span is saved QUIETLY (persistQuiet, never persist); an untimed text's even
+ *     spread is not saved at all (v718: placeholders, in memory only);
+ *   · v719: the tail cover is gone entirely — an unannotated tail is a gap row, not a silent write;
  *   · a v714-stored doc's estimates are read back in memory, with nothing saved;
  *   · drawing, playing and the dock's marks clip at the recording's end — the data does not. */
 import { test } from 'node:test';
@@ -104,7 +104,13 @@ test('D4 (v718): a pre-transcribed text with no times is SHOWN evenly spread —
   assert.equal(snap(doc.segments), again, 'deterministic');
 });
 
-test('EX4: the tail cover never re-times a line whose phrase carries the file\'s own end offset', () => {
+/* v719: EX4's GUARD is gone because the thing it guarded is gone. coverTail used to stretch an
+ * untexted last line to the end of the recording, and EX4 was the rule that stopped it doing so to a
+ * line whose phrase carried the file's own end offset (an ELAN text that stops early on purpose).
+ * Now NO last line is ever stretched — with or without that offset — and the unannotated tail is
+ * drawn as a gap row instead. The property to hold is therefore the stronger one: opening writes
+ * nothing at all, and the end is exactly what the file said, in both shapes. */
+test('v719: opening never re-times the last line, with or without the file\'s own end offset', () => {
   const doc = loadFixture('elan40');   // ends 125 457 − last end; an ELAN text that stops early on purpose
   const last = doc.segments.length - 1;
   doc.paragraphs[last].segments[0].baseline = '';
@@ -113,10 +119,10 @@ test('EX4: the tail cover never re-times a line whose phrase carries the file\'s
   assert.ok(DURATION.elan40 - end > 1000, 'the fixture leaves more than a second unannotated');
   assert.deepEqual(nothing(open(doc, DURATION.elan40)), { quiet: 0, stamped: 0 });
   assert.equal(doc.segments[last].end, end, 'the imported alignment is left exactly as it was');
-  // Without the file's offset (a line the app made), the cover still reaches the end — quietly.
+  // …and a line the app made, with no offset of its own, is left alone too (coverTail would have moved it).
   delete doc.paragraphs[last].segments[0].attrs['end-time-offset'];
-  assert.deepEqual(nothing(open(doc, DURATION.elan40)), { quiet: 1, stamped: 0 });
-  assert.equal(doc.segments[last].end, DURATION.elan40);
+  assert.deepEqual(nothing(open(doc, DURATION.elan40)), { quiet: 0, stamped: 0 }, 'still no write');
+  assert.equal(doc.segments[last].end, end, 'still the file\'s end — the tail is a gap row now');
 });
 
 test('P8: playing, seeking and the dock\'s marks clip at the recording\'s end; the stored time stays', () => {

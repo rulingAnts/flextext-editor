@@ -352,6 +352,38 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
   :root { --seg-pend: #8a93a0; --seg-est: #6f8fc7; --seg-check: #d0654f; --seg-check-bg: #fbe9e5;
           --seg-needs: #d69e2e; --seg-needs-bg: #2b2310; --seg-needs-ink: #f0dfae; }
 }
+
+/* ═══ v719 — UNASSIGNED AUDIO ROWS ═══════════════════════════════════════════════════════════
+   A gap row must read as NOT A LINE at a glance: no card, no border box, half the height, muted —
+   it is a note about the recording, sitting between two lines. The amber tint (.gap-speech) is the
+   one exception, and it earns the attention: a pause of a second or more with real voice in it is
+   very likely a sentence nobody has transcribed (segments.js gapHasSpeech). */
+:root { --gap-ink: #6b7280; --gap-bg: #f7f8fa; --gap-line: #d7dbe2;
+        --gap-speech-bg: #fdf3d7; --gap-speech-line: #e0b84a; --gap-speech-ink: #6b5310; }
+@media (prefers-color-scheme: dark) {
+  :root { --gap-ink: #98a2b3; --gap-bg: #1a1d22; --gap-line: #343a44;
+          --gap-speech-bg: #2b2310; --gap-speech-line: #8a6400; --gap-speech-ink: #f0dfae; }
+}
+.gap-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px;
+           margin: 2px 0; padding: 2px 8px; border-radius: 6px;
+           background: var(--gap-bg); border: 1px dashed var(--gap-line); color: var(--gap-ink);
+           font-size: 12px; }
+.gap-row.gap-speech { background: var(--gap-speech-bg); border-color: var(--gap-speech-line); color: var(--gap-speech-ink); }
+.gap-play { appearance: none; border: 0; background: none; color: inherit; font-size: 13px;
+            line-height: 1; padding: 2px 4px; cursor: pointer; }
+.gap-wave { width: 100%; height: 24px; display: block; min-width: 40px; }
+.gap-range { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gap-add { font-size: 12px; white-space: nowrap; }
+.gap-blocked { font-size: 12px; white-space: nowrap; opacity: .8; font-style: italic; }
+/* The dock's two gap controls, beside ✨ — same size, same weight, never shouting. */
+.player-gap { font-size: 12px; white-space: nowrap; }
+/* ⚠ PHONE WIDTH (R12): the range and the button drop under the wave rather than forcing the dock
+   or the strip list to scroll sideways. A horizontal scrollbar on a 375px screen is how a field
+   transcriber loses the column they are typing in. */
+@media (max-width: 560px) {
+  .gap-row { grid-template-columns: auto 1fr; grid-template-rows: auto auto; }
+  .gap-range, .gap-add, .gap-blocked { grid-column: 2; justify-self: start; }
+}
 .seg-strip.seg-pending { border-style: dotted; border-color: var(--seg-pend); }
 .seg-strip.seg-pending .seg-play { color: var(--muted); }
 .seg-strip.seg-est { border-style: dashed; border-color: var(--seg-est); }   /* playable, but an edge is a guess */

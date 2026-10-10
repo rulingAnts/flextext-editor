@@ -183,7 +183,7 @@ every caller knows the setting it wants, never which tab happens to hold it.
 
 | Marker | Meaning |
 |---|---|
-| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Twelve fields; eight whose engine gate reads `!Sync.hasSession() \|\| settings.X === true` (v717 added `timingBanner`, v718 `keepTimes`), four that wait on an upload that cannot happen. |
+| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Twelve fields; nine whose engine gate reads `!Sync.hasSession() \|\| settings.X === true` (v717 added `timingBanner`, v718 `keepTimes`, v719 `gapLines`), four that wait on an upload that cannot happen. |
 | `only: 'segmenter'` | the field appears in that mode's Settings tab only (`setupGroupsFor`) |
 | `standalone: true` | exists on the unlinked surface alone — `consentAudioFile`, the picked file where the panel pushes a Drive URL |
 | `type: 'action'` | a **button**, not a setting (`archivalDefaults`) — excluded from collect/fill |
@@ -278,7 +278,20 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
   (`keepLineTimes`, active row, researcher switch `keepTimes`) makes a guessed line's times its own; the
   Audio Segmenter spreads its untimed rows the same way and writes them back untimed on Done. Its draft
   exists only once something was changed there (`MG.edited`), and its "this text has changed" check
-  (`mgBaseSig`) ignores the editor's quiet writes (a seed made pending, D7, the tail cover) but not a Keep.
+  (`mgBaseSig`) ignores the editor's quiet writes (a seed made pending, D7; the tail cover is gone in v719) but not a Keep.
+- **Unassigned audio is a row, not a line (v719, Seth's B1).** `segments.js gapRowsFor(spans, D)`
+  returns one entry per insertion index `k` for every pause of ≥ 350 ms where BOTH neighbours are
+  placed (`isPlaced`) — a pending line or placeholder means the room is already shared out by
+  `spreadUntimed` (D3). `k === 0` is the lead, `k === n` the tail, which replaces v718's `coverTail`
+  (removed: it silently stretched an untexted last line to the end of the recording). The rows are
+  drawn by `renderStrips` and `renderCut` through one `gapRowEl`, wear `.gap-row[data-gap]` and none
+  of the line classes, and the player's gap bands are a separate layer from `setBoundaries` so seam
+  numbers are untouched (case 15). `gapHasSpeech` reuses the ✨ detector's framing and the
+  recording's own levels to tint a gap ≥ 1 s holding ≥ 400 ms of voice. Writing is `insertLineAt`
+  (a direct splice of both arrays at one index — never `reconcileBaseline`), wrapped by `addGapLine`
+  and `addAllGapLines` (end-first, one `captureUndo`, one save). Gated by `gapLines`
+  (`!Sync.hasSession() || settings.gapLines === true`) and hidden entirely while an unacknowledged
+  red timing banner stands; the device preference `showGaps` (default on) draws or hides the rows.
 - **The text box keeps times with their lines (v717).** `reconcileBaselineWithOrigins` says where each
   new line came from (kept / exact / edit / join / split / new, paired only within the stretch between
   unchanged lines, by shared words first and in order only in the gaps the words leave; `moved` for a

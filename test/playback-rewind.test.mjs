@@ -102,8 +102,11 @@ console.log('\nevery resume-from-playhead call site passes the real start as hom
   const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   // One level of nesting allowed: since v717 the stop is playEnd(p, seg), clipped to the recording.
   const resumes = [...strips.matchAll(/playSpan\(from,(?:[^()]|\([^()]*\))*\)/g)].map(m => m[0]);
-  ok(resumes.length === 2, 'both strip transports found (baseline + gloss), got ' + resumes.length);
-  ok(resumes.every(c => /, seg\.start\)$/.test(c)), 'both pass seg.start as home: ' + resumes.join(' | '));
+  /* v719 added a third: the gap row's ▶, which auditions unclaimed audio. The claim here was never
+   * "there are exactly two transports" — it is "every resume-from-playhead sends the player home to
+   * the START OF THE THING IT IS PLAYING", so a pause-then-▶ cannot rewind to somewhere else. */
+  ok(resumes.length === 3, 'all three strip transports found (baseline, gloss, v719 gap row), got ' + resumes.length);
+  ok(resumes.every(c => /, (?:seg|gap)\.start\)$/.test(c)), 'each passes its own start as home: ' + resumes.join(' | '));
   const space = app.match(/playSpan\(inside \? at : [^)]*\)/);
   ok(!!space && /lastPlayTarget\.start\)$/.test(space[0]),
      'the Space key resumes in span but goes home to the segment: ' + (space ? space[0] : 'NOT FOUND'));

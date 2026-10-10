@@ -28,7 +28,8 @@ test('the Player takes touch pointers at the capture phase; the mouse keeps wave
   const hit = AUDIO.slice(AUDIO.indexOf('renderCursorHit() {'), AUDIO.indexOf('placeCursorHit() {'));
   assert.match(hit, /if \(!coarse\) \{ if \(this\._cursorHit\) \{ this\._cursorHit\.remove\(\); this\._cursorHit = null; \} return; \}/, 'the finger grip exists only on a coarse pointer');
   assert.match(hit, /width:32px;margin-left:-16px;pointer-events:auto;touch-action:none/, 'the strips\' 32px playhead zone, on the overview');
-  assert.match(AUDIO, /this\.renderBoundaries\(\);\n      this\.renderCursorHit\(\);/, 'built on ready');
+  // v719 adds the gap band layer, which needs the duration for the same reason the seams do.
+  assert.match(AUDIO, /this\.renderBoundaries\(\);\n      this\.renderGapMarks\(\);.*\n      this\.renderCursorHit\(\);/, 'boundaries, gap bands and the cursor grip are all built on ready');
   assert.match(AUDIO, /fmt\(this\.ws\.getDuration\(\)\);\n    this\.placeCursorHit\(\);/, 'follows the playhead');
 });
 

@@ -35,7 +35,8 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
 import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine,
          isEstimate, syncToLines, segmentsFollowLines, splitSpanAt, mergeSpanPair, withGuesses, dragSeam, timingReport,
-         isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending, edgeGuessed } from './segments.js';
+         isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending, edgeGuessed,
+         gapRowsFor, gapHasSpeech, gapMarks, GAP_MIN_MS } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -418,6 +419,7 @@ function show(view) {
   if (view === 'texts') bgUpdateCheck();
   refreshUpdateBanner();   // show/hide the "exit to update" banner as the open-text state changes
   renderTimingBanner();    // editor tabs only — it hides itself everywhere else
+  syncGapTools();          // …and so do the gap controls (v719)
 }
 
 function openHelp() {
@@ -801,6 +803,7 @@ async function persist() {
 function schedulePersist() {
   if (current) inSyncSinceOpen.delete(current);   // an edit — see readBackOnOpen
   renderTimingBanner();   // an edit can change what it says; it rebuilds only when that changes
+  syncGapTools();         // v719: an edit changes the gap count too
   clearTimeout(saveTimer);
   saveTimer = setTimeout(
     () => persist().catch(e => toast(
@@ -1415,6 +1418,152 @@ function keepLineTimes(i) {
   schedulePersist();
   return true;
 }
+/* ═══ v719 — UNASSIGNED AUDIO: THE ROWS, AND THE ONE CLICK THAT TURNS ONE INTO A LINE ═══
+ * plans/time-gaps-and-estimates.md §4 v719, D1, D15. Seth's decisions, 10 Oct.
+ *
+ * Nothing here runs when a text opens. A gap row is drawn (segment-strips.js), and only a finger on
+ * "Add a line here" — or ✂/Enter with the playhead inside the gap — reaches this code. */
+
+/* The researcher's switch, the same shape as v717's timingBanner and v718's keepTimes: a lone worker
+ * always has it, a managed device gets it when the researcher turns it on. It gates every WRITE
+ * (Add here, Add all, ✂ in a gap), never the rows themselves — seeing where the unclaimed audio is
+ * costs nothing and is worth having on a kiosk. */
+function gapLinesOn() { return !Sync.hasSession() || settings.gapLines === true; }
+function gapLinesAllowed() { return segmentationEnabled() && gapLinesOn(); }
+/* …and the device's own preference for whether the rows are drawn at all. Default ON (D15): the
+ * rows are the feature. Stored like every other device preference, so it survives a reload and is
+ * the user's, not the researcher's. */
+function showGapsOn() { return settings.showGaps !== false; }
+
+/* ⚠ WHILE THE RED "CHECK ALIGNMENT" BANNER IS UNACKNOWLEDGED, ADD IS HIDDEN (case 16).
+ *
+ * The damaged L29 export ends 2.1 s before its recording does, so v719 draws a tail gap row there —
+ * and that row, on that text, is an invitation to retype the last sentence into a hole that exists
+ * because the FILE is wrong, not because anything is missing. The red banner is already saying so.
+ * Until the user has read and dismissed it, the rows stay visible (the evidence) but offer no Add
+ * (the trap). Any other level, or an acknowledged red, and Add is back. */
+function checkAlignmentPending() {
+  const rec = current;
+  if (!rec || !rec.doc || !timingBannerOn()) return false;
+  const D = peaksDurationMs(rec.id);
+  if (!(D > 0)) return false;
+  try {
+    const report = timingReport(docSegments(rec.doc), getBaselineParagraphs(rec.doc), { durationMs: D, timeSync: !!rec.timeSync });
+    return report.level === 'red' && rec.timingAck !== report.sig;
+  } catch { return false; }
+}
+
+/* The gap rows for the text as it is drawn right now. One reader for the strips, the Cut tab, the
+ * toolbar count and the player's marks, so none of them can disagree about what a gap is. */
+function gapRowsNow() {
+  const rec = current;
+  if (!rec || !rec.doc || !segmentationEnabled() || !showGapsOn()) return [];
+  const D = peaksDurationMs(rec.id);
+  if (!(D > 0)) return [];
+  return gapRowsFor(docSegments(rec.doc), D);
+}
+
+/* ⚠ SPLICE BOTH ARRAYS AT THE SAME INDEX, DIRECTLY — never through reconcileBaseline (P2, and the
+ * 2026-08-16 lesson). reconcileBaseline pairs old lines to new by LCS over their text, and the line
+ * being inserted is EMPTY: against a text that already holds blank lines (a silence row, a line
+ * waiting to be typed) the match is genuinely ambiguous, and the one it picks takes that line's
+ * time, guid and free translation with it. A splice has no such freedom: index k is index k.
+ *
+ * `paraOf` is inherited only when BOTH neighbours share it — inside one sentence the new line
+ * belongs to that sentence; at a boundary, or at either end of the text, it starts nothing and
+ * claims nothing (flextext.js groups paragraphs by paraOf on export).
+ *
+ * Pure: it mutates `doc` and nothing else, and makes no decision about undo, saving or drawing. */
+function insertLineAt(doc, k, span) {
+  if (!doc) return false;
+  const paras = Array.isArray(doc.paragraphs) ? doc.paragraphs : (doc.paragraphs = []);
+  const n = paras.length;
+  const at = Math.max(0, Math.min(n, k | 0));
+  const before = at > 0 ? paras[at - 1] : null;
+  const after = at < n ? paras[at] : null;
+  const shared = before && after && before.paraOf != null && before.paraOf === after.paraOf;
+  paras.splice(at, 0, {
+    guid: newGuid(),
+    segments: [makeSegment('', [])],
+    ...(shared ? { paraOf: before.paraOf } : {}),
+  });
+  const segs = docSegments(doc).slice();
+  segs.splice(at, 0, { ...span });
+  doc.segments = segs;
+  return true;
+}
+
+/* Add ONE line, in the gap the row names. One captureUndo, one save — Seth's undo rule (P5). */
+function addGapLine(k) {
+  if (!current || !current.doc || !gapLinesAllowed() || checkAlignmentPending()) return false;
+  const row = gapRowsNow().find((g) => g.k === k);
+  if (!row) return false;
+  captureUndo();
+  /* ⚠ A REAL TIME, NOT A GUESS. The gap's own edges came from the two placed lines around it (or
+   * from 0 and D), so they are as real as the times that produced them — `guess` stays absent and
+   * the new line draws solid, exports with its offsets, and is never re-spread by spreadUntimed. */
+  insertLineAt(current.doc, k, { start: row.start, end: row.end });
+  schedulePersist();
+  return true;
+}
+
+/* Add a line in EVERY gap. One captureUndo and one save for the whole sweep (P5): "Undo removes
+ * them all" is what the confirmation promises, so it must be one item however many rows there were.
+ *
+ * ⚠ FROM THE END BACKWARDS. Each splice shifts every later index by one; walking forwards would
+ * need every subsequent k corrected, and a single off-by-one there puts a line — and its time — in
+ * the wrong place. Backwards, no index a later step uses has moved yet. */
+function addAllGapLines() {
+  if (!current || !current.doc || !gapLinesAllowed() || checkAlignmentPending()) return 0;
+  const rows = gapRowsNow();
+  if (!rows.length) return 0;
+  captureUndo();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    insertLineAt(current.doc, rows[i].k, { start: rows[i].start, end: rows[i].end });
+  }
+  schedulePersist();
+  return rows.length;
+}
+
+/* The toolbar's "Add a line for every gap (N)" — asks first, in the plan's words, then redraws. */
+async function addAllGapLinesAsked() {
+  const rows = gapRowsNow();
+  if (!rows.length || !gapLinesAllowed() || checkAlignmentPending()) return;
+  if (!await confirmDialog(t('gap.addAll.confirm', { n: rows.length }))) return;
+  if (!addAllGapLines()) return;
+  /* The same redraw undo takes: a span watcher armed on a span that no longer exists would pause at
+   * a boundary from the discarded state, and switchTab knows every mode's render path. */
+  player?.clearSpan?.();
+  switchTab(activeTab);
+}
+
+/* The dock's two gap controls. Counts live in the labels, so the user knows what "all" means before
+ * pressing it. Both hidden when the text has no unassigned audio, and "Add all" hidden as well while
+ * a red alignment warning stands (case 16) or the researcher has the writes switched off. */
+function syncGapTools() {
+  const show = $('#btn-gap-show');
+  const all = $('#btn-gap-addall');
+  if (!show || !all) return;
+  const on = !!(current && current.doc && segmentationEnabled() && isEditorTab(currentView())
+                && current.audioSource && !current.pendingAudio && peaksDurationMs(current.id) > 0);
+  /* ⚠ COUNTED WITHOUT THE PREFERENCE. gapRowsNow() returns [] while showGaps is off — which is the
+   * right answer for the rows and the wrong one here, because "Show gaps (39)" is the control that
+   * turns them back ON and it must say how many are waiting. */
+  const n = on ? gapRowsFor(docSegments(current.doc), peaksDurationMs(current.id)).length : 0;
+  if (!on || !n) { show.hidden = true; all.hidden = true; return; }
+  show.hidden = false;
+  show.textContent = t(showGapsOn() ? 'gap.hide' : 'gap.show', { n });
+  show.setAttribute('aria-pressed', String(showGapsOn()));
+  all.hidden = !(showGapsOn() && gapLinesAllowed() && !checkAlignmentPending());
+  if (!all.hidden) all.textContent = t('gap.addAll', { n });
+}
+function toggleShowGaps() {
+  settings.showGaps = !showGapsOn();
+  saveSettings(settings);
+  player?.clearSpan?.();
+  switchTab(activeTab);
+}
+
 // 🔁 What Repeat STARTS as when a text opens (Seth, 2026-10-04); the dock's button flips it after that.
 function loopPlayDefault() { return settings.loopPlay === true; }
 /* May the CUT tab join two spans that already carry baseline text?
@@ -2447,9 +2596,16 @@ function switchTab(tab, landing) {
       readBack: () => { if (current && readLegacyEstimates(current.doc)) keepInSync(current); },
       keepInSync: () => keepInSync(current),    // placeholders drawn, a seed set aside: a look, not an edit (v718)
       timingMarks: () => timingBannerOn(),      // the red check bars follow the banner's switch (v717)
-      onRendered: () => renderTimingBanner(),
+      onRendered: () => { renderTimingBanner(); syncGapTools(); },
       allowKeep: () => keepAllowed(),           // "Keep these times" (v718) — researcher-switchable
       keep: (i) => keepLineTimes(i),
+      // v719 — the gap rows. `showGaps` is the device's own preference (drawn or not); the WRITE
+      // paths are the researcher's switch, and are blocked entirely while a red alignment warning
+      // is unacknowledged (case 16). Read through functions so a push lands mid-session.
+      showGaps: () => showGapsOn(),
+      gapAddAllowed: () => gapLinesAllowed(),
+      gapAddBlocked: () => checkAlignmentPending(),
+      addGapLine: (k) => { if (!addGapLine(k)) return false; player?.clearSpan?.(); switchTab(activeTab); return true; },
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
       allowAdjust: () => adjustBoundariesAllowed(),
@@ -2487,9 +2643,17 @@ function switchTab(tab, landing) {
         readBack: () => { if (current && readLegacyEstimates(current.doc)) keepInSync(current); },
         keepInSync: () => keepInSync(current),  // placeholders drawn, a seed set aside: a look, not an edit (v718)
         timingMarks: () => timingBannerOn(),    // the red check bars follow the banner's switch (v717)
-        onRendered: () => renderTimingBanner(),
+        onRendered: () => { renderTimingBanner(); syncGapTools(); },
         allowKeep: () => keepAllowed(),         // "Keep these times" (v718) — researcher-switchable
         keep: (i) => keepLineTimes(i),
+        // v719 — the gap rows. `showGaps` is the device's own preference (drawn or not); the WRITE
+        // paths are the researcher's switch, and are blocked entirely while a red alignment warning
+        // is unacknowledged (case 16). Read through functions so a push lands mid-session.
+        showGaps: () => showGapsOn(),
+        gapAddAllowed: () => gapLinesAllowed(),
+        gapAddBlocked: () => checkAlignmentPending(),
+        addGapLine: (k) => { if (!addGapLine(k)) return false; player?.clearSpan?.(); switchTab(activeTab); return true; },
+
         // Read through a FUNCTION, not a captured boolean: initStrips runs once per doc open, and a
         // researcher push (changeSettings) can land mid-session — a snapshot would keep the old
         // answer until the next open, which is the drift this setting exists to remove.
@@ -2598,6 +2762,7 @@ function switchTab(tab, landing) {
         await ensurePeaks(current && current.id, media && media.blob, (current && playerReadyFor === current.id && player && player.decodedBuffer) ? player.decodedBuffer() : null);
         decorateGlossSegments();
         renderTimingBanner();   // the recording's length is known now
+        syncGapTools();         // …and so are the gaps (v719)
       })();
     }
   }
@@ -5386,7 +5551,10 @@ function applyLiveSettings() {
    * a row when it is drawn, and so are the amber "needs timing" and red check marks — a pushed keepTimes
    * or timingBanner left a Keep that did nothing, or marks the researcher had just switched off, until
    * something else redrew the tab. */
-  const timeSig = () => `${keepAllowed()}/${timingBannerOn()}`;
+  /* v719 joins them: "Add a line here" is built onto a gap row when the row is drawn, so a pushed
+   * gapLines would otherwise leave a live Add button on a device the researcher had just stopped,
+   * or no button on one they had just enabled, until something else redrew the tab. */
+  const timeSig = () => `${keepAllowed()}/${timingBannerOn()}/${gapLinesAllowed()}`;
   const timeBefore = timeSig();
   // The join/split gates, read BEFORE the reload: their controls (the Gloss tab's ✂ and 🔗 rows,
   // the Baseline strips' join buttons) are built at render time, so a pushed flip needs the
@@ -5409,6 +5577,7 @@ function applyLiveSettings() {
     applyBaselineHint({ classic: baselineShowsTextarea() });   // …a pushed splitBaseline / enterAtEnd re-words the Baseline hint (#92)
     applyGlossEmptyHint();     // …and a pushed baselineTab re-words where the Gloss tab says to type the words
     renderTimingBanner();      // …and a pushed timingBanner shows or hides it in place
+    syncGapTools();            // v719: a pushed gapLines shows or hides Add all in place
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
@@ -5736,7 +5905,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'allowAudioRemove', 'doneEnabled', 'sortAlpha',
-                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'joinBaseline', 'splitBaseline', 'joinGloss', 'splitGloss', 'enterAtEnd', 'freeEnterNext','cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon', 'timingBanner', 'keepTimes',
+                   'segmentation', 'backspaceJoin', 'cutTab', 'baselineTab', 'glossTab', 'wordGloss', 'glossLanding', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'joinBaseline', 'splitBaseline', 'joinGloss', 'splitGloss', 'enterAtEnd', 'freeEnterNext','cutJoinTexted', 'adjustBoundaries', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson', 'glossIcon', 'timingBanner', 'keepTimes', 'gapLines', 'showGaps',
                    /* ⚠ THE TYPING SETTINGS WERE MISSING FROM THIS LIST since they shipped in v663,
                     * so the panel could push them but never READ BACK what a device actually had —
                     * its form fell through to defaults and showed the researcher a value the device
@@ -7276,7 +7445,7 @@ const SETUP_BPS = { mp3: 8000, opus: 6000, webmpcm: 187500, wav16: 96000, wav24:
  * ⚠ WHAT IS DIFFERENT HERE, and it is only ever these two things:
  *   1. `off:` — the twelve fields that are inert without a researcher behind them. Eight because their
  *      engine gate short-circuits on `!Sync.hasSession()` (allowDelete, deleteAllEnabled,
- *      allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner, keepTimes — a lone worker always has
+ *      allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner, keepTimes, gapLines — a lone worker always has
  *      these, so a switch could only lie), and four because they wait on an upload that cannot
  *      happen with no Drive target (autoDel, autoBackup, autoBackupMins, doneEnabled). Plus
  *      `appLang`, inert for a different reason: the toolbar's own selector is the live control.
@@ -7336,6 +7505,9 @@ const SETUP_GROUPS = [
     { k: 'timingBanner', type: 'checkbox', note: 'panel.f.timingBannerNote', off: 'setup.off.timingBanner' },
     // "Keep these times" (v718): keepTimesOn() short-circuits the same way — greyed here, the researcher's.
     { k: 'keepTimes', type: 'checkbox', note: 'panel.f.keepTimesNote', off: 'setup.off.keepTimes' },
+    // Adding a line in a gap (v719): gapLinesOn() short-circuits the same way. The ROWS are not gated
+    // — seeing where the unclaimed audio is costs nothing; this is the switch on the writes.
+    { k: 'gapLines', type: 'checkbox', note: 'panel.f.gapLinesNote', off: 'setup.off.gapLines' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // deleteAllAllowed() and allowDeleteOn() both short-circuit on !Sync.hasSession(), so on a
     // standalone app these are already ON and cannot be turned off — the switch would be a lie.
@@ -9949,8 +10121,8 @@ function mgLoad(rec) {
  *
  * ⚠ ONLY WHAT AN EDIT CAN CHANGE (v718 review). Opening a text in the editor writes two things quietly,
  * and neither is anybody's edit: v714/v717's stored even spread goes back to untimed (the first save
- * after the editor drew it), and a one-line text gets D7's whole-file span — and the tail cover
- * (coverTail) moves the end of an empty last line. Hashed raw, each of those made the next visit here
+ * after the editor drew it), and a one-line text gets D7's whole-file span — and, until v719, the tail
+ * cover (coverTail) moved the end of an empty last line. Hashed raw, each of those made the next visit here
  * say "this text has changed" over a text nobody had touched, and the safe-looking answer set the user's
  * unfinished matching aside. So the spans are hashed in the form the editor's own read leaves them
  * (seeds made pending), a one-line text's span is left out, and so is the last line's end. And the
@@ -11172,7 +11344,7 @@ async function mgPrepareAudio(docId) {
    * for the whole recording. (Seth: "The remainder of unsegmented audio should show in the final line
    * … on this particular file that should mean the rest of the audio shows in line two.") Since v718
    * only after a last row that HAS a time: untimed rows at the end share that remainder in their gap
-   * instead (mgSpreadSpans, case 3). 1s tolerance, the same as coverTail's: a sliver at the end is
+   * instead (mgSpreadSpans, case 3). 1s tolerance, the one coverTail used before v719 retired it: a sliver at the end is
    * rounding, not a missing piece. The rule itself is mgSeedSpans. */
   MG.spans = mgSeedSpans(MG.spans, dur, MG.resumed);
   // Draggability FIRST, so the marks are built with their grips rather than rebuilt a moment later.
@@ -13272,6 +13444,7 @@ function setup() {
       const v = currentView();
       if (current && (v === 'cut' || v === 'baseline' || v === 'gloss')) switchTab(v);
       renderTimingBanner();   // built by t() too
+      syncGapTools();         // v719: its labels are t() too
     });
   }
 
@@ -13424,6 +13597,9 @@ function setup() {
     if (onGloss) glossPlaceAudio(); else stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
+  // v719 — the dock's gap controls. syncGapTools decides when they are visible and what they say.
+  $('#btn-gap-show')?.addEventListener('click', () => toggleShowGaps());
+  $('#btn-gap-addall')?.addEventListener('click', () => addAllGapLinesAsked());
   // The row you last worked in, for the tab switch (see activeLineOnLeave). Capture phase, so a
   // row's own handlers cannot stop it; passive, so scrolling is never delayed by it.
   document.addEventListener('focusin', (e) => noteTouchedLine(e.target));

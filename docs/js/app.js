@@ -3,7 +3,7 @@
 import {
   parseFlextext, serializeFlextext, makeDoc, makeWord, makeSegment,
   getBaselineParagraphs, reconcileBaseline, reconcileBaselineWithOrigins, readLegacyEstimates, segmentText, tokenize,
-  canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
+  canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets, spansForExport,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
   mergePhrases, baselineFromWords,
 } from './flextext.js';
@@ -35,7 +35,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
 // satellite, so this adds no precache path and cannot repeat the v108 outage.
 import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSegments, MIN_SEGMENT_MS, segmentIndexAt as segIndexAt, splitTiers, splitAllowed, splitPlan, pickActiveLine,
          isEstimate, syncToLines, segmentsFollowLines, splitSpanAt, mergeSpanPair, withGuesses, dragSeam, timingReport,
-         isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending } from './segments.js';
+         isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending, edgeGuessed } from './segments.js';
 import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
@@ -1973,9 +1973,14 @@ function lineHasAnalysis(doc, i) {
   if ((ph.words || []).some((w) => glossesOfWord(w).some((g) => String(g.text || '').trim()))) return true;
   return freesOfPhrase(ph).some((f) => String(f.text || '').trim());
 }
-/* The playhead in ms, or null when no audio is loaded — see audioTierReachable. */
+/* The playhead in ms, or null when no audio is loaded — see audioTierReachable.
+ * ⚠ player.playheadMs(), NOT player.currentTime (v718 review): the Player is this suite's own object, not
+ * a media element, and has no currentTime — so this was null for every line, the audio tier never
+ * joined a Gloss split, and the ✂ under the playhead left an empty pending split that ate the next Undo.
+ * A "needs timing" line could not be cut at the playhead on this tab at all. */
 function playheadMs() {
-  return player && Number.isFinite(player.currentTime) ? player.currentTime * 1000 : null;
+  const ms = player && typeof player.playheadMs === 'function' ? player.playheadMs() : null;
+  return Number.isFinite(ms) ? ms : null;
 }
 function glossInfo(i) {
   const doc = current.doc;
@@ -1992,7 +1997,10 @@ function glossInfo(i) {
    * divides while the sound does not. That is exactly what Seth hit on Baseline in v625. So the
    * Baseline side keeps requiring the tier (see stripsInfo); do not "make them consistent" by
    * copying this line over there without giving splitLineAt an interpolation fallback first. */
-  return { tab: 'gloss', aligned: audioTierReachable(docSegments(doc)[i], playheadMs()), words: ph && ph.words ? ph.words.length : 0,
+  // Reachable exactly while the ticker draws that ✂ (start ≤ playhead < end): a line that played to its end
+  // parks the playhead on the NEXT line's start, and its ✂ is drawn there, not here.
+  const seg = docSegments(doc)[i], ms = playheadMs();
+  return { tab: 'gloss', aligned: audioTierReachable(seg, ms) && ms < seg.end, words: ph && ph.words ? ph.words.length : 0,
            free: ph ? (ph.free || '') : '', text: getBaselineParagraphs(doc)[i] || '', hasGloss: lineHasAnalysis(doc, i) };
 }
 function glossSpec(i) {
@@ -5374,6 +5382,12 @@ function docInScope(/* d, enr */) {
 function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   const segBefore = settings.segmentation === true;
+  /* The timing switches, read BEFORE the reload like the gates below (v718 review): Keep is built onto
+   * a row when it is drawn, and so are the amber "needs timing" and red check marks — a pushed keepTimes
+   * or timingBanner left a Keep that did nothing, or marks the researcher had just switched off, until
+   * something else redrew the tab. */
+  const timeSig = () => `${keepAllowed()}/${timingBannerOn()}`;
+  const timeBefore = timeSig();
   // The join/split gates, read BEFORE the reload: their controls (the Gloss tab's ✂ and 🔗 rows,
   // the Baseline strips' join buttons) are built at render time, so a pushed flip needs the
   // re-enter below to reach them — the ticker only repaints the playhead ✂ (#100).
@@ -5401,10 +5415,13 @@ function applyLiveSettings() {
     // (not activeTab) so a user on the Texts list is never pulled into the editor.
     const v = currentView();
     const joinFlipped = (v === 'baseline' || v === 'gloss') && gateSig(v) !== joinBefore[v];
-    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && ((settings.segmentation === true) !== segBefore || joinFlipped)) {
+    const timeFlipped = timeSig() !== timeBefore;
+    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && ((settings.segmentation === true) !== segBefore || joinFlipped || timeFlipped)) {
       switchTab(v);
     }
   }
+  // The Audio Segmenter's rows wear the same marks, drawn by mgDraw: redrawn on the same flip.
+  if (SEGMENTER_MODE && MG && timeSig() !== timeBefore) mgDraw();
 }
 
 // "Delete All" (full local wipe = clears storage + IndexedDB + caches + the service worker, then reloads
@@ -5816,16 +5833,20 @@ function parseInviteInput(text) {
  * Escape and the backdrop mean CANCEL — the safe answer for every one of the nine callers, all of
  * which guard a destructive or irreversible act. */
 // `opts.ok` / `opts.cancel` name the two buttons when OK/Cancel would not say what each choice does (v718).
+/* `opts.cancelFirst` (v718 review): for a question whose OK is the one that discards something, CANCEL is
+ * the default — the primary look, the focus, and what Enter means — not only what Escape means. The
+ * Segmenter's "this text has changed" question is one: its OK resumes matching over later edits. */
 function confirmDialog(message, opts = {}) {
   return new Promise((resolve) => {
     if (document.querySelector('[data-confirm-dialog]')) { resolve(false); return; }
+    const safe = !!opts.cancelFirst;
     const wrap = document.createElement('div');
     wrap.className = 'modal';
     wrap.dataset.confirmDialog = '1';
     wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
       <p style="white-space:pre-wrap">${esc(message)}</p>
-      <button class="primary-btn" data-cf="ok">${esc(opts.ok || t('panel.confirm.ok'))}</button>
-      <button class="link-btn" data-cf="cancel">${esc(opts.cancel || t('share.cancel'))}</button>
+      <button class="${safe ? 'link-btn' : 'primary-btn'}" data-cf="ok">${esc(opts.ok || t('panel.confirm.ok'))}</button>
+      <button class="${safe ? 'primary-btn' : 'link-btn'}" data-cf="cancel">${esc(opts.cancel || t('share.cancel'))}</button>
     </div>`;
     document.body.appendChild(wrap);
     const prevFocus = document.activeElement;
@@ -5838,9 +5859,15 @@ function confirmDialog(message, opts = {}) {
       try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* noop */ }
       resolve(answer);
     };
+    // Enter answers with the button that has the focus (Tab to Cancel, then Enter, is a cancel), and
+    // with the default when neither has it.
     function onKey(e) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
-      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(true); }
+      else if (e.key === 'Enter') {
+        e.preventDefault(); e.stopPropagation();
+        const f = document.activeElement;
+        finish(f === wrap.querySelector('[data-cf="ok"]') ? true : f === wrap.querySelector('[data-cf="cancel"]') ? false : !safe);
+      }
     }
     document.addEventListener('keydown', onKey, true);
     wrap.querySelector('[data-cf="ok"]').addEventListener('click', () => finish(true));
@@ -5848,7 +5875,7 @@ function confirmDialog(message, opts = {}) {
     wrap.addEventListener('click', (e) => { if (e.target === wrap) finish(false); });
     // Focus the dialog's own button, so the keyboard is inside the dialog immediately and Tab
     // cannot wander back into the editor underneath it on the first press.
-    try { wrap.querySelector('[data-cf="ok"]').focus(); } catch { /* noop */ }
+    try { wrap.querySelector(safe ? '[data-cf="cancel"]' : '[data-cf="ok"]').focus(); } catch { /* noop */ }
   });
 }
 
@@ -6232,8 +6259,11 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   // Fall back to the flextext-native offsets: an imported aligned doc that was never OPENED in
   // segmentation mode has no doc.segments yet, but its phrases carry the alignment — without the
   // fallback its bundles silently shipped without EAFs (audit find).
+  // ⚠ THE SPANS THE EXPORTERS WRITE (v718 review), not the raw stored ones: a record v714 seeded and
+  // nobody reopened still stores its even spread as estimates, and every exporter reads it as untimed
+  // (spansForExport) — judged on the raw spans, a local full save built an EAF with no times in it.
   const spans = (Array.isArray(rec.doc && rec.doc.segments) && rec.doc.segments.length)
-    ? rec.doc.segments
+    ? spansForExport(rec.doc)
     : ((rec.doc && segmentsFromOffsets(rec.doc)) || []);
   // Placed times only (v718): an untimed line drawn in its gap is exported without a time, so a text of
   // nothing but those has no alignment to put in an EAF.
@@ -9892,10 +9922,15 @@ function mgLoad(rec) {
      * seedsToPending (v718): v714's stored even spread was never anyone's time — the same rule the
      * editor's tabs apply (prepareDisplaySpans), so a seeded text is untimed here too, not 8 rows of
      * guesses that Done would store. */
+    /* `fileTimes` rides on a row with no time (v718 review, P4): a line the model could not place but
+     * nobody changed (a phrase nested in the one before, a sliver, an older build's clamp) holds the
+     * file's own times, the export writes them back while its phrase still carries exactly them, and
+     * spreadUntimed gives it no share of the gap. Dropped here, an untouched Done lost them for good. */
     spans: withGuesses(seedsToPending(docSegments(rec.doc), (k) => lineHasOffsets(rec.doc, k))).map((s, i) => ({
       id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
       timePending: !!s.timePending || !(Number(s.end) > Number(s.start)), timeEstimated: !!s.timeEstimated,
       ...(Array.isArray(s.guess) ? { guess: s.guess.slice(0, 2) } : {}), ...(s.estSource ? { estSource: s.estSource } : {}),
+      ...(Array.isArray(s.fileTimes) && !isAligned(s) ? { fileTimes: s.fileTimes.slice(0, 2) } : {}),
     })),
     /* `paraOf` rides along untouched: it is the memory of which ORIGINAL paragraph this line came
      * from, set only for files whose author distinguished phrases from paragraphs. The matcher never
@@ -9910,10 +9945,24 @@ function mgLoad(rec) {
 /* WHAT A DRAFT WAS MADE FROM (v718, case 22): the text's lines and its stored times, hashed. A draft
  * carries it, so a draft whose text has changed since — an edit in the editor, a researcher's newer
  * version arriving — is not resumed silently: Done would write the draft's lines and times back over
- * the newer ones, and nothing would say so. Placeholders are not stored, so they are not counted. */
+ * the newer ones, and nothing would say so. Placeholders are not stored, so they are not counted.
+ *
+ * ⚠ ONLY WHAT AN EDIT CAN CHANGE (v718 review). Opening a text in the editor writes two things quietly,
+ * and neither is anybody's edit: v714/v717's stored even spread goes back to untimed (the first save
+ * after the editor drew it), and a one-line text gets D7's whole-file span — and the tail cover
+ * (coverTail) moves the end of an empty last line. Hashed raw, each of those made the next visit here
+ * say "this text has changed" over a text nobody had touched, and the safe-looking answer set the user's
+ * unfinished matching aside. So the spans are hashed in the form the editor's own read leaves them
+ * (seeds made pending), a one-line text's span is left out, and so is the last line's end. And the
+ * guessed EDGES are hashed with the times: a Keep in the editor changes nothing else, and resuming over
+ * it silently put the guess back (case 22). */
 function mgBaseSig(doc) {
-  const spans = storableSegments((doc && doc.segments) || []).map((s) => (isAligned(s) ? [s.start, s.end] : 0));
-  try { return cheapHash(JSON.stringify([(doc && doc.paragraphs) || [], spans])); } catch { return ''; }
+  const paras = (doc && doc.paragraphs) || [];
+  const segs = withGuesses(seedsToPending(storableSegments((doc && doc.segments) || []), (k) => lineHasOffsets(doc, k)));
+  const last = segs.length - 1;
+  const spans = paras.length < 2 ? [] : segs.map((s, k) => (!isAligned(s) ? 0
+    : k === last ? [s.start, edgeGuessed(s, 0)] : [s.start, s.end, edgeGuessed(s, 0), edgeGuessed(s, 1)]));
+  try { return cheapHash(JSON.stringify([paras, spans])); } catch { return ''; }
 }
 
 /* THE MATCHER'S SPANS ONCE THE RECORDING'S LENGTH IS KNOWN (v718, D13). Pure, so the rule is tested
@@ -9938,9 +9987,24 @@ function mgSeedSpans(spans, dur, resumed) {
  * as a placeholder sharing the gap its timed neighbours leave — the editor's own rule (segments.js
  * spreadUntimed), so the Segmenter and the editor agree on where an untimed line sits, and Done writes
  * it back untimed. A text with no time at all keeps the whole-file span (mgSeedSpans). Rows keep their
- * ids; a row with no room keeps the matcher's "no audio" shape ({ start: 0, end: 0 }). Pure. */
+ * ids; a row with no room keeps the matcher's "no audio" shape ({ start: 0, end: 0 }). Pure.
+ *
+ * ⚠ AND ROWS WITH NO TIME AT ALL SHARE THE WHOLE RECORDING (v718 review). A resumed draft whose rows
+ * were all placeholders — the whole-file span nobody cut, or its halves from a midpoint ✂ — comes back
+ * from storage as rows with no time (placeholders are never stored, the draft's included), and a
+ * resumed draft gets no whole-file span (mgSeedSpans). Left so, the user came back to "No audio for this
+ * line" on every row: nothing to play, nothing the ✂ could cut, Done disabled. So such rows are one room,
+ * [0, D] — the editor's own rule for an untimed text — and a single row is the whole recording again.
+ * Placeholders this session drew (a midpoint ✂ of the whole-file span) are left exactly as drawn. */
 function mgSpreadSpans(spans, dur) {
-  if (!(dur > 0) || !spans.some(isPlaced)) return spans;
+  if (!(dur > 0) || !spans.length) return spans;
+  if (!spans.some(isPlaced)) {
+    if (spans.every(isAligned)) return spans;
+    if (spans.length === 1 && !Array.isArray(spans[0].fileTimes)) {
+      const { noRoom, ...row } = spans[0];
+      return [{ ...row, start: 0, end: dur, timePending: false, timeEstimated: false, phAt: [0, dur] }];
+    }
+  }
   return spreadUntimed(spans, dur).map((s) => (isAligned(s) ? s : { ...s, start: 0, end: 0, timePending: true }));
 }
 
@@ -9992,6 +10056,13 @@ let mgDraftTimer = 0;
 function mgSaveDraft() {
   // A draft set aside for a changed text is kept until the first edit here (mgCapture) — see mgOpen.
   if (!MG || MG.holdDraft) return;
+  /* ⚠ AND NO DRAFT UNTIL THERE IS WORK IN IT (v718 review). The autosave hangs off every redraw, so a
+   * look — open, listen, Back — left a draft of the text exactly as it came in. That draft was not
+   * harmless: it held the whole-file span as storage holds a placeholder (a row with no time), so the
+   * next visit resumed a row that could not be played or cut; and it made any later change to the text
+   * in the editor ask "resume, or start from the text?" about matching nobody had done. A draft exists
+   * from the first edit here (mgCapture), or because one was resumed. */
+  if (!MG.edited && !MG.resumed) return;
   clearTimeout(mgDraftTimer);
   mgDraftTimer = setTimeout(async () => {
     if (!MG) return;
@@ -10068,6 +10139,7 @@ const mgSnap = () => ({
 function mgCapture() {
   if (!MG) return;
   MG.holdDraft = false;   // an edit: the user is working from the text now, and autosave resumes (v718)
+  MG.edited = true;       // …and there is work to keep (mgSaveDraft)
   mgUndoStack.push(mgSnap());
   if (mgUndoStack.length > MG_UNDO_MAX) mgUndoStack.shift();
   mgRedoStack = [];                    // a new edit forks the future, as everywhere else
@@ -10251,7 +10323,7 @@ function mgJoinSpan(id) {
    * cur's, so a guessed INNER boundary disappears with the boundary and a guessed OUTER edge stays
    * one — an estimate joined to a measurement is still an estimate where it was guessed, and a real
    * edge is not made a guess by joining. A "no audio" piece joined to a real one keeps the real time. */
-  const { start, end, timePending, timeEstimated, guess, estSource, phAt, noRoom, ...rest } = prev;
+  const { start, end, timePending, timeEstimated, guess, estSource, phAt, noRoom, fileTimes, ...rest } = prev;   // a join re-times: no file hold survives it
   const merged = mergeSpanPair(prev, cur);
   if (merged.timePending) Object.assign(merged, { start: 0, end: 0 });   // a "no audio" row keeps the matcher's shape
   MG.spans.splice(i - 1, 2, { ...rest, ...merged, id: prev.id + '+' });
@@ -10542,8 +10614,10 @@ async function mgCommit() {
    * session written there would have been silently discarded: the toast said "saved", the record
    * grew a field, and the document's alignment was exactly as it had been. */
   rec.doc.segments = withGuesses(lines.map((l, i) => {
+    /* A row that held the file's own times and still has none of its own gives them back (v718 review,
+     * P4); the export writes them only while its line's phrase still carries exactly them. */
     const sp = MG.spans[i];
-    if (!sp || sp.timePending) return { start: 0, end: 0, timePending: true };
+    if (!sp || sp.timePending) return { start: 0, end: 0, timePending: true, ...(sp && Array.isArray(sp.fileTimes) ? { fileTimes: sp.fileTimes.slice(0, 2) } : {}) };
     // An estimated time stays labelled as one all the way through: exports and the archive care
     // whether a boundary was measured or guessed, and the matcher is not what turns one into the other.
     // Per EDGE since v717: `guess` rides, and withGuesses re-derives the flag from it.
@@ -10596,7 +10670,12 @@ async function mgCommit() {
   // Closed during the send (above): its exit already ran. A draft left behind equals what was just
   // committed — reopening merely resumes it; clearing it now could race the delete and put it back.
   if (!MG || MG.docId !== id) return;
-  await mgClearDraft(MG.docId);        // committed: the draft has served its purpose
+  /* ⚠ NOT A DRAFT THAT WAS SET ASIDE (v718 review). "Start from the text" (or Escape) on a changed text
+   * holds the old draft untouched until the first edit here — and a Done with no edit is exactly the
+   * case where nothing replaced it. Clearing it then deleted the user's unfinished matching for good,
+   * with nothing stored in its place, though the dialog had promised that choice lost nothing. It stays,
+   * and the next visit asks again. */
+  if (!MG.holdDraft) await mgClearDraft(MG.docId);   // committed: the draft has served its purpose
   toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
   // Said AFTER the save and separately: what Done added or left without audio is not a failure,
   // but it must not be a surprise either.
@@ -11210,7 +11289,8 @@ async function mgOpen(id) {
      * the first edit here, so looking and leaving loses nothing and asks again next time. A draft with
      * no `baseSig` was saved by an older build and cannot tell; it resumes, as it always did. */
     const stale = !!draft.baseSig && draft.baseSig !== MG.baseSig;
-    const resume = !stale || await confirmDialog(t('mg.draftStale'), { ok: t('mg.draftResume'), cancel: t('mg.draftFromText') });
+    // "Start from the text" is the default (cancelFirst): it loses nothing, and Resume discards edits.
+    const resume = !stale || await confirmDialog(t('mg.draftStale'), { ok: t('mg.draftResume'), cancel: t('mg.draftFromText'), cancelFirst: true });
     if (!MG || MG.docId !== rec.id) return;   // the dialog waits; a remote delete may have closed it (#90)
     if (resume) {
       MG.spans = withGuesses(draft.spans);   // a draft an older build saved: its flags per edge, as mgLoad's
@@ -13178,13 +13258,19 @@ function setup() {
       applyBaselineHint({ classic: baselineShowsTextarea() });   // in strip mode the hint is assembled from several keys, which applyI18n cannot repaint (#92)
       if (RECORD_MODE) { renderRecordView(); renderRecordList(); return; }
       if (CONSENT_MODE) { ccRenderList(); return; }   // a text arriving by assignment joins the list
-      if (SEGMENTER_MODE) { sgRenderList(); return; }
+      if (SEGMENTER_MODE) { sgRenderList(); if (MG) mgDraw(); return; }   // the matcher's rows ("Needs timing") are t() too
       applyHelpResearchVisibility();
       renderDocList();
       // The Settings tab's labels are baked by t() at build time, not by data-i18n attributes, so
       // applyI18n() cannot reach them — rebuild it or it stays in the previous language.
       renderDeviceSetup();
-      if (!$('#view-gloss').hidden) renderGloss();
+      /* ⚠ THE OPEN TAB IS RE-ENTERED, not only the Gloss words re-rendered (v718 review). Every strip
+       * surface builds its rows with t() — Keep, the "needs timing" badge, the tooltips — and the Gloss
+       * tab's line bars are drawn AFTER renderGloss (decorateGlossSegments), so re-rendering the Gloss
+       * words alone took every bar off the screen, and the Baseline and Cut rows stayed in the old
+       * language. switchTab is the path a researcher's push already re-enters a tab by. */
+      const v = currentView();
+      if (current && (v === 'cut' || v === 'baseline' || v === 'gloss')) switchTab(v);
       renderTimingBanner();   // built by t() too
     });
   }

@@ -53,7 +53,15 @@ export function splitPlace(key, tier, value, spec) {
   const p = pendingSplit;
   if (!p.tiers.includes(tier)) {
     // A tier this line does not carry: if nothing else is pending either, there is nothing to hold.
-    if (!Object.keys(p.pos).length) { const plan = splitPlan(p.tiers, p.pos); if (plan.complete) { pendingSplit = null; p.commit(p.pos); return 'done'; } }
+    if (!Object.keys(p.pos).length) {
+      const plan = splitPlan(p.tiers, p.pos);
+      if (plan.complete) { pendingSplit = null; p.commit(p.pos); return 'done'; }
+      /* ⚠ …and nothing is LEFT pending (v718 review). The split opened above for this placement holds no
+       * position at all: kept, it was invisible, cancelled nothing, and the next Undo spent itself
+       * cancelling it (doUndo) — one press that undid nothing, the press after it undoing the edit
+       * before. */
+      pendingSplit = null;
+    }
     return 'ignored';
   }
   if (Object.prototype.hasOwnProperty.call(p.pos, tier) && p.pos[tier] === value) { splitCancel(); return 'cancelled'; }   // the same scissors again: off
@@ -1020,7 +1028,19 @@ export function restyleRows(rows, segs, needs) {
     row.classList.toggle('seg-pending', !isAligned(seg));
     row.classList.toggle('seg-noroom', !isAligned(seg) && !!needs && !!seg.noRoom);
     row.classList.toggle('seg-est', isEstimate(seg) && !ph);
+    dropStaleKeep(row, seg);
   });
+}
+/* A Keep on a line whose time is no longer a guess (v718 review): a drag that placed the line's last
+ * guessed edge made it real, and the button stayed — on the active row, looking live, and doing nothing
+ * when pressed (keepLineTimes refuses a line that is not an estimate). attachKeep decides only when a row
+ * is drawn and a drag redraws none, so the drag's restyle takes it off. */
+function dropStaleKeep(row, seg) {
+  if (!row || (isAligned(seg) && isEstimate(seg))) return;
+  const keep = Array.from(row.children || []).filter((c) => c.classList && c.classList.contains('seg-keep'));
+  if (!keep.length) return;
+  keep.forEach((b) => b.remove());
+  row.classList.remove('has-keep');
 }
 /** The lines the timing report singles out (dense: many words in very little audio). `on` is the
  * researcher's switch (`timingBanner`, app.js timingBannerOn): the red bar, its "!" and its tooltip
@@ -1593,6 +1613,11 @@ function mergeAt(a, b, caretAtJoin) {
   const doc = deps.getDoc();
   if (stripsLocked(a) || stripsLocked(b)) { stripsRefuse(); return; }   // rule A covers joins too
   splitCancel();
+  /* ⚠ ONE UNDO ITEM PER JOIN (v718 review; Seth's rule — one action, one Undo, one Redo). The capture
+   * went with v593's split rework and nobody noticed: the 🔗 button and Backspace/Delete joined lines
+   * with no Undo item at all and left the old Redo standing, so the next Redo silently UN-joined them by
+   * restoring an older state. Taken after the refusals, so a refused join leaves nothing behind. */
+  if (deps.capture) deps.capture();
   const paras = deps.getParagraphs(doc).slice();
   // ⚠ Joined lines get a SPACE between them (Seth): without it "…akhir" + "Mulai…" mashes into one
   // orthographic word — data corruption from the transcriber's point of view. The caret lands
@@ -2115,6 +2140,7 @@ export function retimeRow(row, wave, seg, t) {
   row.classList.toggle('seg-est', isEstimate(seg) && !ph);
   if (!ph) row.classList.remove('seg-spread', 'seg-needs');
   if (isAligned(seg)) row.classList.remove('seg-noroom');
+  dropStaleKeep(row, seg);
   if (wave && t) applyTimeTip(wave, seg, row.classList.contains('seg-check'), t, needs && ph);
 }
 function stripsDrag() {
@@ -2693,8 +2719,11 @@ export async function cutGuessSplits() {
    * divided at real pauses, so the press is the same one press at any length. One undo step still
    * covers the lot. */
   // Already cut by hand? Ask before replacing it. `> 1` rather than a segmentation-state test: one
-  // whole-file span is the seed, i.e. nobody has cut anything yet.
-  if (cutSegs().length > 1 && cutDeps.confirmReplace) {
+  // whole-file span is the seed, i.e. nobody has cut anything yet. ⚠ And a line somebody TIMED (v718
+  // review): lines with no time at all, drawn in their gap, are nobody's cuts — guessMode sends such a
+  // text here for exactly that reason, and asking "replace all of those cuts?" about them was a question
+  // with no true answer.
+  if (cutSegs().length > 1 && cutSegs().some(isPlaced) && cutDeps.confirmReplace) {
     if (!await cutDeps.confirmReplace()) return;
     /* ⚠ THE DOC MAY HAVE MOVED WHILE THE DIALOG WAS OPEN. A native confirm() froze the whole thread,
      * so "asked" and "acted" were one instant; an in-app dialog does not. The dialog owns the

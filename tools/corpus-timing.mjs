@@ -28,7 +28,10 @@
  *              write nothing but a one-line text's whole-file span (D7), and export exactly what the
  *              open without audio exports — no offsets. With --baseline, the older engine's stored
  *              seed is also handed to this one (on a device decoding 70 ms longer) and must come back
- *              untimed: `untimed.v714Seeds.missed` 0, nothing exported as times.
+ *              untimed: `untimed.v714Seeds.missed` 0, nothing exported as times — and so must the same
+ *              seed after one v714 correction each (a drag, a cut, a join, a clamp — made with the
+ *              baseline's own functions): `v714Seeds.corrected` missed, placedLost and both export
+ *              counts 0, only the corrected lines keeping a time (v718 review).
  * --expect     { "<path>": "a"|"b"|"d"|"e-full"|"e-partial"|"f" } from the planning audit; the
  *              classes found here are checked against it file by file.
  *
@@ -199,7 +202,8 @@ const T = {
   untimed: V718 ? { partlyTexts: 0, placeholders: 0, noRoom: 0, storedPlaceholders: 0,
     openedWithAudio: 0, spread: 0, noRoomTexts: 0, oneLine: 0, quietWrites: 0, exportedWithOffsets: 0,
     infoBanner: 0, lineMarks: 0,
-    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0, exportedUnopened: 0 } : null,
+    v714Seeds: OLD ? { files: 0, lines: 0, missed: 0, exportedWithOffsets: 0, exportedUnopened: 0,
+      corrected: { files: 0, texts: 0, lines: 0, missed: 0, placedLost: 0, exportWrong: 0, unopenedWrong: 0, short: 0 } } : null,
     partly: { files: 0, lines: 0, placeholders: 0, noRoom: 0, amber: 0, info: 0, placedChanged: 0,
       edgesChanged: 0, outsideRoom: 0, storedTimes: 0, exportedTimes: 0, exportChanged: 0, writes: 0,
       levelWrong: 0, opensDiffer: 0, rerenderChanges: 0 } } : null,
@@ -411,6 +415,48 @@ for (const path of files) {
         S7.missed += missed;
         if (missed) flag('a v714 seed not recognised', rel);
         if (OFFSET.test(NEW.exportXml(stored))) { S7.exportedWithOffsets++; flag('a v714 seed exported as times', rel); }
+        /* …and the same seed after the corrections v714 itself offered (v718 review): one seam dragged, a ✂
+         * at the playhead, a join, the last end clamped to a decode 70 ms short — made with the BASELINE's
+         * own functions, so the shapes are exactly the ones it stored (a flag deleted from the line after a
+         * placed seam, kept on everything else). Only the drag's two lines and the cut's two pieces may keep
+         * a time; every other seed line must come back untimed, opened or not. Flag-only seeds (v714–v716)
+         * only: v717's per-edge seed is recognised whole, by design. A two-line text has no seed line left
+         * to recognise but the corrected ones (`short`). */
+        const seed = JSON.parse(JSON.stringify(So.doc));
+        const flagOnly = seed.segments.every((x) => !Array.isArray(x.guess)) && seed.segments.some((x) => x.timeEstimated);
+        const n = seed.segments.length, O = OLD.SEG;
+        if (flagOnly && n < 3) S7.corrected.short++;
+        if (flagOnly && n >= 3 && O.moveBoundary && O.boundaryAtPlayhead && O.mergeSegments) {
+          const C = S7.corrected;
+          C.files++;
+          const lines = NEW.ft.getBaselineParagraphs(seed);
+          const i = Math.floor(n / 2) - 1, a = seed.segments[i], b = seed.segments[i + 1];
+          const dragged = O.moveBoundary(seed.segments, i, a.end + Math.round(0.37 * (b.end - b.start)));
+          const variants = [
+            ['drag', lines, dragged && dragged.ok ? dragged.segments : null, [i, i + 1]],
+            ['cut', [...lines.slice(0, i + 1), '', ...lines.slice(i + 1)], O.boundaryAtPlayhead(seed.segments, i, a.start + Math.round(0.4 * (a.end - a.start))), [i, i + 1]],
+            ['join', [...lines.slice(0, i), lines[i] + ' ' + lines[i + 1], ...lines.slice(i + 2)], O.mergeSegments(seed.segments, i), []],
+            ['clamp', lines, seed.segments.map((x, k) => (k === n - 1 ? { ...x, end: x.end - 70 } : { ...x })), []],
+          ];
+          for (const [kind, ls, segs, keep] of variants) {
+            if (!segs || segs.length !== ls.length) { C.missed++; flag(`corrected seed (${kind}): could not be made`, rel); continue; }
+            const doc = JSON.parse(JSON.stringify(seed));
+            NEW.ft.reconcileBaseline(doc, ls, { flatSegments: true });
+            doc.segments = JSON.parse(JSON.stringify(segs));
+            C.texts++; C.lines += segs.length;
+            const timedIn = (x) => (x.match(/begin-time-offset=/g) || []).length;
+            if (timedIn(NEW.exportXml(JSON.parse(JSON.stringify(doc)))) !== keep.length) {   // straight from the list
+              C.unopenedWrong++; flag(`corrected seed (${kind}) exported unopened with the wrong times`, rel);
+            }
+            NEW.render(doc, AUDIO_MS + 70);
+            const placed = doc.segments.map((x, k) => (isPlaced(x) ? k : -1)).filter((k) => k >= 0);
+            const extra = placed.filter((k) => !keep.includes(k)).length, lost = keep.filter((k) => !placed.includes(k)).length;
+            C.missed += extra; C.placedLost += lost;
+            if (extra) flag(`corrected seed (${kind}): a seed line not recognised`, rel);
+            if (lost) flag(`corrected seed (${kind}): the user's own time dropped`, rel);
+            if (timedIn(NEW.exportXml(doc)) !== keep.length) { C.exportWrong++; flag(`corrected seed (${kind}) exported with the wrong times`, rel); }
+          }
+        }
       }
     }
     // An untimed text opened with audio carries the v714 seed in v717: the PI line is the only change.

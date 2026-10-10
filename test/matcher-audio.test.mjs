@@ -219,8 +219,8 @@ const commit = asyncFn(app, 'mgCommit');
 ok(!!commit, 'mgCommit exists');
 ok(/const sp = MG\.spans\[i\];/.test(commit) && /const out = \{ start: sp\.start, end: sp\.end \};/.test(commit),
    'row i\'s line takes row i\'s span, exactly — one piece of audio per line, by position');
-ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
-   'a row with no real audio is written timePending');
+ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, \.\.\.\(sp && Array\.isArray\(sp\.fileTimes\))/.test(commit),
+   'a row with no real audio is written timePending (holding the file\'s own times, if it had them — v718 review, P4)');
 ok(/if \(Array\.isArray\(sp\.guess\)\) \{ out\.guess = sp\.guess\.slice\(0, 2\);/.test(commit) && /else if \(sp\.timeEstimated\) out\.timeEstimated = true;/.test(commit),
    'an estimated boundary is written back as estimated, not promoted to a measurement — per EDGE since v717 (guess rides; withGuesses re-derives the flag)');
 ok(/rec\.doc\.paragraphs = lines\.map/.test(commit) && /rec\.doc\.segments = withGuesses\(lines\.map/.test(commit),
@@ -295,7 +295,7 @@ console.log('\nPAIRING IS THE ROW NUMBER — nothing is picked, nothing is linke
      'audio past the last line gets a blank line each at the end — no piece is dropped for want of words');
   ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(isPlaced\(s\) \? i \+ 1 : m\), 0\)/.test(commit),
      'up to the last piece of REAL audio — a trailing "no audio" row earns no blank line, nor (v718) a row shown in its gap');
-  ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true \}/.test(commit),
+  ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, )/.test(commit),
      'a line past the last piece of audio is written timePending — the engine\'s own word for it');
   ok(/blankAdded/.test(commit) && /mg\.committedLeftover/.test(commit),
      'both are REPORTED after the save — padded is fine, padded silently is not');

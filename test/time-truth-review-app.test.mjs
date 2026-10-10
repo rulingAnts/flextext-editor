@@ -174,7 +174,7 @@ test('the Segmenter reads an older build\'s estimates per edge before its verbs 
   delete doc.timeEdges;
   const rec = { id: 'm', doc };
   const load = new Function('SEG', 'ft', 'rec', 'lineHasOffsets', `
-    const { withGuesses, seedsToPending, storableSegments, isAligned } = SEG; const { readLegacyEstimates } = ft;
+    const { withGuesses, seedsToPending, storableSegments, isAligned, edgeGuessed } = SEG; const { readLegacyEstimates } = ft;
     let MG = null;
     const docSegments = (d) => (d && Array.isArray(d.segments) ? d.segments : []);
     const readBackOnOpen = (r) => readLegacyEstimates(r.doc);

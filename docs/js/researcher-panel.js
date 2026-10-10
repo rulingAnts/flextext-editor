@@ -1484,6 +1484,7 @@ const RELEASES = [
     { k: 'panel.rel.new.untimedLines' },
     { k: 'panel.rel.new.keepTimes' },
     { k: 'panel.rel.fix.segmenterUntimed' },
+    { k: 'panel.rel.fix.joinUndoGlossCut' },
   ] },
   { v: 'v717', date: '2026-10-10', items: [
     { k: 'panel.rel.new.timeEstimates' },

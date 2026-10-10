@@ -729,9 +729,15 @@ export function storableSegments(segments, opts = {}) {
       o.timePending = true;
       return o;
     }
-    if (!('phAt' in s) && !('noRoom' in s)) return s;
+    const spread = s.estSource === 'spread';
+    if (!('phAt' in s) && !('noRoom' in s) && !spread) return s;
     const o = { ...s };
     delete o.phAt; delete o.noRoom;
+    /* ⚠ 'spread' IS THIS BUILD'S OWN WORD (v718 review). A placeholder somebody placed one edge of is an
+     * estimate whose other edge is the spread's interpolation — stored as 'edit', the source every build
+     * since v717 knows (its tooltip already names "an even spread"), so a rollback to v717 never shows a
+     * raw key ("seg.estTip.spread") on a line this build stored. In memory it keeps its own tooltip. */
+    if (spread) o.estSource = 'edit';
     return o;
   });
 }
@@ -740,9 +746,10 @@ export function storableSegments(segments, opts = {}) {
  * with its recording as an even spread of estimates: guesses that every later export then wrote out as
  * times (E78 was made that way). They are turned back into what they always were, lines with no time,
  * and spreadUntimed draws them again as placeholders that nothing stores or exports.
- * A seed span is an estimate whose length is within 2 ms of `step` and whose start is within 2 ms of
- * k × step. `step` comes from the spans' own mean length, never from this device's decoded length:
- * decoders disagree by tens of milliseconds, and a ±70 ms difference must not hide a seed (BM6). */
+ * An UNTOUCHED seed span is an estimate whose length is within 2 ms of `step` and whose start is within
+ * 2 ms of k × step. `step` comes from the spans themselves, never from this device's decoded length:
+ * decoders disagree by tens of milliseconds, and a ±70 ms difference must not hide a seed (BM6). A seed
+ * somebody had begun correcting in v714–v716 is recognised by v714SeedLines, below. */
 export function isV714Seed(span, k, step) {
   if (!isEstimate(span) || isPlaceholder(span) || !(step > 0) || !Number.isInteger(k) || k < 0) return false;
   return Math.abs((span.end - span.start) - step) <= 2 && Math.abs(span.start - k * step) <= 2;
@@ -752,9 +759,9 @@ export function isV714Seed(span, k, step) {
  * even spread (E78) is that file's own estimate, kept and exported as one (D5).
  *
  * ⚠ TWO WRITERS LEFT SEEDS, AND ONLY ONE OF THEM CAN BE TOLD APART LINE BY LINE.
- *   · v714–v716 stored a bare flag (read back as estSource 'legacy'). Those are recognised span by span:
- *     `step` is their mean length, which a drag between two seed lines leaves exactly where it was, and
- *     k the grid point nearest each start, so a line inserted since does not shift every seed after it.
+ *   · v714–v716 stored a bare flag (read back as estSource 'legacy'). Those are recognised span by span,
+ *     on the seed's GRID (v714SeedLines below) — including the seeds a user had begun correcting in
+ *     those builds, which is the common case: dragging a seam is how a seed was meant to be fixed.
  *     Two hits at least — a seed is never one line (D7's whole-file span is real).
  *   · v717 stored the spread per edge, exactly as this model writes a word-fraction split — the same
  *     guesses, the same source. A split of a real line into equal pieces must stay an estimate and be
@@ -768,12 +775,8 @@ export function seedsToPending(segments, hasOffsets = () => false) {
   segs.forEach((s, i) => { if (isEstimate(s) && !isPlaceholder(s) && !hasOffsets(i)) cand.push(i); });
   if (cand.length < 2) return segs.map(copySpan);
   const legacy = cand.filter((i) => segs[i].estSource === 'legacy' || flagOnly(segs[i]));
-  let hit = new Set();
-  if (legacy.length >= 2) {
-    const step = legacy.reduce((a, i) => a + (segs[i].end - segs[i].start), 0) / legacy.length;
-    hit = new Set(legacy.filter((i) => isV714Seed(segs[i], Math.round(segs[i].start / step), step)));
-    if (hit.size < 2) hit = new Set();
-  }
+  let hit = legacy.length >= 2 ? v714SeedLines(segs, legacy) : new Set();
+  if (hit.size < 2) hit = new Set();
   if (!hit.size && cand.length === n) {
     const D = segs[n - 1].end;
     const even = segs.every((s, k) => Math.abs(s.start - Math.round((k * D) / n)) <= 2 && Math.abs(s.end - Math.round(((k + 1) * D) / n)) <= 2);
@@ -781,6 +784,80 @@ export function seedsToPending(segments, hasOffsets = () => false) {
   }
   if (!hit.size) return segs.map(copySpan);
   return segs.map((s, i) => (hit.has(i) ? { ...withoutTime(s), timePending: true } : copySpan(s)));
+}
+
+/* WHICH OF A v714–v716 TEXT'S FLAGGED LINES ARE ITS SEED (v718 review). v714 laid an untimed text down
+ * as [round(kD/N), round((k+1)D/N)], every line flagged — and then let the user correct it, and its own
+ * corrections reshaped the flagged lines without saying so:
+ *   · a seam drag kept the flag on the line before the seam, at a new length, and deleted it from the
+ *     line after (which is the user's from that seam on);
+ *   · a ✂ at the playhead kept the flag on the first piece only; a word-fraction split or a nudged cut
+ *     flagged both pieces; a join kept the flag on the joined line;
+ *   · a device that decoded shorter clamped the last line's end, and saved it.
+ * The first version of this took the grid's step from the MEAN length of the flagged lines and checked
+ * each start against k × step — so one dragged line skewed the mean, the error grew with k, and a text
+ * with a single correction was recognised nowhere: every seed line went on to FLEx as a time (the v718
+ * review measured 0 of 19). So:
+ *   1. THE STEP COMES FROM THE UNTOUCHED LINES ONLY — the biggest cluster of flagged lengths within 1 ms
+ *      of each other (a seed's lengths are the floor and ceiling of D/N; an edited line is the odd one
+ *      out) — refined by least squares through the starts of that cluster, so k × step stays within a
+ *      millisecond of the grid at the far end of a long text;
+ *   2. A SEED LINE IS A FLAGGED LINE WITH AN EDGE ON THE GRID AND NO SEAM ANYBODY PLACED. v714 un-flagged
+ *      exactly one line per placement — the line AFTER a seam it moved, or after a cut it made at the
+ *      playhead — so a flagged line meeting an un-flagged one AFTER it was placed at that seam. The
+ *      un-flagged line's own END is still the seed's value (it sits on the grid), so the flagged line
+ *      after THAT is seed again. A seam guessed on both sides (the seed's own, a split nobody placed) is
+ *      nobody's; any other seam is somebody's unless it sits on the seed's grid — which also covers a
+ *      v717 drag between two seed lines (both still estimates, the seam real on both sides). So a joined
+ *      pair of seed lines is seed (two placeholders joined, v718's own rule), both pieces of a split
+ *      nobody placed are seed, the last line after a clamp is seed (its end is the recording's end, a
+ *      fact); the line BEFORE a dragged seam is not — it keeps its estimate, guessed at the start, real
+ *      at the seam, exactly as a drag on a placeholder leaves it today;
+ *   3. THE GRID MUST REACH THE TEXT'S END: v714 seeded [0, D], so the last timed end sits on the grid —
+ *      or within 100 ms of it, where a device clamped it to its own decode (BM6). A real text's last end
+ *      seldom does: one more guard, after the seams, for a real line v714 divided into equal pieces by
+ *      words — those stay estimates and are exported (case 6).
+ * Returns the set of indices; the caller asks for two at least. */
+const SEED_TOL_MS = 2;
+const SEED_END_TOL_MS = 100;
+function v714SeedLines(segs, legacy) {
+  const n = segs.length;
+  const len = (i) => segs[i].end - segs[i].start;
+  let L0 = 0, best = 0;
+  for (const i of legacy) {
+    const c = legacy.filter((j) => Math.abs(len(j) - len(i)) <= 1).length;
+    if (c > best || (c === best && len(i) < L0)) { best = c; L0 = len(i); }
+  }
+  if (best < 2 || !(L0 > 0)) return new Set();
+  const members = legacy.filter((i) => Math.abs(len(i) - L0) <= 1);
+  let step = L0;
+  for (let pass = 0; pass < 2; pass++) {   // k judged by the current step, then the step refitted through 0
+    let sk = 0, kk = 0;
+    for (const i of members) { const k = Math.round(segs[i].start / step); if (k > 0) { sk += k * segs[i].start; kk += k * k; } }
+    if (kk > 0) step = sk / kk;
+  }
+  const off = (v) => Math.abs(v - Math.round(v / step) * step);
+  let lastEnd = -1;
+  for (let i = n - 1; i >= 0; i--) if (isAligned(segs[i])) { lastEnd = segs[i].end; break; }
+  if (!(lastEnd > 0) || off(lastEnd) > SEED_END_TOL_MS) return new Set();
+  const guessedAt = (s, side) => flagOnly(s) || edgeGuessed(s, side);
+  // Did somebody place the seam between line j and line j+1? Not a seam at all where they do not meet.
+  const seamPlaced = (j) => {
+    const a = segs[j], b = segs[j + 1];
+    if (!isAligned(a) || !isAligned(b) || Math.abs(a.end - b.start) > GUESS_TOL_MS) return false;
+    if (isEstimate(a) && !isEstimate(b)) return true;   // v714 un-flagged the line after a placement
+    if (guessedAt(a, 1) && guessedAt(b, 0)) return false;
+    /* An un-flagged line before a flagged one: its end is the seed's value only if v714 made it — by a
+     * placement at its START, which then sits off the grid. One that starts on the grid (the first line,
+     * at 0, among them) was never a seed line: a real line, and its end is real. */
+    if (!isEstimate(a) && (j === 0 || off(a.start) <= SEED_TOL_MS)) return true;
+    return off(b.start) > SEED_TOL_MS;
+  };
+  return new Set(legacy.filter((i) => {
+    const s = segs[i];
+    if (off(s.start) > SEED_TOL_MS && off(s.end) > SEED_TOL_MS) return false;
+    return !(i > 0 && seamPlaced(i - 1)) && !(i < n - 1 && seamPlaced(i));
+  }));
 }
 
 /* ---------------------------------------------------------------------------------------------

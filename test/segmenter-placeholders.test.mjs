@@ -36,7 +36,7 @@ function segmenter(store, extra = {}) {
   const env = { SEG, ft, store, log, storableRecord, lineHasOffsets, extra };
   const api = new Function('env', `
     const { SEG, ft, store, log, storableRecord, lineHasOffsets, extra } = env;
-    const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, spreadUntimed, splitSpanAt, mergeSpanPair } = SEG;
+    const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, isPlaceholder, spreadUntimed, splitSpanAt, mergeSpanPair, edgeGuessed } = SEG;
     const { makeSegment, mergePhrases, readLegacyEstimates } = ft;
     let MG = null, current = null, mgUndoStack = [], mgRedoStack = [], player = null, mgDraftTimer = 0;
     const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -139,7 +139,7 @@ test('split and join in the Segmenter go through the shared helpers, placeholder
   assert.match(split, /splitSpanAt\(sp, at, \{ real: inside, keepPlaceholder: true \}\)/, 'the midpoint keeps a placeholder one (case 2)');
   const join = liftAll(APP, ['mgJoinSpan']);
   assert.match(join, /const merged = mergeSpanPair\(prev, cur\);/);
-  assert.match(join, /phAt, noRoom, \.\.\.rest/, 'the display marks are not carried onto the joined row by the spread');
+  assert.match(join, /phAt, noRoom, fileTimes, \.\.\.rest/, 'the display marks are not carried onto the joined row by the spread, nor a file hold (a join re-times)');
   const draw = liftAll(APP, ['mgDraw']);
   assert.match(draw, /MG\.spans = mgSpreadSpans\(MG\.spans, peaksDurationMs\(MG\.docId\)\);/, 'every redraw re-spreads, like every editor render');
   assert.match(draw, /t\('mg\.needsTiming', \{ from: mgFmt\(sp\.start\), to: mgFmt\(sp\.end\) \}\)/, '"Needs timing" replaces "No audio for this line" for a row in its gap');
@@ -155,6 +155,7 @@ test('case 22: a draft of a text that changed since is not resumed silently', as
   // The draft, saved by the Segmenter against the text as it was.
   const s0 = segmenter({ d: storableRecord(base) });
   s0.api.load('d');
+  s0.api.capture();   // an edit: a draft is kept only once there is work in it (v718 review)
   s0.api.MG.spans = [{ id: 'x', start: 0, end: 9000, timePending: false }];
   s0.api.saveDraft();
   await new Promise((r) => setImmediate(r));
@@ -174,7 +175,8 @@ test('case 22: a draft of a text that changed since is not resumed silently', as
   const no = segmenter({ d: changed }, { resume: false });
   await no.api.open('d');
   assert.equal(no.log.confirms.length, 1, 'the user decides');
-  assert.deepEqual(no.log.confirms[0][1], { ok: 'mg.draftResume', cancel: 'mg.draftFromText' }, 'with the two choices named');
+  assert.deepEqual(no.log.confirms[0][1], { ok: 'mg.draftResume', cancel: 'mg.draftFromText', cancelFirst: true },
+    'with the two choices named, and the one that loses nothing the default (v718 review)');
   assert.ok(!no.api.MG.resumed, '"Start from the text": the matcher starts from the text as it is now');
   assert.deepEqual(times(no.api.MG.spans), [[0, 4000], [4000, 9000]]);
   assert.ok(no.api.MG.holdDraft, 'and the old draft is set aside, not overwritten…');

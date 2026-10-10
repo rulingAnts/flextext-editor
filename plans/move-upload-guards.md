@@ -10,7 +10,8 @@ G1's handling of untouched deliveries (panel) must ship in the same release — 
 
 The first version of this document was reviewed twice before anything was built (a verdict and an
 adversarial pass). Their findings are folded in below, and §6 lists every case they raised with
-what was done about it.
+what was done about it. The BUILT branch was then reviewed twice more; §12 lists every defect those
+reviews confirmed and its fix (all fixed on this branch, each with a test that failed first).
 
 ## Why
 
@@ -62,6 +63,7 @@ the device's own report, the file's actual contents, or the docId.
 | G4 panel half | `researcher-panel.js`: row `disp` / `DISP` (`asDelivered`, `awaitingTranscript` chips) | `test/move-copy-choice.test.mjs` |
 | G4 device | `app.js`: `docHasFree`, `deliveredContentSig`, `backupSkipReason`, stamps in `openUrlTask` and `tryDownloadFlextext`, `autoBackupSweep`, `syncGatherInventory` | `test/backup-skip-untouched.test.mjs` |
 | G5 device | `app.js`: `uploadDocById` (check + `sha256` + `rebuilds`), `bytesSha256`, `isQueuedText`, `verifyQueuedText`, `rebuildOrHoldQueued`, `pumpUploads`, `retryPendingUploads`, completion stamp `uploadedSha256`, `syncGatherInventory`; `upload.js`: `DriveUpload.emit` (`sha256`) | `test/upload-queue-integrity.test.mjs` |
+| §12 review fixes | `flextext.js`: `checkFlextextBytes` (`hollow`), `flextextStats` (`partial`, `morphs`, `litChars`, `notes`, `forbidden`), `serializeFlextext` (drops XML-forbidden characters); `researcher-panel.js`: `statsHoldMore`, `deviceCopyVerdict`, `deviceBackupCheck`, `releaseHeld`, `refuseRemoval`, `startCopyCheck`, the `[del-text]` handler, the move sweep, the marker sweep, the History row; `app.js`: `releaseAfterUpload`, `retryPendingUploads(opts)`, `renderUploadQueue`, `doUpload` | `test/copy-damage-kinds.test.mjs`, `test/move-copy-gaps.test.mjs`, `test/move-release-held.test.mjs`, `test/after-move-flag.test.mjs`, `test/upload-tray-honest.test.mjs` |
 
 Existing pins updated, each with the reason in place: `files-modal-and-move-gate` (the commit sends
 the chosen copy, not `src.picks.flextext`), `move-text-without-audio` (the `_holds` refusal; adopt
@@ -75,37 +77,51 @@ QUEUED, not once TAKEN), `files-menu-manifest` (the review row, and its in-fligh
 
 Pure, exported, already imported by both `app.js` and `researcher-panel.js`.
 
-- **`checkFlextextBytes` is structural, never a parse**, and it is the only check a DEVICE runs:
-  `empty` · `nul` · `root` (not a `<document>` after an optional BOM, prolog and comments) ·
-  `noText` (no `<interlinear-text>`) · `truncated` (no closing `</document>`). The serializer's
-  `esc()` escapes only `& < > "`, so a control character pasted from a word processor is written
-  raw and a real XML parser rejects the file; a strict device check would refuse the only backup of
-  such a text for ever. Every reason above describes a file that holds nothing usable. No size
-  floor: an empty text serializes to ~475 bytes and the damaged file was 489.
-- **`flextextStats`** returns `ok`, `reason`, `damaged` (= `checkFlextextBytes` failed), `guid`, and
-  the counts `phrases`, `timed` (begin offset present and NOT an estimate — the serializer marks
-  estimates with `~` in the note), `textLines`, `words`, `glossed`, `freeLines`, `chars`
-  (non-whitespace baseline characters), `freeChars` (non-whitespace free-translation characters).
-  XML-forbidden characters are blanked before parsing, so the panel still counts such a text.
-  `reason: 'parse'` with `damaged: false` means "this parser could not read it" — unknown, not bad.
+- **`checkFlextextBytes` is structural, never a parse**, and it is the only check a DEVICE runs.
+  Two kinds of failure (§12): **hollow** (`hollow: true` — holds nothing usable): `empty` · `nul`
+  (more than half the bytes NUL) · `root` (not a `<document>` after an optional BOM, prolog and
+  comments) · `noText` (no `<interlinear-text>`) · `truncated` before the first `<phrase>`; and
+  **partial** (`hollow: false` — damaged but may hold work): `truncated` after real lines ·
+  `nulSome` (whole apart from a stray NUL). A strict device check would refuse the only backup of a
+  text for ever over one awkward character, so no reason is a parse. No size floor: an empty text
+  serializes to ~475 bytes and the damaged file was 489.
+- **The serializer no longer writes a character XML forbids** (§12): `esc()` escapes only
+  `& < > "`, so a control character pasted from a word processor used to be written raw — and then
+  no XML reader could open the file (FLEx, or the device a move sent it to). XML 1.0 cannot carry
+  them at all; a vertical tab or form feed becomes a space, anything else is dropped. Only the FILE
+  changes; the text on the device keeps what was typed.
+- **`flextextStats`** returns `ok`, `reason`, `damaged` (= HOLLOW), `partial`, `guid`, and the counts
+  `phrases`, `timed` (begin offset present and NOT an estimate — the serializer marks estimates with
+  `~` in the note), `textLines`, `words`, `glossed`, `freeLines`, `chars` (non-whitespace baseline
+  characters), `freeChars` (non-whitespace free-translation characters), and since §12 `morphs`
+  (FLEx morpheme analyses), `litChars` (literal translation), `notes` (a person's notes — not the
+  app's `audio …` timing note) and `forbidden` (XML-forbidden characters an older engine wrote raw).
+  Those are blanked before parsing, so the panel still counts such a text — but `forbidden > 0`
+  means a DEVICE cannot open it. `reason: 'parse'` with `damaged: false` means "this parser could not
+  read it" — unknown, not bad.
 
 ### 2.2 Two sets of measures (F1)
 
-- `STAT_ALL` (every count) decides what **cleanup** may trash. A false keep costs Drive space only.
-- `STAT_CONTENT` = `words`, `glossed`, `chars`, `freeChars` decides when a **move** stops to ask.
+- `STAT_ALL` (every count, `morphs`/`litChars`/`notes` included) decides what **cleanup** may trash.
+  A false keep costs Drive space only.
+- `STAT_CONTENT` = `words`, `glossed`, `chars`, `freeChars`, `morphs`, `litChars` decides when a
+  **move** stops to ask.
   A join turns two lines into one (and two free translations into one, joined with a space), so the
   pre-join copy has more `phrases`, `textLines` and `freeLines`. Content measures survive joins and
   splits unchanged, so ordinary editing never makes an older copy look "richer" to a move.
 - `statsDominate(a, b, keys)`: `a ≥ b` in every key. `statsRicher`: dominates and `>` in one.
-- `statsHaveContent(s)`: any words, characters, free-translation characters, glosses or timed
-  (non-estimated) spans. An untouched placeholder has none.
+- `statsHaveContent(s)`: any words, characters, free-translation characters, glosses, timed
+  (non-estimated) spans, morphemes, literal translation or notes. An untouched placeholder has none.
+- `statsHoldMore(a, ref)` (§12, the after-move flag): `a` has more of a content measure than `ref`,
+  or has cut lines (more than one span) where `ref` has no timings at all.
 - ⚠ Still a COUNT comparison: equal counts with different wording compare as equal. The UI says
   "no more lines, words, glosses or timings than", never "contains".
 
 ### 2.3 `copyStats(files, { need, onProgress, signal, via })` — panel
 
 Fetches `.flextext` copies through `Researcher.fetchDriveFile` and returns
-`Map(id → { state: 'ok'|'damaged'|'unreadable'|'unchecked'|'missing', stats, why })`.
+`Map(id → { state: 'ok'|'damaged'|'unreadable'|'unchecked'|'missing', stats, why })` — `damaged` is
+HOLLOW only; a partial copy is `unreadable` with `stats.partial` (kept by cleanup, never sent).
 Deduplicated by Drive's `sha256` (identical backups fetched once), cached for the session by
 content hash, two at a time, cancellable. **`need` (the copy that will actually be sent) is fetched
 whatever its size**; the rest are capped (12 distinct copies, 8 MB each, 24 MB in all) and reported
@@ -146,9 +162,10 @@ consent record or manifest can ever be a row). Precedence, first match wins:
    (trashing it makes the device believe in a backup Drive no longer shows);
 2. a copy a delivery used (`assigned` history `fileId`, an in-flight move's `sentFileId`) → keep —
    extra protection only; this browser's history is never relied on;
-3. damaged (`empty`/`nul`/`root`/`noText`/`truncated`) → **trash — this beats "newest"**, because
-   the damaged file WAS the newest;
-4. not fetched, unreadable, a zip → keep ("could not be checked");
+3. hollow (`empty`/mostly-`nul`/`root`/`noText`/cut off before its first line) → **trash — this
+   beats "newest"**, because the damaged file WAS the newest;
+4. not fetched, unreadable, a zip → keep ("could not be checked"); damaged but partial (cut off
+   after real lines, a stray NUL) → keep, verdict "damaged, but may still hold work" (§12);
 5. the newest readable copy WITH CONTENT → keep (a placeholder that landed last does not hold this
    place over the transcription; if no copy holds content, the newest readable one is kept);
 6. byte-identical (`sha256`) to a kept copy → trash;
@@ -178,7 +195,9 @@ listing, `copyStats`, the `assigned` history `fileId` for this device (F3), and 
 | `asDelivered` or `awaitingTranscript` (G4) | the DELIVERED file (`assigned` event `fileId`) when listed and usable, else the newest readable copy — path `delivered` |
 | `uploaded`, its `uploadedFileId` listed or **found by id** | `send` that file — path `device` |
 | `uploaded`, not listed and the lookup by id says 404 / unreachable | `lastCopyMissing` |
-| `uploaded`, the file is damaged, or the device's `uploadedSha256` ≠ Drive's `sha256` | `damaged` |
+| `uploaded`, the file is damaged (hollow or partial), or the device's `uploadedSha256` ≠ Drive's `sha256` | `damaged` (flavor `damaged`) |
+| `uploaded`, the file is whole but no device can open it (unparsable, or an XML-forbidden character) | `damaged` (flavor `unopenable`, its own sentence) |
+| `uploaded`, the device's own copy could not be fetched | `lastCopyMissing` ("could not be reached just now") |
 | `changed` | `needsUpload` (flavor `changed`) |
 | `local` (not delivered) or no state | `needsUpload` (flavor `local` — its own sentence: "has never sent this text to Google Drive; if it was changed there, those changes would not move") |
 | `uploading` | `wait` |
@@ -195,24 +214,46 @@ or another writer). An OLDER same-text copy that is content-richer (glosses clea
 deleted) is a **note** on the device path, never a question and never what is sent: the device's
 own current state is what moves.
 
-A damaged copy is never sent or offered. An unchecked copy (zip, unreadable, fetch failed) is sent
-only when it is the device's own copy or the only one, and the modal says it could not be checked.
+Since §12 it also asks when (e) the copy to send has no timings and another copy has cut lines (a
+device switched to the basic editor uploads copies without them — the pick says so and how to keep
+them), and (f) a copy nobody could READ may hold more: with no device to trust, when the copy to send
+holds nothing or the unread copy is a bigger `.flextext`; on the device path, for an unread copy
+newer than the device's own. A device copy found by its id (not listed) is on the pick list.
+
+**Only a copy a device can open is sent or offered** (§12): never a damaged, partial, unparsable or
+forbidden-character copy. An unread copy (a zip, past the caps, a fetch that failed) may be sent only
+when it is the device's own (a zip — a failed fetch of the device's own copy is `lastCopyMissing`)
+or nothing better exists, and the modal says it could not be checked. "The copy {device} received"
+is said only when the chosen copy IS the delivered one, and as this browser's record.
 
 ### 5.2 The modal
 
 - The gate (`moveSources`) still runs before the picker. The copy check then runs **inside the open
   modal** with "Checking the copies in Drive… (i of n)" and is cancelled when the modal closes, so a
-  slow link shows progress instead of a frozen button; Unassigned never waits for it.
+  slow link shows progress instead of a frozen button; Unassigned never waits for it — it checks
+  only the source's own copy, at Go (`deviceBackupCheck`, §12).
 - A `send` shows **"Will send: {name} · {when} · lines with text: … · words: … · timed: …"** and
   where it comes from — "{device}'s current copy, as it last reported {ago}" (the report's AGE, so a
   days-old report reads as one), "the copy {device} received, unchanged there", or "the newest
   readable copy in Drive".
 - Every refusal that has a usable copy in Drive offers **"Move the copy already in Drive instead…"**
   — `needsUpload`, `wait` (a stuck queue must not block a move for days), `lastCopyMissing` and
-  `damaged` alike. It expands to the candidate list (no preselection) and, when there is a source
-  device, says what is left behind: "Changes made on {device} that are not in Google Drive will NOT
-  go to the new device. When {device} next connects, it sends them to Google Drive and removes the
-  text from {device}." (accurate without G1c).
+  `damaged` alike. It expands to the candidate list (no preselection) and says what happens to the
+  source's own copy, which DEPENDS ON WHY THE MOVE STOPPED (§12):
+  - `needsUpload`: "Changes made on {device} that are not in Google Drive will NOT go to the new
+    device. When {device} next connects, it sends them to Google Drive and removes the text" — true:
+    its release uploads before it deletes.
+  - `damaged` / `lastCopyMissing`: that device believes it is backed up, and its release would delete
+    the text WITHOUT sending anything. So the commit first sends `triggerUpload` (before anything
+    moves), and the move record carries **`holdFor`** — the upload id the source reported. Every
+    panel's sweep holds the release (`releaseHeld`) until the source reports a different upload id
+    (or no longer reports the text); the source row reads "moving — waiting for this device to send
+    its copy", and the existing "cancel removal" stays the way out.
+  - `wait`: the same hold, with nothing to ask (a release would delete the queued copy with the text).
+- A **send** offers "Choose a different copy…" too (§12): a researcher who sees "words: 0" had no way
+  to choose another copy in the modal. The source's own copy stays in Drive either way.
+- A copy check that FAILS shows "Try again" and Go says the check failed (it said "still checking"
+  for ever); a failed folder listing says so instead of "Download failed".
 - `needsUpload` / `lastCopyMissing` / `damaged` also offer **"Ask {device} to send its copy"** — the
   row's own `triggerUpload` with a `pendingCmds` marker `{ kind: 'upload', prevFileId }`, retired by
   the existing outcome sweep. The researcher then chooses Move again (no automatic continue, §8.4).
@@ -239,12 +280,14 @@ only when it is the device's own copy or the only one, and the modal says it cou
 ### 5.4 After the move — the flag that replaces G1c (Q1)
 
 `flagNewerAfterMove(docId, mv)` runs once when a move finishes (the sweep's `removing → done`): one
-listing; a `.flextext` that landed after the move started, is not the copy that was sent, has
-different bytes, and is not a backup the destination itself reports, means the source sent newer
-work into Drive on its way out (offline edits, a stale report, the Drive-copy escape hatch). The
-researcher gets one toast — "A newer copy of '{title}' reached Google Drive from {from} after the
-move. {to} has the copy from {when}. Compare them under Files." — and a History `submitted` row
-marked "· after the text had been moved away". Nothing is changed or held.
+listing, and a comparison of what the copies HOLD (§12 — the first build compared bytes, and so fired
+on every untouched delivery's release re-upload and on the destination's own earlier backups). The
+reference is what the new device has now: its own latest backup when it has made one, else the copy
+it was sent. A `.flextext` that landed after the move started, is none of those, and holds MORE than
+the reference (`statsHoldMore`) gets one toast — "A copy of '{title}' holding more than {to}'s copy
+reached Google Drive after the move ({when}). Compare them under Files." — and a History `submitted`
+row routed through the new device (for its Files ▾), with NO device name: Drive does not say who
+uploaded a file, so the panel names nobody. Nothing is changed or held.
 
 ## 6. Every case the reviews raised, and what was done
 
@@ -283,18 +326,28 @@ marked "· after the text had been moved away". Nothing is changed or held.
 ## 7. G5 — a queued copy is checked before it leaves (finding 5)
 
 - **Queue time** (`uploadDocById`): a fresh Lane B build is checked with `checkFlextextBytes` and its
-  SHA-256 stored in the record with `rebuilds`. A build that fails is not queued: an explicit send
-  toasts `upload.buildFailed`; the automatic sweep (`{ auto: true }`) stays silent.
+  SHA-256 stored in the record with `rebuilds`. A build that fails is not queued — except over
+  `nulSome`, which can only come from the text itself and used to refuse that text's every backup for
+  ever (§12). An explicit send toasts `upload.buildFailed` (and `doUpload` no longer overwrites that
+  with "Added to the upload queue"); the automatic sweep (`{ auto: true }`) and a researcher's remote
+  request (`{ quiet: true }`) stay silent on the coworker's screen.
 - **Send time** (`pumpUploads`, Lane B `.flextext` only — `isQueuedText`): `verifyQueuedText` reads
   the record once, checks size against `total`, structure, and the stored hash (an older engine's
-  record has no hash and gets the structural check), and **sends an in-memory copy of exactly the
-  checked bytes**. Above 64 MB only the head is checked and the stored blob is sent as before.
+  record has no hash and gets the structural check; bytes that match the hash are excused a stray
+  NUL), and **sends an in-memory copy of exactly the checked bytes**. Above 64 MB only the head is
+  checked and the stored blob is sent as before.
 - **Failed** (`rebuildOrHoldQueued`): the text exists → rebuilt from what it holds now
   (`uploadDocById` overwrites the record; a half-done chunked session is abandoned), **at most
   twice**; otherwise held, **never `deleteMedia`**. Text present → tray error `upload.damagedHeld`,
   re-read after a six-hour back-off with one more rebuild allowed. Text gone → kept as an orphan and
   left out of the tray (it holds nothing to send and nothing anyone can act on). A held copy no
   longer counts as "still uploading", so it cannot pin the text at `uploading` and block a move.
+  Since §12 the tray BAR names a held copy (`upload.heldDamagedSummary`) even when it is the only
+  item, and "Send now" makes it due at once (`retryPendingUploads({ explicit: true })`).
+- **A removal never takes the fast branch while an upload of the text is queued** (§12,
+  `releaseAfterUpload`): `db.deleteDoc` removes the queued copy with the text, and a queued copy beside
+  an "already backed up" text exists because a fresh one was asked for. The intent waits for the
+  upload-done hook; a copy held as damaged is rebuilt at once.
 - The completion hook stamps `uploadedSha256` (the hash of the bytes sent) together with
   `uploadedFileId`, and the inventory reports it; the move chooser compares it with Drive's
   `sha256Checksum`, which catches damage after the bytes left the device.
@@ -359,6 +412,16 @@ it — `flagNewerAfterMove` lists the folder instead.
 - Lane A header check (first 4 KB all NUL → hold), P1.
 - Report held damaged queue records in the inventory so the panel can show them.
 - Delete an untouched placeholder on release without uploading it (Q2: no, not now).
+- (§12) A device cannot open a copy an older engine wrote with an XML-forbidden character, and the
+  panel will not send one; the remedy is "Ask {device} to send its copy" once it runs this engine
+  (which no longer writes them). A tolerant device parse (blank the characters only when the strict
+  parse fails) would let such Drive copies open too — it needs a capability flag in the inventory,
+  since an older destination would still fail. Not built.
+- (§12) A destination whose delivered `.flextext` fails to parse keeps an empty placeholder with
+  `flextextError` set, and G4 reports it "as delivered". The panel no longer SENDS such a copy; the
+  device does not yet REPORT the failure. Worth an inventory flag.
+- (§12) The EAF writers (`seg-exports.js`) escape text their own way; whether a pasted control
+  character reaches an `.eaf` raw was not checked here.
 
 ## 9. Compatibility, blast radius, deploy
 
@@ -394,3 +457,38 @@ reporting `changed`, `local` and `uploading` (both the ask and the Drive-copy ro
 device copy, a `pick`, a destination that already holds the text, the cleanup review on a folder
 with a placeholder newer than the transcription, "Remove folder" on a moved text's old-device row,
 and a damaged queue record on a paired device (tray state, rebuild, hold, six-hour re-read).
+Added by §12: the way out on a `damaged` device copy (the source is asked to send, the source row
+reads "waiting for this device to send its copy", the release follows the new upload); Move →
+Unassigned and the row's Remove on a device whose copy in Drive is damaged (refused, "Ask … to send"
+works, Remove then goes through); "Choose a different copy…" on a send; a copy check that fails
+(Try again); the held-copy line in a single-item tray and "Send now" rebuilding it; a pasted
+vertical tab (the uploaded copy opens in FLEx); the after-move flag on an untouched delivery (none)
+and on a copy holding more (one, naming no device).
+
+## 12. The review of the built branch (2026-10-10) — every confirmed defect and its fix
+
+Two reviews of the built branch (an adversarial pass with repro scripts that lift the real functions,
+and a verdict). Every defect below was reproduced, then fixed on this branch with a test that failed
+first. No worker or D1 change; no new module.
+
+| # | Defect | Fix | Test |
+|---|---|---|---|
+| 1 | HIGH. "Move the copy already in Drive instead…" on a `damaged` or `lastCopyMissing` device copy: the device believes it is backed up, so the release (`uploadDelete` fast branch) deleted its only good copy; the warning said the opposite. | The way out HOLDS the release: `triggerUpload` first, `holdFor` on the move record, `releaseHeld` in the sweep, per-decision warnings (`useDriveWarnResend` / `useDriveWarnWait`). Device: `releaseAfterUpload` never fast-deletes while an upload of the text is queued. | `move-copy-gaps`, `move-release-held` |
+| 2 | HIGH (pre-existing). Move → Unassigned and the row's Remove sent `uploadDelete` with no look at the device's copy. | `deviceBackupCheck` (stats + hash on `uploadedFileId`) before both; `refuseRemoval` names why and offers "Ask {device} to send its copy". A failed fetch refuses ("try again"), a legacy zip passes as before. | `move-release-held` |
+| 3 | MED-HIGH. Copies the check skipped (cap, zip) were invisible: an adopt sent an empty placeholder over a 9 MB transcription. A send offered no alternative. | Rule (f) asks; unread rows show their size; "Choose a different copy…" on every send. | `move-copy-gaps` |
+| 4 | MED. A copy no device can open (a raw U+000B; an unparsable file) was scored fine or sent "unchecked"; the destination got an empty text. | `flextextStats.forbidden`; only a copy a device can open is sent or offered; device path `damaged`/`unopenable`; the serializer no longer writes XML-forbidden characters, so "Ask to send" is a real remedy. | `move-copy-gaps`, `copy-damage-kinds` |
+| 5 | MED. Cleanup trashed truncated / partly-NUL copies that held real work. | Hollow vs partial (`checkFlextextBytes.hollow`); partial → `keepPartial`. | `copy-damage-kinds` |
+| 6 | MED. The after-move flag fired on every untouched delivery and on the destination's own earlier backups, and wrote rows under the source. | Compares content with the new device's copy (`statsHoldMore`); neutral toast and row. | `after-move-flag` |
+| 7 | LOW-MED. One NUL in a text meant it was never backed up again. | Queue check ignores `nulSome`; send check excuses it when the hash matches; the serializer drops it. | `copy-damage-kinds`, `upload-queue-integrity` |
+| 8 | LOW-MED. Morpheme analyses, literal translations and notes were not counted. | `morphs`, `litChars`, `notes` in the stats and the measure sets. | `copy-damage-kinds` |
+| 9 | LOW-MED. A basic-editor copy (no timings) was sent silently over one with 32 cut lines. | Rule (e): ask, saying how to keep the timings. | `move-copy-gaps` |
+| 10 | LOW. "The copy {device} received" over-claimed; a device copy found by id was not on the pick list; an emptied delivery read "as delivered". | `deliveredUsed` + reworded as this browser's record; candidates include it; `noWork` only for unstamped deliveries. | `move-copy-gaps`, `upload-tray-honest` |
+| 11 | LOW. A held damaged queue copy was invisible in a single-item tray and "Send now" did nothing. | `held` flag; the bar names it; "Send now" makes it due at once. | `upload-tray-honest` |
+| 12 | LOW. "Could not be prepared" was overwritten by "Added to the upload queue". | Toast only when queued. | `upload-tray-honest` |
+| 13 | LOW. A failed copy check left Go saying "still checking" for ever. | `startCopyCheck`: "Try again", Go says the check failed. | `move-release-held` |
+| 14 | Nits. "Uploaded file" link on `assigned` History rows; coworkers toasted for remote requests; a failed listing said "Download failed". | No link on assigned rows; `quiet` uploads; `panel.move.listFailed`. | `upload-tray-honest`, `move-release-held` |
+
+Also from reading the fix: the device's own copy failing to FETCH on the move path is now
+`lastCopyMissing` (it was sent blind, and its release would have deleted without a new upload), and an
+upload marker is retired by the device it was asked of — during a move the text is on two devices.
+

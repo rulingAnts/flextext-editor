@@ -358,6 +358,12 @@ This is the part that has caused real outages when done wrong — read
   nobody has touched; and a queued `.flextext` is checked (structure + SHA-256) before it is sent —
   a damaged copy is rebuilt from the text or held, never deleted. The device check is structural on
   purpose: it must never refuse the only backup of a text over a pasted control character.
+  ⚠ **Nothing lets a device delete its text on the strength of a bad copy in Drive** (the review,
+  §12 of the plan): a device that reports "uploaded" removes the text without sending a new copy, so
+  Remove, Move → Unassigned and a move's release all check that copy first — a move that takes the
+  Drive-copy way out past a damaged device copy holds its release until the device sends again — and
+  the device never takes that fast delete while an upload of the text is queued. Only a copy a
+  device can OPEN is ever sent to one, and the serializer no longer writes characters XML forbids.
 - Security posture: open signup + rate limit + owner approval tiers; escrowed recovery; optional
   TOTP; security log (`worker/src/seclog.js`) with email alerts. See `notes/connectivity-*.md`.
 

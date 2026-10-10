@@ -997,9 +997,31 @@ export function timeStateClass(seg, checked, needs = false) {
   if (!isAligned(seg)) return ' seg-pending' + (needs && seg && seg.noRoom ? ' seg-noroom' : '');
   return (isEstimate(seg) ? ' seg-est' : '') + (checked ? ' seg-check' : '');
 }
-/** Whether this text's untimed lines are exceptions worth marking: some line has a time, and `on` (the
- * researcher's switch, the same one as the red bar's). */
-export function needsMarks(segs, on = true) { return !!on && (segs || []).some(isPlaced); }
+/** Whether this text's untimed lines are exceptions worth marking: some line has a time, the untimed
+ * ones are at most half the text (a text still mostly untimed is one being cut — its untimed lines are
+ * the norm, and sixty amber bars after the first drag would be noise, P6), and `on` (the researcher's
+ * switch, the same one as the red bar's). timingReport's 'partly' is amber on the same rule. */
+export function needsMarks(segs, on = true) {
+  const list = segs || [];
+  const placed = list.filter(isPlaced).length;
+  return !!on && placed > 0 && 2 * (list.length - placed) <= list.length;
+}
+/* AFTER A DRAG, EVERY ROW'S LOOK (v718). A drag re-times two rows in place (retimeRow) and rebuilds
+ * nothing — the Baseline strips hold text boxes a user may be typing in — but it can move the text
+ * across needsMarks' line (half the lines timed), and then every untimed row's look changes. Classes
+ * only; the next full render brings the tooltips along. Exported for the Gloss bars. */
+export function restyleRows(rows, segs, needs) {
+  Array.from(rows || []).forEach((row, k) => {
+    const seg = segs && segs[k];
+    if (!seg) return;
+    const ph = isPlaceholder(seg);
+    row.classList.toggle('seg-spread', ph && !needs);
+    row.classList.toggle('seg-needs', ph && !!needs);
+    row.classList.toggle('seg-pending', !isAligned(seg));
+    row.classList.toggle('seg-noroom', !isAligned(seg) && !!needs && !!seg.noRoom);
+    row.classList.toggle('seg-est', isEstimate(seg) && !ph);
+  });
+}
 /** The lines the timing report singles out (dense: many words in very little audio). `on` is the
  * researcher's switch (`timingBanner`, app.js timingBannerOn): the red bar, its "!" and its tooltip
  * are the banner's marks, so a managed device with the banner off stays plain (D15, v717 review). */
@@ -2098,10 +2120,18 @@ export function retimeRow(row, wave, seg, t) {
 function stripsDrag() {
   if (!stripsDragFn) stripsDragFn = makeBoundaryDrag({
     getSegs: () => docSegments(deps.getDoc()), getPlayer: () => deps.getPlayer(), capture: () => deps.capture && deps.capture(),
-    persist: () => deps.persist(), redraw: stripsRedrawRow, onEnd: () => positionCursor(),
+    persist: () => deps.persist(), redraw: stripsRedrawRow,
+    onEnd: () => { stripsRestyle(); positionCursor(); },
     syncMarks: () => syncOverviewMarks(deps.getPlayer, docSegments(deps.getDoc())),
   });
   return stripsDragFn;
+}
+// v718: the drag may have tipped the text past half its lines timed — see restyleRows.
+function stripsRestyle() {
+  const doc = deps && deps.getDoc();
+  if (!doc) return;
+  const segs = docSegments(doc);
+  restyleRows(deps.container.querySelectorAll('.seg-strip'), segs, needsMarks(segs, !deps.timingMarks || deps.timingMarks()));
 }
 function stripsEdgeCtx(segs) {
   return { allowed: () => !!(deps && deps.allowAdjust && deps.allowAdjust()), count: () => segs.length, segAt: (k) => segs[k], onDrag: stripsDrag(), t: deps.t };

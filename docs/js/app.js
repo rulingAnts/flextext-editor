@@ -27,7 +27,7 @@ import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpa
          peaksDurationMs, guessedBoundaries,
          growArea, applyEnterKeyHint, initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
          stripSplitAtPlayhead, segProgress, armLine, armedRow, timeStateClass, checkedLines, timeTipKey, retimeRow,
-         prepareDisplaySpans, needsMarks, attachKeep, lineHasOffsets } from './segment-strips.js';
+         prepareDisplaySpans, needsMarks, attachKeep, lineHasOffsets, restyleRows } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -643,7 +643,7 @@ function timingItemText(it, total) {
     case 'dense': return t('timing.checkDense', { line: it.first.line + 1, words: it.first.words, secs: timingSecs(it.first.ms) });
     case 'tailShort': return t('timing.checkTail', { secs: timingSecs(it.ms) });
     case 'pastEnd': return t('timing.pastEnd', { secs: timingSecs(it.ms) });
-    case 'partly': return t('timing.partly', { n: it.n, total });
+    case 'partly': return t(it.most ? 'timing.partlyMost' : 'timing.partly', { n: it.n, total });
     case 'noRoom': return t('timing.noRoom', { n: it.n });
     case 'estimated': return t('timing.estimated', { n: it.n, total: it.total });
     // v718: an untimed text is drawn evenly as a placeholder — said once, here, and on no line.
@@ -1593,6 +1593,8 @@ function glossDrag() {
       if (waves[k] && seg) { drawSpanWave(waves[k], seg); retimeRow(waves[k].closest('.gseg-bar'), waves[k], seg, t); }
     },
     syncMarks: () => syncOverviewMarks(() => player, docSegments(current.doc)),
+    // v718: a drag can tip the text past half its lines timed, and every untimed bar's look follows.
+    onEnd: () => { const segs = docSegments(current.doc); restyleRows($('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment .gseg-bar') : [], segs, needsMarks(segs, timingBannerOn())); },
   });
   return glossDragFn;
 }

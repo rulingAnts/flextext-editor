@@ -1240,7 +1240,9 @@ export function splitPlan(tiers, placed) {
  *            'pastEnd'   — the last time is more than 350 ms past the recording's end (`ms`): the
  *                          right recording? (Below that it is decoder spread — T53 is 63 ms over.)
  *   amber    'partly'    — some lines have a time and these (`lines`) do not (v718: shown as placeholders
- *                          in their gap, "needs timing");
+ *                          in their gap, "needs timing"). ⚠ Amber only while they are the EXCEPTION — at
+ *                          most half the lines (P6). A text still mostly untimed is a text being cut, not
+ *                          a damaged one: `most: true` and level info, and no line is marked (needsMarks);
  *            'noRoom'    — of those, these (`lines`) had no room in their gap and stay ⋯ (v718);
  *   estimate 'estimated' — `n` lines are estimates, `bySource` counts them by where the guess came from;
  *   info     'noTimes'   — nothing in the text has a time yet (`spread`: the lines are drawn evenly, as
@@ -1288,9 +1290,12 @@ export function timingReport(spans, texts, opts = {}) {
 
     const untimed = [];
     for (let k = 0; k < n; k++) if (!aligned[k]) untimed.push(k);
-    if (untimed.length) items.push({ kind: 'partly', level: 'amber', n: untimed.length, lines: untimed });
+    if (untimed.length) {
+      const most = 2 * untimed.length > n;
+      items.push({ kind: 'partly', level: most ? 'info' : 'amber', n: untimed.length, lines: untimed, ...(most ? { most: true } : {}) });
+    }
     const cramped = untimed.filter((k) => segs[k] && segs[k].noRoom);
-    if (cramped.length) items.push({ kind: 'noRoom', level: 'amber', n: cramped.length, lines: cramped });
+    if (cramped.length) items.push({ kind: 'noRoom', level: 2 * untimed.length > n ? 'info' : 'amber', n: cramped.length, lines: cramped });
 
     const bySource = {};
     let est = 0;

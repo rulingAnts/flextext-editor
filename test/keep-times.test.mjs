@@ -18,7 +18,7 @@ import * as SEG from '../docs/js/segments.js';
 import { loadFixture, DURATION, ft } from './lib/timing-fixtures.mjs';
 import { liftAll } from './lib/lift.mjs';
 import { storableRecord } from './lib/storable.mjs';
-import { prepareDisplaySpans, makeBoundaryDrag } from '../docs/js/segment-strips.js';
+import { prepareDisplaySpans, makeBoundaryDrag, needsMarks } from '../docs/js/segment-strips.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const APP = rd('../docs/js/app.js'), STRIPS = rd('../docs/js/segment-strips.js'), PANEL = rd('../docs/js/researcher-panel.js');
@@ -196,6 +196,11 @@ test('R6: U60 — 60 rows drawn evenly, one info banner, no amber, no times expo
   const moved = times(doc.segments);
   moved.forEach((t, k) => { if (k !== 4 && k !== 5) assert.ok(Math.abs(t[0] - before[k][0]) <= 1 && Math.abs(t[1] - before[k][1]) <= 1, `line ${k + 1} stays where it was drawn`); });
   assert.deepEqual(times(storableRecord(rec).doc.segments).filter(Boolean), [moved[4], moved[5]], 'storage holds the two placed lines only');
+  // …and the other 58 are still the norm, not the exception: no amber on them, and the banner stays quiet (P6)
+  assert.equal(needsMarks(doc.segments, true), false, '58 of 60 untimed: no line is marked "needs timing"');
+  const after = timingReport(doc.segments, ft.getBaselineParagraphs(doc), { durationMs: DURATION.u60 });
+  assert.deepEqual(after.items.map((i) => [i.kind, i.level, i.n, !!i.most]), [['estimated', 'estimate', 2, false], ['partly', 'info', 58, true]],
+    'the two dragged lines are estimates (their far edges are the spread\'s guess); the rest, quietly, untimed');
   assert.equal(undo.length, 1, 'one Undo item for the drag');
   doc.segments = undo.pop();
   api.draw();

@@ -152,6 +152,11 @@ test('the looks: spread (all untimed), needs timing (partly timed), no room — 
   assert.equal(needsMarks(drawn4(), true), false, 'no line placed: no per-line marks (P6)');
   assert.equal(needsMarks([real(0, 1000), ph], true), true);
   assert.equal(needsMarks([real(0, 1000), ph], false), false, 'the researcher\'s switch turns them off');
+  const mostly = spreadUntimed([real(0, 1000), P, P, P], 9000);
+  assert.equal(needsMarks(mostly, true), false, 'three of four untimed: a text being cut, not an exception — no marks');
+  assert.deepEqual(timingReport(mostly, ['a', 'b', 'c', 'd'], { durationMs: 9000 }).items.map((i) => [i.kind, i.level, !!i.most]), [['partly', 'info', true]],
+    '…and the banner is info, not amber');
+  assert.equal(needsMarks(spreadUntimed([real(0, 1000), real(1000, 2000), P, P], 9000)), true, 'half: marked');
   // a dragged ex-placeholder is an estimate, with the spread's own tooltip
   const r = moveBoundary(drawn4(), 1, 4300).segments;
   assert.equal(timeStateClass(r[1], false, true), ' seg-est');

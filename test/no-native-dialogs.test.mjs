@@ -47,7 +47,7 @@ test('no native dialogs in the engine', () => {
 
   console.log('\nthe replacement is a real modal by the key handler\'s definition');
   {
-    const dlg = (app.match(/function confirmDialog\(message\) \{[\s\S]*?\n\}/) || [''])[0];
+    const dlg = (app.match(/function confirmDialog\(message[^)]*\) \{[\s\S]*?\n\}/) || [''])[0];
     ok(!!dlg, 'confirmDialog exists');
     ok(/wrap\.className = 'modal';/.test(dlg),
        '⚠ it carries class="modal" — the key handler\'s test for "a dialog owns the keyboard"');
@@ -58,7 +58,7 @@ test('no native dialogs in the engine', () => {
 
   console.log('\ncancel is the safe default on every exit path');
   {
-    const dlg = (app.match(/function confirmDialog\(message\) \{[\s\S]*?\n\}/) || [''])[0];
+    const dlg = (app.match(/function confirmDialog\(message[^)]*\) \{[\s\S]*?\n\}/) || [''])[0];
     ok(/e\.key === 'Escape'.*finish\(false\)/s.test(dlg), 'Escape cancels');
     ok(/if \(e\.target === wrap\) finish\(false\)/.test(dlg), 'a backdrop click cancels');
     ok(/\[data-confirm-dialog\]'\)\) \{ resolve\(false\); return; \}/.test(dlg),

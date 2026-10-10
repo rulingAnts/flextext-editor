@@ -33,7 +33,7 @@ export default [
       'PointerEvent','ResizeObserver','IntersectionObserver','MutationObserver','structuredClone',
       'WaveSurfer','Flac','lamejs','self','globalThis','process','queueMicrotask','ImageData','OffscreenCanvas',
       'AbortSignal','getComputedStyle','parent','AudioWorkletProcessor','registerProcessor','BroadcastChannel',
-      'CSS','innerWidth','innerHeight',
+      'CSS','innerWidth','innerHeight','requestIdleCallback',
     ].map((g) => [g, 'readonly'])),
   },
   linterOptions: { reportUnusedDisableDirectives: false },

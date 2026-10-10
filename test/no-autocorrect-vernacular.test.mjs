@@ -724,11 +724,14 @@ test('the form shows off when nothing is stored, matching the engine', () => {
 /* Two warnings, two different transitions, and neither fires on a value going back off. */
 test('picking Automatic warns that it depends on the device, separately from the Android warning', () => {
   const app = rd('../docs/js/app.js');
-  const h = app.slice(app.indexOf("const k = t.dataset.sf || t.dataset.f;"));
-  assert.match(h, /const firstOn = t\.value === 'on' && !others\.includes\('on'\)/, 'on → bundling');
-  assert.match(h, /const firstAuto = t\.value === 'auto' && !others\.includes\('auto'\)/, 'auto → dictionary');
-  assert.match(h, /if \(firstOn\) noticeDialog\(t\('panel\.f\.typingBundledWarn'\)\)/);
-  assert.match(h, /else if \(firstAuto\) noticeDialog\(t\('panel\.f\.typingAutoWarn'\)\)/,
+  /* ⚠ This test pinned `noticeDialog(t(…))` — a function that never existed, called through a `t`
+   * that was the event target — for a month, and passed the whole time. Matching the text proves the
+   * text; test/typing-dial-warnings.test.mjs RUNS the handler and is where the behaviour is held. */
+  const h = app.slice(app.indexOf("const k = dial.dataset.sf || dial.dataset.f;"));
+  assert.match(h, /const firstOn = dial\.value === 'on' && !others\.includes\('on'\)/, 'on → bundling');
+  assert.match(h, /const firstAuto = dial\.value === 'auto' && !others\.includes\('auto'\)/, 'auto → dictionary');
+  assert.match(h, /if \(firstOn\) confirmDialog\(t\('panel\.f\.typingBundledWarn'\), \{ warn: true \}\)/);
+  assert.match(h, /else if \(firstAuto\) confirmDialog\(t\('panel\.f\.typingAutoWarn'\), \{ warn: true \}\)/,
     'else-if, so one change never raises two dialogs');
 
   const i18n = rd('../docs/js/i18n.js');

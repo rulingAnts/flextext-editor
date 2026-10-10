@@ -5551,17 +5551,28 @@ function parseInviteInput(text) {
  * when we cannot ask cleanly is no. (Same never-stack guard as showInvitePasteModal below.)
  *
  * Escape and the backdrop mean CANCEL — the safe answer for every one of the nine callers, all of
- * which guard a destructive or irreversible act. */
-function confirmDialog(message) {
+ * which guard a destructive or irreversible act.
+ *
+ * `{ warn: true }` is the same dialog as a WARNING: amber glow and ⚠ (the `.modal-warn` styles v660
+ * wrote for it), and ONE button, because nothing is being asked — the change it explains has already
+ * been saved, so a Cancel would promise an undo that does not happen. Its answer means nothing.
+ *
+ * ⚠ THE KEYS ARE TAKEN ON `window`, NOT `document`. Capture listeners on one target run in the order
+ * they were added, and the researcher panel's own modal() — the settings form this dialog opens over
+ * on the panel — listens on `document`, earlier. On `document`, Escape would reach the settings form
+ * first and close it, edits and all, before this dialog saw the key. `window` captures before
+ * `document`, so stopPropagation() here means what it says. */
+function confirmDialog(message, { warn = false } = {}) {
   return new Promise((resolve) => {
     if (document.querySelector('[data-confirm-dialog]')) { resolve(false); return; }
     const wrap = document.createElement('div');
     wrap.className = 'modal';
     wrap.dataset.confirmDialog = '1';
-    wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+    wrap.innerHTML = `<div class="modal-card${warn ? ' modal-warn' : ''}" role="dialog" aria-modal="true">
+      ${warn ? '<p class="modal-warn-head"><span class="warn-glyph" aria-hidden="true">\u26a0</span></p>' : ''}
       <p style="white-space:pre-wrap">${esc(message)}</p>
       <button class="primary-btn" data-cf="ok">${esc(t('panel.confirm.ok'))}</button>
-      <button class="link-btn" data-cf="cancel">${esc(t('share.cancel'))}</button>
+      ${warn ? '' : `<button class="link-btn" data-cf="cancel">${esc(t('share.cancel'))}</button>`}
     </div>`;
     document.body.appendChild(wrap);
     const prevFocus = document.activeElement;
@@ -5569,7 +5580,7 @@ function confirmDialog(message) {
     const finish = (answer) => {
       if (done) return;                       // Escape + click can both fire; the first one wins
       done = true;
-      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keydown', onKey, true);
       wrap.remove();
       try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* noop */ }
       resolve(answer);
@@ -5578,9 +5589,9 @@ function confirmDialog(message) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
       else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(true); }
     }
-    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onKey, true);
     wrap.querySelector('[data-cf="ok"]').addEventListener('click', () => finish(true));
-    wrap.querySelector('[data-cf="cancel"]').addEventListener('click', () => finish(false));
+    wrap.querySelector('[data-cf="cancel"]')?.addEventListener('click', () => finish(false));
     wrap.addEventListener('click', (e) => { if (e.target === wrap) finish(false); });
     // Focus the dialog's own button, so the keyboard is inside the dialog immediately and Tab
     // cannot wander back into the editor underneath it on the first press.
@@ -11955,14 +11966,21 @@ installKeyboardOverlayGuard();   // the Android keyboard covers the page; keep t
 /* ⚠ ONE HANDLER, BOTH SETTINGS SURFACES. The researcher panel loads this file too, so a delegated
  * change listener at module scope keeps the Android-coupling warning in step on the panel and on an
  * unpaired device's own Settings tab without either form needing to know about it. Module scope for
- * the usual reason: setup() never runs in five of the seven apps. */
+ * the usual reason: setup() never runs in five of the seven apps.
+ *
+ * ⚠ THE CHANGED SELECT IS `dial`, NEVER `t`. From v660 to this fix it was `const t = e.target`, which
+ * hid the i18n t() for the whole handler — and the dialog it called, noticeDialog, was never written.
+ * So the first switch to on/auto threw a ReferenceError and neither warning ever showed, on either
+ * surface (the setting itself still saved: that is a different listener). `npx eslint docs/js` saw
+ * the missing function; nothing could see the shadowing. test/typing-dial-warnings.test.mjs runs this
+ * handler for real now, against the names app.js actually defines. */
 document.addEventListener('change', (e) => {
-  const t = e.target;
-  if (!t || !t.dataset) return;
-  const k = t.dataset.sf || t.dataset.f;
+  const dial = e.target;
+  if (!dial || !dial.dataset) return;
+  const k = dial.dataset.sf || dial.dataset.f;
   if (k !== 'analSpellcheck' && k !== 'analAutocomplete' && k !== 'analAutocorrect') return;
-  const attr = t.dataset.sf ? 'data-sf' : 'data-f';
-  const box = t.closest('form, #device-setup, .rp-form') || document;
+  const attr = dial.dataset.sf ? 'data-sf' : 'data-f';
+  const box = dial.closest('form, #device-setup, .rp-form') || document;
 
   /* ⚠ WARN WHEN THE COUPLING STARTS TO APPLY, NOT ON EVERY CHANGE. Switching a second dial on, or
    * back off again, tells the researcher nothing new — and a dialog on every touch of a select is
@@ -11971,7 +11989,7 @@ document.addEventListener('change', (e) => {
   const others = ['analSpellcheck', 'analAutocomplete', 'analAutocorrect']
     .filter((x) => x !== k)
     .map((x) => { const el = box.querySelector(`[${attr}="${x}"]`); return el ? el.value : null; });
-  const firstOn = t.value === 'on' && !others.includes('on');
+  const firstOn = dial.value === 'on' && !others.includes('on');
   /* ⚠ AND A SEPARATE WARNING FOR `auto`, because it promises less than its name suggests. Seth,
    * 2026-09-10: "if the user sets it to automatic, warn them this will only work correctly if the
    * user's device is set up with the analysis language as its language. Or if a spelling dictionary
@@ -11985,11 +12003,11 @@ document.addEventListener('change', (e) => {
    *
    * The two warnings never collide: on Android `auto` resolves to off, so the bundling warning is
    * only ever reached by an explicit `on`. */
-  const firstAuto = t.value === 'auto' && !others.includes('auto');
+  const firstAuto = dial.value === 'auto' && !others.includes('auto');
 
   syncTypingWarnings(box, attr);
-  if (firstOn) noticeDialog(t('panel.f.typingBundledWarn')).catch(() => {});
-  else if (firstAuto) noticeDialog(t('panel.f.typingAutoWarn')).catch(() => {});
+  if (firstOn) confirmDialog(t('panel.f.typingBundledWarn'), { warn: true });
+  else if (firstAuto) confirmDialog(t('panel.f.typingAutoWarn'), { warn: true });
 });
 
 /* ⓘ next to a setting, toggled by click or tap. Delegated at module scope for the same reason

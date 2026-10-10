@@ -502,6 +502,8 @@ async function renderDocList() {
       del.title = t('texts.deleteTitle');
       del.innerHTML = '&#128465;';
       del.addEventListener('click', () => { userDeleteDoc(d.id, d.title); });
+      const dev = devDeleteBtn(d, 'icon-btn');          // null unless this device is armed
+      if (dev) del.insertAdjacentElement('afterend', dev);
     } else del.remove();
     ul.appendChild(li);
   }
@@ -5502,8 +5504,14 @@ async function deleteConfirmedDoc(docId) {
   const d = await db.getDoc(docId);
   if (!d) return false;
   if (!d.uploadedFileId || d.uploadedModified !== d.modified) {
-    console.warn('sync: refusing remote delete — not safely on Drive (un-uploaded or edited since backup):', docId);
-    return false;
+    /* ⚠ THE ONE EXCEPTION, AND IT IS THE DEVICE'S OWN CHOICE. An armed device honours the panel's
+     * ordinary `delete` for un-uploaded work; a device nobody armed refuses exactly as before. That
+     * ordering is the safety property: the panel cannot arm anything remotely. */
+    if (!devMode()) {
+      console.warn('sync: refusing remote delete — not safely on Drive (un-uploaded or edited since backup):', docId);
+      return false;
+    }
+    try { console.warn('dev mode: honouring a remote delete for a text that is NOT safely on Drive:', docId); } catch { /* noop */ }
   }
   await deleteUploadedDoc(docId); // reuse the existing teardown (open-doc + both app modes)
   Sync.reportNow();
@@ -5536,19 +5544,81 @@ async function sweepPendingUpDel() {
   setPendingUpDel(keep);
 }
 
+/* ═══ DEVELOPER MODE — console-armed, persistent, visible ══════════════════════════════════════
+ * Testing needs a way to throw a text away WITHOUT backing it up first: otherwise every trial run
+ * uploads junk into a real Drive folder, and clearing it up afterwards costs more than the test. The
+ * ordinary delete is upload-first ON PURPOSE and is not changed by any of this — dev mode adds a
+ * SECOND, clearly-marked control beside it.
+ *
+ * ⚠ ARMING IS CONSOLE-ONLY AND PERSISTS UNTIL TURNED OFF (Seth, 2026-10-10). `fxDev()` arms this
+ * device, a badge says so on screen for as long as it is armed, and the badge's own button disarms
+ * it. No keyboard shortcut: this repo's standing rule (a ⌃⌥ binding could never fire on a Mac —
+ * Option+E is a dead key), and a second reason that matters more here — nobody reaches a
+ * destructive control by mistyping. `?devreset` clears it with everything else (localStorage.clear).
+ *
+ * ⚠ AND THE DEVICE IS THE AUTHORITY, which is the safety property to keep. The researcher panel's
+ * dev button sends the ORDINARY `delete` command, and `deleteConfirmedDoc` still refuses it unless
+ * THIS device is armed. So a panel can never destroy a coworker's un-uploaded work from afar: the
+ * person holding the device has to have armed it themselves, in their own console. */
+const DEV_KEY = 'flextext-dev-mode';
+function devMode() { try { return localStorage.getItem(DEV_KEY) === '1'; } catch { return false; } }
+function setDevMode(on) {
+  try { if (on) localStorage.setItem(DEV_KEY, '1'); else localStorage.removeItem(DEV_KEY); } catch { /* private mode */ }
+}
+/* The badge is the whole reason this is safe to persist: an armed destructive affordance you have
+ * forgotten about is the hazard, so it says so until you turn it off. Built in JS so no shell needs
+ * its own markup — the consent collector and crowd embed get it too if anyone arms them there. */
+function renderDevBadge() {
+  let el = document.getElementById('dev-badge');
+  if (!devMode()) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'dev-badge';
+    const label = document.createElement('span');
+    label.className = 'dev-badge-text';
+    const off = document.createElement('button');
+    off.type = 'button';
+    off.className = 'dev-badge-off link-btn';
+    off.addEventListener('click', () => { setDevMode(false); renderDevBadge(); refreshList(); });
+    el.append(label, off);
+    document.body.appendChild(el);
+  }
+  el.querySelector('.dev-badge-text').textContent = t('dev.badge');
+  el.querySelector('.dev-badge-off').textContent = t('dev.badgeOff');
+}
+/* The dev-only "delete, no backup" control for a texts-list row. Returns null when disarmed, so a
+ * row renderer adds it with one line and nothing is in the DOM to find when it is off. */
+function devDeleteBtn(d, cls) {
+  if (!devMode() || !allowDeleteOn()) return null;
+  const b = document.createElement('button');
+  b.className = (cls || 'icon-btn2') + ' dev-del';
+  b.type = 'button';
+  b.textContent = '\u2620';                 // ☠ — deliberately not a second 🗑
+  b.title = t('dev.deleteTitle');
+  b.setAttribute('aria-label', t('dev.deleteTitle'));
+  b.addEventListener('click', (e) => { e.stopPropagation(); userDeleteDoc(d.id, d.title, { force: true }); });
+  return b;
+}
+
 // The coworker's own per-text delete button. SAFE by default: confirm, then if uploading
 // is configured and this text isn't already provably on Drive, make ONE final upload and
 // remove it only once that's CONFIRMED (never lose un-uploaded or edited-since work) — the
 // same upload-first path as the researcher's remote delete. A standalone device (no upload
 // target) just deletes locally. Used by both the editor list and the recorder list.
-async function userDeleteDoc(docId, title) {
+async function userDeleteDoc(docId, title, opts = {}) {
   const d = await db.getDoc(docId).catch(() => null);
   const uploads = !!Sync.workerUploadTarget();
   const backedUp = d && d.uploadedFileId && d.uploadedModified === d.modified;
-  const willUpload = d && uploads && !backedUp;
-  const msg = willUpload
-    ? t('texts.confirmDeleteUpload', { title: title || t('untitled') })
-    : t('texts.confirmDelete', { title: title || t('untitled') });
+  /* ⚠ RE-CHECKED AGAINST devMode() HERE, not trusted from the caller. A button left in the DOM from
+   * before the badge was switched off is then inert, and no other code path can reach the forced
+   * delete by passing a flag. */
+  const force = !!opts.force && devMode();
+  const willUpload = !force && d && uploads && !backedUp;
+  const msg = force
+    ? t('dev.confirmDeleteNoBackup', { title: title || t('untitled') })
+    : willUpload
+      ? t('texts.confirmDeleteUpload', { title: title || t('untitled') })
+      : t('texts.confirmDelete', { title: title || t('untitled') });
   if (!await confirmDialog(msg)) return;
   /* ⚠ THE AUDIO SEGMENTER CAN DELETE THE TEXT IT HAS OPEN (#90 review, 2026-10-02). The editor
    * cannot: its home tabs are hidden while a text is open, so this list is never on screen with one.
@@ -5561,7 +5631,8 @@ async function userDeleteDoc(docId, title) {
    * drops no matching work: mgClose skips a draft save still pending, but the tab tap blurred any
    * edit and that save's 400ms ran out long before anyone answered the confirm. */
   if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
-  if (!d || !uploads || backedUp) {
+  if (force) try { console.warn('dev mode: deleting WITHOUT a backup, as asked:', docId); } catch { /* noop */ }
+  if (force || !d || !uploads || backedUp) {
     // Nothing to preserve (gone / no upload target / already safely on Drive) → remove now,
     // cancelling any stray queued upload so it can't resurrect.
     const up = getUpload(docId); if (up) up.cancel(); else uploadView.delete(docId);
@@ -5632,6 +5703,10 @@ function docInScope(/* d, enr */) {
 // Re-render the settings-dependent UI in place (no reload) — used by a pushed changeSettings AND by
 // the local cross-window live-sync, so a setting change appears immediately in every open window.
 function applyLiveSettings() {
+  /* The dev badge persists across reloads by design, so it has to be re-drawn on every boot and
+   * re-labelled after a language change. Before the researcher-mode return: the panel has its own
+   * arming, but an armed device should say so whatever shell is on screen. */
+  try { renderDevBadge(); } catch { /* body not ready yet */ }
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   const segBefore = settings.segmentation === true;
   /* The timing switches, read BEFORE the reload like the gates below (v718 review): Keep is built onto
@@ -9295,6 +9370,8 @@ async function renderRecordList() {
       del.title = t('texts.deleteTitle');
       del.innerHTML = '&#128465;';
       del.addEventListener('click', () => { userDeleteDoc(d.id, d.title); });
+      const dev = devDeleteBtn(d, 'icon-btn');
+      if (dev) del.insertAdjacentElement('afterend', dev);
     } else del.remove();   // researcher disabled deleting
     ul.appendChild(li);
   }
@@ -9803,6 +9880,8 @@ function satRowControls(host, d) {
     // cancel — and now repaints through refreshList(), so it works here unchanged.
     b.addEventListener('click', (e) => { e.stopPropagation(); userDeleteDoc(d.id, d.title); });
     host.appendChild(b);
+    const dev = devDeleteBtn(d, 'icon-btn2');
+    if (dev) host.appendChild(dev);
   }
 }
 
@@ -12625,6 +12704,15 @@ async function forceUpdateCheck() {
 // NOTE: it cannot bust a stale CDN copy of sw.js — if the SERVER still serves the old version,
 // the "up to date" toast is reporting that truthfully.
 if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
+/* ⚠ THE ONLY WAY TO ARM DEVELOPER MODE (see devMode above). Console only, by design. */
+if (typeof window !== 'undefined') window.fxDev = (on = true) => {
+  setDevMode(!!on);
+  renderDevBadge();
+  try { refreshList(); } catch { /* no list on screen yet */ }
+  return devMode()
+    ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup. fxDev(false) or the on-screen badge turns it off; ?devreset clears everything.'
+    : 'developer mode OFF.';
+};
 
 /* ⚠ AT MODULE SCOPE, NOT IN setup(). setup() returns early for crowd, paragraph, researcher, record
  * and consent mode, and an offsite link that escapes to an in-app browser in ONE of those apps is

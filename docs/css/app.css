@@ -383,6 +383,21 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
    missing Add button, and .8 opacity made it the FAINTEST string in the row — below the 4.5:1 floor,
    while the range and Add beside it sit above it on the same background. */
 .gap-blocked { font-size: 12px; white-space: nowrap; font-style: italic; }
+/* ═══ DEVELOPER MODE ═════════════════════════════════════════════════════════════════════════
+   The badge is the reason arming is safe to persist: it says so until you turn it off. Deliberately
+   loud and deliberately out of the way — bottom-LEFT, because the dock's own controls live
+   bottom-centre and right. ☠ rather than a second 🗑 so the destructive control cannot be mistaken
+   for the safe one at a glance or reached by muscle memory. */
+#dev-badge { position: fixed; left: 8px; bottom: 8px; z-index: 9999;
+             display: flex; align-items: center; gap: 8px;
+             padding: 4px 10px; border-radius: 999px;
+             background: #7f1d1d; color: #fee2e2; font-size: 12px; font-weight: 600;
+             box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.dev-badge-text::before { content: '\2620'; margin-right: 6px; }
+.dev-badge-off { color: #fecaca; text-decoration: underline; font-size: 12px; font-weight: 600;
+                 min-width: 32px; min-height: 28px; }
+.dev-del { color: #b91c1c; }
+
 /* The dock's two gap controls, beside ✨ — same size, same weight, never shouting. */
 .player-gap { font-size: 12px; white-space: nowrap; }
 /* ⚠ PHONE WIDTH (R12): the range and the button drop under the wave rather than forcing the dock

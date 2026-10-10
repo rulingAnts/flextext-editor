@@ -1530,6 +1530,14 @@ export class Player {
      * on every render, so forgetting them here costs nothing and cannot be wrong. */
     this._bounds = [];
     this._boundLayer = null;   // it lived inside the wrapper being destroyed
+    /* ⚠ AND THE GAP BANDS, FOR THE SAME REASON (v719 review). These were left behind when the gap
+     * layer was added, and the load path calls renderGapMarks() with whatever `_gaps` still holds —
+     * so opening text B after text A painted A's "no line claims this audio" bands onto B's
+     * waveform, at A's milliseconds, over audio B's lines fully claim. Only renderStrips and
+     * renderCut re-push; the Gloss tab and the Segmenter's matcher never do, so on those surfaces
+     * the wrong bands were never corrected. */
+    this._gaps = [];
+    this._gapLayer = null;
     this._cursorHit = null;    // so did the finger's playhead grip
     this._focusPrev = null;
     this._peaksOnly = false;   // a property of the load just discarded, not of the next one

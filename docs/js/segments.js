@@ -763,22 +763,37 @@ export function gapRowsFor(spans, D, opts = {}) {
  * the mark mean nothing. */
 export const GAP_SPEECH_MIN_MS = 1000;
 export const GAP_SPEECH_VOICED_MS = 400;
-export function gapHasSpeech(peaks, msPerBucket, s, e, opts = {}) {
+/* ⚠ THE LEVELS COME FROM THE WHOLE RECORDING, THE COUNT FROM THE GAP. Measuring the floor inside
+ * the gap alone would normalise the gap against itself: a stretch of pure room tone has a floor and
+ * a "speech level" too, and its loudest 5% would read as voice every time.
+ *
+ * ⚠ AND BECAUSE THEY ARE WHOLE-RECORDING, THEY ARE THE SAME FOR EVERY ROW IN A RENDER — so they are
+ * computed ONCE here and handed to `gapHasSpeech` as `opts.levels`. This used to live inside
+ * gapHasSpeech, which meant every gap row re-framed and re-SORTED the entire recording's envelope:
+ * on the plan's own target texts (ELAN40's 39 rows, ELAN52's 51) that measured 926 ms for a
+ * ten-minute recording and 3.3 s for a forty-minute one, per render, on a desktop — and a render
+ * happens on tab entry, every cut, every join, every undo and after every Add. A field Android phone
+ * is several times slower again, so the strip text boxes dropped keystrokes while it ran (v719
+ * review). Callers that have no levels to hand still work: the argument is optional. */
+export function gapSpeechLevels(peaks, msPerBucket, opts = {}) {
   const mpb = isNum(msPerBucket) && msPerBucket > 0 ? msPerBucket : 0;
-  if (!peaks || !peaks.length || !mpb) return false;
-  const minMs = isNum(opts.minMs) ? opts.minMs : GAP_SPEECH_MIN_MS;
-  const voicedMs = isNum(opts.voicedMs) ? opts.voicedMs : GAP_SPEECH_VOICED_MS;
-  if (!(isNum(s) && isNum(e)) || e - s < minMs) return false;
+  if (!peaks || !peaks.length || !mpb) return null;
   const { env, frameMs } = frames(peaks, mpb, isNum(opts.frameMs) ? opts.frameMs : 10);
-  if (!env.length || !(frameMs > 0)) return false;
-  /* ⚠ THE LEVELS COME FROM THE WHOLE RECORDING, THE COUNT FROM THE GAP. Measuring the floor inside
-   * the gap alone would normalise the gap against itself: a stretch of pure room tone has a floor
-   * and a "speech level" too, and its loudest 5% would read as voice every time. */
+  if (!env.length || !(frameMs > 0)) return null;
   const sorted = Array.from(env).sort((a, b) => a - b);
   const floor = pct(sorted, 0.1);
   const speech = pct(sorted, 0.95);
-  if (!(speech > floor)) return false;
-  const gate = floor + (speech - floor) * 0.35;
+  if (!(speech > floor)) return null;
+  return { env, frameMs, gate: floor + (speech - floor) * 0.35 };
+}
+
+export function gapHasSpeech(peaks, msPerBucket, s, e, opts = {}) {
+  const minMs = isNum(opts.minMs) ? opts.minMs : GAP_SPEECH_MIN_MS;
+  const voicedMs = isNum(opts.voicedMs) ? opts.voicedMs : GAP_SPEECH_VOICED_MS;
+  if (!(isNum(s) && isNum(e)) || e - s < minMs) return false;
+  const lv = opts.levels || gapSpeechLevels(peaks, msPerBucket, opts);
+  if (!lv) return false;
+  const { env, frameMs, gate } = lv;
   const from = Math.max(0, Math.floor(s / frameMs));
   const to = Math.min(env.length, Math.ceil(e / frameMs));
   let voiced = 0;

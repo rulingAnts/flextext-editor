@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v719';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'time-gaps v1';
+export const BUILD_TAG = 'time-gaps v2';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -1336,6 +1336,7 @@ internet after the first time.</p>
   'seg.needsBadge': 'needs timing',
   // v719 — the "unassigned audio" rows (plans/time-gaps-and-estimates.md §4 v719, §9)
   'gap.rowLabel': 'Unassigned audio, {range}',
+  'gap.rowLabel.speech': 'Unassigned audio, {range} — there is speech in it',
   'gap.playTip': 'Play this unassigned audio',
   'gap.addHere': 'Add a line here',
   'gap.checkFirst': 'Check alignment first',
@@ -4110,6 +4111,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'seg.needsBadge': 'perlu waktu',
   // v719 — baris "audio belum punya baris"
   'gap.rowLabel': 'Audio belum punya baris, {range}',
+  'gap.rowLabel.speech': 'Audio belum punya baris, {range} — ada suara di dalamnya',
   'gap.playTip': 'Putar audio yang belum punya baris ini',
   'gap.addHere': 'Tambahkan baris di sini',
   'gap.checkFirst': 'Periksa keselarasan dulu',

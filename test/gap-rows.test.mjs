@@ -107,21 +107,31 @@ function gapApp(doc, D, opts = {}) {
   const env = { captures: 0, persists: 0, confirmed: opts.confirm !== false, redraws: 0 };
   const run = new Function('env', 'ft', 'SEG', 'doc', 'D', 'opts', `
     const { newGuid, makeSegment } = ft;
-    const { gapRowsFor } = SEG;
+    const { gapRowsFor, edgeGuessed } = SEG;
     const docSegments = (d) => d.segments || [];
     const settings = opts.settings || {};
     const Sync = { hasSession: () => !!opts.managed };
     const segmentationEnabled = () => true;
-    const current = { id: 'x', doc };
+    const current = opts.rec || { id: 'x', doc };
+    current.doc = doc;
     const peaksDurationMs = () => D;
     const getBaselineParagraphs = ft.getBaselineParagraphs;
-    const timingBannerOn = () => true;
-    const timingReport = () => opts.report || { level: '', items: [], sig: '' };
+    /* Deliberately NOT stubbed true any more (v719 review): checkAlignmentPending used to short out
+     * on !timingBannerOn(), and this stub hid that — the gate's false branch was never exercised, on
+     * a managed device with the banner off, which is where gaps ship by default. */
+    const timingBannerOn = () => !Sync.hasSession() || settings.timingBanner === true;
+    /* A FUNCTION is allowed, so a test can make the report change as the line numbers shift —
+     * which is the whole point of carryTimingAck. */
+    const timingReport = (segs, paras) => (typeof opts.report === 'function'
+      ? opts.report(segs, paras) : (opts.report || { level: '', items: [], sig: '' }));
     const captureUndo = () => { env.captures++; };
     const schedulePersist = () => { env.persists++; };
+    let touchedLine = opts.touched || null;
     ${liftAll(APP, ['gapLinesOn', 'gapLinesAllowed', 'showGapsOn', 'checkAlignmentPending',
+                    'timingSnap', 'redWasAcked', 'carryTimingAck', 'shiftTouchedLine', 'gapSpan',
                     'gapRowsNow', 'insertLineAt', 'addGapLine', 'addAllGapLines'])}
-    return { insertLineAt, addGapLine, addAllGapLines, gapRowsNow, checkAlignmentPending, gapLinesAllowed, showGapsOn };
+    return { insertLineAt, addGapLine, addAllGapLines, gapRowsNow, checkAlignmentPending, gapLinesAllowed, showGapsOn,
+             gapSpan, timingSnap, getTouched: () => touchedLine, rec: current };
   `);
   return { env, api: run(env, ft, SEG, doc, D, opts) };
 }
@@ -317,4 +327,215 @@ test('the dock carries the two controls, before ✨, and they are hidden until t
     'the count ignores the showGaps preference — "Show gaps (39)" is the control that turns them back on');
   assert.match(sync, /all\.hidden = !\(showGapsOn\(\) && gapLinesAllowed\(\) && !checkAlignmentPending\(\)\);/,
     'Add all follows the switch and the red banner');
+});
+
+/* ── the v719 review's findings, each pinned by the case that was wrong ───────────────────────────
+ * Every test below FAILS on the code as first written and passes on the fix. The review is in
+ * plans/REVIEW-2026-10-11.md Part B. */
+
+const twoEstimates = () => {
+  const doc = ft.makeDoc({ vernLang: 'fau', analLang: 'id' });
+  ft.reconcileBaseline(doc, ['w a', 'w b'], { flatSegments: true });
+  // Two lines this suite itself exported with ESTIMATED inner edges, with a 2 s hole between them.
+  doc.segments = [{ start: 0, end: 3000, guess: [null, 3000], estSource: 'note', timeEstimated: true },
+                  { start: 5000, end: 7000, guess: [5000, null], estSource: 'note', timeEstimated: true }];
+  return doc;
+};
+
+test('case 16 holds on a MANAGED device with the timing banner switched OFF (F1)', () => {
+  /* `gapLines` and `timingBanner` are independent researcher checkboxes, so "gaps on, banner off"
+   * is the DEFAULT on a paired device. checkAlignmentPending used to short out on !timingBannerOn(),
+   * which left the protection working only where it was least needed. */
+  const red = { level: 'red', items: [{ kind: 'dense', lines: [3] }], sig: 'dense::3:' };
+  const { doc, D } = drawn('elan40');
+  const managed = gapApp(doc, D, { managed: true, settings: { gapLines: true, timingBanner: false }, report: red });
+  assert.equal(managed.api.gapLinesAllowed(), true, 'the researcher did switch gaps on');
+  assert.equal(managed.api.checkAlignmentPending(), true, 'and the red report still stands in the way');
+  assert.equal(managed.api.addGapLine(1), false, 'Add here refuses');
+  assert.equal(managed.api.addAllGapLines(), 0, 'Add all refuses');
+  assert.equal(managed.env.captures, 0, 'and a refused Add leaves NO undo item');
+  // An acknowledged red lets it through again, on the same managed device.
+  managed.api.rec.timingAck = red.sig;
+  assert.equal(managed.api.checkAlignmentPending(), false, 'once read and dismissed, Add is back');
+});
+
+test('a gap between two ESTIMATED lines inherits the guess PER EDGE, so no guess leaves as a time (F7)', () => {
+  const doc = twoEstimates();
+  const { api } = gapApp(doc, 9000);
+  const span = api.gapSpan(doc, 1, { k: 1, start: 3000, end: 5000 });
+  assert.deepEqual(span.guess, [3000, 5000], 'both edges came from a neighbour that was guessing');
+  assert.equal(span.estSource, 'edit', 'marked as this edit\'s own guess, not a legacy seed');
+  assert.equal(SEG.isEstimate(span), true, 'so the line is an estimate and is written with ~');
+  assert.equal(SEG.edgeGuessed(span, 0), true);
+  assert.equal(SEG.edgeGuessed(span, 1), true);
+
+  // One real edge, one guessed: only the guessed side is a guess.
+  doc.segments[0] = { start: 0, end: 3000 };                       // a measured line
+  const half = api.gapSpan(doc, 1, { k: 1, start: 3000, end: 5000 });
+  assert.deepEqual(half.guess, [null, 5000], 'the measured side stays measured');
+  assert.equal(SEG.edgeGuessed(half, 0), false);
+
+  // Two real neighbours: no guess field at all, exactly as before the fix.
+  doc.segments[1] = { start: 5000, end: 7000 };
+  const real = api.gapSpan(doc, 1, { k: 1, start: 3000, end: 5000 });
+  assert.ok(!('guess' in real), 'a gap between two measured lines is a measured time');
+  assert.equal(SEG.isEstimate(real), false);
+});
+
+test('0 and D are facts, so a lead gap\'s start and a tail gap\'s end are never guesses (F7)', () => {
+  const doc = twoEstimates();
+  // The FIRST line's start and the LAST line's end are both guesses, so the only real values
+  // available to the lead and tail rows are 0 and D themselves.
+  doc.segments[0] = { start: 3000, end: 4000, guess: [3000, null], estSource: 'note', timeEstimated: true };
+  doc.segments[1] = { start: 5000, end: 7000, guess: [null, 7000], estSource: 'note', timeEstimated: true };
+  const { api } = gapApp(doc, 9000);
+  const lead = api.gapSpan(doc, 0, { k: 0, start: 0, end: 3000 });
+  assert.deepEqual(lead.guess, [null, 3000], '0 is where the recording starts — not an interpolation');
+  assert.equal(SEG.edgeGuessed(lead, 0), false, 'so the lead row\'s own start is a fact');
+  const tail = api.gapSpan(doc, doc.segments.length, { k: 2, start: 7000, end: 9000 });
+  assert.deepEqual(tail.guess, [7000, null], 'and D is where it ends');
+  assert.equal(SEG.edgeGuessed(tail, 1), false, 'so the tail row\'s own end is a fact');
+});
+
+test('an Add carries a dismissed red forward when only the LINE NUMBERS moved (F4)', () => {
+  /* timingReport's sig carries `lines`, so an insert changed the signature of a warning whose
+   * meaning had not changed — and the banner the user had just dismissed came back, re-hiding Add
+   * on every remaining row. */
+  const { doc, D } = drawn('elan40');
+  const report = (segs, paras) => ({ level: 'red', items: [{ kind: 'dense', lines: [paras.length - 1] }],
+                                     sig: 'dense::' + (paras.length - 1) + ':' });
+  const rec = { id: 'x', doc };
+  const a = gapApp(doc, D, { report, rec });
+  const first = a.api.timingSnap(a.api.rec);
+  rec.timingAck = first.sig;                                    // the user read it and dismissed it
+  assert.equal(a.api.checkAlignmentPending(), false, 'dismissed');
+  assert.ok(a.api.addGapLine(1), 'and Add goes through');
+  assert.notEqual(a.api.timingSnap(a.api.rec).sig, first.sig, 'the signature really did change');
+  assert.equal(a.api.checkAlignmentPending(), false, 'but the acknowledgement moved with it — still dismissed');
+});
+
+test('...and does NOT carry it when the warning gained something new (F4)', () => {
+  const { doc, D } = drawn('elan40');
+  // The report grows a SECOND item once a line has been added: different substance, must be re-read.
+  const report = (segs, paras) => (paras.length > 40
+    ? { level: 'red', items: [{ kind: 'dense', lines: [3] }, { kind: 'pastEnd', ms: 2100 }], sig: 'dense::3:|pastEnd:::2100' }
+    : { level: 'red', items: [{ kind: 'dense', lines: [3] }], sig: 'dense::3:' });
+  const rec = { id: 'x', doc };
+  const a = gapApp(doc, D, { report, rec });
+  rec.timingAck = a.api.timingSnap(rec).sig;
+  assert.ok(a.api.addGapLine(1));
+  assert.equal(a.api.checkAlignmentPending(), true, 'a warning with a new item has to be read again');
+});
+
+test('the active line\'s index moves with the insert, so the redraw cannot seek out of it (F5)', () => {
+  /* noteTouchedLine's selector deliberately skips a gap row (case 15), so pressing Add never
+   * refreshes touchedLine — and switchTab fed the stale index to pickActiveLine. */
+  const { doc, D } = drawn('elan40');
+  const below = gapApp(doc, D, { touched: { i: 5, playheadMs: 9200 } });
+  assert.ok(below.api.addGapLine(1), 'a gap ABOVE the active line');
+  assert.equal(below.api.getTouched().i, 6, 'pushes it down by one');
+
+  const { doc: doc2, D: D2 } = drawn('elan40');
+  const above = gapApp(doc2, D2, { touched: { i: 5, playheadMs: 9200 } });
+  const far = above.api.gapRowsNow().filter((g) => g.k > 5)[0];
+  assert.ok(above.api.addGapLine(far.k), 'a gap BELOW it');
+  assert.equal(above.api.getTouched().i, 5, 'leaves it alone');
+
+  const { doc: doc3, D: D3 } = drawn('elan40');
+  const all = gapApp(doc3, D3, { touched: { i: 5, playheadMs: 9200 } });
+  const atOrAbove = all.api.gapRowsNow().filter((g) => g.k <= 5).length;
+  assert.ok(atOrAbove > 0, 'elan40 has gaps above line 5');
+  assert.equal(all.api.addAllGapLines(), 39);
+  assert.equal(all.api.getTouched().i, 5 + atOrAbove, 'Add all shifts it by however many landed at or above it');
+});
+
+test('the gap bands die with the recording they describe (F3)', () => {
+  const at = AUDIO.indexOf('  destroyWs() {');
+  assert.ok(at > 0, 'destroyWs is where the marks are forgotten');
+  const body = AUDIO.slice(at, AUDIO.indexOf('\n  }', at));
+  assert.match(body, /this\._bounds = \[\];/, 'the seam marks were always cleared');
+  assert.match(body, /this\._gaps = \[\];/, 'and now the gap bands are too — the Player is a singleton');
+  assert.match(body, /this\._gapLayer = null;/, 'including the layer, which lived in the destroyed wrapper');
+});
+
+test('the whole-recording speech levels are measured ONCE per render, not once per row (F2)', () => {
+  // Behaviour is unchanged by the hoist: a precomputed level set gives the same verdict.
+  const peaks = new Float32Array(40000);
+  for (let i = 0; i < peaks.length; i++) peaks[i] = (i > 12000 && i < 16000) ? 0.9 : 0.02;
+  const lv = SEG.gapSpeechLevels(peaks, 1);
+  assert.ok(lv && lv.env.length && lv.frameMs > 0 && Number.isFinite(lv.gate), 'the levels stand alone');
+  for (const [s, e] of [[11000, 17000], [0, 9000], [20000, 30000]]) {
+    assert.equal(gapHasSpeech(peaks, 1, s, e, { levels: lv }), gapHasSpeech(peaks, 1, s, e),
+      `${s}–${e}: the same verdict with the levels handed in as computed inside`);
+  }
+  assert.equal(SEG.gapSpeechLevels(new Float32Array(0), 1), null, 'no peaks, no levels');
+  assert.equal(SEG.gapSpeechLevels(peaks, 0), null, 'no bucket size, no levels');
+  assert.equal(gapHasSpeech(peaks, 1, 0, 5000, { levels: null }), false, 'and a null level set tints nothing');
+
+  // And the renderers hoist it: one computation and one blocked-check per render, not per row.
+  for (const fn of ['renderStrips', 'renderCut']) {
+    const at = STRIPS.indexOf('function ' + fn + '(');
+    const body = STRIPS.slice(at, at + 2600);
+    assert.match(body, /const gapLevels = gaps\.size \? gapLevelsNow\(\) : null;/, `${fn}: levels once`);
+    assert.match(body, /const gapBlocked = !!\((deps|cutDeps)\.gapAddBlocked && \1\.gapAddBlocked\(\)\);/, `${fn}: blocked once`);
+    assert.match(body, /gapSpeech\(g, gapLevels\), gapBlocked\)/, `${fn}: and both handed to every row`);
+  }
+});
+
+test('the dock\'s gap controls live only on the tabs that DRAW gap rows (F6)', () => {
+  const sync = liftAll(APP, ['syncGapTools']);
+  assert.match(sync, /tab === 'baseline' \|\| tab === 'cut'/, 'Baseline and Cut draw them');
+  assert.doesNotMatch(sync, /isEditorTab\(currentView\(\)\)/,
+    'not every editor tab: renderGloss draws no gap rows, so there both controls were a lie');
+  assert.ok(!/gapsToDraw|gapRowEl/.test(liftAll(APP, ['renderGloss'])),
+    'and Gloss still draws none, which is what makes the restriction correct');
+});
+
+/* ── the review's accessibility findings ──────────────────────────────────────────────────────── */
+
+test('the caret lands in the line the Add just made (F8)', () => {
+  assert.match(STRIPS, /export function focusLine\(i, caret = 0\)/, 'strips lends out the focus it already uses itself');
+  const wrappers = APP.match(/addGapLine: \(k\) => \{[\s\S]{0,420}?return true; \},/g) || [];
+  assert.equal(wrappers.length, 2, 'both deps wrappers — the Baseline strips and the Cut tab');
+  for (const w of wrappers) {
+    assert.match(w, /if \(activeTab === 'baseline'\) focusLine\(k, 0\);/,
+      'Baseline only: a Cut row has no text box to put a caret in');
+  }
+  assert.match(liftAll(APP, ['addAllGapLinesAsked']), /if \(activeTab === 'baseline'\) focusLine\(firstK, 0\);/,
+    'Add all lands on the first line it made');
+});
+
+test('"Add a line here" can be activated by the keyboard it is reachable from (F9)', () => {
+  const tka = liftAll(APP, ['transportKeysApply']);
+  const gapLine = tka.indexOf("contains('gap.add'.replace('.','-'))") >= 0 ? -1 : tka.indexOf("contains('gap-add')");
+  assert.ok(gapLine > 0, 'the gap row\'s Add is named');
+  assert.ok(gapLine < tka.indexOf("contains('top-tab')"), 'and exempted BEFORE the editor-surface catch-all claims it');
+  assert.match(tka, /contains\('gap-add'\)\) return false;/,
+    'false = the transport does not claim the key, so Enter and Space activate the button');
+});
+
+test('a pause with speech in it says so, in both languages, not only in amber (F10)', () => {
+  assert.equal((I18N.match(/'gap\.rowLabel\.speech':/g) || []).length, 2, 'en and id');
+  assert.match(I18N, /'gap\.rowLabel\.speech': 'Unassigned audio, \{range\} — there is speech in it'/);
+  assert.match(I18N, /'gap\.rowLabel\.speech': 'Audio belum punya baris, \{range\} — ada suara di dalamnya'/);
+  const el = STRIPS.slice(STRIPS.indexOf('function gapRowEl('), STRIPS.indexOf('function gapRowEl(') + 1800);
+  assert.match(el, /d\.t\(speech \? 'gap\.rowLabel\.speech' : 'gap\.rowLabel'/,
+    'the accessible name carries the state — the field device is an Android phone, TalkBack included');
+});
+
+test('the gap row\'s ▶ is big enough to hit, and "check alignment first" is legible (F11, F12)', () => {
+  const play = CSS.slice(CSS.indexOf('.gap-play {'), CSS.indexOf('.gap-wave {'));
+  assert.match(play, /min-width: 32px; min-height: 28px;/, 'it was ~22x17, under the 24px floor');
+  const blocked = CSS.slice(CSS.indexOf('.gap-blocked {'), CSS.indexOf('.gap-blocked {') + 120);
+  assert.doesNotMatch(blocked, /opacity/,
+    'the only explanation for a missing Add button must not be the faintest text in the row');
+});
+
+test('the gaps toggle does not claim a pressed state that contradicts its label (F13)', () => {
+  const sync = liftAll(APP, ['syncGapTools']);
+  assert.match(sync, /show\.textContent = t\(showGapsOn\(\) \? 'gap\.hide' : 'gap\.show', \{ n \}\);/,
+    'the label says what pressing will do');
+  assert.doesNotMatch(sync, /setAttribute\('aria-pressed'/,
+    '"Hide gaps (39), pressed" announced the inverse of the truth');
+  assert.match(sync, /removeAttribute\('aria-pressed'\)/, 'and any stale one is cleared');
 });

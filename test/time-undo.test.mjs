@@ -278,26 +278,32 @@ function gapEditor(rec, D, opts = {}) {
   let saves = 0;
   const api = new Function('ft', 'SEG', 'rec', 'D', 'opts', 'onSave', `
     const { newGuid, makeSegment, getBaselineParagraphs } = ft;
-    const { gapRowsFor } = SEG;
+    const { gapRowsFor, edgeGuessed } = SEG;
     const docSegments = (d) => d.segments || [];
     const settings = opts.settings || {};
-    const Sync = { hasSession: () => false };
+    const Sync = { hasSession: () => !!opts.managed };
     const segmentationEnabled = () => true;
     let current = rec, player = null, activeTab = 'baseline';
     const peaksDurationMs = () => D;
-    const timingBannerOn = () => true;
-    const timingReport = () => opts.report || { level: '', items: [], sig: '' };
+    const timingBannerOn = () => !Sync.hasSession() || settings.timingBanner === true;
+    /* A FUNCTION is allowed, so a test can make the report change as the line numbers shift —
+     * which is the whole point of carryTimingAck. */
+    const timingReport = (segs, paras) => (typeof opts.report === 'function'
+      ? opts.report(segs, paras) : (opts.report || { level: '', items: [], sig: '' }));
     const $ = () => null;
     const schedulePersist = () => onSave();
     const switchTab = () => {}, updateUndoButtons = () => {}, splitCancel = () => false;
     const UNDO_CAP = 100;
     let undoStack = [], redoStack = [], fieldUndo = null;
+    let touchedLine = opts.touched || null;
     ${liftAll(APP, ['docSnap', 'pushSnap', 'commitFieldUndo', 'captureUndo', 'applyUndoState', 'doUndo', 'doRedo',
                     'gapLinesOn', 'gapLinesAllowed', 'showGapsOn', 'checkAlignmentPending', 'gapRowsNow',
+                    'timingSnap', 'redWasAcked', 'carryTimingAck', 'shiftTouchedLine', 'gapSpan',
                     'insertLineAt', 'addGapLine', 'addAllGapLines'])}
     return {
       addGapLine, addAllGapLines, gapRowsNow,
       undo: doUndo, redo: doRedo,
+      getTouched: () => touchedLine,
       get undoDepth() { return undoStack.length; }, get redoDepth() { return redoStack.length; },
     };
   `)(ft, SEG, rec, D, opts, () => { saves++; });

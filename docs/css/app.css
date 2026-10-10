@@ -369,12 +369,20 @@ html[data-labels="text"] #topbar-editor .btn-icon .ico, html[data-labels="text"]
            background: var(--gap-bg); border: 1px dashed var(--gap-line); color: var(--gap-ink);
            font-size: 12px; }
 .gap-row.gap-speech { background: var(--gap-speech-bg); border-color: var(--gap-speech-line); color: var(--gap-speech-ink); }
+/* ⚠ BIG ENOUGH TO HIT WITH A THUMB (v719 review). This was ~22x17 CSS px — under the 24px floor and
+   under half of .seg-play (38x38), the control it is modelled on — and because the button is
+   tabIndex -1 it is the ONLY way to audition a gap. A near miss lands on .gap-wave beside it and
+   seeks instead of playing. The row stays compact: 28px is its own height, not a strip's. */
 .gap-play { appearance: none; border: 0; background: none; color: inherit; font-size: 13px;
-            line-height: 1; padding: 2px 4px; cursor: pointer; }
+            line-height: 1; padding: 2px 4px; cursor: pointer;
+            min-width: 32px; min-height: 28px; }
 .gap-wave { width: 100%; height: 24px; display: block; min-width: 40px; }
 .gap-range { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gap-add { font-size: 12px; white-space: nowrap; }
-.gap-blocked { font-size: 12px; white-space: nowrap; opacity: .8; font-style: italic; }
+/* ⚠ NO opacity (v719 review). "Check alignment first" is the only explanation the user gets for a
+   missing Add button, and .8 opacity made it the FAINTEST string in the row — below the 4.5:1 floor,
+   while the range and Add beside it sit above it on the same background. */
+.gap-blocked { font-size: 12px; white-space: nowrap; font-style: italic; }
 /* The dock's two gap controls, beside ✨ — same size, same weight, never shouting. */
 .player-gap { font-size: 12px; white-space: nowrap; }
 /* ⚠ PHONE WIDTH (R12): the range and the button drop under the wave rather than forcing the dock

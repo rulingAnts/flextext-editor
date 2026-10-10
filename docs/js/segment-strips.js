@@ -24,7 +24,7 @@ import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAl
          isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt, splitTiers, splitPlan, splitAllowed, timingReport,
          guessSplits, applyGuessedSplits, guessSplitsWithin, applyGuessedSplitsWithin, guessSplitsWindowed,
-         gapRowsFor, gapHasSpeech } from './segments.js';
+         gapRowsFor, gapHasSpeech, gapSpeechLevels } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 // Already in every SHELL (seg-exports.js imports it), so this adds no precache path.
 import { readLegacyEstimates } from './flextext.js';
@@ -1087,12 +1087,16 @@ function scrollerFor(host) {
  *
  * The row shows: ▶ for the unclaimed audio, its waveform, the range, and — only when the researcher
  * allows writes and no red alignment warning is outstanding — "Add a line here". */
-function gapRowEl(gap, d, onAdd, speech) {
+function gapRowEl(gap, d, onAdd, speech, blocked) {
   const row = document.createElement('div');
   row.className = 'gap-row' + (speech ? ' gap-speech' : '');
   row.dataset.gap = String(gap.k);
   row.setAttribute('role', 'group');
-  row.setAttribute('aria-label', d.t('gap.rowLabel', { range: gapRangeText(gap) }));
+  /* ⚠ THE AMBER IS NOT THE ONLY CARRIER (v719 review). "A pause with voice in it" is the highest
+   * value signal here — it picks the holes that are probably untranscribed sentences — and colour
+   * alone announces it to nobody: the field device is an Android phone, TalkBack included, and a
+   * fill difference this slight is invisible in daylight anyway. So the state is in the NAME. */
+  row.setAttribute('aria-label', d.t(speech ? 'gap.rowLabel.speech' : 'gap.rowLabel', { range: gapRangeText(gap) }));
 
   const play = document.createElement('button');
   play.type = 'button';
@@ -1125,7 +1129,11 @@ function gapRowEl(gap, d, onAdd, speech) {
    * damaged L29 export the tail row exists because the FILE is wrong; offering to fill it invites
    * retyping a sentence that is already there. The row still shows — that 2.1 s is the evidence —
    * and says why there is nothing to press. */
-  if (d.gapAddBlocked && d.gapAddBlocked()) {
+  /* `blocked` is computed ONCE per render by the caller — the same lesson as gapSpeechLevels: this
+   * is evaluated per row, and behind the dep sits a timingReport over every span. Callers that pass
+   * nothing still get the old behaviour. */
+  const isBlocked = blocked !== undefined ? blocked : !!(d.gapAddBlocked && d.gapAddBlocked());
+  if (isBlocked) {
     const note = document.createElement('span');
     note.className = 'gap-blocked';
     note.textContent = d.t('gap.checkFirst');
@@ -1189,8 +1197,16 @@ function gapsToDraw(segs, d) {
   return gapRowsFor(segs, D);
 }
 /* Does this gap hold speech? Measured once per render per row, against the whole recording's levels. */
-function gapSpeech(gap) {
-  try { return gapHasSpeech(peaksCache.peaks, peaksCache.msPerBucket, gap.start, gap.end); }
+/* The whole-recording levels the speech test needs, computed ONCE per render and passed to every
+ * row — see gapSpeechLevels. Null when the peaks are not ready, which makes every row read "no
+ * speech", which is the right way to be wrong: a gap is drawn plainly rather than tinted on a
+ * guess. */
+function gapLevelsNow() {
+  try { return gapSpeechLevels(peaksCache.peaks, peaksCache.msPerBucket); } catch { return null; }
+}
+function gapSpeech(gap, levels) {
+  if (!levels) return false;
+  try { return gapHasSpeech(peaksCache.peaks, peaksCache.msPerBucket, gap.start, gap.end, { levels }); }
   catch { return false; }
 }
 /* The dock player's gap layer — SEPARATE from setBoundaries, which holds one entry per seam and
@@ -1224,9 +1240,11 @@ export function renderStrips() {
   /* v719: the unclaimed audio, drawn between the lines it sits between. Keyed by the index a line
    * WOULD be inserted at, so gaps[i] belongs before line i and gaps[n] after the last. */
   const gaps = new Map(gapsToDraw(segs, deps).map((g) => [g.k, g]));
+  const gapLevels = gaps.size ? gapLevelsNow() : null;
+  const gapBlocked = !!(deps.gapAddBlocked && deps.gapAddBlocked());
   const addGap = (k) => {
     const g = gaps.get(k);
-    if (g) host.appendChild(gapRowEl(g, deps, (at) => deps.addGapLine?.(at), gapSpeech(g)));
+    if (g) host.appendChild(gapRowEl(g, deps, (at) => deps.addGapLine?.(at), gapSpeech(g, gapLevels), gapBlocked));
   };
 
   paras.forEach((text, i) => {
@@ -1849,6 +1867,13 @@ function positionCursor() {
   rafId = requestAnimationFrame(tick);
 }
 
+/* Put the caret in a line's text box from outside this module — what every structural edit in here
+ * already does for itself (a split ends with focusStrip(i + 1, 0)). v719's Add is driven from app.js,
+ * and without this it left focus on document.body: on a screen reader the user's place among forty
+ * rows was lost and reading restarted at the top, and on a phone they had to hunt for the new empty
+ * row before typing the sentence they had just heard — which is the only reason they pressed Add. */
+export function focusLine(i, caret = 0) { try { focusStrip(i, caret); } catch { /* not drawn yet */ } }
+
 export function stopStrips() { cancelAnimationFrame(rafId); }
 
 /* ---------------- gloss-tab decorations (shared machinery, skinnier clothes) ---------------- */
@@ -2390,9 +2415,11 @@ export function renderCut(anchorIdx) {
   const checks = checkedLines(segs, paras, marksOn);
   const needs = needsMarks(segs, marksOn);   // v718 — see timeStateClass
   const gaps = new Map(gapsToDraw(segs, cutDeps).map((g) => [g.k, g]));   // v719 — see gapRowEl
+  const gapLevels = gaps.size ? gapLevelsNow() : null;
+  const gapBlocked = !!(cutDeps.gapAddBlocked && cutDeps.gapAddBlocked());
   const addGap = (k) => {
     const g = gaps.get(k);
-    if (g) host.appendChild(gapRowEl(g, cutDeps, (at) => cutDeps.addGapLine?.(at), gapSpeech(g)));
+    if (g) host.appendChild(gapRowEl(g, cutDeps, (at) => cutDeps.addGapLine?.(at), gapSpeech(g, gapLevels), gapBlocked));
   };
 
   segs.forEach((seg, i) => {

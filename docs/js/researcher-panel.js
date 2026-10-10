@@ -2911,6 +2911,7 @@ async function renderDashboard(prefetched) {
          * queue two uploadDelete commands, and uploadDelete uploads a fresh copy before deleting —
          * so the duplicate is a wasted upload on a field connection, not just a redundant command. */
         if (pendingFor(docId, mv.from)) continue;
+        if (releaseHeld(docId, mv)) continue;
         try {
           const r1 = await Researcher.uploadDelete(mv.from, docId);
           pendingCmds.set(docId, { seq: r1.seq, kind: 'delete', instanceId: mv.from, at: Date.now() });
@@ -2957,6 +2958,11 @@ async function renderDashboard(prefetched) {
     let changed = false;
     for (const [docId, p] of pendingCmds) {
       const d = live.get(docId);
+      /* An UPLOAD is proved by the device it was asked of (the review). During a move the text sits on
+       * two devices, and `live` holds whichever reported last — so the destination's own backup could
+       * retire the source's request. The move's hold reads the source directly; this keeps the row
+       * honest too. */
+      const du = p.kind === 'upload' && p.instanceId ? ((deviceItems(p.instanceId, docId)[0] || {}).item) : d;
       // A delete is done when the text is gone from every inventory. An upload is done when the
       // device reports a NEW file id — the same signal the History log uses.
       /* Each kind is retired by the inventory FACT that proves it happened — never by a clock
@@ -2966,7 +2972,7 @@ async function renderDashboard(prefetched) {
         ? (d === undefined && ackOf(insts, p.instanceId) >= p.seq)
         : p.kind === 'assign'
           ? d !== undefined
-          : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
+          : !!(du && du.uploadedFileId && du.uploadedFileId !== p.prevFileId);
       /* ⚠ WITHDRAWN IN ANOTHER BROWSER — the mirror of the bug v388 fixed, and the half it missed
        * (Seth, 2026-08-18): "If I do an action on the first session it DOES propagate to the second
        * session, but then when I cancel on the second, the first doesn't register that the second
@@ -3961,27 +3967,46 @@ function cleanupCandidates(allFiles) {
  *                 and the non-whitespace characters of the baseline and the free translation survive
  *                 joins and splits unchanged, so only those can make another copy "richer" there.
  * ⚠ It is a COUNT comparison. Two copies with equal counts and different wording compare as equal;
- * the UI words this as "no more … than", never "contains". */
-const STAT_ALL = ['phrases', 'timed', 'textLines', 'words', 'glossed', 'freeLines', 'chars', 'freeChars'];
-const STAT_CONTENT = ['words', 'glossed', 'chars', 'freeChars'];
+ * the UI words this as "no more … than", never "contains".
+ * ⚠ FLEx's own analysis counts too (the review): morpheme analyses (`morphs`), literal translations
+ * (`litChars`) and a person's notes (`notes`). This app round-trips them without editing them, so a
+ * copy without them looked "no poorer" than an analysed one, and cleanup trashed the analysed one.
+ * Morphemes and literal translations survive joins like words do, so a move weighs them too. */
+const STAT_ALL = ['phrases', 'timed', 'textLines', 'words', 'glossed', 'freeLines', 'chars', 'freeChars', 'morphs', 'litChars', 'notes'];
+const STAT_CONTENT = ['words', 'glossed', 'chars', 'freeChars', 'morphs', 'litChars'];
 function statsDominate(a, b, keys) {
   return !!(a && b) && keys.every((k) => (a[k] || 0) >= (b[k] || 0));
 }
 function statsRicher(a, b, keys) {
   return statsDominate(a, b, keys) && keys.some((k) => (a[k] || 0) > (b[k] || 0));
 }
-/* Holds NOTHING a person made: no words, no text, no translation, no glosses, no cut. An untouched
- * placeholder is exactly this, and it is outranked by ANY copy with content whatever its guid — a
- * placeholder minted on a device has a fresh guid, so a same-guid rule alone would keep every one
- * for ever. */
+/* Does copy `a` hold something the reference copy does not? The after-move flag's question (§5.4).
+ * CONTENT measures only — a join on the new device makes its own earlier backup "longer" by lines, and
+ * that is not work the new device is missing — plus timings when the reference has none at all: a
+ * placeholder cut into 32 lines holds no words, and all of its work is in the cuts. One span is the
+ * whole-file seed, not a cut. */
+function statsHoldMore(a, ref) {
+  if (!a || !ref) return false;
+  if (STAT_CONTENT.some((k) => (a[k] || 0) > (ref[k] || 0))) return true;
+  return !(ref.timed > 0) && (a.timed || 0) > 1;
+}
+/* Holds NOTHING a person made: no words, no text, no translation, no glosses, no cut, no analysis,
+ * no note. An untouched placeholder is exactly this, and it is outranked by ANY copy with content
+ * whatever its guid — a placeholder minted on a device has a fresh guid, so a same-guid rule alone
+ * would keep every one for ever. */
 function statsHaveContent(s) {
-  return !!s && ((s.words || 0) + (s.chars || 0) + (s.freeChars || 0) + (s.glossed || 0) + (s.timed || 0)) > 0;
+  return !!s && ((s.words || 0) + (s.chars || 0) + (s.freeChars || 0) + (s.glossed || 0) + (s.timed || 0)
+    + (s.morphs || 0) + (s.litChars || 0) + (s.notes || 0)) > 0;
 }
 
 /* Fetch and count a set of Drive copies. Returns Map(fileId → entry):
  *   { state: 'ok', stats }           read and counted
- *   { state: 'damaged', stats }      holds nothing usable (empty, NUL, not a document, cut off)
- *   { state: 'unreadable', stats }   whole, but this parser could not read it — UNKNOWN, never bad
+ *   { state: 'damaged', stats }      HOLLOW: holds nothing usable (empty, mostly NUL, not a document,
+ *                                    no text, cut off before its first line)
+ *   { state: 'unreadable', stats }   could not be read: whole but this parser could not parse it, or
+ *                                    damaged but possibly holding work (stats.partial — cut off after
+ *                                    real lines, a stray NUL). UNKNOWN, never bad: cleanup keeps it.
+ *                                    No device can open it either, so a move never SENDS it.
  *   { state: 'unchecked', why }      not fetched: 'zip' (the panel reads no zips), 'cap', 'fetch'
  *   { state: 'missing' }             the id answered 404 — only meaningful for a lookup by id
  *
@@ -4084,9 +4109,11 @@ function cleanupBlocked(docId) {
  * go — nothing else is ever a row here). Precedence, first match wins:
  *   1. a device's current backup (deviceIds)              KEEP — even if damaged
  *   2. a copy a delivery used (keepIds)                    KEEP
- *   3. damaged: empty, NUL, not a document, cut off        TRASH — holds nothing; beats "newest",
+ *   3. hollow: empty, mostly NUL, not a document, no
+ *      text, cut off before its first line               TRASH — holds nothing; beats "newest",
  *                                                          because the damaged file WAS the newest
- *   4. not fetched, unreadable, a zip                      KEEP — unknown means keep
+ *   4. not fetched, unreadable, a zip — or damaged but
+ *      NOT hollow (cut off after real lines, a stray NUL) KEEP — unknown means keep
  *   5. the newest readable copy that holds content         KEEP (a placeholder that landed last does
  *                                                          not hold this place over the transcription)
  *   6. byte-identical (sha256) to a kept copy              TRASH
@@ -4106,7 +4133,9 @@ function cleanupPlan({ backups, stats, deviceIds, keepIds }) {
     if (deviceIds && deviceIds.has(r.file.id)) keep(r, 'keepDevice');
     else if (keepIds && keepIds.has(r.file.id)) keep(r, 'keepRecorded');
     else if (r.entry.state === 'damaged') r.verdict = 'trashEmpty';
-    else if (r.entry.state !== 'ok') keep(r, 'keepUnknown');
+    // Damaged but NOT hollow (cut off after real lines, a stray NUL): it may hold the only copy of
+    // some work, so it is kept and the review says why (the review, 2026-10-10).
+    else if (r.entry.state !== 'ok') keep(r, r.entry.stats && r.entry.stats.partial ? 'keepPartial' : 'keepUnknown');
   }
   const ok = (r) => r.entry.state === 'ok';
   const anyContent = rows.some((r) => ok(r) && statsHaveContent(r.entry.stats));
@@ -5340,7 +5369,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * why and nothing to act on. It now says which device has not released its copy, and offers
          * the same escape the source row offers. */
         const moveChip = mvSource
-          ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>`
+          ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned'
+              ? (releaseHeld(d.id, mv) ? 'panel.move.waitingResend' : 'panel.move.waitingDest') : 'panel.move.removingSrc'))}</span>`
           : (mv && !d.__assigning)
             ? ` <span class="rp-tag rp-tag-moving" title="${esc(t('panel.move.srcChipWhy', { from: instanceNick(mv.from) }))}">${esc(t('panel.move.srcChip'))}</span>`
               + (memberCtx ? '' : ` <button class="link-btn rp-cancel" data-iact="clear-move" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.clearBtn'))}</button>`)
@@ -5755,6 +5785,11 @@ async function instanceActionInner(el) {
       // Upload-first delete: the confirm spells out the safety order (fresh Drive copy FIRST, delete
       // only after it's confirmed).
       if (!await confirmModal(t('panel.inst.confirmDelText', { title: el.dataset.title || '?' }))) return;
+      /* ⚠ THE DEVICE'S OWN COPY IS CHECKED FIRST (the review). A device reporting "uploaded ✓" removes
+       * the text without sending a new copy, so a damaged or missing copy in Drive would make this the
+       * end of its latest work. Refused, with the reason and "Ask {device} to send its copy". */
+      const chk = await busy(el, () => deviceBackupCheck(id, el.dataset.id));
+      if (!chk.ok) { refuseRemoval(id, el.dataset.id, el.dataset.title, chk); return; }
       const r2 = await busy(el, () => Researcher.uploadDelete(id, el.dataset.id));  // data-id is the doc id here
       pendingCmds.set(el.dataset.id, { seq: r2.seq, kind: 'delete', instanceId: id, at: Date.now() });
       savePending(Researcher.currentAccountId());
@@ -7673,7 +7708,27 @@ function moveCopyRows(files) {
     .slice().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
 }
 
-/* THE DECISION — pure, lifted by test/move-copy-choice.test.mjs.
+/* The source device's OWN last upload, judged — PURE; the move chooser and deviceBackupCheck share it.
+ *   ''            sound — or not judged here (an older engine's zip, a fetch that failed: callers decide)
+ *   'missing'     the lookup by id answered 404
+ *   'damaged'     hollow; or damaged but partial (cut off, a stray NUL); or Drive holds different bytes
+ *                 from the ones the device says it sent (G5's hash)
+ *   'unopenable'  whole, but no device can open it: unparsable, or it carries a character XML does not
+ *                 allow (an older engine wrote a pasted U+000B raw)
+ * ⚠ WHY EACH OF THESE REFUSES (the review): a device that reports "uploaded" believes this copy IS its
+ * current state, so its removal deletes the text WITHOUT sending a new one. Sending this copy, or
+ * letting the device go, would leave the work only on the device being emptied. */
+function deviceCopyVerdict(d, file, entry) {
+  const e = entry || { state: 'unchecked' };
+  if (e.state === 'missing') return 'missing';
+  if (e.state === 'damaged') return 'damaged';
+  if (d && d.uploadedSha256 && file && file.sha256 && d.uploadedSha256 !== file.sha256) return 'damaged';
+  if (e.state === 'unreadable') return e.stats && e.stats.partial ? 'damaged' : 'unopenable';
+  if (e.state === 'ok' && e.stats && e.stats.forbidden > 0) return 'unopenable';
+  return '';
+}
+
+/* THE DECISION — pure, lifted by test/move-copy-choice.test.mjs and test/move-copy-gaps.test.mjs.
  *
  * In:  source       { item, seenAt } — the freshest live install's report, or null
  *      files        the text's own-folder listing (G3)
@@ -7681,15 +7736,23 @@ function moveCopyRows(files) {
  *                   did not show (Drive's search lags; a copy can sit in an old "Title (n)" folder)
  *      deliveredId  deliveredFileId(), '' when this browser does not know it
  *      adopt        no source device at all (an Unassigned or crowd text)
- * Out: { decision, file, candidates, flavor, path, note }
+ * Out: { decision, file, candidates, flavor, path, note, deliveredUsed, timedHad }
  *
  *   send             send `file` (null = no text copy exists; the recording moves alone)
- *   pick             copies disagree in a way that matters — the researcher chooses, nothing preselected
+ *   pick             copies disagree in a way that matters — the researcher chooses, nothing preselected;
+ *                    `note` says why when it is not the content rules: 'timings' or 'unchecked'
  *   needsUpload      the device has work Drive does not ('changed', or 'local' = never sent)
  *   wait             the device is sending now
  *   lastCopyMissing  the device's last upload is not in Drive (looked up by id, not only listed)
- *   damaged          the device's last upload holds nothing usable, or no usable copy exists at all
+ *   damaged          the device's last upload cannot be used (`flavor` 'damaged' or 'unopenable'), or
+ *                    — with no `file` — no copy in Drive can be opened on a device at all
  *   noReport         the device has not reported this text
+ *
+ * ⚠ ONLY A COPY A DEVICE CAN OPEN IS SENT OR OFFERED (the review). A damaged copy, a partial one, one
+ * the panel could not parse, and one carrying a character XML forbids all used to reach the
+ * destination, which was left holding an empty text. A copy nobody READ (a legacy zip; past the size
+ * or count cap; a fetch that failed) is "unknown": it may be sent when nothing better exists, with a
+ * note — and it is never INVISIBLE (below).
  *
  * ⚠ WHEN A MOVE STOPS TO ASK, AND WHY ONLY THEN. Only CONTENT measures count (STAT_CONTENT): a join
  * makes the pre-join copy look "longer" by lines, and asking about that — or worse, sending it —
@@ -7699,21 +7762,30 @@ function moveCopyRows(files) {
  *       fresh placeholder, Drive holds the transcription" case;
  *   (c) with no device to trust (adopt, or an untouched delivery), any copy is richer in content;
  *   (d) a copy NEWER than the device's last upload is richer — the report is stale, or someone else
- *       wrote after it.
+ *       wrote after it;
+ *   (e) the copy to send has NO timings and another has cut lines (more than the one whole-file seed
+ *       span): a device switched back to the basic editor uploads copies without them, and the
+ *       release would then delete the only copy of the cuts on the device (the review);
+ *   (f) a copy nobody could read MAY hold more: with no device to trust, when the copy to send holds
+ *       nothing, or the unread copy is a bigger .flextext; on the device path, the same for an unread
+ *       copy newer than the device's own. An empty placeholder used to go out over a 9 MB analysed
+ *       transcription the size cap had skipped (the review).
  * A same-text copy OLDER than the device's own and richer is ordinary editing (glosses cleared, junk
  * words deleted): the device's current state is what moves, and the panel says so in a note instead
- * of asking. A damaged copy is never sent; an unchecked one is sent only when it is the device's own
- * copy, and says it could not be checked. */
+ * of asking. */
 function chooseMoveCopy({ source, files, stats, deliveredId, adopt }) {
   const copies = moveCopyRows(files);
   const entryOf = (f) => (f && stats && stats.get(f.id)) || { state: 'unchecked', why: 'cap' };
-  const usable = (f) => !['damaged', 'missing'].includes(entryOf(f).state);
-  const ok = (f) => entryOf(f).state === 'ok';
   const st = (f) => entryOf(f).stats;
+  const opens = (f) => entryOf(f).state === 'ok' && !(st(f).forbidden > 0);
+  const unknown = (f) => entryOf(f).state === 'unchecked';
+  const usable = (f) => opens(f) || unknown(f);
+  const isZip = (f) => /\.zip$/i.test(String((f && f.name) || ''));
   const newer = (a, b) => String(a.modified || '') > String(b.modified || '');
-  const candidates = copies.filter(usable).sort((a, b) => (ok(b) - ok(a))
-    || ((ok(a) && ok(b)) ? (st(b).words - st(a).words) : 0) || String(b.modified).localeCompare(String(a.modified)));
-  const result = (decision, extra) => ({ decision, file: null, candidates, flavor: '', path: '', note: '', ...(extra || {}) });
+  const order = (a, b) => (opens(b) - opens(a))
+    || ((opens(a) && opens(b)) ? (st(b).words - st(a).words) : 0) || String(b.modified).localeCompare(String(a.modified));
+  let candidates = copies.filter(usable).sort(order);
+  const result = (decision, extra) => ({ decision, file: null, candidates, flavor: '', path: '', note: '', deliveredUsed: false, ...(extra || {}) });
 
   let chosen = null, path = 'adopt';
   if (!adopt) {
@@ -7730,32 +7802,50 @@ function chooseMoveCopy({ source, files, stats, deliveredId, adopt }) {
       if (!id) return result('needsUpload', { flavor: 'local' });
       chosen = copies.find((x) => x.id === id) || null;
       if (!chosen) {
-        // Not in the listing: the caller looked it up by id. Found and readable → it exists (an old
-        // duplicate folder, or a listing that lags); anything else → missing.
-        if (entryOf({ id }).state !== 'ok') return result('lastCopyMissing');
+        // Not in the listing: the caller looked it up by id. Found → it exists (an old duplicate
+        // folder, or a listing that lags) and is judged below; 404 or unreachable → missing.
+        const e = entryOf({ id });
+        if (e.state === 'missing' || e.state === 'unchecked') return result('lastCopyMissing');
         chosen = { id, name: '', modified: '', notListed: true };
       }
-      const e = entryOf(chosen);
-      if (e.state === 'damaged' || e.state === 'missing') return result('damaged', { file: chosen });
-      // The device reports the SHA-256 of the bytes it sent (G5); Drive lists its own. Different
-      // means the copy changed on the way, which is damage the content check might not see.
-      if (d.uploadedSha256 && chosen.sha256 && d.uploadedSha256 !== chosen.sha256) return result('damaged', { file: chosen });
+      const bad = deviceCopyVerdict(d, chosen, entryOf(chosen));
+      // A fetch that FAILED is not a pass either: the release would delete the text on the strength of
+      // a copy nobody could read — "could not be reached just now", like the removal check.
+      if (bad === 'missing' || (entryOf(chosen).state === 'unchecked' && entryOf(chosen).why === 'fetch')) return result('lastCopyMissing');
+      if (bad) return result('damaged', { file: chosen, flavor: bad });
+      // A copy found by its id is a choice like any other when the researcher is asked (the review).
+      if (chosen.notListed && opens(chosen)) candidates = [...candidates, chosen].sort(order);
     }
   }
-  if (!chosen) chosen = copies.find(ok) || copies.find(usable) || null;
-  if (!chosen) return copies.length ? result('damaged') : result('send', { path });
+  if (!chosen) chosen = copies.find(opens) || copies.find(unknown) || null;
+  if (!chosen) return copies.length ? result('damaged', { path, flavor: 'damaged' }) : result('send', { path });
 
-  const sc = ok(chosen) ? st(chosen) : null;
-  const others = copies.filter((x) => x !== chosen && x.id !== chosen.id && ok(x));
-  if (!sc) return result('send', { file: chosen, path, note: 'unchecked' });
+  const trusted = path === 'device';
+  const deliveredUsed = path === 'delivered' && !!deliveredId && chosen.id === deliveredId;
+  const sc = opens(chosen) ? st(chosen) : null;
+  if (!sc) {
+    // Not read (a zip, a fetch that failed). The device's own copy, or the only one, goes with a note;
+    // with no device to trust and other unread copies beside it, the researcher chooses.
+    return (!trusted && candidates.length > 1) ? result('pick', { path, note: 'unchecked', suggested: chosen })
+      : result('send', { file: chosen, path, note: 'unchecked', deliveredUsed });
+  }
+  const others = copies.filter((x) => x !== chosen && x.id !== chosen.id && opens(x));
+  const unread = copies.filter((x) => x !== chosen && x.id !== chosen.id && unknown(x));
   const richer = (x) => statsRicher(st(x), sc, STAT_CONTENT);
-  const ask = (!statsHaveContent(sc) && others.some((x) => statsHaveContent(st(x))))
+  const contentAsk = (!statsHaveContent(sc) && others.some((x) => statsHaveContent(st(x))))
     || others.some((x) => st(x).guid !== sc.guid && ((st(x).words || 0) > (sc.words || 0) || (st(x).chars || 0) > (sc.chars || 0)))
-    || (path !== 'device' && others.some(richer))
-    || (path === 'device' && others.some((x) => newer(x, chosen) && richer(x)));
-  if (ask) return result('pick', { path, suggested: chosen });
-  const olderRicher = path === 'device' ? others.find(richer) : null;
-  return result('send', { file: chosen, path, note: olderRicher ? 'olderRicher' : '', richer: olderRicher || null });
+    || (!trusted && others.some(richer))
+    || (trusted && others.some((x) => newer(x, chosen) && richer(x)));
+  const timedHad = sc.timed > 0 ? 0 : others.reduce((n, x) => Math.max(n, st(x).timed || 0), 0);
+  const mayHoldMore = (x) => !statsHaveContent(sc) || (!isZip(x) && (x.size || 0) > (chosen.size || 0));
+  const unreadAsk = trusted ? (!chosen.notListed && unread.some((x) => newer(x, chosen) && mayHoldMore(x)))
+    : unread.some(mayHoldMore);
+  if (contentAsk || timedHad > 1 || unreadAsk) {
+    return result('pick', { path, suggested: chosen, timedHad,
+      note: timedHad > 1 ? 'timings' : (!contentAsk && unreadAsk) ? 'unchecked' : '' });
+  }
+  const olderRicher = trusted ? others.find(richer) : null;
+  return result('send', { file: chosen, path, note: olderRicher ? 'olderRicher' : '', richer: olderRicher || null, deliveredUsed });
 }
 
 /* Fetch what the decision needs and decide. The copy that will be SENT is never capped (copyStats
@@ -7777,8 +7867,9 @@ async function resolveMoveCopy({ fromId, docId, src, adopt, onProgress, signal }
 }
 
 /* The copy section of the Move / adopt modal. Paints the decision into `box` and returns
- * `pickFile()` → { ok, file, why }: ok=false means a DEVICE destination cannot be sent to yet, and
- * `why` is the sentence to show. Unassigned never consults it — it sends nothing to a device. */
+ * `pickFile()` → { ok, file, why, hold? }: ok=false means a DEVICE destination cannot be sent to yet,
+ * and `why` is the sentence to show. `hold` tells the commit to HOLD the source's release (below).
+ * Unassigned never consults it — it sends nothing to a device. */
 function paintCopyChoice(box, choice, ctx) {
   const dev = ctx.device || '?';
   const entry = (f) => (choice.stats && choice.stats.get(f.id)) || { state: 'unchecked' };
@@ -7792,8 +7883,10 @@ function paintCopyChoice(box, choice, ctx) {
     f.id === choice.deliveredId ? t('panel.move.copyDelivered', { device: dev }) : '',
     f.id === newestId ? t('panel.move.copyNewest') : '',
   ].filter(Boolean).join(' · ');
+  // An unread copy shows its SIZE: it is the one fact the researcher can judge it by (the review).
   const rowText = (f) => { const c = counts(f);
-    return (c ? t('panel.move.copyRow', { when: when(f), ...c }) : t('panel.move.copyRowUnchecked', { when: when(f) }))
+    return (c ? t('panel.move.copyRow', { when: when(f), ...c })
+      : t('panel.move.copyRowUnchecked', { when: when(f), size: f.size ? fmtSize(f.size) : '—' }))
       + (labelsOf(f) ? ' — ' + labelsOf(f) : ''); };
   const radios = (list) => list.length
     ? list.map((f) => `<label class="rp-tile"><input type="radio" name="rp-move-copy" value="${esc(f.id)}">
@@ -7803,12 +7896,25 @@ function paintCopyChoice(box, choice, ctx) {
     const v = (box.querySelector('input[name="rp-move-copy"]:checked') || {}).value;
     return v ? choice.candidates.find((f) => f.id === v) || null : null;
   };
+  /* The way out a send and a refusal share: a link that opens the candidate list (nothing preselected),
+   * under a warning that says what happens to the source device's own copy. */
+  const hatchHtml = (kind, btnKey, warnKey, list) => `<button type="button" class="link-btn" data-copy="${kind}">${esc(t(btnKey))}</button>
+    <div class="rp-move-hatch" hidden>
+      ${warnKey ? `<p class="note rp-move-warn">${esc(t(warnKey, { device: dev }))}</p>` : ''}
+      <div class="rp-move-copies">${radios(list)}</div></div>`;
+  const wireHatch = (sel) => {
+    const b = box.querySelector(sel);
+    if (b) b.onclick = () => { box.querySelector('.rp-move-hatch').hidden = false; b.hidden = true; };
+    return b;
+  };
   const d = choice.decision;
   if (d === 'send') {
     const f = choice.file;
+    // "the copy {device} received" only when it IS that copy (the review): without this browser's
+    // history the chosen copy is merely the newest readable one, and saying more would be false.
     const from = choice.path === 'device'
       ? t('panel.move.fromDevice', { device: dev, ago: lastSeen((choice.source || {}).seenAt) })
-      : choice.path === 'delivered' ? t('panel.move.fromDelivered', { device: dev }) : t('panel.move.fromBest');
+      : choice.path === 'delivered' && choice.deliveredUsed ? t('panel.move.fromDelivered', { device: dev }) : t('panel.move.fromBest');
     const c = f ? counts(f) : null;
     const line = !f ? t('panel.move.willSendNoText')
       : (c ? t('panel.move.willSend', { name: f.name || t('panel.move.copyUnnamed'), when: when(f), ...c })
@@ -7816,11 +7922,24 @@ function paintCopyChoice(box, choice, ctx) {
     const extra = choice.note === 'olderRicher' && choice.richer
       ? `<p class="note rp-move-warn">${esc(t('panel.move.olderRicher', { device: dev, words: (entry(choice.richer).stats || {}).words || 0,
           now: (entry(f).stats || {}).words || 0, when: when(choice.richer) }))}</p>` : '';
-    box.innerHTML = `<p class="note rp-move-send">${esc(line)}</p>${extra}`;
-    return { pickFile: () => ({ ok: true, file: f }) };
+    /* ⚠ A SEND CAN STILL BE CHANGED (the review): a researcher who sees "words: 0" on the line above had
+     * no way to choose another copy in this modal. The device's own copy stays in Drive either way. */
+    const alt = (choice.candidates || []).filter((x) => !f || x.id !== f.id);
+    box.innerHTML = `<p class="note rp-move-send">${esc(line)}</p>${extra}`
+      + (alt.length ? hatchHtml('other', 'panel.move.otherCopy', choice.source ? 'panel.move.otherCopyWarn' : '', alt) : '');
+    const other = wireHatch('[data-copy="other"]');
+    return { pickFile: () => {
+      if (!(other && other.hidden)) return { ok: true, file: f };
+      const p = picked();
+      return p ? { ok: true, file: p } : { ok: false, why: t('panel.move.pickFirst') };
+    } };
   }
   if (d === 'pick') {
-    box.innerHTML = `<p class="note rp-move-warn">${esc(t('panel.move.pickCopy'))}</p><div class="rp-move-copies">${radios(choice.candidates)}</div>`;
+    const why = choice.note === 'timings' ? t('panel.move.pickTimings', { n: choice.timedHad || 0, device: dev })
+      : choice.note === 'unchecked' ? t('panel.move.pickUnchecked') : '';
+    box.innerHTML = `<p class="note rp-move-warn">${esc(t('panel.move.pickCopy'))}</p>`
+      + (why ? `<p class="note rp-move-warn">${esc(why)}</p>` : '')
+      + `<div class="rp-move-copies">${radios(choice.candidates)}</div>`;
     return { pickFile: () => { const f = picked(); return f ? { ok: true, file: f } : { ok: false, why: t('panel.move.pickFirst') }; } };
   }
   const item = (choice.source && choice.source.item) || {};
@@ -7828,75 +7947,184 @@ function paintCopyChoice(box, choice, ctx) {
     ? t(choice.flavor === 'changed' ? 'panel.move.notOnDrive' : 'panel.move.neverSent', { device: dev, when: lastSeen(item.modified) })
     : d === 'wait' ? t('panel.move.sendingNow', { device: dev })
     : d === 'lastCopyMissing' ? t('panel.move.lastCopyMissing', { device: dev })
-    : d === 'damaged' ? t(choice.file ? 'panel.move.lastCopyDamaged' : 'panel.move.allDamaged', { device: dev })
+    : d === 'damaged' ? t(!choice.file ? 'panel.move.allDamaged'
+        : choice.flavor === 'unopenable' ? 'panel.move.lastCopyUnopenable' : 'panel.move.lastCopyDamaged', { device: dev })
     : t('panel.move.noReport', { device: dev });
   const canAsk = !!ctx.onAsk && ['needsUpload', 'lastCopyMissing', 'damaged'].includes(d) && !!choice.source;
   /* ⚠ THE WAY OUT EXISTS ON EVERY REFUSAL THAT HAS A COPY TO OFFER — a lost, broken or long-offline
    * device is exactly when a move is most needed, and "is sending now" can mean a queue that has
-   * been stuck for days. It costs a deliberate pick and says what is left behind. */
+   * been stuck for days. It costs a deliberate pick and says what is left behind.
+   *
+   * ⚠ AND WHAT IT DOES TO THE DEVICE'S OWN COPY DEPENDS ON WHY THE MOVE STOPPED (the review). With
+   * unsent changes (needsUpload) the release uploads them before it deletes, as the warning says. But a
+   * device whose last copy in Drive is DAMAGED or MISSING believes it is backed up, and its release
+   * would delete the text without sending anything — the source's latest work would then exist
+   * nowhere. So there the move HOLDS the release ('resend': the device is asked to send its copy
+   * again, and keeps the text until a new upload is reported), and the same for a device sending now
+   * ('wait': its queued copy would be deleted with the text). The warning says which. */
+  const hold = !choice.source ? '' : d === 'wait' ? 'wait'
+    : (d === 'lastCopyMissing' || (d === 'damaged' && choice.file)) ? 'resend' : '';
+  const warnKey = !choice.source ? '' : hold === 'resend' ? 'panel.move.useDriveWarnResend'
+    : hold === 'wait' ? 'panel.move.useDriveWarnWait' : 'panel.move.useDriveWarn';
   const alt = choice.candidates.filter((f) => !choice.file || f.id !== choice.file.id);
   const hatch = d !== 'noReport' && alt.length > 0;
   box.innerHTML = `<p class="note rp-move-warn">${esc(reason)}</p>
     ${canAsk ? `<button type="button" class="secondary-btn" data-copy="ask">${esc(t('panel.move.askSend', { device: dev }))}</button>` : ''}
-    ${hatch ? `<button type="button" class="link-btn" data-copy="drive">${esc(t('panel.move.useDrive'))}</button>
-    <div class="rp-move-hatch" hidden>
-      ${choice.source ? `<p class="note rp-move-warn">${esc(t('panel.move.useDriveWarn', { device: dev }))}</p>` : ''}
-      <div class="rp-move-copies">${radios(alt)}</div></div>`
+    ${hatch ? hatchHtml('drive', 'panel.move.useDrive', warnKey, alt)
       : (d === 'noReport' ? '' : `<p class="note">${esc(t('panel.move.noDriveCopy'))}</p>`)}`;
   const askBtn = box.querySelector('[data-copy="ask"]');
   if (askBtn) askBtn.onclick = () => busy(askBtn, () => ctx.onAsk(item));
-  const hatchBtn = box.querySelector('[data-copy="drive"]');
-  if (hatchBtn) hatchBtn.onclick = () => { box.querySelector('.rp-move-hatch').hidden = false; hatchBtn.hidden = true; };
+  const hatchBtn = wireHatch('[data-copy="drive"]');
   return { pickFile: () => {
     const open = hatchBtn && hatchBtn.hidden;
     const f = open ? picked() : null;
-    if (f) return { ok: true, file: f };
+    if (f) return hold ? { ok: true, file: f, hold } : { ok: true, file: f };
     return { ok: false, why: open ? t('panel.move.pickFirst') : reason };
   } };
+}
+
+/* Runs a move's copy check inside its open modal, and keeps `ui.current` honest on EVERY outcome (the
+ * review): painted → that decision's own pickFile; FAILED → a "Try again" link, and Go says the check
+ * failed — it used to answer "still checking" for ever, until the modal was closed and reopened;
+ * cancelled (the modal closed) → nothing at all. `resolve(onProgress)` returns the decision. */
+function startCopyCheck(box, { resolve, paint }) {
+  const ui = { current: null };
+  const progress = (i, n) => { box.innerHTML = `<p class="note">${esc(t('panel.move.checking', { i, n }))}</p>`; };
+  const run = () => {
+    ui.current = null;
+    progress(0, '…');
+    Promise.resolve().then(() => resolve(progress)).then((choice) => { ui.current = paint(choice); }).catch((err) => {
+      if (err && (err.cancelled || err.name === 'AbortError')) return;
+      box.innerHTML = `<p class="note rp-adm-err">${esc(t('panel.move.checkFailed'))}</p>
+        <button type="button" class="link-btn" data-copy="retry">${esc(t('panel.move.checkRetry'))}</button>`;
+      const again = box.querySelector('[data-copy="retry"]');
+      if (again) again.onclick = run;
+      ui.current = { pickFile: () => ({ ok: false, why: t('panel.move.checkFailed') }) };
+    });
+  };
+  run();
+  return ui;
 }
 
 /* "Ask {device} to send its copy": the row's own upload request, so the row reads "request sent…",
  * the outcome sweep retires the marker when a NEW uploadedFileId arrives, and while it is merely
  * queued it can be withdrawn. The researcher then chooses Move again — an automatic continue days
  * later would surprise (plans/move-upload-guards.md §8.4). */
-async function askDeviceToSend(fromId, docId, item, m) {
+async function askDeviceToSend(fromId, docId, item, m, sentKey = 'panel.move.askSent') {
   const device = instanceNick(fromId);
   try {
     const r1 = await Researcher.triggerUpload(fromId, docId);
     pendingCmds.set(docId, { seq: r1.seq, kind: 'upload', instanceId: fromId, prevFileId: (item && item.uploadedFileId) || '', at: Date.now() });
     savePending(Researcher.currentAccountId());
     if (m) m.close();
-    deps.toast(t('panel.move.askSent', { device }), 9000);
+    deps.toast(t(sentKey, { device }), 9000);
     renderDashboard(lastData || undefined);
   } catch (e) { errToast(e); }
 }
 
-/* AFTER A MOVE COMPLETES: did the source send newer work into the folder on its way out?
+/* ── NOTHING LETS A DEVICE DELETE ITS TEXT ON THE STRENGTH OF A BAD COPY IN DRIVE (the review) ──────
+ *
+ * A device that reports "uploaded ✓" believes its last upload IS its current state, so a removal
+ * (uploadDelete) takes the device's fast branch: delete, no new upload. On the estate that found
+ * finding 5, some of those last uploads are damaged — and three paths sent that removal without ever
+ * looking: the move modal's way out on a damaged or missing copy, Move → Unassigned, and the row's
+ * Remove. These three helpers close all three. */
+
+/* The device's own copy, checked before a removal. → { ok: true } | { ok: false, why, item } with
+ * `why` 'damaged' | 'missing' | 'unopenable' (deviceCopyVerdict) or 'unchecked' (the fetch FAILED —
+ * "try again", never a silent pass). Not checked, and costing nothing on the wire, where the device
+ * uploads before it deletes anyway ('changed', 'local'), where it does not report the text, or where
+ * its copy is an older engine's zip (as before). `opts.files` is a listing the caller already has. */
+async function deviceBackupCheck(instanceId, docId, opts = {}) {
+  const cur = deviceItems(instanceId, docId)[0];
+  const d = cur && cur.item;
+  if (!d || !d.uploadedFileId || !['uploaded', 'uploading'].includes(d.uploadState)) return { ok: true };
+  const id = String(d.uploadedFileId);
+  let files = opts.files || null;
+  if (!files) { try { files = (await Researcher.listTextFiles(instanceId, docId)).files || []; } catch { files = []; } }
+  const file = files.find((f) => f && f.id === id) || { id, name: 'device-copy.flextext', size: 0 };
+  const stats = await copyStats([file], { need: [id], signal: opts.signal });
+  const e = stats.get(id) || { state: 'unchecked', why: 'fetch' };
+  const bad = deviceCopyVerdict(d, file, e);
+  if (bad) return { ok: false, why: bad, item: d };
+  if (e.state === 'unchecked' && e.why !== 'zip') return { ok: false, why: 'unchecked', item: d };
+  return { ok: true };
+}
+
+/* A move that took the way out past a DAMAGED or MISSING device copy, or past a device that is sending
+ * now, HOLDS its release until the source reports a NEW upload — `holdFor` is the upload id it reported
+ * when the move was made. The destination already has its copy; only the source's removal waits, and
+ * the source keeps the text until its own copy is safely in Drive. A source that no longer reports the
+ * text at all leaves nothing to wait for. */
+function releaseHeld(docId, mv) {
+  if (!mv || typeof mv.holdFor !== 'string') return false;
+  const cur = deviceItems(mv.from, docId)[0];
+  if (!cur) return false;
+  const id = String(cur.item.uploadedFileId || '');
+  return !id || id === mv.holdFor;
+}
+
+/* A removal refused because the device's copy in Drive cannot be relied on: the reason, and — where
+ * asking can help — "Ask {device} to send its copy" (the row's own upload request; the researcher then
+ * removes it again once "uploaded ✓" shows). Nothing was sent to the device. */
+function refuseRemoval(instanceId, docId, title, chk) {
+  const device = instanceNick(instanceId);
+  const why = ['damaged', 'missing', 'unopenable'].includes(chk.why) ? chk.why : '';
+  const reason = why ? t('panel.inst.removeUnsafe.' + why, { device, title: title || '?' }) : t('panel.inst.removeCheckFailed', { device });
+  const m = modal(`<h3>${esc(t('panel.inst.removeUnsafeTitle', { title: title || '?' }))}</h3>
+    <p class="note rp-move-warn">${esc(reason)}</p>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      ${why && chk.item ? `<button class="primary-btn" data-m="ask">${esc(t('panel.move.askSend', { device }))}</button>` : ''}
+    </div>`);
+  const ask = m.el.querySelector('[data-m="ask"]');
+  if (ask) ask.onclick = () => busy(ask, () => askDeviceToSend(instanceId, docId, chk.item, m, 'panel.inst.askSentRemove'));
+  return m;
+}
+
+/* AFTER A MOVE COMPLETES: did a copy holding MORE than the new device has reach the folder?
  *
  * The release is upload-FIRST, so a device that changed the text after the copy was chosen (offline
- * for days, a stale report, the Drive-copy escape hatch) uploads those changes as it lets go — into
- * the folder, while the destination works on the older copy. Holding the text on the device instead
+ * for days, a stale report, the Drive-copy way out) uploads those changes as it lets go — into the
+ * folder, while the destination works on the older copy. Holding the text on the device instead
  * (G1c) is a maintainer decision and not built; this is the flag: one listing per finished move, a
- * toast, and a History row the researcher can come back to. A file counts only if it landed after
- * the move started, is not the copy that was sent, has different bytes, and is not a backup the
- * DESTINATION itself reports. Best effort — it never blocks or changes anything. */
+ * toast, and a History row the researcher can come back to. Best effort — it never blocks or changes
+ * anything.
+ *
+ * ⚠ IT COMPARES WHAT THE COPIES HOLD, NOT THEIR BYTES, AND NAMES NO DEVICE (the review). The first
+ * build flagged any later file with different bytes and wrote it under the SOURCE device — and so
+ * fired on every move of an untouched delivery (its release uploads it first, and a re-serialize is
+ * not byte-stable) and blamed the source for the destination's own earlier backups. Now a later copy
+ * counts only if it holds MORE than what the new device has now — its own latest backup when it has
+ * made one, else the copy it was sent (statsHoldMore: content, or cuts where it has none). The panel
+ * cannot know which device uploaded a file (Drive does not say), so the words and the row name none. */
 async function flagNewerAfterMove(docId, mv) {
   if (!mv || !mv.to) return;
   try {
-    const r = await Researcher.listTextFiles(mv.to, docId);
-    const files = r.files || [];
+    const files = (await Researcher.listTextFiles(mv.to, docId)).files || [];
+    const dest = deviceItems(mv.to, docId)[0];
+    const refId = String((dest && dest.item.uploadedFileId) || mv.sentFileId || '');
+    const ref = files.find((f) => f.id === refId) || null;
+    if (!ref) return;                                  // nothing to compare with: never cry wolf
+    const known = new Set([mv.sentFileId, refId, ...deviceFileIds(docId)].filter(Boolean).map(String));
     const sent = files.find((f) => f.id === mv.sentFileId) || null;
-    const destIds = deviceFileIds(docId);
-    const newer = files.filter((f) => isFlextextName(f) && !hasRole(f, PROTECTED_ROLES) && f.id !== mv.sentFileId
-      && Date.parse(f.modified) > (mv.at || 0) && !destIds.has(f.id) && !(sent && sent.sha256 && f.sha256 === sent.sha256))
+    const sameBytes = new Set([sent, ref].filter((f) => f && f.sha256).map((f) => f.sha256));
+    const later = files.filter((f) => isFlextextName(f) && !hasRole(f, PROTECTED_ROLES) && !known.has(f.id)
+      && Date.parse(f.modified) > (mv.at || 0) && !(f.sha256 && sameBytes.has(f.sha256)));
+    if (!later.length) return;
+    const stats = await copyStats([ref, ...later], { need: [ref.id] });
+    const rs = stats.get(ref.id);
+    if (!rs || rs.state !== 'ok') return;
+    const more = later.filter((f) => { const e = stats.get(f.id); return !!e && e.state === 'ok' && statsHoldMore(e.stats, rs.stats); })
       .sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
-    if (!newer.length) return;
-    const from = instanceNick(mv.from), to = instanceNick(mv.to);
-    deps.toast(t('panel.move.newerAfter', { title: mv.title || '?', from, to,
-      when: mv.sentModified ? histWhen(Date.parse(mv.sentModified)) : t('panel.move.whenUnknown') }), 15000);
-    recordEvents(Researcher.currentAccountId(), [{ kind: 'submitted', at: Date.parse(newer[0].modified) || Date.now(),
-      instanceId: mv.from, installId: '', device: from, docId, title: mv.title || '', audioUrl: '',
-      fileId: newer[0].id, afterMove: true }]);
+    if (!more.length) return;
+    deps.toast(t('panel.move.newerAfter', { title: mv.title || '?', to: instanceNick(mv.to),
+      when: histWhen(Date.parse(more[0].modified)) }), 15000);
+    // Routed through the new device only so the row's Files ▾ can open the folder; `device` is blank
+    // on purpose — the row says what arrived, never who sent it.
+    recordEvents(Researcher.currentAccountId(), [{ kind: 'submitted', at: Date.parse(more[0].modified) || Date.now(),
+      instanceId: mv.to, installId: '', device: '', docId, title: mv.title || '', audioUrl: '',
+      fileId: more[0].id, afterMove: true }]);
   } catch { /* best effort — a finished move is never undone by a failed check */ }
 }
 
@@ -8083,7 +8311,8 @@ async function moveTextModal(fromId, docId, title) {
   else {
     try { src = await moveSources(fromId, docId, title); }
     catch { src = null; }
-    if (!src) why = 'panel.dl.zipFailed';
+    // A failed LISTING says so (the review) — it used to borrow the zip download's "Download failed".
+    if (!src) why = 'panel.move.listFailed';
     /* Three causes, three notes (#89): no manifest; a file the manifest NAMES has not arrived; or
      * nothing declared and nothing deliverable in the folder — "incomplete" would be false there. */
     else if (!src.ok) why = !src.manifest ? 'panel.move.noManifest'
@@ -8118,22 +8347,23 @@ async function moveTextModal(fromId, docId, title) {
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
   /* G1 — WHICH COPY GOES, decided inside the open modal so a slow link shows its progress here
    * instead of behind a frozen button. The gate above has already passed or failed; this only
-   * decides what a DEVICE destination receives. Unassigned never waits for it. */
-  let copyUi = null;
+   * decides what a DEVICE destination receives. Unassigned never waits for it — it checks only the
+   * source's own copy, at Go (deviceBackupCheck), because it releases the text and sends nothing. */
+  let copyUi = { current: null };
   if (deviceOk) {
     const box = m.el.querySelector('.rp-move-copy');
-    resolveMoveCopy({ fromId, docId, src, adopt: false, signal: copyCtl.signal,
-      onProgress: (i, n) => { box.innerHTML = `<p class="note">${esc(t('panel.move.checking', { i, n }))}</p>`; } })
-      .then((choice) => { copyUi = paintCopyChoice(box, choice, { device: instanceNick(fromId), files: src.all,
-        onAsk: (item) => askDeviceToSend(fromId, docId, item, m) }); })
-      .catch((err) => { if (!(err && (err.cancelled || err.name === 'AbortError'))) box.innerHTML = `<p class="note rp-adm-err">${esc(t('panel.dl.zipFailed'))}</p>`; });
+    copyUi = startCopyCheck(box, {
+      resolve: (onProgress) => resolveMoveCopy({ fromId, docId, src, adopt: false, signal: copyCtl.signal, onProgress }),
+      paint: (choice) => paintCopyChoice(box, choice, { device: instanceNick(fromId), files: src.all,
+        onAsk: (item) => askDeviceToSend(fromId, docId, item, m) }),
+    });
   }
   m.el.querySelector('[data-m="go"]').addEventListener('click', async (e) => {
     const to = (m.el.querySelector('input[name="rp-move-to"]:checked') || {}).value;
     if (!to) return;
     // A device destination needs a copy that may be sent (G1); Unassigned sends nothing to a device.
     const copyPick = to.startsWith('__unassigned') ? null
-      : (copyUi ? copyUi.pickFile() : { ok: false, why: t('panel.move.stillChecking') });
+      : (copyUi.current ? copyUi.current.pickFile() : { ok: false, why: t('panel.move.stillChecking') });
     if (copyPick && !copyPick.ok) {
       const sayEl = m.el.querySelector('#rp-move-say');
       sayEl.hidden = false; sayEl.className = 'rp-adm-say rp-adm-err'; sayEl.textContent = copyPick.why;
@@ -8169,6 +8399,17 @@ async function moveTextModal(fromId, docId, title) {
       await busy(e.target, async () => {
 
         if (to.startsWith('__unassigned')) {
+          /* ⚠ THE DEVICE'S OWN COPY IS CHECKED BEFORE IT IS RELEASED (the review). A device that reports
+           * "uploaded ✓" deletes the text WITHOUT sending a new copy, so a damaged or missing copy in
+           * Drive would make this the end of its latest work. Refused with the reason and a way
+           * forward, before anything — the filing included — happens. */
+          stage('panel.move.stepCheck', { device: instanceNick(fromId) });
+          const chk = await deviceBackupCheck(fromId, docId, { files: src ? src.all : null });
+          if (!chk.ok) {
+            say.hidden = true;
+            refuseRemoval(fromId, docId, title, chk);
+            return;
+          }
           /* ⚠ A TARGETED box needs the re-parent EXPLICITLY: the sweep files a text into ITS OWN
            * project's Unassigned, so any other project must be asked for. Issued alongside the removal
            * rather than after it — the folder id is stable, so the device's final upload lands
@@ -8206,6 +8447,23 @@ async function moveTextModal(fromId, docId, title) {
         const isZip = !!sendFile && /\.zip$/i.test(String(sendFile.name || ''));
         const fields = { to, flextextFileId: isZip ? null : idOf(sendFile), extractFromZipId: isZip ? idOf(sendFile) : null,
                          audioFileId: idOf(src.audio) };
+        /* ⚠ THE WAY OUT PAST A DAMAGED OR MISSING DEVICE COPY HOLDS THE RELEASE (the review). That device
+         * believes it is backed up, so its release would delete the text without sending anything. It
+         * is asked to send its copy again FIRST — before anything moves, so a failure here changes
+         * nothing — and the move record carries `holdFor` (the upload it reported), which every panel's
+         * sweep honours: no release until a new upload is reported. A device sending now ('wait')
+         * holds the same way, with nothing to ask. */
+        let holdFor = '';
+        if (copyPick.hold) {
+          const cur = deviceItems(fromId, docId)[0];
+          holdFor = String((cur && cur.item.uploadedFileId) || '');
+          if (copyPick.hold === 'resend') {
+            stage('panel.move.stepResend', { device: instanceNick(fromId) });
+            const r0 = await Researcher.triggerUpload(fromId, docId);
+            pendingCmds.set(docId, { seq: r0.seq, kind: 'upload', instanceId: fromId, prevFileId: holdFor, at: Date.now() });
+            savePending(Researcher.currentAccountId());
+          }
+        }
         stage('panel.move.stepFolder');
         const r = await Researcher.moveText(fromId, docId, fields);
         const assignFields = { title };
@@ -8226,7 +8484,8 @@ async function moveTextModal(fromId, docId, title) {
         // sentFileId/sentModified (additive; the moves map is E2EE account settings): what went, so
         // cleanup protects it while in flight and the finish can tell whether newer work followed.
         await saveMoves((cur) => { cur[docId] = { from: fromId, to, title, at: Date.now(), stage: 'assigned',
-          sentFileId: idOf(sendFile) || '', sentModified: (sendFile && sendFile.modified) || '' }; return cur; });
+          sentFileId: idOf(sendFile) || '', sentModified: (sendFile && sendFile.modified) || '',
+          ...(copyPick.hold ? { holdFor } : {}) }; return cur; });
         m.close();
         deps.toast(t('panel.move.sent', { device: toName }), 6000);
         renderDashboard();
@@ -9097,7 +9356,7 @@ async function adoptTextModal(docId, title, opts = {}) {
   else {
     try { src = await moveSources(insts[0].instance_id, docId, title); }
     catch { src = null; }
-    if (!src) why = 'panel.dl.zipFailed';
+    if (!src) why = 'panel.move.listFailed';   // a failed LISTING, not a download (the review)
     // Same three causes as moveTextModal (#89): only a NAMED file that has not arrived is "incomplete".
     else if (!src.ok) why = !src.manifest ? 'panel.move.noManifest'
       : src.declaredMissing ? 'panel.move.manifestIncomplete' : 'panel.move.nothingToMove';
@@ -9140,13 +9399,13 @@ async function adoptTextModal(docId, title, opts = {}) {
    * no report to trust: the newest readable copy goes unless another holds more content, and then the
    * researcher chooses (nothing preselected). The history's delivered file id is a label only — it is
    * one upload behind on exactly the release-then-adopt path (plans/move-upload-guards.md F2). */
-  let copyUi = null;
+  let copyUi = { current: null };
   if (deviceOk) {
     const box = m.el.querySelector('.rp-move-copy');
-    resolveMoveCopy({ fromId: null, docId, src, adopt: true, signal: copyCtl.signal,
-      onProgress: (i, n) => { box.innerHTML = `<p class="note">${esc(t('panel.move.checking', { i, n }))}</p>`; } })
-      .then((choice) => { copyUi = paintCopyChoice(box, choice, { device: '', files: src.all }); })
-      .catch((err) => { if (!(err && (err.cancelled || err.name === 'AbortError'))) box.innerHTML = `<p class="note rp-adm-err">${esc(t('panel.dl.zipFailed'))}</p>`; });
+    copyUi = startCopyCheck(box, {
+      resolve: (onProgress) => resolveMoveCopy({ fromId: null, docId, src, adopt: true, signal: copyCtl.signal, onProgress }),
+      paint: (choice) => paintCopyChoice(box, choice, { device: '', files: src.all }),
+    });
   }
   m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
     const to = (m.el.querySelector('input[name="rp-adopt-to"]:checked') || {}).value;
@@ -9166,7 +9425,7 @@ async function adoptTextModal(docId, title, opts = {}) {
       }
       /* The copy chosen above (G1), never "the newest .flextext" re-listed here — that is the pick
        * that delivered stale and empty copies. The recording is the role-tagged original, as before. */
-      const copyPick = copyUi ? copyUi.pickFile() : { ok: false, why: t('panel.move.stillChecking') };
+      const copyPick = copyUi.current ? copyUi.current.pickFile() : { ok: false, why: t('panel.move.stillChecking') };
       if (!copyPick.ok) { say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = copyPick.why; return; }
       const sendFile = copyPick.file || null;
       const isZip = !!sendFile && /\.zip$/i.test(String(sendFile.name || ''));
@@ -9828,7 +10087,9 @@ function historyModal() {
       // Drive-shaped id (history.js/driveLink). Same reasoning as the uploadState allow-list.
       const kind = HISTORY_KINDS.includes(e.kind) ? e.kind : 'assigned';
       const audio = /^https?:\/\//.test(e.audioUrl || '') ? e.audioUrl : '';
-      const up = driveLink(e.fileId);
+      // An 'assigned' row's file was SENT to the device, not uploaded by it (it carries the id since
+      // move-upload-guards F3) — "Uploaded file" would be false there (the review).
+      const up = kind === 'assigned' ? '' : driveLink(e.fileId);
       const by = kind === 'deleted' && e.by === 'researcher' ? ' ' + t('panel.hist.byResearcher')
                : kind === 'deleted' ? ' ' + t('panel.hist.byDevice')
                : kind === 'submitted' && e.afterMove ? ' ' + t('panel.hist.afterMove') : '';

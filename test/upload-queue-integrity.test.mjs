@@ -38,10 +38,12 @@ const lift = (env = {}) => {
 };
 const { bytesSha256, isQueuedText, verifyQueuedText, QUEUE_REBUILD_MAX } = lift();
 
+/* Updated (move-upload-guards review): today's serializer drops a character XML forbids, so the raw
+ * vertical tab is put back by hand — the shape an OLDER engine queued, which is still in queues. */
 const text = () => {
   const d = makeDoc({ vernLang: 'qaa', analLang: 'id' }, 'Cerita');
-  reconcileBaseline(d, ['satu dua tiga', 'empat\u000Blima']);   // a pasted vertical tab, written raw
-  return serializeFlextext(d, { vernLang: 'qaa', analLang: 'id' });
+  reconcileBaseline(d, ['satu dua tiga', 'empat lima']);
+  return serializeFlextext(d, { vernLang: 'qaa', analLang: 'id' }).replace(/empat lima/g, 'empat\u000Blima');
 };
 const recordOf = async (body, extra = {}) => {
   const buf = new TextEncoder().encode(body);
@@ -131,13 +133,14 @@ test('the wiring: checked at queue time and at send time, hash carried through t
   assert.ok(q.indexOf('checkFlextextBytes(') > 0 && q.indexOf('checkFlextextBytes(') < q.indexOf("db.putMedia('upload:' + docId"),
     'a fresh build is checked before it is queued');
   assert.match(q, /sha256,\s+\/\/ G5/, 'and its hash is stored in the record');
-  assert.match(q, /if \(!opts\.auto\) toast\(t\('upload\.buildFailed'\)/, 'an explicit send says so; the sweep stays silent');
+  // Updated (review): and so does nothing a RESEARCHER asked for remotely (`quiet`) — not the coworker's sentence.
+  assert.match(q, /if \(!opts\.auto && !opts\.quiet\) toast\(t\('upload\.buildFailed'\)/, 'an explicit send says so; the sweep stays silent');
   assert.match(app, /await uploadDocById\(d\.id, \{ auto: true \}\);/, 'the automatic sweep passes auto');
   const pump = grab(/function pumpUploads\(\) \{[\s\S]*?\n\}/, 'pumpUploads');
   assert.ok(pump.indexOf('verifyQueuedText(rec)') > 0 && pump.indexOf('verifyQueuedText(rec)') < pump.indexOf('new DriveUpload('),
     'checked before the upload starts');
   assert.match(pump, /if \(v\.blob\) rec\.blob = v\.blob;/, 'and the checked bytes become the body');
-  const retry = grab(/async function retryPendingUploads\(\) \{[\s\S]*?\n\}/, 'retryPendingUploads');
+  const retry = grab(/async function retryPendingUploads\(opts = \{\}\) \{[\s\S]*?\n\}/, 'retryPendingUploads')   // (opts): "Send now" is explicit (review);
   assert.match(retry, /if \(rec\.damaged\) \{/, 'a held copy is not reset to waiting like a dropped connection');
   assert.match(retry, /if \(rec\.damagedOrphan\) \{ uploadView\.delete\(docId\); continue; \}/);
   assert.match(retry, /DAMAGED_RETRY_MS/, 'it is re-read only after a back-off');

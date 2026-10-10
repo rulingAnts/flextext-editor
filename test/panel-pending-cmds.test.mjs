@@ -89,8 +89,12 @@ console.log('\nthe marker is retired on an OUTCOME, never on elapsed time');
 {
   ok(/p\.kind === 'delete'\s*\n?\s*\? \(d === undefined && ackOf\(insts, p\.instanceId\) >= p\.seq\)/.test(panel),
      'a delete retires only when the text is gone from EVERY inventory AND the device acked it');
-  ok(/: !!\(d && d\.uploadedFileId && d\.uploadedFileId !== p\.prevFileId\)/.test(panel),
+  /* Updated (move-upload-guards review): the outcome is read from the device the upload was ASKED OF
+   * (`du`) — during a move the text sits on two devices, and the other one's backup must not retire it. */
+  ok(/: !!\(du && du\.uploadedFileId && du\.uploadedFileId !== p\.prevFileId\)/.test(panel),
      'an upload retires only when the device reports a NEW file id');
+  ok(/const du = p\.kind === 'upload' && p\.instanceId \? \(\(deviceItems\(p\.instanceId, docId\)\[0\] \|\| \{\}\)\.item\) : d;/.test(panel),
+     '...the device it was asked of, not whichever reported the text last');
 }
 
 console.log('\nqueued vs taken is a comparison against ack_seq, and only queued offers a cancel');

@@ -661,8 +661,18 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   for (const xml of doc.mediaXML || []) lines.push(indentFragment(xml, '    '));
   lines.push('  </interlinear-text>');
   lines.push('</document>');
-  return lines.join('\n') + '\n';
+  /* ⚠ A CHARACTER XML CANNOT CARRY NEVER REACHES THE FILE (plans/move-upload-guards.md §12). esc()
+   * escapes only & < > ", so a control character pasted from a word processor (a vertical tab is
+   * Word's soft line break) used to be written raw — and then NO XML reader could open the file: not
+   * FLEx, and not the device a move sent it to, which was left holding an empty text. XML 1.0 cannot
+   * write these characters at all, not even as a character reference, so the only choices are to drop
+   * them or to replace them. A vertical tab or a form feed separated words, so it becomes a space;
+   * anything else (NUL, a bell, an escape, U+FFFE) is dropped.
+   * ⚠ ONLY THE FILE CHANGES. The text on the device keeps exactly what was typed, and a file that
+   * never held such a character is byte-for-byte what it always was. */
+  return (lines.join('\n') + '\n').replace(FILE_FORBIDDEN, (c) => (c === '\u000B' || c === '\u000C' ? ' ' : ''));
 }
+const FILE_FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
 
 /* ---------------- Baseline reconciliation ----------------
  * Applies edited baseline text (one string per paragraph, segments are
@@ -1245,23 +1255,30 @@ export function freeIn(seg, lang, primary = '') {
 /* The cheap check, and the only one a DEVICE runs before it sends its own copy.
  *
  * ⚠ DELIBERATELY NOT A PARSE. A device must never refuse to back up the only copy of someone's work
- * because a strict parser disliked it — and the serializer's esc() escapes only & < > ", so a
- * control character pasted from a word processor (U+000B, U+000C) is written raw and a real XML
- * parser rejects the whole file. Every reason below is a property of a file that holds NOTHING
- * usable: no bytes, NUL bytes (the damaged-in-the-queue case: 489 bytes, all zero), not a
- * <document>, no text in it, or cut off before its last line. A file with an awkward character
- * passes, exactly as it would have uploaded before this existed.
+ * because a strict parser disliked it. (Since the review, the serializer no longer WRITES a character
+ * XML forbids — see serializeFlextext — but copies older engines wrote are still in Drive.)
+ *
+ * ⚠ TWO KINDS OF FAILURE, AND ONLY ONE OF THEM HOLDS NOTHING (the review, 2026-10-10). `hollow: true`
+ * is a file with nothing usable in it: no bytes; mostly NUL (the damaged-in-the-queue case: 489 bytes,
+ * all zero); not a <document>; no <interlinear-text>; or cut off before its first line. `hollow:
+ * false` is a file that is DAMAGED BUT MAY HOLD WORK: cut off after real lines ('truncated'), or whole
+ * apart from a stray NUL ('nulSome'). Cleanup used to trash both, and so trashed a 25-line copy that had
+ * lost its last 40 bytes while it kept a 4-line one. Now only a hollow file may be trashed; a partial
+ * one is kept, and a move never sends either (a device cannot open it).
  *
  * ⚠ NO SIZE FLOOR: a genuinely empty text serializes to about 475 bytes and the damaged file was 489,
  * so a threshold cannot tell them apart. Structure can. */
 export function checkFlextextBytes(text) {
   const s = String(text == null ? '' : text);
-  if (!s.trim()) return { ok: false, reason: 'empty' };
-  if (s.indexOf('\u0000') >= 0) return { ok: false, reason: 'nul' };
-  const head = s.replace(/^﻿/, '').replace(/^\s*<\?xml[^>]*\?>/, '').replace(/^(\s*<!--[\s\S]*?-->)+/, '');
-  if (!/^\s*<document[\s>/]/.test(head)) return { ok: false, reason: 'root' };
-  if (!/<interlinear-text[\s>/]/.test(s)) return { ok: false, reason: 'noText' };
-  if (!/<\/document>\s*$/.test(s)) return { ok: false, reason: 'truncated' };
+  if (!s.trim()) return { ok: false, reason: 'empty', hollow: true };
+  let nuls = 0;
+  for (let i = s.indexOf('\u0000'); i >= 0 && nuls * 2 <= s.length; i = s.indexOf('\u0000', i + 1)) nuls++;
+  if (nuls * 2 > s.length) return { ok: false, reason: 'nul', hollow: true };
+  const head = s.replace(/^\uFEFF/, '').replace(/^\s*<\?xml[^>]*\?>/, '').replace(/^(\s*<!--[\s\S]*?-->)+/, '');
+  if (!/^\s*<document[\s>/]/.test(head)) return { ok: false, reason: 'root', hollow: true };
+  if (!/<interlinear-text[\s>/]/.test(s)) return { ok: false, reason: 'noText', hollow: true };
+  if (!/<\/document>\s*$/.test(s)) return { ok: false, reason: 'truncated', hollow: !/<phrase[\s>/]/.test(s) };
+  if (nuls) return { ok: false, reason: 'nulSome', hollow: false };
   return { ok: true, reason: '' };
 }
 
@@ -1279,18 +1296,27 @@ export function checkFlextextBytes(text) {
  *              exactly what makes it a CONTENT measure rather than a structure one
  *   freeChars  non-whitespace free-translation characters — a join concatenates two translations
  *              with a space, so this survives it too, where freeLines would drop by one
+ *   morphs     FLEx morpheme analyses (<morph> under a word) — analysis work this app round-trips
+ *              but does not edit, so a plain copy must not outrank an analysed one (the review)
+ *   litChars   non-whitespace literal-translation characters (phrase <item type="lit">)
+ *   notes      a person's phrase notes — NOT the "audio 0:00.000–…" note the app writes for timings
+ *   forbidden  characters XML does not allow, written raw by older engines (a pasted U+000B). The
+ *              panel can still count such a file (they are blanked below); a DEVICE cannot open it,
+ *              because its parser is strict — so a move must never send it (the review)
  *
- * `ok:false` with `damaged:true` is checkFlextextBytes' verdict (the file holds nothing usable);
- * `ok:false` with reason 'parse' means only that THIS parser could not read it — unknown, not bad.
- * Characters XML forbids are blanked before parsing for the same reason the device check does not
- * parse at all. */
-const XML_FORBIDDEN = /[\u0001-\u0008\u000B\u000C\u000E-\u001F￾￿]/g;
+ * `ok:false` with `damaged:true` means the file is HOLLOW (checkFlextextBytes: it holds nothing usable);
+ * `ok:false` with `partial:true` means it is damaged but may still hold work (cut off after real lines,
+ * or a stray NUL) — keep it, never send it; `ok:false` with reason 'parse' means only that THIS parser
+ * could not read it — unknown, not bad. Characters XML forbids are blanked before parsing for the same
+ * reason the device check does not parse at all. */
+const XML_FORBIDDEN = /[\u0001-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
 const nonWsLen = (s) => String(s || '').replace(/\s+/g, '').length;
 export function flextextStats(xml) {
-  const out = { ok: false, reason: '', damaged: false, guid: '', phrases: 0, timed: 0, textLines: 0,
-    words: 0, glossed: 0, freeLines: 0, chars: 0, freeChars: 0 };
+  const out = { ok: false, reason: '', damaged: false, partial: false, guid: '', phrases: 0, timed: 0, textLines: 0,
+    words: 0, glossed: 0, freeLines: 0, chars: 0, freeChars: 0, morphs: 0, litChars: 0, notes: 0, forbidden: 0 };
   const chk = checkFlextextBytes(xml);
-  if (!chk.ok) { out.reason = chk.reason; out.damaged = true; return out; }
+  if (!chk.ok) { out.reason = chk.reason; out.damaged = !!chk.hollow; out.partial = !chk.hollow; return out; }
+  out.forbidden = (String(xml).match(XML_FORBIDDEN) || []).length;
   let dom = null;
   try { dom = new DOMParser().parseFromString(String(xml).replace(XML_FORBIDDEN, ' '), 'text/xml'); }
   catch { dom = null; }
@@ -1317,12 +1343,18 @@ export function flextextStats(xml) {
         const wt = wi.find((i) => typeOf(i) === 'txt');
         wordChars += nonWsLen(wt ? wt.textContent : '');
         if (wi.some((i) => typeOf(i) === 'gls' && String(i.textContent || '').trim())) out.glossed++;
+        for (const ms of kids(w, 'morphemes')) out.morphs += kids(ms, 'morph').length;
       }
       const chars = nonWsLen(txt ? txt.textContent : '') || wordChars;
       out.chars += chars;
       if (chars > 0) out.textLines++;
       const free = items.filter((i) => typeOf(i) === 'gls').map((i) => String(i.textContent || '')).join(' ');
       if (free.trim()) { out.freeLines++; out.freeChars += nonWsLen(free); }
+      for (const i of items) {
+        const v = String(i.textContent || '');
+        if (typeOf(i) === 'lit') out.litChars += nonWsLen(v);
+        else if (typeOf(i) === 'note' && v.trim() && !/^\s*audio\s/.test(v)) out.notes++;
+      }
       const begin = ph.getAttribute('begin-time-offset');
       const estimated = items.some((i) => typeOf(i) === 'note' && /^\s*audio\s+~/.test(String(i.textContent || '')));
       if (begin != null && begin !== '' && !estimated) out.timed++;

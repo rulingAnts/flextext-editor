@@ -32,12 +32,13 @@ const roleSrc = grab(/const SOURCE_AUDIO_ROLES = [\s\S]*?const isFlextextName = 
 const helpers = grab(/const STAT_ALL = [\s\S]*?\nfunction statsHaveContent\(s\) \{[\s\S]*?\n\}/, 'the stat helpers');
 const rowsSrc = grab(/function moveCopyRows\(files\) \{[\s\S]*?\n\}/, 'moveCopyRows');
 const chooseSrc = grab(/function chooseMoveCopy\(\{ source, files, stats, deliveredId, adopt \}\) \{[\s\S]*?\n\}/, 'chooseMoveCopy');
+// The device copy's verdict is shared with the removal check since the review (test/move-release-held).
+const verdictSrc = grab(/function deviceCopyVerdict\(d, file, entry\) \{[\s\S]*?\n\}/, 'deviceCopyVerdict');
 const devSrc = grab(/function deviceItems\(instanceId, docId\) \{[\s\S]*?\n\}/, 'deviceItems');
 const holdsSrc = grab(/function instanceHoldsDoc\(x, docId\) \{[\s\S]*?\n\}/, 'instanceHoldsDoc');
 const paintSrc = grab(/function paintCopyChoice\(box, choice, ctx\) \{[\s\S]*?\n\}/, 'paintCopyChoice');
-const flagSrc = grab(/async function flagNewerAfterMove\(docId, mv\) \{[\s\S]*?\n\}/, 'flagNewerAfterMove');
 
-const lib = new Function('MANIFEST_NAME', `${roleSrc}\n${helpers}\n${rowsSrc}\n${chooseSrc}\nreturn { chooseMoveCopy, moveCopyRows };`)('flextext-manifest.json');
+const lib = new Function('MANIFEST_NAME', `${roleSrc}\n${helpers}\n${rowsSrc}\n${verdictSrc}\n${chooseSrc}\nreturn { chooseMoveCopy, moveCopyRows };`)('flextext-manifest.json');
 const { chooseMoveCopy } = lib;
 
 const xml = (guid, lines, { glossed = 0 } = {}) => {
@@ -204,9 +205,9 @@ test('the modal: a send names what goes; a refusal offers asking AND the Drive c
       set innerHTML(v) { this._h = v; }, get innerHTML() { return this._h; },
       querySelector(sel) { return nodes[sel] || null; },
     };
-    const paint = new Function('t', 'esc', 'histWhen', 'lastSeen', 'busy', 'moveCopyRows',
+    const paint = new Function('t', 'esc', 'histWhen', 'lastSeen', 'busy', 'moveCopyRows', 'fmtSize',
       `${paintSrc}\nreturn paintCopyChoice;`)((k, v) => (v ? `${k}${JSON.stringify(v)}` : k), (s) => String(s), () => 'WHEN', () => 'AGO',
-      (b, fn) => fn(), lib.moveCopyRows);
+      (b, fn) => fn(), lib.moveCopyRows, (n) => `${n} B`);
     const ui = paint(box, { stats: new Map(), candidates: [], source: null, ...choice }, { device: 'Dev', files: [], ...ctx });
     return { box, ui, nodes };
   };
@@ -233,28 +234,8 @@ test('the modal: a send names what goes; a refusal offers asking AND the Drive c
     'nothing to ask a device that is already sending');
 });
 
-test('after a finished move, newer work the source sent on its way out is flagged — once, durably', async () => {
-  const toasts = [], events = [];
-  const run = (files, destIds = []) => new Function('Researcher', 'deviceFileIds', 'isFlextextName', 'hasRole', 'PROTECTED_ROLES',
-    'instanceNick', 'deps', 't', 'histWhen', 'recordEvents', `${flagSrc}\nreturn flagNewerAfterMove;`)(
-    { listTextFiles: async () => ({ files }), currentAccountId: () => 'acct' }, () => new Set(destIds),
-    (f) => /\.flextext$/.test(f.name), () => false, [], (id) => id, { toast: (m) => toasts.push(m) }, (k) => k, () => 'W',
-    (_a, ev) => events.push(...ev));
-  const at = Date.parse('2026-09-10T00:00:00Z');
-  const mv = { from: 'src', to: 'dst', title: 'Cerita', at, sentFileId: 'sent', sentModified: '2026-09-05T00:00:00Z' };
-  const sent = { id: 'sent', name: 'a.flextext', modified: '2026-09-05T00:00:00Z', sha256: 'S' };
-  await run([sent, { id: 'old', name: 'b.flextext', modified: '2026-09-01T00:00:00Z' }])('doc1', mv);
-  assert.equal(toasts.length, 0, 'nothing newer than the move');
-  await run([sent, { id: 'same', name: 'c.flextext', modified: '2026-09-11T00:00:00Z', sha256: 'S' }])('doc1', mv);
-  assert.equal(toasts.length, 0, 'a byte-identical re-upload is not newer work');
-  await run([sent, { id: 'dst-own', name: 'd.flextext', modified: '2026-09-12T00:00:00Z', sha256: 'D' }], ['dst-own'])('doc1', mv);
-  assert.equal(toasts.length, 0, 'the destination\'s own backup is not the source\'s work');
-  await run([sent, { id: 'final', name: 'e.flextext', modified: '2026-09-11T00:00:00Z', sha256: 'F' }])('doc1', mv);
-  assert.equal(toasts.length, 1);
-  assert.equal(events[0].kind, 'submitted');
-  assert.equal(events[0].fileId, 'final');
-  assert.equal(events[0].afterMove, true, 'a History row the researcher can come back to');
-});
+/* The after-move flag moved to test/after-move-flag.test.mjs with the review: it now compares what
+ * the copies HOLD with the new device's copy and names no device, so its fixtures need real bodies. */
 
 test('the commits send exactly the chosen copy, and record what they sent', () => {
   const mvAt = panel.indexOf('async function moveTextModal');

@@ -74,12 +74,16 @@ test('a BOM and a comment before the root are fine; a control character is never
   const x = xmlOf(doc(['satu dua']));
   assert.equal(checkFlextextBytes('﻿' + x).ok, true, 'a byte-order mark');
   assert.equal(checkFlextextBytes(x.replace('<document', '<!-- exported -->\n<document')).ok, true, 'a leading comment');
-  const vt = xmlOf(doc(['satu\u000Bdua']));
-  assert.ok(vt.includes('\u000B'), 'the serializer really does write a pasted vertical tab raw');
+  /* Updated (move-upload-guards review): the serializer no longer WRITES a character XML forbids (no
+   * device and no FLEx could open the file). Copies older engines wrote are still in Drive, so the
+   * device check and the count are pinned against one of those. */
+  assert.ok(!xmlOf(doc(['satu\u000Bdua'])).includes('\u000B'), 'today\'s serializer drops it (a space)');
+  const vt = xmlOf(doc(['satu dua'])).replace(/satu dua/g, 'satu\u000Bdua');
   assert.equal(checkFlextextBytes(vt).ok, true, '⚠ the device check passes it — the only backup is never refused');
   const s = flextextStats(vt);
   assert.equal(s.ok, true, 'and the panel still counts it: forbidden characters are blanked before parsing');
   assert.ok(s.words >= 1);
+  assert.equal(s.forbidden, 1, '...and flags it: a device cannot open this copy, so a move will not send it');
 });
 
 test('an unparsable-but-whole copy is UNKNOWN, never damaged', () => {

@@ -30,8 +30,12 @@ test('the source is told to remove without waiting for the destination to report
  * If this ever stops being true, #70's fix becomes a data-loss bug — so it is pinned here, in the
  * test for the change that depends on it, not only where the code lives. */
 test('and the device still refuses to delete until its upload is confirmed', () => {
+  /* Updated (move-upload-guards review): the case delegates to releaseAfterUpload, which also refuses
+   * the fast delete while an upload of the text is queued — so the checks are read there. */
   const handler = app.slice(app.indexOf("case 'uploadDelete': {"));
-  const body = handler.slice(0, handler.indexOf("case 'triggerUpload'"));
+  assert.match(handler.slice(0, handler.indexOf("case 'triggerUpload'")), /await releaseAfterUpload\(docId\);/);
+  const body = app.slice(app.indexOf('async function releaseAfterUpload(docId) {'), app.indexOf('async function syncDispatch(cmd) {'));
+  assert.ok(body.length > 200, 'the release helper window is real');
   assert.match(body, /deleteConfirmedDoc\(docId\)/, 'deletion goes through the proof-of-backup check');
   assert.match(body, /setPendingUpDel/, 'and the intent is persisted, so a reload cannot orphan it');
   // The proof-of-backup helper must actually verify, not just be called.

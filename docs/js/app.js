@@ -945,7 +945,9 @@ function backupSkipReason(rec) {
   const noWork = docHasNoText(doc) && docIsUncut(doc) && !docHasFree(doc);
   if (noWork && rec.pendingFlextext) return 'awaitingTranscript';
   if (rec.deliveredSig && deliveredContentSig(rec) === rec.deliveredSig) return 'asDelivered';
-  return noWork ? 'noWork' : '';
+  // 'noWork' is for deliveries from BEFORE the stamp only. A stamped delivery whose content changed —
+  // emptied on purpose included — is the coworker's work and backs up as such (the review).
+  return (noWork && !rec.deliveredSig) ? 'noWork' : '';
 }
 
 /* WHICH TAB A TEXT OPENS ON (Seth, 2026-08-13):
@@ -5253,6 +5255,33 @@ function onSyncRevoked() {
 }
 
 // Apply ONE researcher command through the existing idempotent, never-clobber handlers.
+/* The researcher's per-text remote removal (`uploadDelete`), upload-FIRST: back the text up to Drive,
+ * and only delete once the upload is CONFIRMED (the delete rides the upload-done hook, gated by
+ * deleteConfirmedDoc's proof-of-backup check — a failed upload means the text simply stays). The
+ * intent survives reloads in localStorage; the boot/online sweep finishes a delete whose upload landed
+ * before a restart.
+ *
+ * ⚠ THE FAST BRANCH (already backed up → delete now) IS NEVER TAKEN WHILE AN UPLOAD OF THE TEXT IS
+ * QUEUED (the review). db.deleteDoc removes the queued copy with the text — and a queued copy beside an
+ * "already backed up" text is there because something asked for a fresh one: a researcher who found
+ * the copy in Drive damaged, or a release held until this device sends. The intent waits for the
+ * upload-done hook instead. A copy HELD as damaged (G5) is rebuilt now rather than in six hours: this
+ * is an explicit request. */
+async function releaseAfterUpload(docId) {
+  const d = await db.getDoc(docId).catch(() => null);
+  if (!d) return;                                               // already gone — nothing to do
+  const v = uploadView.get(docId);
+  const inQueue = !!getUpload(docId) || !!v;
+  if (!inQueue && d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); return; }
+  const ids = pendingUpDel();
+  if (!ids.includes(docId)) { ids.push(docId); setPendingUpDel(ids); }
+  // Queued or mid-flight: the intent above is enough — the upload-done hook consumes it. Re-queueing
+  // would reset the entry and double-start.
+  if (inQueue && !(v && v.held)) return;
+  if (current && current.id === docId) await doUpload(true);
+  else await uploadDocById(docId, { quiet: true });
+}
+
 async function syncDispatch(cmd) {
   switch (cmd && cmd.type) {
     case 'assign': {
@@ -5314,23 +5343,10 @@ async function syncDispatch(cmd) {
       break;
     }
     case 'uploadDelete': {
-      // Per-text remote removal, upload-FIRST: back the text up to Drive, and only
-      // delete once the upload is CONFIRMED (the delete rides the upload-done hook,
-      // gated by deleteConfirmedDoc's proof-of-backup check — a failed upload means
-      // the text simply stays). The intent survives reloads in localStorage; the
-      // boot/online sweep finishes a delete whose upload landed before a restart.
+      // Per-text remote removal, upload-FIRST — see releaseAfterUpload.
       const docId = cmd.docId || cmd.id;
       if (!docId) break;
-      const d = await db.getDoc(docId).catch(() => null);
-      if (!d) break;                                              // already gone — nothing to do
-      if (d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); break; }
-      const ids = pendingUpDel();
-      if (!ids.includes(docId)) { ids.push(docId); setPendingUpDel(ids); }
-      // Already queued or mid-flight? The intent above is enough — the upload-done
-      // hook consumes it. Re-queueing would reset the entry and double-start.
-      if (uploadView.has(docId) || getUpload(docId)) break;
-      if (current && current.id === docId) await doUpload(true);
-      else await uploadDocById(docId);
+      await releaseAfterUpload(docId);
       break;
     }
     case 'triggerUpload': {
@@ -5343,8 +5359,10 @@ async function syncDispatch(cmd) {
       if (tgt && !docInScope(tgt, Sync.enrollment())) { console.warn('sync: refusing triggerUpload of out-of-scope doc', docId); break; }
       // Remote-triggered upload — works whether or not the doc is open, so the researcher
       // can pull a text in without the coworker pressing Upload. Reports back on completion.
+      // Quiet: a build that fails is the researcher's to see (no new upload is reported), not a
+      // sentence on the coworker's screen about a request they never made (the review).
       if (current && current.id === docId) await doUpload(true);   // researcher-initiated: do NOT mark as user-shared
-      else await uploadDocById(docId);
+      else await uploadDocById(docId, { quiet: true });
       break;
     }
     default:
@@ -6196,9 +6214,14 @@ async function uploadDocById(docId, opts = {}) {
     let buf = null;
     try { buf = await bundle.blob.arrayBuffer(); } catch { buf = null; }
     const chk = buf ? checkFlextextBytes(new TextDecoder().decode(buf)) : { ok: false, reason: 'unreadable' };
-    if (!chk.ok) {
+    /* ⚠ A STRAY NUL IS NEVER A REASON TO REFUSE A FRESH BUILD (the review): it can only have come from
+     * the text itself, and refusing it refused that text's every backup for ever — Send, Done, a
+     * researcher's request and a move's release alike. (The serializer drops such characters now; an
+     * older doc can still hold one.) Only a build that holds nothing usable is refused. */
+    if (!chk.ok && chk.reason !== 'nulSome') {
       console.warn('upload: a freshly built copy failed its check and was not queued:', docId, chk.reason);
-      if (!opts.auto) toast(t('upload.buildFailed'), 9000);
+      // `quiet`: a researcher's remote request — not a sentence for the coworker (the review).
+      if (!opts.auto && !opts.quiet) toast(t('upload.buildFailed'), 9000);
       return false;
     }
     sha256 = await bytesSha256(buf);
@@ -6688,11 +6711,13 @@ async function verifyQueuedText(rec) {
   if (!buf) return { ok: false, reason: 'unreadable' };
   if (rec.total != null && buf.byteLength !== rec.total) return { ok: false, reason: 'size' };
   const chk = checkFlextextBytes(new TextDecoder().decode(buf));
-  if (!chk.ok) return { ok: false, reason: chk.reason };
-  if (rec.sha256) {
-    const h = await bytesSha256(buf);
-    if (h && h !== rec.sha256) return { ok: false, reason: 'hash' };
-  }
+  const h = rec.sha256 ? await bytesSha256(buf) : '';
+  /* The stored hash is the stronger fact (the review): bytes that match it are exactly the build that
+   * passed the queue-time check, so a stray NUL the TEXT holds is not damage there. Without a hash (an
+   * older engine's record) every structural reason counts — a NUL in old queued bytes is far likelier
+   * to be storage damage than content. */
+  if (!chk.ok && !(chk.reason === 'nulSome' && h && h === rec.sha256)) return { ok: false, reason: chk.reason };
+  if (rec.sha256 && h && h !== rec.sha256) return { ok: false, reason: 'hash' };
   return { ok: true, reason: '', blob: new Blob([buf], { type: rec.mime || 'application/xml' }) };
 }
 /* A queued copy failed its check. The text still exists → rebuild its copy from what it holds NOW
@@ -6714,7 +6739,7 @@ async function rebuildOrHoldQueued(key, rec, reason) {
     try { if (await uploadDocById(docId, { auto: true, rebuilds: n + 1 })) return; } catch { /* fall through to hold */ }
   }
   await db.putMedia('upload:' + key, { ...rec, damaged: reason, damagedAt: Date.now(), damagedOrphan: !doc }).catch(() => {});
-  if (doc) uploadView.set(key, { name: rec.name, status: 'error', error: t('upload.damagedHeld') });
+  if (doc) uploadView.set(key, { name: rec.name, status: 'error', error: t('upload.damagedHeld'), held: true });
   else uploadView.delete(key);
   renderUploadQueue();
   pumpUploads();
@@ -6783,7 +6808,7 @@ function pumpUploads() {
 
 // Reconcile the view with what's persisted, reset failures to retry, then pump.
 // Runs at startup, when the network returns, and on a periodic timer.
-async function retryPendingUploads() {
+async function retryPendingUploads(opts = {}) {
   /* ⚠ AN UNPAIRED DEVICE STILL RECONCILES THE VIEW — it just does not RETRY. Getting this wrong is
    * easy and was caught by the browser check: an early return here left the held bundles invisible,
    * which is worse than the bug it was fixing. The user must be able to SEE that their work is
@@ -6796,15 +6821,17 @@ async function retryPendingUploads() {
     const v = uploadView.get(docId);
     /* G5: a HELD damaged copy is not an ordinary failure. Its text gone → kept, never shown (it holds
      * nothing to send). Its text still here → shown as an error and re-read only after a back-off,
-     * with one more rebuild allowed — never reset to 'waiting' every 90 s like a dropped connection. */
+     * with one more rebuild allowed — never reset to 'waiting' every 90 s like a dropped connection.
+     * ⚠ "Send now" (`opts.explicit`) makes it due AT ONCE (the review): the button used to leave it
+     * alone for up to six hours, so the one control the coworker has did nothing. */
     if (rec.damaged) {
       if (rec.damagedOrphan) { uploadView.delete(docId); continue; }
-      const due = paired && Date.now() - (rec.damagedAt || 0) > DAMAGED_RETRY_MS;
+      const due = paired && (opts.explicit || Date.now() - (rec.damagedAt || 0) > DAMAGED_RETRY_MS);
       if (due) {
         await db.putMedia('upload:' + docId, { ...rec, rebuilds: QUEUE_REBUILD_MAX - 1, damagedAt: Date.now() }).catch(() => {});
         uploadView.set(docId, { name: rec.name, status: 'waiting' });
       } else if (!v || v.status !== 'uploading') {
-        uploadView.set(docId, { name: rec.name, status: 'error', error: t('upload.damagedHeld') });
+        uploadView.set(docId, { name: rec.name, status: 'error', error: t('upload.damagedHeld'), held: true });
       }
       continue;
     }
@@ -6859,6 +6886,12 @@ function renderUploadQueue() {
   } else if (!Sync.workerUploadTarget()) {
     // "will retry shortly" is a promise this device cannot keep while it is unpaired.
     label.textContent = t('upload.heldSummary', { n: total });
+  } else if (items.some((i) => i.held)) {
+    /* G5: a copy held as damaged says so IN THE BAR (the review). The per-item reason lives in a list
+     * that only opens with two items or more, so a single held copy read "will retry shortly" — a
+     * promise its six-hour back-off did not keep. "Send now" rebuilds it (retryPendingUploads). */
+    const held = items.find((i) => i.held);
+    label.textContent = t('upload.heldDamagedSummary', { name: held.name }) + (total > 1 ? ' · ' + t('upload.more', { n: total - 1 }) : '');
   } else {
     label.textContent = navigator.onLine ? t('upload.retrying', { n: total }) : t('upload.waiting', { n: total });
   }
@@ -7052,8 +7085,9 @@ async function doUpload(researcher = false) {
       return;
     }
     await persist();
-    await uploadDocById(current.id);
-    toast(t('upload.queuedToast'));
+    /* Only when something WAS queued (the review): "could not be prepared" used to be replaced at once
+     * by "Added to the upload queue", which was false. A researcher-initiated send is quiet on failure. */
+    if (await uploadDocById(current.id, { quiet: researcher })) toast(t('upload.queuedToast'));
   } catch (e) {
     toast(t('upload.error', { msg: e.message }), 9000);
   }
@@ -12242,7 +12276,7 @@ function wireSharedModals() {
     const up = getUpload(btn.dataset.docId || '');
     if (act === 'pause') up?.pause();
     else if (act === 'resume') up?.resume();
-    else retryPendingUploads(); // "Send now": kick the whole queue
+    else retryPendingUploads({ explicit: true }); // "Send now": kick the whole queue — a held copy included
   });
   $('#upload-cancel')?.addEventListener('click', async () => {
     const id = $('#upload-cancel').dataset.docId || '';

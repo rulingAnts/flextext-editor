@@ -5090,6 +5090,114 @@ async function autoBackupSweep() {
   }
 }
 
+/* ---- THE v709 RE-SEND: once per text, never again (Seth, 2026-10-10) ----
+ *
+ * v709 (production 2026-10-08T22:31:19Z; rolled back by v714, 2026-10-09T18:27:11Z) wrote every
+ * .flextext and EAF WITHOUT its silent lines — no words, no text, no translation: the timed cuts a
+ * transcriber had not filled yet. The device's own copy was never touched. Its UPLOADS were,
+ * and a device kept running v709 until its app reloaded, and a bundle queued under v709 keeps the
+ * bytes v709 built however late it lands. That copy on Drive then stays the NEWEST one until the
+ * text is changed and sent again, because "already on Drive" (uploadedSig / uploadedModified)
+ * skips an unchanged text — so a move or an adopt can still deliver a copy with its empty segments
+ * missing (#111).
+ *
+ * Seth, 2026-10-10: "devices re-send any text whose last upload was on 9–10 Oct, so Drive stops
+ * holding copies without their empty segments."
+ *
+ * ELIGIBLE (v709ResendWanted), all of:
+ *  1. NOT RE-SENT BY THIS PASS BEFORE — `resentV709At` on the record. It is never cleared, so the
+ *     pass never repeats for a text, even one whose re-send the coworker cancelled from the tray.
+ *  2. UPLOADED BEFORE — `uploadedFileId`, the Lane B proof-of-backup. A text never sent is never
+ *     sent by this.
+ *  3. ITS LAST UPLOAD LANDED AT OR AFTER v709's DEPLOY — `uploadedAt`, which the completion point
+ *     has stamped beside uploadedFileId since the first engine. It is the DEVICE's clock: a phone
+ *     whose clock ran days slow is missed, one running fast re-sends a few texts it need not. No
+ *     upper bound in time, on purpose: a v709 bundle that sat queued can land on any date.
+ *  4. …AND ITS BYTES WERE NOT BUILT BY AN ENGINE THAT CARRIES THIS PASS — `uploadedEngine`, the
+ *     queued record's `engine` copied onto the doc when it lands. It ships with this pass, so any
+ *     value at all means "built by an engine that writes every line"; that is what stops a text sent
+ *     tomorrow from being re-sent the day after. Uploads from v714–v716 (correct, but unstamped)
+ *     are re-sent once too — they are indistinguishable from a late v709 bundle, and the cost is one
+ *     upload each, which is the "any text whose last upload was on 9–10 Oct" Seth approved.
+ *  5. UNCHANGED SINCE THAT UPLOAD — the same test as the 'uploaded' chip. That is the case the
+ *     "already on Drive" logic relies on; a CHANGED text's next send is built by this engine and
+ *     carries every line, and sending it now would upload edits nobody chose to send.
+ *  6. HOLDS AT LEAST ONE SILENT LINE — v709DroppedPhrase is v709's own isSilentPhrase (f579e92c),
+ *     verbatim, because "would v709 have left this out?" is the question. A text with none lost
+ *     nothing and is never re-sent.
+ *
+ * WHAT A RE-SEND IS: uploadDocById with { resend: 'v709' } — the ordinary Lane B queue, so pairing,
+ * the held-while-unpaired rule, offline queueing and retry-forever are the ones every upload has.
+ * The Drive "done" marker rides as it always does (docDone is the doc's real state). Its completion
+ * stamps the proof-of-backup like any upload, but shows NO toast and NEVER runs the auto-delete
+ * (uploadState). The doc's content and `modified` are never touched; the only write is the mark.
+ *
+ * ⚠ WHAT IT DOES NOT COVER: a remote delete / move that reaches an eligible text BEFORE its
+ * re-send lands still relies on the copy already on Drive (deleteConfirmedDoc trusts
+ * uploadedModified === modified). Online, that window is the length of one upload. */
+const V709_DEPLOYED_AT = Date.parse('2026-10-08T22:31:19Z');
+const V709_OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
+function v709DroppedPhrase(seg) {
+  if (!seg) return false;
+  if ((seg.words || []).length) return false;
+  if (String(seg.baseline || '').trim() || String(seg.free || '').trim()) return false;
+  if ((seg.preItemsXML || []).length) return false;
+  if ((seg.postItemsXML || []).some((x) => !V709_OUR_NOTE.test(x))) return false;
+  return true;
+}
+function v709ResendWanted(d) {
+  if (!d || !d.doc || d.resentV709At) return false;                          // 1
+  if (!d.uploadedFileId) return false;                                       // 2
+  if (!(Number(d.uploadedAt) >= V709_DEPLOYED_AT)) return false;             // 3
+  if (d.uploadedEngine) return false;                                        // 4
+  const onDrive = d.uploadedModified === d.modified
+    || !!(d.uploadedSig && d.uploadedSig === uploadContentSig(d));
+  if (!onDrive) return false;                                                // 5
+  return (d.doc.paragraphs || []).some((p) => (p.segments || []).some(v709DroppedPhrase));   // 6
+}
+// Set once a scan finds nothing it must look at again, so the 90 s sweep stops reading every
+// record. Per page load: the next boot scans once more, which is what catches a late v709 bundle.
+let v709ResendSettled = false;
+// One scan at a time: boot, the 'online' edge and the 90 s timer can overlap, and two scans could
+// each queue the same text before either had marked it.
+let v709ResendRunning = false;
+async function v709ResendSweep() {
+  if (v709ResendSettled || v709ResendRunning) return;
+  if (RESEARCHER_MODE || CROWD_MODE) return;
+  v709ResendRunning = true;
+  try { await v709ResendScan(); } finally { v709ResendRunning = false; }
+}
+async function v709ResendScan() {
+  // The rules any upload has: paired AND approved (an upload target), and allowed to upload. Not
+  // settled when either is missing — it runs again once the device is paired / allowed.
+  if (!Sync.workerUploadTarget() || !allowedSend().has('upload')) return;
+  const metas = await db.listDocs().catch(() => null);
+  if (!metas) return;
+  let revisit = false;
+  for (const meta of metas) {
+    if (!meta.uploadedFileId) continue;                       // never uploaded: no need to read it
+    const d = await db.getDoc(meta.id).catch(() => null);
+    if (!v709ResendWanted(d)) continue;
+    /* Eligible, but not NOW: the coworker has it open, or an upload of it is already queued or in
+     * flight (that upload decides — if it is a bundle v709 built, it lands unstamped and the next
+     * scan finds it again). Look again on the next sweep rather than mark it. */
+    if ((current && current.id === d.id) || uploadView.has(d.id) || getUpload(d.id)
+        || await db.getMedia('upload:' + d.id).catch(() => null)) { revisit = true; continue; }
+    let queued = false;
+    try { queued = await uploadDocById(d.id, { resend: 'v709' }); } catch { queued = false; }
+    if (!queued) { revisit = true; continue; }
+    /* The mark goes on AFTER the bytes are queued: a crash between the two cannot lose the re-send,
+     * and cannot double it either — the queued record makes the next scan wait, and once it lands
+     * its `uploadedEngine` rules the text out by itself. A fresh read, so nothing the queueing did
+     * to the record is written back over. */
+    const fresh = await db.getDoc(d.id).catch(() => null);
+    if (fresh) { fresh.resentV709At = Date.now(); await db.putDoc(fresh).catch(() => {}); }
+    // Opened while this ran? Mark the live copy too, or its next persist() writes the mark away.
+    if (fresh && current && current.id === d.id) current.resentV709At = fresh.resentV709At;
+  }
+  if (!revisit) v709ResendSettled = true;
+}
+
 // Short, stable title hash for the report — no plaintext titles leave the device (plan §F.2).
 async function syncTitleHash(title) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(title || '')));
@@ -6121,7 +6229,9 @@ function docFilename(rec) {
 
 // Queue a doc for upload BY ID — works whether or not it is the open doc, so a researcher
 // can trigger an upload remotely (triggerUpload command) without the coworker pressing Upload.
-async function uploadDocById(docId) {
+// opts.resend marks the one-time v709 re-send (v709ResendSweep): same queue, same bytes, but its
+// completion shows no toast and never runs the auto-delete.
+async function uploadDocById(docId, opts = {}) {
   const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
   if (!rec) return false;
   const bundle = await buildBundleFor(rec, true); // Lane B bare flextext; timestamped: Drive never overwrites
@@ -6145,6 +6255,12 @@ async function uploadDocById(docId) {
     // files.get (strongly consistent) instead of tag-SEARCHING (eventually consistent), which is
     // what stopped every upload minting a fresh "Title (n)" folder.
     docFolderId: rec.driveFolderId || '',
+    /* WHICH ENGINE BUILT THESE BYTES. The bundle is serialized HERE, at queue time, and can sit in
+     * the queue for days — so "which engine was running when it landed" is the wrong question; this
+     * is the right one. Stamped onto the doc as `uploadedEngine` when it lands (uploadState). The
+     * v709 re-send keys on it: a copy built by an engine carrying that pass already has every line. */
+    engine: ENGINE_VERSION,
+    ...(opts.resend ? { resend: String(opts.resend) } : {}),
   });
   uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
   renderUploadQueue();
@@ -6509,7 +6625,10 @@ function uploadState(docId) {
         // for who decides (researcher link param, else per-app default). This
         // fires at the single upload-completion point, so it also covers
         // background-retry uploads that finish long after the user tapped Send.
-        if (deleteAfterUpload() && st.docDone !== false) {   // auto-delete only after marked finished AND safely uploaded
+        // ⚠ The one-time v709 RE-SEND (v709ResendSweep) is not a send anybody made: it never runs the
+        // auto-delete and never toasts. It still stamps the proof-of-backup below like any upload.
+        const resend = !!st.resend;
+        if (!resend && deleteAfterUpload() && st.docDone !== false) {   // auto-delete only after marked finished AND safely uploaded
           setPendingUpDel(pendingUpDel().filter((x) => x !== docId));   // auto-delete covers the intent
           deleteUploadedDoc(docId).then(() => Sync.reportNow()); // inventory shrank — tell the panel promptly
           toast(t('record.sentRemoved', { name: st.name }), 6000);
@@ -6534,6 +6653,9 @@ function uploadState(docId) {
             d.uploadedModified = sameContent ? d.modified
               : ((st.docModified != null) ? st.docModified : d.modified);
             d.uploadedAt = Date.now();
+            // The engine that BUILT the copy now on Drive ('' when the queued record predates the
+            // field — e.g. a bundle v709 serialized that only landed now). See v709ResendSweep.
+            d.uploadedEngine = st.engine || '';
           };
           if (current && current.id === docId) stamp(current);
           /* "Done and send" → back to the list, now that the bytes are actually on Drive. Guarded on
@@ -6557,7 +6679,7 @@ function uploadState(docId) {
             }
             return Sync.reportNow();
           }).catch(() => {});
-          toast(t('upload.done', { name: st.name }), 6000);
+          if (!resend) toast(t('upload.done', { name: st.name }), 6000);
         }
       }
       renderUploadQueue();
@@ -12809,7 +12931,7 @@ function setup() {
   // Shared engine wiring + housekeeping (runs in both modes).
   wireSharedModals();
   setupBanners();
-  window.addEventListener('online', () => { retryPendingAudio(); retryPendingUploads(); autoBackupSweep().then(sweepPendingUpDel).catch(() => {}); });
+  window.addEventListener('online', () => { retryPendingAudio(); retryPendingUploads(); autoBackupSweep().then(sweepPendingUpDel).catch(() => {}).then(v709ResendSweep).catch(() => {}); });
   window.addEventListener('offline', () => { renderUploadQueue(); });
   // Pending uploads AND pending downloads (task audio + attached flextext) keep
   // retrying forever while the app is open — a flaky village link that never
@@ -12819,11 +12941,11 @@ function setup() {
     if (!navigator.onLine) return;
     retryPendingAudio(); // also sweeps pending task flextexts
     if (uploadView.size) retryPendingUploads();
-    autoBackupSweep().then(sweepPendingUpDel).catch(() => {});
+    autoBackupSweep().then(sweepPendingUpDel).catch(() => {}).then(v709ResendSweep).catch(() => {});
   }, RETRY_EVERY_MS);
   retryPendingAudio();
   retryPendingUploads();
-  autoBackupSweep().then(sweepPendingUpDel).catch(() => {});
+  autoBackupSweep().then(sweepPendingUpDel).catch(() => {}).then(v709ResendSweep).catch(() => {});
   syncConsentAudio(); // fetch/cache the consent prompt audio if configured
   // Ask the browser to protect our storage (texts + recordings) from being
   // silently evicted when the device runs low on space.

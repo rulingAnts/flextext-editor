@@ -230,7 +230,8 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
 - **Segmentation mode invariant (flat mode): one line = one paragraph = one phrase = one span**,
   including blank lines (a blank line is a real timed span — usually silence). ⚠ In the files written
   for FLEx and ELAN/SayMore a blank line is written as an empty phrase with its times / an empty annotation.
-  (v709 left them out; v714 undid that — moved texts lost their untranscribed segments, #111.)
+  (v709 left them out; v714 undid that — moved texts lost their untranscribed segments, #111. The
+  copies v709 uploaded are re-sent once by each device — see §6, "The one-time v709 re-send".)
 - All span edits route through `segments.js` (`boundaryAtPlayhead` / `mergeSegments` /
   `normalizeSegments` / `syncToLines`): spans can never cross; a time is never invented
   (out-of-range → `timePending`); **text is sacred** (a text edit always applies even when the
@@ -350,6 +351,20 @@ This is the part that has caused real outages when done wrong — read
 - Uploads are **queued in IndexedDB and retry forever**, chunked+resumable for big files, with
   Drive's own byte count as the resume truth. Delete flows are **upload-first**: nothing is
   removed until a verified backup exists.
+- **Upload bookkeeping on a doc**, stamped at the one completion point (`uploadState`, app.js):
+  `uploadedFileId` (the proof-of-backup), `uploadedSig` / `uploadedModified` (what content went),
+  `uploadedAt` (device clock), and `uploadedEngine` — the engine that **built** the bytes, copied
+  from the queued record's `engine` (a bundle is serialized at queue time and can land days later,
+  so "which engine was running when it landed" is the wrong question). `''` means the record
+  predates the field.
+- **The one-time v709 re-send** (`v709ResendSweep`, app.js; Seth, 2026-10-10). v709 uploaded
+  copies without their silent lines (#111), and "already on Drive" keeps such a copy the newest
+  until the text changes. Each device re-sends, once, every text that was uploaded at or after
+  v709's deploy (2026-10-08T22:31:19Z) by an engine that does not stamp `uploadedEngine`, is
+  unchanged since, and holds a line v709 would have dropped; it marks the doc `resentV709At` and
+  never repeats. Same queue as any upload (pairing, `sendOptions` 'upload', offline, retry); the
+  queued record carries `resend: 'v709'`, and its completion never auto-deletes and never toasts.
+  Rules and limits in the function's header; `test/v709-resend.test.mjs` runs the real functions.
 - Security posture: open signup + rate limit + owner approval tiers; escrowed recovery; optional
   TOTP; security log (`worker/src/seclog.js`) with email alerts. See `notes/connectivity-*.md`.
 

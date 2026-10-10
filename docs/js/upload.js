@@ -183,7 +183,7 @@ export function driveFolderId(text) {
 }
 
 export class DriveUpload {
-  // record: { blob, name, mime, total, sent, docModified }
+  // record: { blob, name, mime, total, sent, docModified, … engine, resend }
   // onState({ status:'uploading'|'paused'|'error'|'done'|'cancelled', sent, total, indeterminate, error, name })
   constructor(docId, record, onState) {
     this.docId = docId;
@@ -211,6 +211,11 @@ export class DriveUpload {
       docModified: this.rec.docModified,
       docSig: this.rec.docSig,     // content signature of the queued bundle (proof-of-backup)
       docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
+      // Which engine BUILT the queued bytes (absent on records queued before the field existed) and
+      // whether this is the one-time v709 re-send — see v709ResendSweep in app.js. Both are read
+      // back at the completion point only; neither reaches the wire.
+      engine: this.rec.engine,
+      resend: this.rec.resend,
     });
   }
 

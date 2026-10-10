@@ -449,9 +449,19 @@ async function renderDocList() {
   if (settings.sortAlpha === true) {
     docs.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' }));
   }
+  /* ⚠ THE HOST MAY NOT EXIST, AND THIS USED TO CRASH ON IT (v720). refreshList() early-returns for
+   * the consent, segmenter and recorder shells but FALLS THROUGH to here in RESEARCHER_MODE — and
+   * the panel has no #doc-list, so `ul.innerHTML` threw. Because renderDocList is async and
+   * refreshList does not await it, the throw surfaced as an unhandled promise rejection that no
+   * caller's try/catch could see: a console error with no stack into the code that caused it.
+   * The intent was already written down at refreshList's other callers ("the satellites have no
+   * #doc-list"); it just was not enforced anywhere. Found by fxDev() being the first thing to call
+   * refreshList() from inside the panel. */
   const ul = $('#doc-list');
+  const empty = $('#doc-list-empty');
+  if (!ul) return;
   ul.innerHTML = '';
-  $('#doc-list-empty').hidden = docs.length > 0;
+  if (empty) empty.hidden = docs.length > 0;
   const upDel = new Set(pendingUpDel());   // deletes triggered (coworker or researcher) but not yet confirmed
   for (const d of docs) {
     const li = document.createElement('li');
@@ -5579,13 +5589,35 @@ function renderDevBadge() {
     const off = document.createElement('button');
     off.type = 'button';
     off.className = 'dev-badge-off link-btn';
-    off.addEventListener('click', () => { setDevMode(false); renderDevBadge(); refreshList(); });
+    off.addEventListener('click', () => { setDevMode(false); devModeChanged(); });
     el.append(label, off);
     document.body.appendChild(el);
   }
   el.querySelector('.dev-badge-text').textContent = t('dev.badge');
   el.querySelector('.dev-badge-off').textContent = t('dev.badgeOff');
 }
+/* Everything that has to happen when the flag flips, from either direction (fxDev or the badge's own
+ * off button).
+ *
+ * ⚠ refreshList() IS NOT SAFE TO CALL BARE FROM HERE, and finding that out is what this comment is
+ * for. It is synchronous but hands off to an ASYNC renderer without awaiting it, so a throw inside
+ * surfaces as an unhandled promise rejection that a try/catch around the call cannot see — which is
+ * exactly what happened when fxDev() was first run in the researcher panel (app.js:453, `ul is
+ * null`). The host guard in renderDocList is the real fix; this `.catch` is the belt to its braces,
+ * because the next shell to lack a list should cost a no-op and not a console error.
+ *
+ * ⚠ AND THE PANEL REPAINTS THROUGH AN EVENT. researcher-panel.js builds each text row reading the
+ * flag, so a dashboard drawn before arming simply has no dev button on it; it listens for this and
+ * re-renders. An event rather than a direct call because app.js must not know the panel's internals
+ * — and because the panel is absent in every other shell. */
+function devModeChanged() {
+  renderDevBadge();
+  try { Promise.resolve(refreshList()).catch(() => { /* no list in this shell */ }); }
+  catch { /* not built yet */ }
+  try { window.dispatchEvent(new CustomEvent('fx-dev-mode', { detail: { on: devMode() } })); }
+  catch { /* no CustomEvent in this environment */ }
+}
+
 /* The dev-only "delete, no backup" control for a texts-list row. Returns null when disarmed, so a
  * row renderer adds it with one line and nothing is in the DOM to find when it is off. */
 function devDeleteBtn(d, cls) {
@@ -12707,8 +12739,7 @@ if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
 /* ⚠ THE ONLY WAY TO ARM DEVELOPER MODE (see devMode above). Console only, by design. */
 if (typeof window !== 'undefined') window.fxDev = (on = true) => {
   setDevMode(!!on);
-  renderDevBadge();
-  try { refreshList(); } catch { /* no list on screen yet */ }
+  devModeChanged();
   return devMode()
     ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup. fxDev(false) or the on-screen badge turns it off; ?devreset clears everything.'
     : 'developer mode OFF.';

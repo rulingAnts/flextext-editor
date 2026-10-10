@@ -527,8 +527,10 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   drag and cut like any span, and the moment the user places something the line is real (or an
   estimate, dashed) and stored. Partly timed → amber "needs timing", but only while the untimed lines
   are the exception (at most half — `needsMarks`); all or mostly untimed → dashed, one info banner.
-  v714/v717's STORED even spread is recognised (`seedsToPending`) and drawn untimed again.
-  Seth's B2, plans/time-gaps-and-estimates.md §4 v718.
+  v714/v717's STORED even spread is recognised (`seedsToPending`) and drawn untimed again — v714's even
+  after a user began correcting it there (`v714SeedLines`: step from the UNTOUCHED lines, never a mean of
+  edited ones). The Audio Segmenter keeps a draft only after an edit (`MG.edited`); its changed-text
+  check ignores the editor's quiet writes. Seth's B2, plans/time-gaps-and-estimates.md §4 v718.
 - **Exports (in the save/share zip):** `<title>.eaf` + `<title>.pfsx` (ELAN reads display settings
   from a same-basename sidecar; without it ELAN's remembered `sortAlphabetically` puts every gloss
   tier ABOVE its own vernacular partner — `A_phrase-gls-*` sorts before `A_phrase-txt-*`. The

@@ -273,9 +273,12 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
   `seg-needs` (partly timed: amber bar and "needs timing"), `seg-noroom` (⋯ with the amber bar) — the
   amber only while untimed lines are at most half the text (`needsMarks`; a text still mostly untimed is
   one being cut, P6), and behind the banner's switch. v714/v717's stored even spread is recognised from the spans
-  themselves (`seedsToPending`) and drawn untimed again. **Keep times** (`keepLineTimes`, active row,
-  researcher switch `keepTimes`) makes a guessed line's times its own; the Audio Segmenter spreads its
-  untimed rows the same way and writes them back untimed on Done.
+  themselves (`seedsToPending`) and drawn untimed again — v714's even after a user began correcting it there
+  (on the seed's grid, `v714SeedLines`: only the lines somebody placed keep a time). **Keep times**
+  (`keepLineTimes`, active row, researcher switch `keepTimes`) makes a guessed line's times its own; the
+  Audio Segmenter spreads its untimed rows the same way and writes them back untimed on Done. Its draft
+  exists only once something was changed there (`MG.edited`), and its "this text has changed" check
+  (`mgBaseSig`) ignores the editor's quiet writes (a seed made pending, D7, the tail cover) but not a Keep.
 - **The text box keeps times with their lines (v717).** `reconcileBaselineWithOrigins` says where each
   new line came from (kept / exact / edit / join / split / new, paired only within the stretch between
   unchanged lines, by shared words first and in order only in the gaps the words leave; `moved` for a
@@ -571,7 +574,9 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
   `plans/time-gaps-and-estimates.md` §6.5. Since v718 it also opens every untimed text as if its
   recording had decoded (`untimed`: drawn evenly or "no room", nothing written but a one-line text's
   span, an export with no times) and, with `--baseline` at v714, hands the old engine's stored seed to
-  the new one (`untimed.v714Seeds.missed` must be 0); each multi-line untimed text must show exactly one
+  the new one (`untimed.v714Seeds.missed` must be 0) — and the same seed after one v714 correction each (a drag,
+  a cut, a join, a clamp, made with the baseline's own functions: `v714Seeds.corrected` all 0, only the corrected
+  lines keeping a time); each multi-line untimed text must show exactly one
   info banner and no marked line. The corpus has no partly timed text, so every timed text is also opened
   as one (`untimed.partly`: every line k % 6 = 2, 3 made untimed by our own export): each untimed run
   inside its own room and shared evenly, no timed line moved, nothing stored or exported as a time, amber

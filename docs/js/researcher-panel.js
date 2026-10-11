@@ -339,6 +339,21 @@ function saveTombDone(accountId) {
   catch { /* quota/private mode — degrades to in-memory, costing a redundant click after a reload */ }
 }
 
+/* ⚠ THE DEVICE'S WORD IS NOT ENOUGH TO TRASH A FOLDER (v722 review). A tombstone names a folderId
+ * the DEVICE reported. The worker's /trash route verifies nothing beyond the drive.file scope — it
+ * PATCHes trashed:true on any id the app created, and every text folder in the estate is app-created.
+ * So a stale, mistaken or mis-reported folderId would trash ANOTHER TEXT'S folder, and nothing
+ * between the button and Google would notice. The estate already pairs each text folder with the
+ * docId it is tagged with (`texts[{docId, folderId}]`, from the flextextDoc appProperty Drive itself
+ * carries), so the check is local and free: trash only when the folder Drive says belongs to this
+ * docId is the one the device named. Returns null when the estate is not loaded — "cannot say" is
+ * refused too; the researcher is told to retry rather than trusted through. */
+function tombFolderVerified(tomb) {
+  const texts = (estateCache && Array.isArray(estateCache.texts)) ? estateCache.texts : null;
+  if (!texts) return null;
+  return texts.some((x) => x && x.docId === tomb.id && x.folderId === tomb.folderId);
+}
+
 /* COLLAPSED DEVICE CARDS — instanceId -> true (collapsed) | false (expanded). Same per-account
  * localStorage shape as PENDING_KEY above.
  *
@@ -5581,6 +5596,15 @@ async function instanceActionInner(el) {
        * after this there is no copy left anywhere. */
       const folder = el.dataset.folder;
       if (!folder) return;
+      /* ⚠ VERIFIED AGAINST DRIVE'S OWN TAG BEFORE ANYTHING IS ASKED — see tombFolderVerified. A
+       * mismatch is refused outright, not confirmed past: the confirm text names the TEXT, and a
+       * researcher saying yes to the text must not be read as yes to whatever folder the id turned
+       * out to be. "Estate not loaded" is refused too, with a retry, rather than trusted through. */
+      const verified = tombFolderVerified({ id: el.dataset.id, folderId: folder });
+      if (verified !== true) {
+        deps.toast(t(verified === null ? 'panel.dev.tombNoEstate' : 'panel.dev.tombMismatch', { title: el.dataset.title || '?' }), 8000);
+        return;
+      }
       if (!await confirmModal(t('panel.dev.confirmTombTrash', { title: el.dataset.title || '?' }))) return;
       try {
         const r4 = await busy(el, () => Researcher.trashFiles([folder], 'dev-removed text folder'));
@@ -5595,7 +5619,7 @@ async function instanceActionInner(el) {
       /* Developer mode: remove it WITHOUT the upload first. The confirm says so plainly, and names
        * the one thing that will stop it — a device nobody armed refuses this and the text stays. */
       if (!await confirmModal(t('panel.dev.confirmDelNow', { title: el.dataset.title || '?' }))) return;
-      const r3 = await busy(el, () => Researcher.deleteNow(id, el.dataset.id));
+      const r3 = await busy(el, () => Researcher.deleteDoc(id, el.dataset.id));   // the existing sender — see researcher.js
       pendingCmds.set(el.dataset.id, { seq: r3.seq, kind: 'delete', instanceId: id, at: Date.now() });
       savePending(Researcher.currentAccountId());
       deps.toast(t('panel.dev.delNowSent'), 6000);

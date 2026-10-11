@@ -243,8 +243,10 @@ test('...and honoured on a device armed in ITS OWN console — the device is the
 });
 
 test('the panel needs NO new worker command — `delete` already exists end to end', () => {
-  assert.match(RSCH, /export function deleteNow\(instanceId, docId\)\s+\{ return pushCommand\(instanceId, 'delete', \{ docId \}\); \}/,
-    'the panel sends the ORDINARY delete command');
+  assert.match(RSCH, /export function deleteDoc\(instanceId, docId\)\s+\{ return pushCommand\(instanceId, 'delete', \{ docId \}\); \}/,
+    'the panel sends the ORDINARY delete command, through the sender that already existed');
+  assert.doesNotMatch(RSCH, /export function deleteNow\(/,
+    'v722 review: the first draft added a second, identical sender; one is enough');
   // Which is why this is additive and client-only: the worker already allows that type.
   assert.match(WORKER, /TEXT_COMMANDS = \['assign', 'delete', 'uploadDelete', 'setDone'\]/,
     'delete is already in TEXT_COMMANDS');
@@ -263,7 +265,7 @@ test('the panel offers it too, and only while THIS browser is armed', () => {
     '⚠ and NEVER writes it — the panel must not be able to arm anything');
   assert.match(PANEL, /devMode\(\) \? ` <button class="link-btn rp-devdel" data-iact="del-text-now"/,
     'the button is rendered only when armed');
-  assert.match(PANEL, /Researcher\.deleteNow\(id, el\.dataset\.id\)/, 'and sends the ordinary delete command');
+  assert.match(PANEL, /Researcher\.deleteDoc\(id, el\.dataset\.id\)/, 'and sends the ordinary delete command through the sender that already existed');
   assert.match(PANEL, /confirmModal\(t\('panel\.dev\.confirmDelNow'/, 'behind its own confirm');
   // It must sit beside the safe one, not replace it.
   assert.match(PANEL, /data-iact="del-text"/, 'the upload-first Remove is still there');
@@ -388,8 +390,9 @@ test('a dev-removed row offers ONLY the trash, never a command to a device that 
 test('trashing is remembered locally, because nothing syncs back (option 1)', () => {
   const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
   assert.match(PANEL, /Researcher\.trashFiles\(\[folder\], 'dev-removed text folder'\)/, 'the existing route, no new one');
-  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 1400);
-  assert.ok(h.indexOf('devTombDone.add') < h.indexOf('renderDashboard'),
+  // 2400, not 1400: the v722 review put the folder cross-check at the top of this handler, which grew it.
+  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 2400);
+  assert.ok(h.indexOf('devTombDone.add') > 0 && h.indexOf('devTombDone.add') < h.indexOf('renderDashboard'),
     'remembered before the repaint, so the row goes now and not on the next poll');
   assert.match(h, /saveTombDone\(Researcher\.currentAccountId\(\)\)/, 'and persisted per account');
   assert.match(PANEL, /loadTombDone\(Researcher\.currentAccountId\(\)\);/, 'loaded with the other per-account state');
@@ -418,6 +421,32 @@ test('fxTombs() lists and clears them, and is the only way to drop one early', (
   assert.match(fx, /if \(verb === 'clear'\) \{ setDevTombs\(\[\]\); Sync\.reportNow\(\);/,
     'clearing reports at once, so the panel stops being offered them');
   assert.match(fx, /no dev-removed texts are flagged on this device/, 'and says so when there are none');
+});
+
+test('⚠ a folder is trashed only when Drive\'s own tag says it belongs to that text (v722 review)', () => {
+  /* The worker's /trash route verifies nothing beyond the drive.file scope — it PATCHes trashed:true
+   * on any app-created id, and every text folder in the estate is app-created. So the DEVICE's word
+   * (the tombstone's folderId) is not enough: a stale or mis-reported id would trash another text's
+   * folder with nothing in between to notice. The estate already pairs each folder with the docId
+   * Drive tags it with; the panel must refuse unless they agree. */
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  assert.match(PANEL, /function tombFolderVerified\(tomb\) \{/, 'the check exists');
+  assert.match(PANEL, /x\.docId === tomb\.id && x\.folderId === tomb\.folderId/, 'and it demands BOTH agree, from estateCache.texts');
+  assert.match(PANEL, /if \(!texts\) return null;/, 'estate not loaded is "cannot say", not "fine"');
+  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 2000);
+  const iVerify = h.indexOf('tombFolderVerified(');
+  const iConfirm = h.indexOf("confirmModal(t('panel.dev.confirmTombTrash'");
+  const iTrash = h.indexOf('Researcher.trashFiles(');
+  assert.ok(iVerify > 0 && iVerify < iConfirm, 'verified BEFORE the confirm — a yes to the text is not a yes to whatever folder the id was');
+  assert.ok(iConfirm < iTrash, 'and the trash comes last');
+  assert.match(h, /if \(verified !== true\) \{/, 'null and false are both refusals');
+  for (const k of ['panel.dev.tombNoEstate', 'panel.dev.tombMismatch']) {
+    assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} in en and id`);
+  }
+  assert.match(I18N, /Nothing was trashed — check the text in Drive/, 'the mismatch message says nothing happened');
+  // Arming has a consequence beyond the ☠, and the person arming must be told it at the moment they arm.
+  assert.match(APP, /this device will also obey a researcher panel\\'s "Remove, no backup" for any un-uploaded text on it/,
+    'fxDev() names the remote consequence of arming');
 });
 
 test('the strings exist in both languages, and the confirm says what it does', () => {

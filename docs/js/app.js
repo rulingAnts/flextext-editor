@@ -12810,7 +12810,7 @@ if (typeof window !== 'undefined') window.fxDev = (on = true) => {
   setDevMode(!!on);
   devModeChanged();
   return devMode()
-    ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup. fxDev(false) or the on-screen badge turns it off; ?devreset clears everything.'
+    ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup — and while armed, this device will also obey a researcher panel\'s "Remove, no backup" for any un-uploaded text on it. fxDev(false) or the on-screen badge turns it off; ?devreset clears everything.'
     : 'developer mode OFF.';
 };
 /* CONSOLE ENTRY POINT — `fxTombs()`. What this device is still telling the panel to trash, and the

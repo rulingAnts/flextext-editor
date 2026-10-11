@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v722';
+export const ENGINE_VERSION = 'v723';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v722';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'dev-delete v3';
+export const BUILD_TAG = 'dev-delete v4';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -572,11 +572,16 @@ en: {
   // Developer mode in the panel — shown only while this browser is armed with fxDev().
   'panel.dev.tombTrash': 'Remove, no unassign',
   'panel.dev.tombTip': 'This text was removed from the device without a backup. Send its Google Drive folder to the trash, so it never appears under Unassigned.',
-  'panel.dev.confirmTombTrash': 'Send the Google Drive folder for “{title}” to the trash?\n\nThe device already removed this text without backing it up, so after this there is no copy left anywhere. It goes to Drive\'s trash — not to Unassigned.',
+  'panel.dev.confirmTombTrash': 'Send the Google Drive folder for “{title}” to the trash?\n\nThe device already removed this text without backing it up. The folder goes to Drive\'s trash — not to Unassigned — where Drive keeps it for about 30 days before it is gone for good.',
+  'panel.dev.tombTag': 'removed, no backup',
+  'panel.dev.tombTagTip': 'A developer removed this text from the device without backing it up. Its Google Drive folder is kept out of Unassigned until a panel in developer mode sends it to the trash.',
+  'panel.dev.tombAuto': 'Developer mode: sent {n} removed-text folder(s) to Drive\'s trash.',
   'panel.dev.tombTrashed': 'Moved to Drive\'s trash ({n}).',
   'panel.dev.tombFailed': 'Could not reach the folder — it may already be gone. Try again, or check Drive.',
+  'panel.dev.tombNoEstate': 'Not done: the Drive estate has not loaded yet, so the folder for “{title}” cannot be checked. Try again in a moment.',
+  'panel.dev.tombMismatch': 'Not done: Drive does not tag that folder as belonging to “{title}”. Nothing was trashed — check the text in Drive before removing anything by hand.',
   'panel.dev.delNow': 'Remove, no backup',
-  'panel.dev.confirmDelNow': 'Tell the device to delete “{title}” WITHOUT uploading it first?\n\nNothing is backed up and this cannot be undone. The device will only obey if developer mode is also on there — otherwise it refuses and the text stays.',
+  'panel.dev.confirmDelNow': 'Tell the device to delete “{title}” WITHOUT uploading it first?\n\nNothing is backed up and this cannot be undone. A text already safely on Drive is removed either way; un-uploaded work is removed only if developer mode is also on there — otherwise the device refuses and the text stays.',
   'panel.dev.delNowSent': 'Sent — the device will delete it without a backup (if developer mode is on there).',
   'panel.inst.delText': 'Remove from device',
   'panel.inst.untitledText': 'Untitled text',
@@ -1348,7 +1353,7 @@ internet after the first time.</p>
   'dev.badge': 'Developer mode',
   'dev.badgeOff': 'Turn off',
   'dev.deleteTitle': 'Delete without backing up (developer)',
-  'dev.confirmDeleteNoBackup': 'Delete “{title}” WITHOUT backing it up?\n\nNothing will be uploaded first, and this cannot be undone. Developer mode is on — the ordinary 🗑 still backs up before deleting.',
+  'dev.confirmDeleteNoBackup': 'Delete “{title}” WITHOUT backing it up?\n\nNothing will be uploaded first, and this cannot be undone. If this text has a folder on Google Drive, a researcher panel in developer mode will send that folder to Drive\'s trash. Developer mode is on — the ordinary 🗑 still backs up before deleting.',
   'gap.rowLabel': 'Unassigned audio, {range}',
   'gap.rowLabel.speech': 'Unassigned audio, {range} — there is speech in it',
   'gap.playTip': 'Play this unassigned audio',
@@ -3459,11 +3464,16 @@ id: {
   // Mode pengembang di panel — hanya tampil selama peramban ini aktif dengan fxDev().
   'panel.dev.tombTrash': 'Hapus, jangan jadikan belum ditugaskan',
   'panel.dev.tombTip': 'Teks ini dihapus dari perangkat tanpa cadangan. Kirim foldernya di Google Drive ke tempat sampah, supaya tidak pernah muncul di Belum Ditugaskan.',
-  'panel.dev.confirmTombTrash': 'Kirim folder Google Drive untuk “{title}” ke tempat sampah?\n\nPerangkat sudah menghapus teks ini tanpa mencadangkannya, jadi setelah ini tidak ada salinan yang tersisa di mana pun. Folder masuk ke tempat sampah Drive — bukan ke Belum Ditugaskan.',
+  'panel.dev.confirmTombTrash': 'Kirim folder Google Drive untuk “{title}” ke tempat sampah?\n\nPerangkat sudah menghapus teks ini tanpa mencadangkannya. Folder masuk ke tempat sampah Drive — bukan ke Belum Ditugaskan — dan Drive menyimpannya sekitar 30 hari sebelum hilang selamanya.',
+  'panel.dev.tombTag': 'dihapus, tanpa cadangan',
+  'panel.dev.tombTagTip': 'Seorang pengembang menghapus teks ini dari perangkat tanpa mencadangkannya. Folder Google Drive-nya dijaga agar tidak masuk ke Belum Ditugaskan sampai panel dalam mode pengembang mengirimnya ke tempat sampah.',
+  'panel.dev.tombAuto': 'Mode pengembang: {n} folder teks yang dihapus dikirim ke tempat sampah Drive.',
   'panel.dev.tombTrashed': 'Dipindahkan ke tempat sampah Drive ({n}).',
   'panel.dev.tombFailed': 'Tidak dapat menjangkau folder — mungkin sudah tidak ada. Coba lagi, atau periksa Drive.',
+  'panel.dev.tombNoEstate': 'Belum dilakukan: data Drive belum termuat, jadi folder untuk “{title}” belum bisa diperiksa. Coba lagi sebentar.',
+  'panel.dev.tombMismatch': 'Belum dilakukan: Drive tidak menandai folder itu sebagai milik “{title}”. Tidak ada yang dibuang — periksa teksnya di Drive sebelum menghapus apa pun secara manual.',
   'panel.dev.delNow': 'Hapus, tanpa cadangan',
-  'panel.dev.confirmDelNow': 'Minta perangkat menghapus “{title}” TANPA mengunggahnya lebih dulu?\n\nTidak ada yang dicadangkan dan ini tidak bisa dibatalkan. Perangkat hanya akan menuruti jika mode pengembang juga aktif di sana — kalau tidak, ia menolak dan teksnya tetap ada.',
+  'panel.dev.confirmDelNow': 'Minta perangkat menghapus “{title}” TANPA mengunggahnya lebih dulu?\n\nTidak ada yang dicadangkan dan ini tidak bisa dibatalkan. Teks yang sudah aman di Drive dihapus bagaimanapun juga; pekerjaan yang belum diunggah hanya dihapus jika mode pengembang juga aktif di sana — kalau tidak, perangkat menolak dan teksnya tetap ada.',
   'panel.dev.delNowSent': 'Terkirim — perangkat akan menghapusnya tanpa cadangan (jika mode pengembang aktif di sana).',
   'panel.inst.delText': 'Hapus dari perangkat',
   'panel.inst.untitledText': 'Teks tanpa judul',
@@ -4137,7 +4147,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'dev.badge': 'Mode pengembang',
   'dev.badgeOff': 'Matikan',
   'dev.deleteTitle': 'Hapus tanpa mencadangkan (pengembang)',
-  'dev.confirmDeleteNoBackup': 'Hapus “{title}” TANPA mencadangkannya?\n\nTidak ada yang akan diunggah lebih dulu, dan ini tidak bisa dibatalkan. Mode pengembang aktif — tombol 🗑 biasa tetap mencadangkan sebelum menghapus.',
+  'dev.confirmDeleteNoBackup': 'Hapus “{title}” TANPA mencadangkannya?\n\nTidak ada yang akan diunggah lebih dulu, dan ini tidak bisa dibatalkan. Jika teks ini punya folder di Google Drive, panel peneliti dalam mode pengembang akan mengirim folder itu ke tempat sampah Drive. Mode pengembang aktif — tombol 🗑 biasa tetap mencadangkan sebelum menghapus.',
   'gap.rowLabel': 'Audio belum punya baris, {range}',
   'gap.rowLabel.speech': 'Audio belum punya baris, {range} — ada suara di dalamnya',
   'gap.playTip': 'Putar audio yang belum punya baris ini',

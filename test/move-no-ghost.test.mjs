@@ -36,7 +36,9 @@ test('and the device still refuses to delete until its upload is confirmed', () 
   assert.match(body, /setPendingUpDel/, 'and the intent is persisted, so a reload cannot orphan it');
   // The proof-of-backup helper must actually verify, not just be called.
   const proof = app.slice(app.indexOf('async function deleteConfirmedDoc'));
-  assert.match(proof.slice(0, 900), /uploadedFileId/,
+  // 2200, not 900: the v722 review's comment on WHY the dev-mode exception needs the caller's request
+  // as well as the flag sits above the check now.
+  assert.match(proof.slice(0, 2200), /uploadedFileId/,
     'deleteConfirmedDoc checks the text really is backed up');
 });
 

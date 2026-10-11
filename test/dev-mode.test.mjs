@@ -64,17 +64,18 @@ function devApp(opts = {}) {
 }
 
 /* deleteConfirmedDoc, lifted — the remote `delete` command's one gate. */
-function remoteDelete(doc, armed) {
-  const env = { tornDown: [], reported: 0, warned: [] };
-  return new Function('env', 'doc', 'armed', `
+function remoteDelete(doc, armed, opts) {
+  const env = { tornDown: [], reported: 0, warned: [], tombed: [] };
+  return new Function('env', 'doc', 'armed', 'opts', `
     const db = { getDoc: async () => doc };
     const deleteUploadedDoc = async (id) => { env.tornDown.push(id); };
     const Sync = { reportNow: () => { env.reported++; } };
     const devMode = () => armed;
+    const addDevTomb = (d) => { env.tombed.push(d.id); return true; };
     const console = { warn: (...a) => env.warned.push(a.join(' ')) };
     ${liftAll(APP, ['deleteConfirmedDoc'])}
-    return deleteConfirmedDoc('d1').then((r) => ({ r, env }));
-  `)(env, doc, armed);
+    return (opts === undefined ? deleteConfirmedDoc('d1') : deleteConfirmedDoc('d1', opts)).then((r) => ({ r, env }));
+  `)(env, doc, armed, opts);
 }
 
 test('arming is CONSOLE ONLY — fxDev is the one entry point, and never a keyboard binding', () => {
@@ -128,8 +129,13 @@ test('a flip in a shell with no texts list is a no-op, not an unhandled rejectio
 
 test('the panel repaints on the flip, through the event and not a cross-module call', () => {
   const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
-  assert.match(PANEL, /window\.addEventListener\('fx-dev-mode', \(\) => \{\s*\n\s*try \{ renderDashboard\(lastData \|\| undefined\); \}/,
-    'the panel listens and re-renders');
+  const l = PANEL.slice(PANEL.indexOf("window.addEventListener('fx-dev-mode'"), PANEL.indexOf("window.addEventListener('fx-dev-mode'") + 700);
+  assert.match(l, /try \{ renderDashboard\(lastData \|\| undefined\); \}/, 'the panel listens and re-renders');
+  // ⚠ ...a DASHBOARD. Fired on the sign-in screen it replaced it with a dashboard that could not load
+  // (v722 review). `.rp-metrics` is renderDashboard's own "a dashboard is showing" marker.
+  assert.ok(l.indexOf("if (!root.querySelector('.rp-metrics')) return;") > 0
+    && l.indexOf("if (!root.querySelector('.rp-metrics')) return;") < l.indexOf('renderDashboard('),
+    'guarded on a dashboard being up, before the repaint');
   assert.doesNotMatch(PANEL, /import \{[^}]*devModeChanged/, 'app.js internals stay app.js internals');
 });
 
@@ -152,6 +158,16 @@ test('it persists until turned off, and survives a private-mode write failure', 
   const priv = devApp({ throwOnWrite: true });
   assert.doesNotThrow(() => priv.api.setDevMode(true));
   assert.equal(priv.api.devMode(), false, 'it simply does not arm');
+});
+
+test('the badge is drawn on BOOT, in every shell — applyLiveSettings never runs at boot (v722 review)', () => {
+  const su = APP.slice(APP.indexOf('\nfunction setup() {'), APP.indexOf('\nfunction setup() {') + 1500);
+  const iBadge = su.indexOf('renderDevBadge()');
+  assert.ok(iBadge > 0, 'setup() draws it');
+  assert.ok(iBadge < su.indexOf('if (CROWD_MODE)'), 'above the first per-mode return, so the panel, PAT and the recorder get it too');
+  // The on-change redraw is still there for language changes.
+  const als = APP.slice(APP.indexOf('\nfunction applyLiveSettings() {'), APP.indexOf('\nfunction applyLiveSettings() {') + 600);
+  assert.match(als, /renderDevBadge\(\)/);
 });
 
 test('?devreset clears it with everything else — no separate bookkeeping to forget', () => {
@@ -228,11 +244,17 @@ test('a remote delete of un-uploaded work is refused on an UNARMED device', asyn
 
 test('...and honoured on a device armed in ITS OWN console — the device is the authority', async () => {
   const notBackedUp = { id: 'd1', modified: 200, uploadedFileId: 'f1', uploadedModified: 100 };
-  const { r, env } = await remoteDelete(notBackedUp, true);
-  assert.equal(r, true, 'armed: the device honours it');
+  const { r, env } = await remoteDelete(notBackedUp, true, { force: true });
+  assert.equal(r, true, 'armed, and the delete command asked: the device honours it');
   assert.deepEqual(env.tornDown, ['d1'], 'through the same teardown as any other delete');
   assert.equal(env.reported, 1, 'and reports so the panel stops showing it');
   assert.match(env.warned.join(' '), /NOT safely on Drive/, 'saying so in the console');
+  assert.deepEqual(env.tombed, ['d1'], 'and leaves the SAME tombstone a local ☠ does — the folder is for the trash, not Unassigned');
+
+  // The panel cannot force an unarmed device, whatever it asks for.
+  const u = await remoteDelete(notBackedUp, false, { force: true });
+  assert.equal(u.r, false, 'force without arming is refused');
+  assert.deepEqual(u.env.tornDown, []);
 
   // Already safely on Drive: unchanged by any of this.
   const safe = { id: 'd1', modified: 100, uploadedFileId: 'f1', uploadedModified: 100 };
@@ -242,9 +264,33 @@ test('...and honoured on a device armed in ITS OWN console — the device is the
   }
 });
 
+test('⚠ ARMED OR NOT, A CALLER THAT DID NOT ASK IS REFUSED — the ordinary paths are unchanged (v722 review)', async () => {
+  /* deleteConfirmedDoc is the proof-of-backup gate for SIX callers, and only the panel's `delete`
+   * command passes `force`. The upload-completion hook is the caller that made this a data-loss bug:
+   * it fires when a QUEUED upload lands, with no sig check in front of it, so with the exception
+   * keyed on devMode() alone the ordinary 🗑 on an armed device deleted post-queue edits when the
+   * stale snapshot landed. The bare call below IS that hook's call. */
+  const editedSinceQueue = { id: 'd1', modified: 300, uploadedFileId: 'f1', uploadedModified: 200 };
+  const hook = await remoteDelete(editedSinceQueue, true);            // armed, no force: the hook, 🗑, sweep, uploadDelete, setDone
+  assert.equal(hook.r, false, 'refused on an armed device when nobody asked to force it');
+  assert.deepEqual(hook.env.tornDown, [], 'the post-queue work is still there');
+  assert.match(hook.env.warned.join(' '), /refusing remote delete/);
+  assert.deepEqual(hook.env.tombed, [], 'and no tombstone — nothing was removed');
+
+  const calls = APP.match(/deleteConfirmedDoc\([^)]*\)/g).filter((c) => !/opts = \{\}/.test(c));   // the definition aside
+  const forced = calls.filter((c) => /force: true/.test(c));
+  assert.equal(calls.length, 6, `six callers (${calls.join(' | ')})`);
+  assert.equal(forced.length, 1, 'exactly ONE passes force');
+  const site = APP.slice(APP.indexOf(forced[0]) - 260, APP.indexOf(forced[0]));
+  assert.match(site, /case 'delete':/, "and it is the panel's `delete` command");
+  assert.match(APP, /const forced = !!opts\.force && devMode\(\);/, 'both halves, re-checked inside');
+});
+
 test('the panel needs NO new worker command — `delete` already exists end to end', () => {
-  assert.match(RSCH, /export function deleteNow\(instanceId, docId\)\s+\{ return pushCommand\(instanceId, 'delete', \{ docId \}\); \}/,
-    'the panel sends the ORDINARY delete command');
+  assert.match(RSCH, /export function deleteDoc\(instanceId, docId\)\s+\{ return pushCommand\(instanceId, 'delete', \{ docId \}\); \}/,
+    'the panel sends the ORDINARY delete command, through the sender that already existed');
+  assert.doesNotMatch(RSCH, /export function deleteNow\(/,
+    'v722 review: the first draft added a second, identical sender; one is enough');
   // Which is why this is additive and client-only: the worker already allows that type.
   assert.match(WORKER, /TEXT_COMMANDS = \['assign', 'delete', 'uploadDelete', 'setDone'\]/,
     'delete is already in TEXT_COMMANDS');
@@ -263,7 +309,7 @@ test('the panel offers it too, and only while THIS browser is armed', () => {
     '⚠ and NEVER writes it — the panel must not be able to arm anything');
   assert.match(PANEL, /devMode\(\) \? ` <button class="link-btn rp-devdel" data-iact="del-text-now"/,
     'the button is rendered only when armed');
-  assert.match(PANEL, /Researcher\.deleteNow\(id, el\.dataset\.id\)/, 'and sends the ordinary delete command');
+  assert.match(PANEL, /Researcher\.deleteDoc\(id, el\.dataset\.id\)/, 'and sends the ordinary delete command through the sender that already existed');
   assert.match(PANEL, /confirmModal\(t\('panel\.dev\.confirmDelNow'/, 'behind its own confirm');
   // It must sit beside the safe one, not replace it.
   assert.match(PANEL, /data-iact="del-text"/, 'the upload-first Remove is still there');
@@ -273,16 +319,23 @@ test('the panel offers it too, and only while THIS browser is armed', () => {
     assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} in en and id`);
   }
   assert.match(I18N, /panel\.dev\.confirmDelNow': 'Tell the device to delete .{0,12}\{title\}.{0,12} WITHOUT uploading it first\?/);
-  assert.match(I18N, /only obey if developer mode is also on there/,
-    'and the confirm says the device can still refuse — which is the safety property, stated to the user');
+  assert.match(I18N, /un-uploaded work is removed only if developer mode is also on there — otherwise the device refuses and the text stays/,
+    'and the confirm says the device can still refuse — which is the safety property, stated to the user — without claiming a backed-up text is spared');
   // The tombstone confirm must name the outcome Seth cares about, in both directions.
   // The source has a backslash-escaped apostrophe inside the single-quoted string: Drive\'s
-  assert.match(I18N, /It goes to Drive\\'s trash — not to Unassigned\./,
-    'the English confirm says trash, NOT Unassigned');
-  assert.match(I18N, /Folder masuk ke tempat sampah Drive — bukan ke Belum Ditugaskan\./,
+  assert.match(I18N, /The folder goes to Drive\\'s trash — not to Unassigned — where Drive keeps it for about 30 days/,
+    'the English confirm says trash, NOT Unassigned — and that the trash is recoverable (v722 review: "no copy left anywhere" overstated it)');
+  assert.match(I18N, /Folder masuk ke tempat sampah Drive — bukan ke Belum Ditugaskan — dan Drive menyimpannya sekitar 30 hari/,
     'and the Indonesian says the same');
-  assert.match(I18N, /after this there is no copy left anywhere/,
-    'and that nothing survives it, since that is the one thing a researcher must know first');
+  assert.doesNotMatch(I18N, /no copy left anywhere/, 'the overstatement is gone');
+  // "Remove, no backup" said the device would ONLY obey if armed; a backed-up text deletes regardless.
+  assert.match(I18N, /A text already safely on Drive is removed either way; un-uploaded work is removed only if developer mode is also on there/);
+  assert.match(I18N, /Teks yang sudah aman di Drive dihapus bagaimanapun juga/);
+  // The ☠ confirm names the Drive consequence, since a panel will now trash the folder by itself.
+  assert.match(I18N, /a researcher panel in developer mode will send that folder to Drive\\'s trash/);
+  assert.match(I18N, /panel peneliti dalam mode pengembang akan mengirim folder itu ke tempat sampah Drive/);
+  // fxDev's own message no longer promises ?devreset where it is refused (production and beta hosts).
+  assert.match(APP, /so does \?devreset, on the hosts that honour it/);
 });
 
 /* ── the tombstone: ☠ removals must never become Unassigned rows ─────────────────────────────── */
@@ -296,8 +349,8 @@ function tombApp(opts = {}) {
       removeItem: (k) => { env.store.delete(k); },
     };
     const Date_now = ${opts.now || 'Date.now()'};
-    ${liftAll(APP, ['DEV_TOMB_KEY', 'DEV_TOMB_TTL_MS', 'devTombs', 'setDevTombs', 'addDevTomb'])}
-    return { devTombs, setDevTombs, addDevTomb, TTL: DEV_TOMB_TTL_MS, KEY: DEV_TOMB_KEY };
+    ${liftAll(APP, ['DEV_TOMB_KEY', 'DEV_TOMB_TTL_MS', 'DEV_TOMB_STOP_MS', 'devTombs', 'setDevTombs', 'addDevTomb', 'markTombsReported'])}
+    return { devTombs, setDevTombs, addDevTomb, markTombsReported, TTL: DEV_TOMB_TTL_MS, STOP: DEV_TOMB_STOP_MS, KEY: DEV_TOMB_KEY };
   `)(env, opts);
   return { env, api };
 }
@@ -334,16 +387,50 @@ test('the forced delete writes the tombstone BEFORE db.deleteDoc, or the folder 
   assert.ok(iTomb < iDel, '⚠ the flag is written while the doc still has its driveFolderId');
 });
 
-test('tombstones expire on their own and are pruned on read', () => {
-  const old = Date.now() - (31 * 24 * 60 * 60 * 1000);
+test('tombstones expire on their own and are pruned on read — 30 days after the PANEL COULD SEE THEM', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  /* ⚠ The clock is the first ACCEPTED report, not the ☠ (v722 review): a device that ☠'d and then sat
+   * offline for a month would otherwise forget before any panel was told, and the folder drifts into
+   * Unassigned after all. An unreported tombstone survives the 30 days; a reported one does not. */
   const t = tombApp({ store: { 'flextext-dev-removed': JSON.stringify([
-    { id: 'old', title: 'stale', folderId: 'F0', at: old },
-    { id: 'new', title: 'fresh', folderId: 'F1', at: Date.now() },
+    { id: 'seen', title: 'reported a month ago', folderId: 'F0', at: now - 40 * DAY, reportedAt: now - 31 * DAY },
+    { id: 'unseen', title: 'never reported', folderId: 'F1', at: now - 31 * DAY },
+    { id: 'fresh', title: 'reported today', folderId: 'F2', at: now - 31 * DAY, reportedAt: now },
+    { id: 'dead', title: 'never paired again', folderId: 'F3', at: now - 370 * DAY },
   ]) } });
   const live = t.api.devTombs();
-  assert.deepEqual(live.map((x) => x.id), ['new'], 'the stale one is gone');
-  assert.equal(JSON.parse(t.env.store.get('flextext-dev-removed')).length, 1, 'and pruned from storage, not just filtered');
-  assert.equal(t.api.TTL, 30 * 24 * 60 * 60 * 1000, '30 days');
+  assert.deepEqual(live.map((x) => x.id).sort(), ['fresh', 'unseen'], 'the reported-and-old one and the year-old orphan are gone; the unreported one waits');
+  assert.equal(JSON.parse(t.env.store.get('flextext-dev-removed')).length, 2, 'and pruned from storage, not just filtered');
+  assert.equal(t.api.TTL, 30 * DAY, '30 days');
+  assert.equal(t.api.STOP, 12 * t.api.TTL, 'a never-reported tombstone still stops after a year — a device never paired again reaches no panel');
+
+  // The stamp: once, by the report that carried it, and only for the ids it carried.
+  const m = tombApp({ store: { 'flextext-dev-removed': JSON.stringify([
+    { id: 'a', folderId: 'FA', at: now - DAY },
+    { id: 'b', folderId: 'FB', at: now - DAY, reportedAt: now - 5 * DAY },
+    { id: 'c', folderId: 'FC', at: now - DAY },
+  ]) } });
+  m.api.markTombsReported({ devRemoved: [{ id: 'a', folderId: 'FA' }, { id: 'b', folderId: 'FB' }] });
+  const after = Object.fromEntries(m.api.devTombs().map((x) => [x.id, x.reportedAt || 0]));
+  assert.ok(after.a >= now, 'a: stamped now');
+  assert.equal(after.b, now - 5 * DAY, 'b: an earlier stamp is never moved');
+  assert.equal(after.c, 0, 'c: not in the report, not stamped');
+  m.api.markTombsReported({});                       // a report with none: a no-op
+  m.api.markTombsReported(undefined);
+  assert.match(APP, /onReported: markTombsReported,/, 'wired into Sync.start');
+  const SYNC = readFileSync(new URL('../docs/js/sync.js', import.meta.url), 'utf8');
+  const rpt = SYNC.slice(SYNC.indexOf('async function maybeReport'), SYNC.indexOf('async function maybeReport') + 1600);
+  assert.ok(rpt.indexOf('lastReportHash = hash;') < rpt.indexOf('iface.onReported(inv)'), 'fired after the POST succeeded');
+  assert.match(rpt, /catch \{ return;/, 'and a failed POST returns before it — a tombstone nobody received is not stamped');
+
+  // Over the cap, the OLDEST go — a cap that dropped the newest lost the tombstone just written.
+  const many = tombApp();
+  many.api.setDevTombs(Array.from({ length: 205 }, (_, i) => ({ id: 'd' + i, folderId: 'F' + i, at: now })));
+  const kept = many.api.devTombs().map((x) => x.id);
+  assert.equal(kept.length, 200);
+  assert.equal(kept[0], 'd5', 'the first five (oldest) went');
+  assert.equal(kept[199], 'd204', 'the newest stayed');
 
   // Malformed entries never reach the report.
   const bad = tombApp({ store: { 'flextext-dev-removed': JSON.stringify([{ id: 'x' }, { folderId: 'y' }, null, 7]) } });
@@ -354,7 +441,10 @@ test('tombstones expire on their own and are pruned on read', () => {
 
 test('the report carries them, and is byte-identical when there are none', () => {
   const inv = APP.slice(APP.indexOf('async function syncGatherInventory'), APP.indexOf('async function syncGatherInventory') + 9000);
-  assert.match(inv, /const tombs = devTombs\(\);/);
+  assert.match(inv, /const liveIds = new Set\(items\.map\(\(x\) => x\.id\)\);/);
+  assert.match(inv, /const tombs = allTombs\.filter\(\(x\) => !liveIds\.has\(x\.id\)\);/,
+    '⚠ a tombstone for an id that is LIVE AGAIN on this device is dropped (assign/adopt reuse ids), before the panel ever sees it');
+  assert.match(inv, /if \(tombs\.length !== allTombs\.length\) setDevTombs\(tombs\);/, 'and pruned from storage');
   assert.match(inv, /devRemoved: tombs\.length \? tombs : undefined,/,
     'undefined when empty, so JSON drops the key and the change-gate hash does not move');
   // ⚠ The report is E2EE and opaque to the worker, which is what makes this additive.
@@ -375,6 +465,127 @@ test('the panel renders them through the SAME row renderer, struck through', () 
     'a text the device still reports is NOT a tombstone row, whatever a stale flag says');
 });
 
+/* The panel's tombstone logic, lifted: the claim set, the open set, and the auto-trash. */
+const PANEL_SRC = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+function tombPanel(opts = {}) {
+  const env = { trashed: [], toasts: [], renders: 0, saved: 0 };
+  const api = new Function('env', 'opts', `
+    let lastData = opts.lastData || null;
+    let estateCache = opts.estate === undefined ? null : opts.estate;
+    const devMode = () => !!opts.armed;
+    const Researcher = {
+      trashFiles: async (ids) => { env.trashed.push(ids); return opts.trashResult ? opts.trashResult(ids) : { results: ids.map((id) => ({ id, ok: true })), trashed: ids.length, remaining: 0 }; },
+      currentAccountId: () => 'acct',
+    };
+    const deps = { toast: (m) => env.toasts.push(m) };
+    const t = (k, v) => k + (v ? ' ' + JSON.stringify(v) : '');
+    const saveTombDone = () => { env.saved++; };
+    const renderDashboard = () => { env.renders++; };
+    ${liftAll(PANEL_SRC, ['tombKey', 'devTombDone', 'autoTrashBusy', 'inventoryDocIds', 'openTombs', 'assignedDocIds', 'tombFolderVerified', 'autoTrashTombs'])}
+    return { tombKey, openTombs, assignedDocIds, inventoryDocIds, autoTrashTombs, done: devTombDone, busy: () => autoTrashBusy };
+  `)(env, opts);
+  return { env, api };
+}
+const inst = (id, items, devRemoved) => ({ instance_id: id, installs: [{ inventory: { items, devRemoved } }] });
+
+test('⚠ A TOMBSTONE IS A CLAIM: between ☠ and trash the folder is NOT unassigned (v722 review)', () => {
+  /* The Unassigned card, the sweep and the storage modal all ask assignedDocIds(). With tombstones
+   * outside it, the folder was listed under Unassigned — and re-parented there by the sweep — on the
+   * very render that first showed its "Remove, no unassign" row. */
+  const { api } = tombPanel({ lastData: { instances: [inst('A', [{ id: 'live1' }], [{ id: 'gone1', title: 'T', folderId: 'F1' }])] } });
+  assert.deepEqual([...api.inventoryDocIds()], ['live1'], 'the inventories literally report one text');
+  assert.deepEqual([...api.assignedDocIds()].sort(), ['gone1', 'live1'], 'but TWO are claimed — the tombstone holds its folder');
+  assert.deepEqual(api.openTombs().map((x) => x.id), ['gone1']);
+  // Source: the three predicates that used to be the trap all go through assignedDocIds.
+  for (const fn of ['function unassignedTexts(estate)', 'function sweepUnassigned(estate)', 'function storageModal()']) {
+    const body = PANEL_SRC.slice(PANEL_SRC.indexOf(fn), PANEL_SRC.indexOf(fn) + 3200);
+    assert.match(body, /assignedDocIds\(\)/, fn + ' asks the claim set');
+  }
+  assert.match(PANEL_SRC, /function assignedDocIds\(\) \{\s*\n\s*const ids = inventoryDocIds\(\);\s*\n\s*for \(const x of openTombs\(\)\) ids\.add\(x\.id\);/);
+});
+
+test('a tombstone for a text LIVE ON ANOTHER DEVICE is not open — docIds are reused by assign (v722 review)', () => {
+  // Device A ☠'d d1 → it was assigned to device B under the SAME id, into the SAME folder. A's
+  // tombstone must not offer B's live folder for the trash; the cross-check alone would pass it.
+  const { api } = tombPanel({ lastData: { instances: [
+    inst('A', [], [{ id: 'd1', title: 'T', folderId: 'F1' }]),
+    inst('B', [{ id: 'd1' }], []),
+  ] } });
+  assert.deepEqual(api.openTombs(), [], 'not open anywhere');
+  assert.deepEqual([...api.assignedDocIds()], ['d1'], 'claimed by B, as a live text');
+});
+
+test('the done-set is keyed by FOLDER too, and a 200 with ok:false is NOT done (v722 review)', () => {
+  const { api } = tombPanel({ lastData: { instances: [inst('A', [], [{ id: 'd1', title: 'T', folderId: 'F2' }])] } });
+  api.done.add(api.tombKey('A', 'd1', 'F1'));        // an EARLIER folder for the same id was handled
+  assert.deepEqual(api.openTombs().map((x) => x.folderId), ['F2'], 'the new folder is new work');
+  api.done.add(api.tombKey('A', 'd1', 'F2'));
+  assert.deepEqual(api.openTombs(), []);
+  assert.match(PANEL_SRC, /const tombKey = \(instanceId, docId, folderId\) =>/);
+  // The button handler: the route answers 200 with per-id results, and a failed PATCH is one of them.
+  const h = PANEL_SRC.slice(PANEL_SRC.indexOf("act === 'tomb-trash'"), PANEL_SRC.indexOf("act === 'tomb-trash'") + 3000);
+  const iCheck = h.indexOf("if (!hit || !hit.ok) { deps.toast(t('panel.dev.tombFailed'), 6000); return; }");
+  assert.ok(iCheck > 0 && iCheck < h.indexOf('devTombDone.add'), 'checked before it is remembered');
+  assert.match(h, /devTombDone\.add\(tombKey\(el\.dataset\.i, el\.dataset\.id, folder\)\)/, 'remembered with the folder');
+});
+
+test('auto-trash on load: developer mode finishes ☠ removals by itself, verified, and only when armed HERE', async () => {
+  const data = { instances: [inst('A', [], [
+    { id: 'd1', title: 'one', folderId: 'F1' },
+    { id: 'd2', title: 'two', folderId: 'F2' },
+    { id: 'd3', title: 'mismatch', folderId: 'F3' },
+  ])] };
+  const estate = { texts: [{ docId: 'd1', folderId: 'F1' }, { docId: 'd2', folderId: 'F2' }, { docId: 'd3', folderId: 'F9' }] };
+
+  // Not armed in this panel: nothing happens behind the researcher's back.
+  const cold = tombPanel({ lastData: data, estate, armed: false });
+  await cold.api.autoTrashTombs(estate);
+  assert.deepEqual(cold.env.trashed, [], 'unarmed panel: no trash');
+  assert.equal(cold.api.openTombs().length, 3, 'rows stay');
+
+  // Armed: the verified ones go, in ONE call; the mismatch is left alone and still shown.
+  const hot = tombPanel({ lastData: data, estate, armed: true });
+  await hot.api.autoTrashTombs(estate);
+  assert.deepEqual(hot.env.trashed, [['F1', 'F2']], 'one request, only the folders Drive tags as those texts');
+  assert.deepEqual(hot.api.openTombs().map((x) => x.id), ['d3'], 'the mismatch is still open — never trashed on the device\'s word');
+  assert.equal(hot.env.saved, 1, 'remembered per account');
+  assert.equal(hot.env.renders, 1, 'and the rows repainted');
+  assert.match(hot.env.toasts[0], /panel\.dev\.tombAuto.*"n":2/, 'told how many');
+  assert.equal(hot.api.busy(), false, 'the in-flight flag is released');
+
+  // No estate: cannot verify, so nothing is trashed (the button refuses the same way).
+  const blind = tombPanel({ lastData: data, estate: null, armed: true });
+  await blind.api.autoTrashTombs(null);
+  assert.deepEqual(blind.env.trashed, []);
+
+  // A per-id failure is NOT remembered as done — it comes round again on the next full render.
+  const half = tombPanel({ lastData: data, estate, armed: true,
+    trashResult: (ids) => ({ results: ids.map((id) => ({ id, ok: id === 'F1' })), trashed: 1, remaining: 0 }) });
+  await half.api.autoTrashTombs(estate);
+  assert.deepEqual(half.api.openTombs().map((x) => x.id).sort(), ['d2', 'd3'], 'F2 failed, so d2 stays open');
+  assert.match(half.env.toasts[0], /"n":1/);
+
+  // Wiring: full renders only, after the sweep has run with the tombstones counted as claims.
+  const rd = PANEL_SRC.slice(PANEL_SRC.indexOf('try { estateCache = await Researcher.driveEstate(); }'), PANEL_SRC.indexOf('try { estateCache = await Researcher.driveEstate(); }') + 500);
+  assert.ok(rd.indexOf('sweepUnassigned(estateCache);') < rd.indexOf('autoTrashTombs(estateCache);'), 'sweep first, then trash');
+  assert.match(PANEL_SRC, /async function autoTrashTombs\(estate\) \{\s*\n\s*if \(!devMode\(\) \|\| autoTrashBusy/, 'gated on THIS panel\'s arming first');
+  assert.match(PANEL_SRC, /openTombs\(\)\.filter\(\(x\) => tombFolderVerified\(x\) === true\)/, 'through the same cross-check as the button');
+  for (const k of ['panel.dev.tombAuto', 'panel.dev.tombTag', 'panel.dev.tombTagTip']) {
+    assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '`, 'g')) || []).length, 2, k + ' in both languages');
+  }
+});
+
+test('a dev-removed row shows no live controls: no Done toggle, no state chip, no Files, and the trash button only when armed (v722 review)', () => {
+  const row = PANEL_SRC.slice(PANEL_SRC.indexOf('const tombRows = tombs'), PANEL_SRC.indexOf('const tombRows = tombs') + 22000);   // the row renderer is long; the last anchor (the title chip) sits ~19k in
+  assert.match(row, /const canSetDone = engNum >= 138 && !wiped && mAssign && !d\.__devRemoved;/, 'no Done toggle');
+  assert.match(row, /const doneTag = d\.__devRemoved \? ''/, 'no done chip either');
+  assert.match(row, /\|\| d\.__devRemoved \? ''\s+\/\/ a dev-removed row's folder is for the trash/, 'no Files menu / preview');
+  assert.match(row, /\$\{d\.__devRemoved \? '' : `<span class="rp-tag rp-tag-\$\{DISP\}">/, 'no "local" state chip');
+  assert.match(row, /const delTag = d\.__devRemoved\s*\n\s*\? `<span class="rp-tag rp-tag-deleting" title="\$\{esc\(t\('panel\.dev\.tombTagTip'\)\)\}">\$\{esc\(t\('panel\.dev\.tombTag'\)\)\}<\/span>`/, 'its own tag instead of "deleting…"');
+  assert.match(row, /\? \(\(mAssign && devMode\(\)\)/, 'the trash button needs this panel armed, like "Remove, no backup"');
+  assert.match(row, /open\.has\(x\.id \+ '\|' \+ x\.folderId\)/, 'rows come from the ONE open-set derivation');
+});
+
 test('a dev-removed row offers ONLY the trash, never a command to a device that lost the text', () => {
   const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
   const chain = PANEL.slice(PANEL.indexOf('const del = (!d.id || d.__assigning || wiped)'), PANEL.indexOf('const del = (!d.id || d.__assigning || wiped)') + 2200);
@@ -388,8 +599,10 @@ test('a dev-removed row offers ONLY the trash, never a command to a device that 
 test('trashing is remembered locally, because nothing syncs back (option 1)', () => {
   const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
   assert.match(PANEL, /Researcher\.trashFiles\(\[folder\], 'dev-removed text folder'\)/, 'the existing route, no new one');
-  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 1400);
-  assert.ok(h.indexOf('devTombDone.add') < h.indexOf('renderDashboard'),
+  // 3000, not 1400: the v722 review put the folder cross-check at the top of this handler and the
+  // per-id result check in its middle, which grew it.
+  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 3000);
+  assert.ok(h.indexOf('devTombDone.add') > 0 && h.indexOf('devTombDone.add') < h.indexOf('renderDashboard'),
     'remembered before the repaint, so the row goes now and not on the next poll');
   assert.match(h, /saveTombDone\(Researcher\.currentAccountId\(\)\)/, 'and persisted per account');
   assert.match(PANEL, /loadTombDone\(Researcher\.currentAccountId\(\)\);/, 'loaded with the other per-account state');
@@ -418,6 +631,32 @@ test('fxTombs() lists and clears them, and is the only way to drop one early', (
   assert.match(fx, /if \(verb === 'clear'\) \{ setDevTombs\(\[\]\); Sync\.reportNow\(\);/,
     'clearing reports at once, so the panel stops being offered them');
   assert.match(fx, /no dev-removed texts are flagged on this device/, 'and says so when there are none');
+});
+
+test('⚠ a folder is trashed only when Drive\'s own tag says it belongs to that text (v722 review)', () => {
+  /* The worker's /trash route verifies nothing beyond the drive.file scope — it PATCHes trashed:true
+   * on any app-created id, and every text folder in the estate is app-created. So the DEVICE's word
+   * (the tombstone's folderId) is not enough: a stale or mis-reported id would trash another text's
+   * folder with nothing in between to notice. The estate already pairs each folder with the docId
+   * Drive tags it with; the panel must refuse unless they agree. */
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  assert.match(PANEL, /function tombFolderVerified\(tomb\) \{/, 'the check exists');
+  assert.match(PANEL, /x\.docId === tomb\.id && x\.folderId === tomb\.folderId/, 'and it demands BOTH agree, from estateCache.texts');
+  assert.match(PANEL, /if \(!texts\) return null;/, 'estate not loaded is "cannot say", not "fine"');
+  const h = PANEL.slice(PANEL.indexOf("act === 'tomb-trash'"), PANEL.indexOf("act === 'tomb-trash'") + 2000);
+  const iVerify = h.indexOf('tombFolderVerified(');
+  const iConfirm = h.indexOf("confirmModal(t('panel.dev.confirmTombTrash'");
+  const iTrash = h.indexOf('Researcher.trashFiles(');
+  assert.ok(iVerify > 0 && iVerify < iConfirm, 'verified BEFORE the confirm — a yes to the text is not a yes to whatever folder the id was');
+  assert.ok(iConfirm < iTrash, 'and the trash comes last');
+  assert.match(h, /if \(verified !== true\) \{/, 'null and false are both refusals');
+  for (const k of ['panel.dev.tombNoEstate', 'panel.dev.tombMismatch']) {
+    assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} in en and id`);
+  }
+  assert.match(I18N, /Nothing was trashed — check the text in Drive/, 'the mismatch message says nothing happened');
+  // Arming has a consequence beyond the ☠, and the person arming must be told it at the moment they arm.
+  assert.match(APP, /this device will also obey a researcher panel\\'s "Remove, no backup" for any un-uploaded text on it/,
+    'fxDev() names the remote consequence of arming');
 });
 
 test('the strings exist in both languages, and the confirm says what it does', () => {

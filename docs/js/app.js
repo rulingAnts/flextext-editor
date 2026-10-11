@@ -5510,18 +5510,29 @@ function deleteUploadedDoc(docId) {
 // refuse unless the doc is provably, currently on Drive — uploadedFileId present AND
 // content unchanged since that backup (uploadedModified === modified). NEVER deletes
 // un-uploaded or edited-since work, whatever the researcher sent. Returns true if deleted.
-async function deleteConfirmedDoc(docId) {
+async function deleteConfirmedDoc(docId, opts = {}) {
   const d = await db.getDoc(docId);
   if (!d) return false;
+  /* ⚠ THE EXCEPTION NEEDS BOTH HALVES: the CALLER asking for it (`opts.force` — only the panel's
+   * `delete` command does) AND this device armed in its own console. A device nobody armed refuses
+   * exactly as before, so the panel cannot arm anything remotely; and a caller that did not ask is
+   * refused even on an armed device. That second half is not decoration (v722 review): six callers
+   * share this gate, and the upload-completion hook is one of them — it runs when a QUEUED upload
+   * lands, with no sig check of its own in front of it. With the exception keyed on devMode() alone,
+   * the ORDINARY 🗑 on an armed device became a data-loss path: queue the upload, keep glossing while
+   * it is in flight, and when the stale snapshot landed the hook deleted the text — post-queue work
+   * gone, and Drive holding only the snapshot. Armed or not, every ordinary path refuses here. */
+  const forced = !!opts.force && devMode();
   if (!d.uploadedFileId || d.uploadedModified !== d.modified) {
-    /* ⚠ THE ONE EXCEPTION, AND IT IS THE DEVICE'S OWN CHOICE. An armed device honours the panel's
-     * ordinary `delete` for un-uploaded work; a device nobody armed refuses exactly as before. That
-     * ordering is the safety property: the panel cannot arm anything remotely. */
-    if (!devMode()) {
+    if (!forced) {
       console.warn('sync: refusing remote delete — not safely on Drive (un-uploaded or edited since backup):', docId);
       return false;
     }
     try { console.warn('dev mode: honouring a remote delete for a text that is NOT safely on Drive:', docId); } catch { /* noop */ }
+    /* The panel's "Remove, no backup" leaves the same tombstone a local ☠ does, so its Drive folder
+     * is offered for the TRASH rather than drifting into Unassigned (the ☠ path writes it in
+     * userDeleteDoc; this is the other writer). */
+    try { addDevTomb(d); } catch { /* storage full: the folder costs a manual tidy-up, nothing worse */ }
   }
   await deleteUploadedDoc(docId); // reuse the existing teardown (open-doc + both app modes)
   Sync.reportNow();
@@ -5626,20 +5637,47 @@ function renderDevBadge() {
  * them; `?devreset` takes them with everything else. */
 const DEV_TOMB_KEY = 'flextext-dev-removed';
 const DEV_TOMB_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // long enough to forget about; short enough to self-clean
+/* ⚠ THE CLOCK STARTS WHEN THE PANEL HAS BEEN TOLD, not when the ☠ was pressed (v722 review). A device
+ * that ☠'d a text and then sat offline for a month would otherwise prune the tombstone before any
+ * panel had seen it — and the folder it names drifts into Unassigned after all, which is the one
+ * outcome the whole mechanism exists to prevent. `reportedAt` is stamped by markTombsReported when a
+ * report carrying the tombstone has actually been accepted by the worker (Sync's onReported hook);
+ * until then it does not expire. The long stop at 12× the TTL is for a device that is never paired
+ * again: its tombstones can reach no panel, and 200 entries of dead weight is enough. */
+const DEV_TOMB_STOP_MS = 12 * DEV_TOMB_TTL_MS;
 function devTombs() {
   let list = [];
   try { list = JSON.parse(localStorage.getItem(DEV_TOMB_KEY)) || []; } catch { return []; }
   if (!Array.isArray(list)) return [];
   const now = Date.now();
-  const live = list.filter((x) => x && x.id && x.folderId && (!x.at || now - x.at < DEV_TOMB_TTL_MS));
+  const live = list.filter((x) => x && x.id && x.folderId
+    && !(x.reportedAt && now - x.reportedAt >= DEV_TOMB_TTL_MS)
+    && !(!x.reportedAt && x.at && now - x.at >= DEV_TOMB_STOP_MS));
   if (live.length !== list.length) setDevTombs(live);   // prune on read: no timer to forget to start
   return live;
 }
 function setDevTombs(list) {
   try {
-    if (list && list.length) localStorage.setItem(DEV_TOMB_KEY, JSON.stringify(list.slice(0, 200)));
+    // ⚠ slice(-200): over the cap, the OLDEST go — a cap that dropped the newest would silently lose
+    // the tombstone just written, which is the one nobody has seen yet.
+    if (list && list.length) localStorage.setItem(DEV_TOMB_KEY, JSON.stringify(list.slice(-200)));
     else localStorage.removeItem(DEV_TOMB_KEY);
   } catch { /* private mode: the tombstone just will not survive, which costs a manual tidy-up */ }
+}
+/* Sync's onReported hook: the worker accepted a report that carried these tombstones, so the panel
+ * can see them from now on — start their clocks. Stamps once; a later report never moves it. */
+function markTombsReported(inv) {
+  const sent = (inv && Array.isArray(inv.devRemoved)) ? inv.devRemoved : [];
+  if (!sent.length) return;
+  const ids = new Set(sent.map((x) => x && x.id).filter(Boolean));
+  const now = Date.now();
+  let changed = false;
+  const list = devTombs().map((x) => {
+    if (x.reportedAt || !ids.has(x.id)) return x;
+    changed = true;
+    return { ...x, reportedAt: now };
+  });
+  if (changed) setDevTombs(list);
 }
 /* Written from the forced delete, with the doc still in hand. No folder on Drive ⇒ no tombstone. */
 function addDevTomb(d) {
@@ -5928,7 +5966,9 @@ async function syncDispatch(cmd) {
       break;
     }
     case 'delete':
-      await deleteConfirmedDoc(cmd.docId || cmd.id);
+      // `force` is a REQUEST, re-checked against this device's own devMode() inside — see the gate.
+      // It is passed from here and nowhere else: the panel's command is the one path allowed to ask.
+      await deleteConfirmedDoc(cmd.docId || cmd.id, { force: true });
       break;
     case 'setDone':
       // Researcher toggles finished-state from the panel. Reuses the device's own setDocDone (v100)
@@ -6180,7 +6220,16 @@ async function syncGatherInventory() {
    * than let drift into Unassigned (see the tombstone block). Omitted entirely when there are none,
    * so an ordinary device's report is byte-identical to before and the change-gate hash does not
    * move — and an older panel, which knows nothing of this field, simply ignores it. */
-  const tombs = devTombs();
+  /* ⚠ A TOMBSTONE FOR A TEXT THAT IS LIVE AGAIN IS DROPPED HERE (v722 review). Assign and adopt
+   * REUSE docIds — the panel assigns a text back to this device under the same id, and the Drive
+   * folder is the same folder (driveEnsureTextFolder keys on docId). Left standing, the tombstone
+   * would offer the panel "Remove, no unassign" on a folder a live text is being uploaded into, and
+   * the folder cross-check would PASS, because Drive's tag does say that folder belongs to that id.
+   * The live list is the truth; anything in it is not removed. */
+  const liveIds = new Set(items.map((x) => x.id));
+  const allTombs = devTombs();
+  const tombs = allTombs.filter((x) => !liveIds.has(x.id));
+  if (tombs.length !== allTombs.length) setDevTombs(tombs);
   return { type: RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor', items, settings: snap,
            devRemoved: tombs.length ? tombs : undefined,
            ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION,
@@ -12810,7 +12859,7 @@ if (typeof window !== 'undefined') window.fxDev = (on = true) => {
   setDevMode(!!on);
   devModeChanged();
   return devMode()
-    ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup — and while armed, this device will also obey a researcher panel\'s "Remove, no backup" for any un-uploaded text on it. fxDev(false) or the on-screen badge turns it off; ?devreset clears everything.'
+    ? 'developer mode ON for this device (persists until you turn it off). The ☠ beside each text deletes it WITHOUT a backup — and while armed, this device will also obey a researcher panel\'s "Remove, no backup" for any un-uploaded text on it. fxDev(false) or the on-screen badge turns it off (so does ?devreset, on the hosts that honour it). The ordinary 🗑 and the panel\'s ordinary "Remove from device" are unchanged — they still back up first.'
     : 'developer mode OFF.';
 };
 /* CONSOLE ENTRY POINT — `fxTombs()`. What this device is still telling the panel to trash, and the
@@ -13594,6 +13643,11 @@ function undoFieldFor(target) {
 function setup() {
   wirePlaybackKeys();
   wireCompanionLinks();
+  /* The dev badge PERSISTS across reloads, so it is drawn on boot — here, above every per-mode
+   * return, because an armed browser should say so whatever shell is on screen (the panel, PAT and
+   * the recorder all leave setup() early below, and applyLiveSettings() never runs on boot at all;
+   * it only re-draws after a settings change). Inert unless armed: devMode() is a localStorage read. */
+  try { renderDevBadge(); } catch { /* no body yet: the next applyLiveSettings draws it */ }
   $('#btn-undo')?.addEventListener('click', doUndo);
   $('#btn-redo')?.addEventListener('click', doRedo);
   // Crowd mode boots FIRST — before applyUrlSettings/migrateSettings/SW/sync can
@@ -13665,6 +13719,7 @@ function setup() {
     appType: () => RECORD_MODE ? 'recorder' : CONSENT_MODE ? 'consent' : SEGMENTER_MODE ? 'segmenter' : 'editor',
     dispatch: syncDispatch,
     gatherInventory: syncGatherInventory,
+    onReported: markTombsReported,   // the tombstones' 30-day clock starts when the panel can see them
     /* ⚠ BEING UNLINKED IS NEWS, and the device used to swallow it. Sync clears the session on a
      * 410 and told nobody, so from the user's side the upload option simply vanished, a Save option
      * they had never seen appeared (see sendCapabilities' guard), and the queue stopped — with no

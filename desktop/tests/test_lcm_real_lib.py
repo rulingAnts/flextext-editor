@@ -75,3 +75,42 @@ def test_initialise_runs_once_and_registers_cleanup(monkeypatch):
     assert calls == ["init"] and len(registered) == 1
     registered[0][0](*registered[0][1])
     assert calls == ["init", "cleanup"]
+
+
+# Namespaces READ FROM SOURCE (liblcm src/, FieldWorks Src/, pyflexicon 4.13; 2026-10-14) — the sixth
+# VM launch died on `IUndoStackManager` imported from .Infrastructure, a namespace written from
+# memory. Every `from SIL… import` in lcm_real.py must agree with this table; a name not in it is a
+# new call written from memory and fails here until its namespace has been read from source too.
+SOURCE_NAMESPACES = {
+    "IUndoStackManager": "SIL.LCModel", "LcmCache": "SIL.LCModel", "Opinions": "SIL.LCModel",
+    "ITextRepository": "SIL.LCModel", "IStTxtParaRepository": "SIL.LCModel", "ISegmentRepository": "SIL.LCModel",
+    "ICmObjectRepository": "SIL.LCModel", "IPunctuationFormRepository": "SIL.LCModel", "IWfiWordformRepository": "SIL.LCModel",
+    "ILexEntryRepository": "SIL.LCModel", "ILexSenseRepository": "SIL.LCModel", "IMoFormRepository": "SIL.LCModel",
+    "IWfiWordform": "SIL.LCModel", "IWfiAnalysis": "SIL.LCModel", "IWfiGloss": "SIL.LCModel", "IPunctuationForm": "SIL.LCModel",
+    "ICmMediaContainerFactory": "SIL.LCModel", "ICmMediaURIFactory": "SIL.LCModel", "IWfiAnalysisFactory": "SIL.LCModel",
+    "IWfiMorphBundleFactory": "SIL.LCModel", "IWfiGlossFactory": "SIL.LCModel",
+    "IDataSetup": "SIL.LCModel.Infrastructure", "UndoableUnitOfWorkHelper": "SIL.LCModel.Infrastructure",
+    "SharedBackendServices": "SIL.LCModel.DomainServices", "SegmentServices": "SIL.LCModel.DomainServices",
+    "ParagraphParser": "SIL.LCModel.DomainServices",
+    "ProjectBackupService": "SIL.LCModel.DomainServices.BackupRestore", "BackupProjectSettings": "SIL.LCModel.DomainServices.BackupRestore",
+    "TsStringUtils": "SIL.LCModel.Core.Text",
+    "FwDirectoryFinder": "SIL.FieldWorks.Common.FwUtils",
+    "InterlinearExporter": "SIL.FieldWorks.IText", "LinguaLinksImport": "SIL.FieldWorks.IText",
+    "InterlinVc": "SIL.FieldWorks.IText", "InterlinLineChoices": "SIL.FieldWorks.IText",
+}
+
+
+def test_every_dotnet_import_in_lcm_real_matches_the_source_namespaces():
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(lcm_real))
+    seen = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and n.module and n.module.startswith("SIL"):
+            for a in n.names:
+                seen.setdefault(a.name, set()).add(n.module)
+    wrong = {k: v for k, v in seen.items() if k not in SOURCE_NAMESPACES or v != {SOURCE_NAMESPACES[k]}}
+    assert not wrong, "written from memory, not from source: %r" % wrong
+    assert "IUndoStackManager" in seen and "FwDirectoryFinder" in seen
+    src = inspect.getsource(lcm_real)
+    assert "SIL.LCModel.Utils import" not in src, "HeadlessThreadedProgress is pyflexicon's; FwDirectoryFinder is FieldWorks'"

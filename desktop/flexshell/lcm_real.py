@@ -132,6 +132,18 @@ def _cleanup_quietly(fx):
         pass
 
 
+def _fw_directory_finder():
+    """FwDirectoryFinder is a FieldWorks type (SIL.FieldWorks.Common.FwUtils, FwUtils.dll), not a
+    liblcm one [source]; pyflexicon's FLExGlobals already references FwUtils, this is the backstop."""
+    import clr   # type: ignore[import-not-found]
+    try:
+        clr.AddReference("FwUtils")
+    except Exception:   # noqa: BLE001 — already referenced by flexicon
+        pass
+    from SIL.FieldWorks.Common.FwUtils import FwDirectoryFinder   # type: ignore[import-not-found]
+    return FwDirectoryFinder
+
+
 def _map_open_error(e):
     """pyflexicon's open-time exceptions → our codes (matched by class name so the module need not
     be importable on Linux). Anything else is returned unchanged."""
@@ -189,7 +201,7 @@ class RealLcm(FlexPort):
                 raise
             raise mapped from e
         self.cache = self.project.project
-        from SIL.LCModel.Infrastructure import IUndoStackManager   # type: ignore[import-not-found]
+        from SIL.LCModel import IUndoStackManager   # type: ignore[import-not-found]  # InterfaceDeclarations.cs: SIL.LCModel, NOT .Infrastructure
         self.usm = IUndoStackManager(self.cache.ServiceLocator.GetService(IUndoStackManager))
         self.ah = self.cache.ActionHandlerAccessor
         self._name = name
@@ -222,7 +234,7 @@ class RealLcm(FlexPort):
 
     def are_multiple_apps_connected(self):
         self._t()
-        from SIL.LCModel import SharedBackendServices   # type: ignore[import-not-found]
+        from SIL.LCModel.DomainServices import SharedBackendServices   # type: ignore[import-not-found]
         return bool(SharedBackendServices.AreMultipleApplicationsConnected(self.cache))
 
     def has_unsaved_changes(self):
@@ -247,8 +259,8 @@ class RealLcm(FlexPort):
         if self.ah.CurrentDepth > 0:
             raise RuntimeError("BackupProject inside a unit of work")
         from SIL.LCModel.DomainServices.BackupRestore import ProjectBackupService, BackupProjectSettings   # type: ignore[import-not-found]
-        from SIL.LCModel.Utils import FwDirectoryFinder   # type: ignore[import-not-found]
-        from SIL.LCModel.Utils import HeadlessThreadedProgress   # type: ignore[import-not-found]
+        FwDirectoryFinder = _fw_directory_finder()
+        HeadlessThreadedProgress = _flexicon().HeadlessThreadedProgress   # pyflexicon's own (headless_ui), not a liblcm type
         from . import fwfind
         settings = BackupProjectSettings(self.cache, None, FwDirectoryFinder.DefaultBackupDirectory, fwfind.fw_version() or "9.3")
         settings.Comment = comment or ""
@@ -256,12 +268,16 @@ class RealLcm(FlexPort):
             if hasattr(settings, flag):
                 setattr(settings, flag, False)
         svc = ProjectBackupService(self.cache, settings)
-        path = svc.BackupProject(HeadlessThreadedProgress(), None)
-        return str(path) if path else os.path.join(str(FwDirectoryFinder.DefaultBackupDirectory), "")
+        # bool BackupProject(IThreadedProgress, out string backupFile): pythonnet returns the out
+        # parameter as a tuple (ok, path) when it is omitted from the call [source: liblcm; unverified]
+        r = svc.BackupProject(HeadlessThreadedProgress())
+        ok, path = (r[0], r[1]) if isinstance(r, tuple) else (bool(r), None)
+        if not ok or not path:
+            raise RuntimeError("BackupProject did not report a backup file")
+        return str(path)
 
     def backup_dir(self):
-        from SIL.LCModel.Utils import FwDirectoryFinder   # type: ignore[import-not-found]
-        return str(FwDirectoryFinder.DefaultBackupDirectory)
+        return str(_fw_directory_finder().DefaultBackupDirectory)
 
     def fwdata_path(self):
         return os.path.join(self.project_dir(), self._name + ".fwdata")
@@ -433,10 +449,12 @@ class RealLcm(FlexPort):
             ws = self.cache.DefaultVernWs
             a = TsStringUtils.MakeString(nfd(old), ws)
             b = TsStringUtils.MakeString(nfd(new), ws)
-            ich, ins, dele = 0, 0, 0
-            r = TsStringUtils.GetDiffsInTsStrings(a, b, ich, ins, dele)
-            if isinstance(r, tuple) and len(r) >= 4:
-                return (int(r[1]), int(r[2]), int(r[3]))
+            # TsStringDiffInfo GetDiffsInTsStrings(ITsString, ITsString) [source: TsStringUtils.cs]:
+            # null when identical, else IchFirstDiff / CchInsert / CchDeleteFromOld
+            r = TsStringUtils.GetDiffsInTsStrings(a, b)
+            if r is None:
+                return (0, 0, 0)
+            return (int(r.IchFirstDiff), int(r.CchInsert), int(r.CchDeleteFromOld))
         except Exception:   # noqa: BLE001
             pass
         return lcm_diff(nfd(old), nfd(new))
@@ -478,7 +496,15 @@ class RealLcm(FlexPort):
         settings.Indent = True
         xw = XmlWriter.Create(sw, settings)
         t = self._text(text_guid)
-        exporter = InterlinearExporter.Create("elan", self.cache, xw, t.ContentsOA, None, None)
+        # As FLEx's InterlinearExportDialog does [source]: the exporter's ExportDisplay() dereferences
+        # the view constructor, so a null vc crashes; root object = the text's StText.
+        from SIL.FieldWorks.IText import InterlinVc, InterlinLineChoices   # type: ignore[import-not-found]
+        vc = InterlinVc(self.cache)
+        # DefaultChoices(ILangProject, vern, anal) [source: InterlinLineChoices.cs]; which lines the
+        # elan export then carries is [unverified] (V-1 checks § and phrase GUIDs in that file)
+        choices = InterlinLineChoices.DefaultChoices(self.cache.LanguageProject, int(self.cache.DefaultVernWs), int(self.cache.DefaultAnalWs))
+        vc.LineChoices = choices
+        exporter = InterlinearExporter.Create("elan", self.cache, xw, t.ContentsOA, choices, vc)
         exporter.WriteBeginDocument()
         exporter.ExportDisplay()
         exporter.WriteEndDocument()
@@ -710,7 +736,7 @@ class RealLcm(FlexPort):
         clr.AddReference("ITextDll")
         import System   # type: ignore[import-not-found]
         from SIL.FieldWorks.IText import LinguaLinksImport   # type: ignore[import-not-found]
-        from SIL.LCModel.Utils import HeadlessThreadedProgress   # type: ignore[import-not-found]
+        HeadlessThreadedProgress = _flexicon().HeadlessThreadedProgress
         from SIL.LCModel import ITextRepository   # type: ignore[import-not-found]
         before = {str(t.Guid) for t in self._repo(ITextRepository).AllInstances()}
         imp = LinguaLinksImport(self.cache, None, None)

@@ -245,6 +245,21 @@ one cost it twice.
    re-synthesises writing systems on every open (pyflexicon #249) — a write to the project folder
    even read-only. `FLExCleanup()` at exit. Headless UI and `DisableDataMigration` are pyflexicon's
    own defaults **[source]**; its `FP_*` open errors map to our codes by class name.
+9. **.NET namespaces are read from source, never from memory.** The sixth launch opened the project
+   and died on the next line: `IUndoStackManager` imported from `SIL.LCModel.Infrastructure` — it is
+   in `SIL.LCModel` (InterfaceDeclarations.cs). Cross-checking every `from SIL… import` in
+   `lcm_real.py` against liblcm `src/`, FieldWorks `Src/` and pyflexicon found five more:
+   `SharedBackendServices` is `SIL.LCModel.DomainServices`; `FwDirectoryFinder` is FieldWorks'
+   `SIL.FieldWorks.Common.FwUtils` (FwUtils.dll), not liblcm's; `HeadlessThreadedProgress` is
+   pyflexicon's own class, not a liblcm type; `StopSaveTimer()` is on `IUndoStackManager`;
+   `GetDiffsInTsStrings(old, new)` returns a `TsStringDiffInfo` (null when identical), not out
+   parameters; `BackupProject(progress, out backupFile)` returns `(ok, path)` under pythonnet; and
+   `InterlinearExporter.ExportDisplay()` dereferences its `InterlinVc`, so the export builds one with
+   `InterlinLineChoices.DefaultChoices` as FLEx's own export dialog does. `test_lcm_real_lib.py`
+   pins a name→namespace table taken from source; a new `from SIL… import` fails it until its
+   namespace has been read from source too. Sparse clones for the lookup:
+   `git clone --filter=blob:none --depth 1 https://github.com/sillsdev/liblcm` and the same for
+   `sillsdev/FieldWorks` with `git sparse-checkout` on `Src/LexText/Interlinear`.
 
 ---
 
@@ -964,6 +979,13 @@ closed). Read-only features work on any project.
 ---
 
 ## 14. Decisions for Seth
+
+- **Shared projects (Seth, 2026-10-14): "Eventually, we want it to work with shared projects
+  successfully. But for now, safe is what we want."** So E_SHARING_ON keeps refusing WRITES while
+  "Share project contents with programs on this computer" is on; reading works with sharing on
+  (and is the only way to read while FLEx holds the project). Writing to a shared project is a later
+  milestone with its own verification (peer schema guard, `AreMultipleApplicationsConnected`, the
+  conflicting-save path), not a flag to flip.
 
 | # | Question | Recommendation |
 |---|---|---|

@@ -47,6 +47,7 @@ import logging
 import os
 import threading
 
+from . import mediafind
 from .errors import FlexError
 from .port import FlexPort, COUNTED_CLASSES, UNDO_SUCCESS, UNDO_FAILED, lcm_diff, nfd, nfc
 
@@ -318,6 +319,17 @@ class RealLcm(FlexPort):
     def project_dir(self):
         return os.path.join(self.projects_dir, self._name)
 
+    def linked_files_dir(self):
+        """LangProject.LinkedFilesRootDir: a model property whose override returns the absolute path,
+        <ProjectFolder>\\LinkedFiles unless set [source: OverridesLangProj.cs]; pyflexicon reads
+        lp.LinkedFilesRootDir the same way (FLExProject.GetLinkedFilesDir)."""
+        self._t()
+        try:
+            d = str(self.cache.LanguageProject.LinkedFilesRootDir or "")
+        except Exception:   # noqa: BLE001 — a throwing CLR property getter surfaces as a bare TypeError
+            d = ""          # (pyflexicon EXCEPTION_HANDLING.md); the default folder is the right fallback
+        return d or os.path.join(self.project_dir(), "LinkedFiles")
+
     def project_name(self):
         return self._name
 
@@ -469,7 +481,8 @@ class RealLcm(FlexPort):
             t = _cast(t)
             paras = self._paras(t)
             segs = [_cast(s) for p in paras for s in p.SegmentsOS]
-            media = [{"guid": str(u.Guid), "uri": path, "exists": bool(path) and os.path.isfile(path)} for u, path in self._media_uris(t)]
+            lf = self.linked_files_dir()
+            media = [{"guid": str(u.Guid), "uri": path, "exists": mediafind.link_exists(path, lf)} for u, path in self._media_uris(t)]
             out.append({"guid": str(t.Guid), "title": self._best(t.Name), "paras": len(paras), "segs": len(segs),
                         "timedSegs": sum(1 for s in segs if s.BeginTimeOffset), "media": media,
                         "labelSegs": sum(1 for s in segs if s.IsLabel)})

@@ -16,7 +16,7 @@ import threading
 import traceback
 
 from . import FLEX_CONTRACT, SHELL_VERSION
-from . import copyonly, prechecks
+from . import copyonly, mediafind, prechecks
 from .errors import FlexError
 from .protocol import Session
 from .server import MediaRegistry
@@ -25,6 +25,11 @@ from .worker import ProjectRegistry, ThreadBound, Worker
 # The relay workers the engine may talk to (CSP connect-src): production, and the staging worker a
 # device opts into with ?devworker=staging (app.js DEFAULT_WORKER / STAGING_WORKER). Data, never content.
 RELAY_ORIGINS = ("https://connect.flextext.app", "https://flextext-r2-worker-staging.68mh29kgsd.workers.dev")
+
+
+def default_state_dir():
+    """The shell's own data folder (beside pywebview's storage, app.storage_path)."""
+    return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "FlexTextSegmenterFLEx")
 
 
 def _ok(result):
@@ -52,7 +57,7 @@ def exposed(fn):
 
 class Api:
     def __init__(self, backend_factory, engine_root=None, stamp_dir=None, projects_dir=None, export_dir=None,
-                 worker=None, opener=None, copy_text_fn=None, pick_file_fn=None):
+                 worker=None, opener=None, copy_text_fn=None, pick_file_fn=None, state_dir=None):
         self._factory = backend_factory
         self._engine_root = engine_root
         self._projects_dir = projects_dir or getattr(backend_factory, "projects_dir", None)
@@ -68,6 +73,10 @@ class Api:
         self._copy_text = copy_text_fn
         self._pick_file = pick_file_fn
         self._lock = threading.Lock()
+        # plan §8.4: what the user chose for links that point nowhere here (this machine only)
+        self._memory = mediafind.MediaMemory(os.path.join(state_dir or default_state_dir(), "media-map.json"))
+        self._offered = set()   # paths the shell itself proposed this session — the only ones use_media accepts
+        self._adopted = {}      # text guid → {uriGuid or "": path} the user resolved this session
 
     # ---- wiring --------------------------------------------------------------------------------
     # ⚠ EVERYTHING pywebview can reach from this object without a leading underscore is exposed to the
@@ -103,7 +112,7 @@ class Api:
                 "fwVersion": info.get("fwVersion"), "lcmVersion": info.get("lcmVersion"), "modelVersion": info.get("modelVersion"),
                 "python": sys.version.split()[0], "copyOnly": self._copy_only,
                 "capabilities": {"offsiteAuth": False, "clipboard": sys.platform == "win32", "fileDialog": self._window is not None,
-                                 "write": True, "import": True, "export": True, "media": True}}
+                                 "write": True, "import": True, "export": True, "media": True, "mediaFinder": True}}
 
     @exposed
     def list_projects(self):
@@ -181,6 +190,9 @@ class Api:
             self._session = None
             self._registry.release()
             self._media.clear()
+            with self._lock:
+                self._offered.clear()
+                self._adopted.clear()
         return r
 
     @exposed
@@ -191,11 +203,122 @@ class Api:
     @exposed
     def open_text(self, text_guid):
         s = self._need_session()
+        media, lf = self._worker.run("media", lambda j: (s.guard(), (s.port.read_text(text_guid)["media"], s.port.linked_files_dir()))[1])
         urls = {}
-        for m in self._worker.run("media", lambda j: (s.guard(), s.port.read_text(text_guid)["media"])[1]):
-            if m["uri"] and os.path.isfile(m["uri"]):
-                urls[m["guid"]] = "/media/" + self._media.register(m["uri"])
+        for m in media:
+            here = mediafind.link_path(m["uri"], lf)
+            if here and os.path.isfile(here):
+                urls[m["guid"]] = "/media/" + self._media.register(here)
         return self._worker.run("open_text", lambda j: s.open_text(text_guid, urls))
+
+    # ---- finding a recording whose FLEx link points nowhere here (plan §8.4) -------------------------
+    # Pure filesystem; nothing here writes to FLEx, so it works in a read-only session. The engine
+    # copies the chosen file into its own storage; FLEx's link is fixed only by a later Save to FLEx.
+    def _text_media(self, s, text_guid):
+        return self._worker.run("find_media", lambda j: (s.guard(), (s.port.read_text(text_guid)["media"],
+                                                                     s.port.linked_files_dir(), s.port.project_dir()))[1])
+
+    def _offer(self, path):
+        with self._lock:
+            self._offered.add(os.path.normcase(os.path.realpath(path)))
+
+    def _start_dir(self, lf, project_dir):
+        for d in self._memory.folders()[:1] + [os.path.join(lf or "", "AudioVisual"), lf, project_dir]:
+            if d and os.path.isdir(d):
+                return d
+        return ""
+
+    @exposed
+    def find_media(self, text_guid):
+        """For each media link of the text: whether it resolves here and, when it does not, where a
+        file of that name might be — the file the user chose for this link before (if it still
+        exists), then a bounded search of the folders recordings were found in, LinkedFiles and the
+        project folder. Candidates are offers only: nothing is served until use_media."""
+        s = self._need_session()
+        media, lf, project_dir = self._text_media(s, text_guid)
+        links = []
+        for m in media:
+            here = mediafind.link_path(m["uri"], lf)
+            name = mediafind.link_name(m["uri"])
+            entry = {"uriGuid": m["guid"], "link": m["uri"] or "", "name": name, "exists": False, "url": None, "candidates": []}
+            if here and os.path.isfile(here):
+                entry.update(exists=True, url="/media/" + self._media.register(here), path=here)
+            else:
+                found = []
+                before = self._memory.lookup(m["uri"], s.name)
+                if before:
+                    found.append(mediafind.describe(before, remembered=True))
+                roots = [(f, 1) for f in self._memory.folders()] + [(lf, 3), (project_dir, 2)]
+                if here and os.path.isdir(os.path.dirname(here)):
+                    roots.append((os.path.dirname(here), 0))
+                seen = {os.path.normcase(os.path.realpath(c["path"])) for c in found}
+                for p in mediafind.search(name, roots):
+                    if os.path.normcase(os.path.realpath(p)) not in seen and mediafind.is_audio(p):
+                        found.append(mediafind.describe(p))
+                for c in found:
+                    self._offer(c["path"])
+                entry["candidates"] = found[:mediafind.MAX_CANDIDATES]
+            links.append(entry)
+        return {"links": links, "startDir": self._start_dir(lf, project_dir)}
+
+    def _adopt(self, s, text_guid, uri_guid, path):
+        """Serve a recording the user accepted for this text, and remember it (plan §8.4)."""
+        media, lf, _pd = self._text_media(s, text_guid)
+        link = None
+        if uri_guid:
+            m = next((x for x in media if x["guid"] == uri_guid), None)
+            if m is None:
+                raise FlexError("E_NOT_FOUND", "no such media link", {"uri": uri_guid})
+            link = m["uri"]
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise FlexError("E_MEDIA_FILE_MISSING", "the chosen file does not exist", {})
+        if not mediafind.is_audio(path):
+            raise FlexError("E_MEDIA_NOT_AUDIO", "the chosen file is not a recording this app can use", {"ext": os.path.splitext(path)[1]})
+        url = "/media/" + self._media.register(path)
+        try:
+            self._memory.remember(link, path, s.name)
+        except OSError:
+            pass   # a memory that cannot be written costs a question next time, never this choice
+        with self._lock:
+            self._adopted.setdefault(text_guid, {})[uri_guid or ""] = path
+        return {"path": path, "url": url, "name": os.path.basename(path), "size": os.path.getsize(path),
+                "uriGuid": uri_guid, "linkName": mediafind.link_name(link) if link else "",
+                "linkExists": mediafind.link_exists(link, lf) if link else False}
+
+    @exposed
+    def use_media(self, text_guid, uri_guid, path):
+        """Adopt a recording for this text: serve it and remember it. Only a file the shell itself
+        offered — a find_media candidate or a choose_media pick — so a page cannot name an arbitrary
+        file. The ONE place a choice is remembered: a pick the user then turns down is never reused."""
+        s = self._need_session()
+        if not isinstance(path, str) or not path:
+            raise FlexError("E_SCOPE", "path must be a string", {})
+        with self._lock:
+            offered = os.path.normcase(os.path.realpath(path)) in self._offered
+        if not offered:
+            raise FlexError("E_SCOPE", "that file was not offered by the shell; choose it with the file dialog", {})
+        return self._adopt(s, text_guid, uri_guid, path)
+
+    @exposed
+    def choose_media(self, text_guid, uri_guid=None):
+        """The native file dialog, opened where recordings were found before (else LinkedFiles). The
+        pick is checked and OFFERED, not adopted: the page may still ask the user (a name that differs
+        from FLEx's link) before use_media. → {path: None} when the user cancels."""
+        s = self._need_session()
+        media, lf, project_dir = self._text_media(s, text_guid)
+        if uri_guid and not any(m["guid"] == uri_guid for m in media):   # before any dialog is shown
+            raise FlexError("E_NOT_FOUND", "no such media link", {"uri": uri_guid})
+        path = self._pick("media", self._start_dir(lf, project_dir))
+        if not path:
+            return {"path": None}
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise FlexError("E_MEDIA_FILE_MISSING", "the chosen file does not exist", {})
+        if not mediafind.is_audio(path):
+            raise FlexError("E_MEDIA_NOT_AUDIO", "the chosen file is not a recording this app can use", {"ext": os.path.splitext(path)[1]})
+        self._offer(path)
+        return mediafind.describe(path)
 
     @exposed
     def close_text(self, text_guid):
@@ -236,17 +359,20 @@ class Api:
     @exposed
     def export_editor_bundle(self, text_guid):
         s = self._need_session()
-        return self._job("export_editor_bundle", lambda j: s.export_editor_bundle(text_guid, self._export_dir))
+        with self._lock:
+            chosen = dict(self._adopted.get(text_guid, {}))
+        return self._job("export_editor_bundle", lambda j: s.export_editor_bundle(text_guid, self._export_dir, chosen))
 
     @exposed
     def get_media(self, text_guid):
         s = self._need_session()
-        media = self._worker.run("get_media", lambda j: (s.guard(), s.port.read_text(text_guid)["media"])[1])
+        media, lf = self._worker.run("get_media", lambda j: (s.guard(), (s.port.read_text(text_guid)["media"], s.port.linked_files_dir()))[1])
         tracks = []
         for m in media:
-            exists = bool(m["uri"]) and os.path.isfile(m["uri"])
-            tracks.append({"uriGuid": m["guid"], "url": ("/media/" + self._media.register(m["uri"])) if exists else None, "exists": exists,
-                           "name": os.path.basename(m["uri"] or "")})
+            here = mediafind.link_path(m["uri"], lf)
+            exists = bool(here) and os.path.isfile(here)
+            tracks.append({"uriGuid": m["guid"], "url": ("/media/" + self._media.register(here)) if exists else None, "exists": exists,
+                           "name": mediafind.link_name(m["uri"])})
         return {"tracks": tracks}
 
     @exposed
@@ -278,18 +404,21 @@ class Api:
             from .clipboard import copy_text as fn   # type: ignore[assignment]
         return {"copied": bool(fn(text))}
 
+    def _pick(self, kind, start_dir=""):
+        if self._pick_file:
+            return self._pick_file(kind, start_dir)
+        if not self._window:
+            raise FlexError("E_INTERNAL", "no window to open a dialog from", {})
+        import webview
+        types = (mediafind.DIALOG_FILTER,) if kind == "media" else ("FLEx interlinear text (*.flextext)",)
+        r = self._window.create_file_dialog(webview.OPEN_DIALOG, directory=start_dir or "", allow_multiple=False, file_types=types)
+        return r[0] if r else None
+
     @exposed
     def pick_file(self, kind):
         if kind not in ("media", "flextext"):
             raise FlexError("E_SCOPE", "kind must be media or flextext", {})
-        if self._pick_file:
-            return {"path": self._pick_file(kind)}
-        if not self._window:
-            raise FlexError("E_INTERNAL", "no window to open a dialog from", {})
-        import webview
-        types = ("Audio (*.wav;*.mp3;*.flac;*.m4a;*.ogg;*.webm)",) if kind == "media" else ("FLEx interlinear text (*.flextext)",)
-        r = self._window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False, file_types=types)
-        return {"path": r[0] if r else None}
+        return {"path": self._pick(kind)}
 
     @exposed
     def open_external(self, url):

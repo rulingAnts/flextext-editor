@@ -36,7 +36,9 @@ desktop/
     diskcheck.py        .bak vs .fwdata, keyed by rt guid, streaming, with a real XML parser
     model.py            LCM read model → the engine's doc; fingerprints; post-state comparison
     copyonly.py         copy-only dev builds (fail closed); fwfind.py, clipboard.py (Windows only)
+    mediafind.py        a recording whose FLEx link points nowhere here: resolve, search, remember (§8.4)
   tests/                pytest, runs on Linux against lcm_mock (contract/ is parameterised by backend)
+    e2e/                test-only harness: real Api + mock + server + staged engine in headless Chromium
   vm/                   run_conformance.py (contract tests on lcm_real, on a COPY); test_navguard_e2e.py
   build/                stage_engine.py (any OS), build.ps1 (Windows, PyInstaller --onedir), flexshell.spec
   requirements.lock     pinned versions — ⚠ hashes are placeholders until the first Windows build
@@ -98,11 +100,18 @@ when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
 python3 -m pip install pytest
 python3 -m pytest desktop/tests -q          # mock-backed: navguard, server, worker, prechecks, diskcheck,
                                             # protocol fault injection, contract tests, glosses, undo granularity
-node test/flex-ops.test.mjs test/printview-tsv.test.mjs test/word-split-insert.test.mjs \
+node test/flex-ops.test.mjs test/flex-records.test.mjs test/printview-tsv.test.mjs test/word-split-insert.test.mjs \
      test/boundary-marker.test.mjs test/flex-warnings.test.mjs test/paragraph-ops.test.mjs
 LINGTEX_TOOLS=/path/to/LingTeX-Tools node test/printview-lingtex.test.mjs   # SKIPPED without the path
 ./check-native-containment.sh               # the containment rules + the whole engine suite
 ```
+
+`desktop/tests/test_e2e_media.py` drives the find-the-recording flow end to end in headless Chromium
+— the real bridge object over the mock backend, the real local server, the staged engine, from opening
+a read-only project to a Save to FLEx that fixes the link on a disposable copy. It needs Node with
+Playwright and a Chromium (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them.
+It is the first thing to run after touching `flex-panel.js`, `api.py` or the server's CSP: it found
+the CSP that loaded every recording and played none before any VM did.
 
 ## Write safety, in one paragraph
 
@@ -190,7 +199,15 @@ In this order. The scripts refuse a folder without the copy marker.
    carries an analysis only when the old token at that position has the same end and form; the
    `Text`/`StText`/`LangProject` `DateModified` stamps every save makes; whether `SplitParaAt` at a
    segment boundary leaves the new paragraph's first segment's time offsets intact.
-5. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
+5. **Finding recordings on real data (plan §8.4)** — read-only, any project: open texts whose link
+   points nowhere here. Expect the card to name FLEx's file and offer files of that name from the
+   project's LinkedFiles; Use one, cut a few lines, close the shell, reopen it, open the text again —
+   no card, the cut lines still there. On a text whose link is a `file:///` URI to a file that does
+   exist, expect no card at all. Then on a marked disposable copy opened for writing: "Fix FLEx's
+   recording link…", confirm, and in FLEx check that the text's media plays (this is also V-11: the
+   path form FLEx expects). Report what the links in the field actually look like (URI, absolute,
+   relative) — only the forms, never the paths.
+6. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
 
 ## Decisions still Seth's (plan §14, plus new ones from the build)
 

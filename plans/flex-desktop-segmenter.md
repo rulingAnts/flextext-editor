@@ -824,7 +824,52 @@ retargeting existing media objects.
 `get_media` registers each existing media file under a random 128-bit token and the engine loads
 it from `/media/<token>` on the local server (range requests supported, read-only, only
 registered paths, tokens die with the project session). No file bytes cross `js_api`. Missing
-files report `exists: false` and the engine offers Relink.
+files report `exists: false`, and opening the text runs §8.4.
+
+### 8.4 Finding a recording whose link points nowhere (2026-10-14)
+
+Seth: *"Most of the recordings found in FLEx text media fields will point to an incorrect path. Our
+app needs to give the user the option to find the correct audio file. It should cache it for our
+app, and later (once we add write to FLEx capability), it should fix the media file field."*
+
+- **How FLEx reads a link** **[source]**: FieldWorks `InterlinVc.CheckFileExistsFromUri` treats
+  `MediaURI` as a URI (`new Uri(s)`, `IsFile`, `LocalPath`), so `file:///C:/…` and plain absolute
+  paths both occur; liblcm resolves `%lf%\…` and unrooted paths under
+  `LangProject.LinkedFilesRootDir` (default `<project>\LinkedFiles`) for linked files.
+  `mediafind.link_path` reads all three; every existence check in the shell goes through it (the
+  old `os.path.isfile(uri)` called every `file:///` link missing).
+- **The app keeps its own copy.** Opening a FLEx text copies its recording into the media store
+  under the record's id — `flexDocId(project, text)`, **never with a colon** (db.mediaKeys ignores
+  colon keys, so the old `flex:<project>:<guid>` ids could never count as having a recording). The
+  order: FLEx's link when it resolves here → the file the user chose for that link before (no
+  question) → the find-the-recording card: files of the link's name the shell found (the remembered
+  folders depth 1, LinkedFiles depth 3, the project folder depth 2; at most 20 000 entries looked at;
+  exact name first, case-insensitive, then the same stem with another audio extension) and "Choose
+  the recording…" (the native dialog, opening in the folder of the last recording found, else
+  LinkedFiles\AudioVisual). A pick whose name differs from FLEx's asks once. "Not now" stores
+  nothing. Works in a **read-only** session: nothing is written to FLEx.
+- **Only what the shell offered is served.** `find_media` and `choose_media` OFFER paths;
+  `use_media` adopts one — serves it and remembers it — and accepts nothing it did not offer, so a
+  page cannot name an arbitrary file. A pick the user then turns down is never remembered.
+- **Memory**: `%LOCALAPPDATA%\FlexTextSegmenterFLEx\media-map.json` — link → chosen file (absolute
+  links are one recording whatever project carries them, so a disposable copy finds the original's
+  choice; relative links are per project), plus the folders recordings were found in. This
+  machine's paths; never leaves it. A damaged file is set aside as `.bad`.
+- **The FLEx fix waits for a write session.** `rec.flex.mediaFix = {uriGuid, path}` records it; the
+  next Save to FLEx carries a `media.relink` (or `media.attach` when the text had no link and the
+  save writes times, D9), shown in the preview, through the full protocol; "Fix FLEx's recording
+  link…" does it on its own. §8.2's rules still hold (never retarget a link whose file exists).
+- **Re-opening never discards local work** (`reopenDecision`): FLEx unchanged → the local record
+  opens as it is; FLEx changed and nothing done here → FLEx's version loads; both changed → the user
+  decides, and Escape keeps the work. "Local work" = a stamped edit since loading (`modified >
+  flex.loadedAt`) or a Segmenter draft.
+- A text with several media links: the Segmenter uses one (the one that resolves, else the first)
+  and the card says so.
+- ⚠ The shell's CSP had no `blob:` in `connect-src`: the waveform player fetches the stored
+  recording through a blob URL, so every recording loaded and none played. Found by the headless
+  end-to-end test (`desktop/tests/test_e2e_media.py`), before the VM.
+- **[unverified]** on real FLEx: the forms links take in Seth's data; reading `LinkedFilesRootDir`
+  through pythonnet; the path form a relink should write (V-11). The README's VM list item 5.
 
 ---
 

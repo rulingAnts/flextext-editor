@@ -277,3 +277,52 @@ export function flexBlockers(cur, touched) {
 /* Human-readable kinds for the preview list (the UI translates each code). */
 export const OP_KINDS = ['phrase.split', 'phrase.join', 'phrase.moveBoundary', 'para.split', 'para.join', 'phrase.toPara', 'para.toPhrase',
   'word.split', 'word.insert', 'baseline.replace', 'gloss.set', 'ft.set', 'lt.set', 'times.set', 'media.attach', 'media.relink'];
+
+/* ---- local records of FLEx texts (plans/flex-desktop-segmenter.md §4.4, §8.4) -------------------- */
+
+/* The local record id of a FLEx text: one per (project, text).
+ * ⚠ NO COLON. The media store's answer to "which texts have a recording" (db.mediaKeys) ignores
+ * every key containing ':' — that is how it tells a text's own recording from derived WAVs and
+ * consent clips — so a FLEx text stored under 'flex:<project>:<guid>' could never count as having
+ * one: the Segmenter would list it as "no recording" whatever was cached (found 2026-10-14, before
+ * any text had been opened in the field, so nothing stored under the old form needs moving).
+ * The project rides as a hash: a disposable copy shares its text GUIDs with the original and must
+ * not share its local record. */
+export function flexDocId(projectName, textGuid) {
+  let h = 0x811c9dc5;   // FNV-1a, 32-bit
+  const s = String(projectName || '');
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return 'flex-' + String(textGuid || '').replace(/[^A-Za-z0-9-]/g, '') + '-' + h.toString(36);
+}
+
+/* What re-opening a FLEx text does with its local record — never discard local work silently.
+ * Local work = a stamped edit since the record was loaded from FLEx (persist() stamps `modified`;
+ * opening and the engine's quiet writes do not), or a Segmenter draft in progress.
+ *   'new'     no local record yet
+ *   'keep'    FLEx unchanged → open the local record (with or without local work, it is FLEx's text
+ *             plus whatever was done here)
+ *   'replace' nothing done here, FLEx changed → load FLEx's version
+ *   'ask'     both changed → the user decides; the safe answer keeps the local work */
+export function reopenDecision(rec, baseRev) {
+  if (!rec || !rec.flex) return 'new';
+  const local = (Number(rec.modified) || 0) > (Number(rec.flex.loadedAt) || 0) || !!rec.matchDraft;
+  const flexChanged = rec.flex.baseRev !== baseRev;
+  if (!flexChanged) return 'keep';
+  return local ? 'ask' : 'replace';
+}
+
+/* Which of a text's media links the Segmenter cuts: one that resolves on this machine, else the
+ * first. (A FLEx text normally carries one; several is possible and the Segmenter uses one.) */
+export function recordingLink(media) {
+  const list = Array.isArray(media) ? media : [];
+  return list.find((m) => m && (m.url || m.exists)) || list[0] || null;
+}
+
+/* What a Save to FLEx carries for a recording this app found itself (§8.2): a RELINK of the link
+ * that points nowhere, or an ATTACH when the text has no link (diffFlexDoc adds it only when the
+ * save also writes times, D9). Nothing once FLEx's own link resolves again. */
+export function pendingMediaFix(flexState) {
+  const f = flexState && flexState.mediaFix;
+  if (!f || !f.path || (flexState.linkOk && f.uriGuid)) return {};
+  return f.uriGuid ? { relink: { uriGuid: f.uriGuid, path: f.path } } : { media: f.path };
+}

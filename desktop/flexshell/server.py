@@ -66,7 +66,10 @@ def csp_for(connect_origins, script_hashes=()):
     hashes = " ".join(script_hashes or ())
     return ("default-src 'self'; script-src 'self'" + ((" " + hashes) if hashes else "") + "; "
             "frame-src 'self' blob:; form-action 'self'; base-uri 'self'; "
-            "object-src 'none'; connect-src 'self'" + ((" " + extra) if extra else "") + "; "
+            # blob: in connect-src — the engine's waveform player fetches the recording it keeps in
+            # IndexedDB through a blob: URL; without it every recording loaded but none would play
+            # (found by the headless end-to-end test, 2026-10-14, before any VM saw it)
+            "object-src 'none'; connect-src 'self' blob:" + ((" " + extra) if extra else "") + "; "
             "img-src 'self' blob: data:; media-src 'self' blob:; worker-src 'self' blob:; "
             "style-src 'self' 'unsafe-inline'; font-src 'self'")
 

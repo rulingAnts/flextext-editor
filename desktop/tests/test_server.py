@@ -51,7 +51,7 @@ def test_index_and_headers(site):
     st, h, body = get(site["port"], "/")
     assert st == 200 and b"<title>t</title>" in body
     assert h["Content-Security-Policy"].startswith("default-src 'self'")
-    assert "connect-src 'self' https://relay.example" in h["Content-Security-Policy"]
+    assert "connect-src 'self' blob: https://relay.example" in h["Content-Security-Policy"]
     assert h["X-Content-Type-Options"] == "nosniff"
     assert "text/html" in h["Content-Type"]
 
@@ -187,3 +187,13 @@ def test_csp_allows_the_shell_pages_inline_scripts_by_hash(tmp_path):
     finally:
         s.shutdown()
         s.server_close()
+
+
+def test_csp_lets_the_engine_play_its_own_recordings():
+    """The waveform player fetches the recording the engine keeps in IndexedDB through a blob: URL;
+    connect-src without blob: loaded every recording and played none (end-to-end test, 2026-10-14)."""
+    csp = srv.csp_for([])
+    connect = [d for d in csp.split(";") if d.strip().startswith("connect-src")][0].split()
+    assert "blob:" in connect and "'self'" in connect and "data:" not in connect
+    media = [d for d in csp.split(";") if d.strip().startswith("media-src")][0].split()
+    assert "blob:" in media

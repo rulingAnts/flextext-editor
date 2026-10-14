@@ -27,7 +27,8 @@ def api(tmp_path):
     (engine / "js" / "i18n.js").write_text("export const ENGINE_VERSION = 'v999';")
     opened = []
     a = Api(MockBackendFactory(str(projects)), engine_root=str(engine), opener=opened.append,
-            copy_text_fn=lambda t: True, pick_file_fn=lambda k: str(tmp_path / ("pick." + k)))
+            copy_text_fn=lambda t: True, pick_file_fn=lambda k, d=None: str(tmp_path / ("pick." + k)),
+            state_dir=str(tmp_path / "state"))
     a._opened = opened
     yield a
     a._worker.stop()

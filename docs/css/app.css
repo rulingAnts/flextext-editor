@@ -3836,8 +3836,17 @@ a.offsite-off, area.offsite-off {
 .flex-preview .flex-summary{max-height:40vh;overflow:auto;text-align:left;padding-left:1.2rem}
 .flex-preview .flex-blockers{color:#b91c1c;font-weight:600}
 .flex-preview .flex-warnings{color:#b45309}
-.flex-preview .flex-backup{opacity:.75;font-size:.85rem}
+.flex-preview .flex-backup{opacity:.75;font-size:.85rem;overflow-wrap:anywhere}
 .flex-progress{font-style:italic}
+/* the find-the-recording card (plan §8.4): file names and folders are long Windows paths — let them wrap */
+.flex-media-card{text-align:left;max-width:min(40rem,92vw)}
+.flex-media-cands{list-style:none;padding:0;margin:.3rem 0 .6rem;max-height:40vh;overflow:auto}
+.flex-media-cands li{display:grid;grid-template-columns:1fr auto;gap:.1rem .6rem;align-items:center;padding:.35rem 0;border-bottom:1px solid var(--border,#e5e7eb)}
+.flex-media-name{font-weight:600;overflow-wrap:anywhere}
+.flex-media-where{grid-column:1;opacity:.7;font-size:.8rem;overflow-wrap:anywhere}
+.flex-media-cands li button{grid-row:1 / span 2;grid-column:2}
+.flex-media-note{opacity:.75;font-size:.85rem}
+.flex-media-more{color:#92400e;font-size:.9rem}
 /* § section marks in the Matcher (seg-word-split): they stand out until decided */
 .mg-section-banner{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:.4rem .6rem;margin:.3rem 0;font-size:.9rem}
 .mg-sec{display:inline-flex;align-items:center;gap:.15rem;margin:0 .25rem;padding:.1rem .3rem;border:1px dashed #f59e0b;border-radius:6px;background:#fffbeb;vertical-align:middle}

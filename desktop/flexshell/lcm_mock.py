@@ -36,6 +36,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape as _xesc
 
+from . import mediafind
 from .port import (FlexPort, COUNTED_CLASSES, UNDO_SUCCESS, UNDO_FAILED, lcm_diff, nfd, nfc)
 
 MODEL_VERSION = 7000072
@@ -754,6 +755,9 @@ class MockLcm(FlexPort):
     def project_dir(self):
         return self.project_folder(self.projects_dir, self._name)
 
+    def linked_files_dir(self):
+        return os.path.join(self.project_dir(), "LinkedFiles")
+
     def project_name(self):
         return self._name
 
@@ -920,7 +924,7 @@ class MockLcm(FlexPort):
             if t.get("MediaFiles"):
                 for ug in self.store[t["MediaFiles"]]["MediaURIs"]:
                     u = self.store[ug]
-                    media.append({"guid": ug, "uri": u["MediaURI"], "exists": os.path.isfile(u["MediaURI"] or "")})
+                    media.append({"guid": ug, "uri": u["MediaURI"], "exists": mediafind.link_exists(u["MediaURI"], self.linked_files_dir())})
             out.append({"guid": t.guid, "title": nfc(t["Name"].get("en", "")), "paras": len(paras), "segs": len(segs),
                         "timedSegs": sum(1 for s in segs if s["BeginTimeOffset"] is not None),
                         "media": media, "labelSegs": sum(1 for s in segs if self._is_label(s))})

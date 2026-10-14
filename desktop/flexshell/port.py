@@ -94,6 +94,11 @@ class FlexPort(ABC):
     @abstractmethod
     def project_dir(self): ...
     @abstractmethod
+    def linked_files_dir(self):
+        """The project's LinkedFiles folder, absolute (LangProject.LinkedFilesRootDir; FLEx's default
+        is <project folder>\\LinkedFiles) — where relative media links resolve and where recordings
+        usually live (plan §8.4)."""
+    @abstractmethod
     def model_version(self): ...
     @abstractmethod
     def versions(self): ...

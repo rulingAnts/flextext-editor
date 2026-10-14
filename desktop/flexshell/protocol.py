@@ -31,6 +31,7 @@ import time
 import zipfile
 import xml.etree.ElementTree as ET
 
+from . import mediafind
 from . import diskcheck, glosses, model, segmentation as S
 from .errors import FlexError, POISONING
 from .lcm_mock import EOS_CHARS, SECTION, is_word_forming, tokenize
@@ -169,7 +170,7 @@ class Session:
                     uri = next((m for m in t["media"] if m["guid"] == op.get("uriGuid")), None)
                     if not uri:
                         raise FlexError("E_NOT_FOUND", "no such media link", {"uri": op.get("uriGuid")})
-                    if uri["uri"] and os.path.exists(uri["uri"]):
+                    if mediafind.link_exists(uri["uri"], self.port.linked_files_dir()):
                         raise FlexError("E_MEDIA_PRESENT", "that recording exists; a link whose file exists is never retargeted", {})
                     if not op.get("path") or not os.path.isfile(op["path"]):
                         raise FlexError("E_MEDIA_FILE_MISSING", "the chosen file does not exist", {})
@@ -763,9 +764,13 @@ class Session:
         return {"newTextGuids": new, "backup": backup, "disk": disk}
 
     # ---- §9.2 export ---------------------------------------------------------------------------
-    def export_editor_bundle(self, text_guid, out_dir):
+    def export_editor_bundle(self, text_guid, out_dir, media_paths=None):
+        """`media_paths` = {uriGuid: path} the user resolved in the shell for links that point
+        nowhere here (plan §8.4): the bundle carries the recording the app actually uses."""
         self.guard()
         t = self.port.read_text(text_guid)
+        lf = self.port.linked_files_dir()
+        media_paths = media_paths or {}
         xml = self.port.export_elan(text_guid)
         safe = "".join(c if c.isalnum() or c in " -_." else "_" for c in (t["title"] or "text")).strip() or "text"
         os.makedirs(out_dir, exist_ok=True)
@@ -774,8 +779,11 @@ class Session:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr(safe + ".flextext", xml)
             for m in t["media"]:
-                if m["uri"] and os.path.isfile(m["uri"]):
-                    z.write(m["uri"], os.path.basename(m["uri"]))
+                here = mediafind.link_path(m["uri"], lf)
+                if not (here and os.path.isfile(here)):
+                    here = media_paths.get(m["guid"])
+                if here and os.path.isfile(here):
+                    z.write(here, os.path.basename(here))
                 else:
                     missing.append(m["guid"])
             if missing:

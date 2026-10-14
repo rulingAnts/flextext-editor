@@ -9,7 +9,7 @@ import {
   // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
   splitWordAt, insertWordAt, isBoundaryMarker, markBoundaryMarkers,
   hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
-  normalizeBreakKind, applyNewLineBreak, applyBreakKindToOrigins, countSectionBreaks, replaceSectionBreaks,
+  normalizeBreakKind, applyNewLineBreak, applyBreakKindToOrigins, sectionBreakSites, resolveSectionBreak, replaceSectionBreaks,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
@@ -10074,44 +10074,6 @@ async function sgOpen(id) {
   enterEditor('cut');
 }
 
-/* § SECTION BREAKS → REAL BREAKS, THE USER'S CHOICE (Seth, 2026-10-14: "replace section break
- * characters with phrase breaks or paragraph breaks when we find them. Let the user decide which").
- * Asked ONCE per text, the first time it opens here with any § in it; the answer is remembered on the
- * record (`sectionBreaks`: 'clause' | 'sentence' | 'keep') so the question never comes back. Escape
- * decides nothing and asks again next time. The replacement is flextext.js replaceSectionBreaks: the
- * marks go, the boundaries take the chosen kind, a § inside a line splits it (the new half untimed). */
-async function mgAskSectionBreaks(rec) {
-  if (!rec || !rec.doc || rec.sectionBreaks) return;
-  const n = countSectionBreaks(rec.doc);
-  if (!n) return;
-  const choice = await new Promise((resolve) => {
-    if (document.querySelector('[data-confirm-dialog]')) { resolve(null); return; }
-    const wrap = document.createElement('div');
-    wrap.className = 'modal';
-    wrap.dataset.confirmDialog = '1';
-    wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
-      <p style="white-space:pre-wrap">${esc(t('mg.sectionBreaks', { n }))}</p>
-      <button class="primary-btn" data-sb="clause">${esc(t('mg.sectionClause'))}</button>
-      <button class="primary-btn" data-sb="sentence">${esc(t('mg.sectionSentence'))}</button>
-      <button class="link-btn" data-sb="keep">${esc(t('mg.sectionKeep'))}</button>
-    </div>`;
-    document.body.appendChild(wrap);
-    const finish = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
-    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); } }
-    document.addEventListener('keydown', onKey, true);
-    wrap.querySelectorAll('[data-sb]').forEach((b) => b.addEventListener('click', () => finish(b.dataset.sb)));
-  });
-  if (!choice) return;
-  rec.sectionBreaks = choice;
-  if (choice !== 'keep') {
-    const r = replaceSectionBreaks(rec.doc, choice);
-    Object.assign(rec, docStats(rec.doc));
-    rec.modified = Date.now();
-    toast(t('mg.sectionReplaced', { n: r.removed, s: r.split }), 6000);
-  }
-  await db.putDoc(rec);
-}
-
 /* ─────────────────── THE MATCHER (audio segmenter) ───────────────────
  * Two panes. Audio spans on the left, text lines on the right, split and joined INDEPENDENTLY,
  * then mapped piece to piece until everything is paired and the user presses Done.
@@ -10925,6 +10887,56 @@ function mgFocusWord(id, wi) {
   }, 0);
 }
 
+/* § SECTION MARKS, DECIDED ONE AT A TIME (Seth, 2026-10-14: "the user needs to choose what kind of break
+ * on a case by case basis. But it should make them stand out and prompt the user to deal with them if
+ * there are any left (with an option to do all one or all another)"). Every mark FLEx wrote is drawn in
+ * its line as a § chip with two choices — Clause (a phrase break inside the paragraph) or Sentence (a new
+ * paragraph) — and a banner above the rows counts what is left and offers All → Clause / All → Sentence.
+ * One click, one undo item; All is one undo item too. The marks live in the lines until decided, so a
+ * draft and a Done both carry whatever is still undecided (flextext.js sectionBreakSites /
+ * resolveSectionBreak / replaceSectionBreaks). */
+function mgSectionSites() { return MG ? sectionBreakSites({ paragraphs: MG.lines }) : []; }
+function mgNewSectionLine(line) {
+  let n = 0;
+  return (seg) => ({ id: line.id + '§' + (++n), guid: newGuid(), paraOf: line.paraOf, phrases: [seg] });
+}
+function mgResolveSection(id, wi, kind) {
+  const i = MG ? MG.lines.findIndex((l) => l.id === id) : -1;
+  if (i < 0) return;
+  const line = MG.lines[i];
+  mgLinePhrase(line);   // one phrase per line, as every edit here assumes
+  mgCapture();
+  const r = resolveSectionBreak({ paragraphs: MG.lines }, i, wi, kind, { newLine: mgNewSectionLine(line) });
+  if (!r.ok) { mgUndoStack.pop(); return; }   // no mark there any more: no empty history item
+  mgSaveDraft();
+  mgDraw();
+}
+function mgResolveAllSections(kind) {
+  if (!MG || !mgSectionSites().length) return;
+  MG.lines.forEach(mgLinePhrase);
+  mgCapture();
+  const lines = MG.lines;
+  replaceSectionBreaks({ paragraphs: lines }, kind, { newLine: (seg, line) => mgNewSectionLine(line)(seg) });
+  mgSaveDraft();
+  mgDraw();
+}
+/* The § chip: the mark itself, standing out, with its two choices. */
+function mgSectionChip(ln, site) {
+  const chip = document.createElement('span');
+  chip.className = 'mg-sec';
+  chip.title = t('mg.sectionChip');
+  chip.innerHTML = `<span class="mg-sec-mark">§</span>
+    <button type="button" class="mg-sec-btn" data-kind="clause"></button><button type="button" class="mg-sec-btn" data-kind="sentence"></button>`;
+  const [bc, bs] = chip.querySelectorAll('.mg-sec-btn');
+  bc.textContent = t('mg.sectionClause'); bc.title = t('mg.sectionToClause');
+  bs.textContent = t('mg.sectionSentence'); bs.title = t('mg.sectionToSentence');
+  chip.querySelectorAll('.mg-sec-btn').forEach((b) => {
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());   // not a row pick
+    b.addEventListener('click', (e) => { e.stopPropagation(); mgResolveSection(ln.id, site.word, b.dataset.kind); });
+  });
+  return chip;
+}
+
 function mgJoinLine(id) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i <= 0) return;
@@ -11109,8 +11121,21 @@ function mgDraw() {
   box.innerHTML = `
     ${MG.resumed ? `<p class="mg-resumed"><span></span><button id="mg-fresh" class="link-btn"></button></p>` : ''}
     <div class="mg-rowhead"><h3 data-i18n="mg.audio">Audio</h3><div class="mg-rowhead-text"><h3 data-i18n="mg.text">Text</h3>${mgLangPickerHtml()}</div></div>
+    ${mgSectionSites().length ? `<div class="mg-section-banner" role="status"><span class="mg-section-count"></span>
+      <button type="button" class="secondary-btn" id="mg-sec-all-clause"></button><button type="button" class="secondary-btn" id="mg-sec-all-sentence"></button></div>` : ''}
     <ul class="mg-rows" id="mg-rows"></ul>`;
   applyI18n(box);
+  {
+    // § marks left to decide (Seth, 2026-10-14): the prompt that stays until every mark has a kind
+    const sb = box.querySelector('.mg-section-banner');
+    if (sb) {
+      sb.querySelector('.mg-section-count').textContent = t('mg.sectionLeft', { n: mgSectionSites().length });
+      const ac = sb.querySelector('#mg-sec-all-clause'), as = sb.querySelector('#mg-sec-all-sentence');
+      ac.textContent = t('mg.sectionAllClause'); as.textContent = t('mg.sectionAllSentence');
+      ac.onclick = () => mgResolveAllSections('clause');
+      as.onclick = () => mgResolveAllSections('sentence');
+    }
+  }
   const langSel = box.querySelector('#mg-lang');
   if (langSel) langSel.onchange = () => { mgLangPref = langSel.value; try { localStorage.setItem(MG_LANG_KEY, mgLangPref); } catch { /* a private window forgets; the choice still applies now */ } mgDraw(); };
   if (MG.resumed) {
@@ -11258,7 +11283,11 @@ function mgDraw() {
     const wbox = li.querySelector('.mg-words');
     const editable = allowTextEditOn();
     if (editable) wbox.title = t('mg.editTip');
+    // § marks in this line, each drawn where it sits (before the wi-th lexical word, or after the last)
+    const sites = mgSectionSites().filter((x) => MG.lines[x.line] === ln);
+    const chipsBefore = (wi) => sites.filter((x) => !x.final && x.visibleBefore === wi).forEach((x) => wbox.appendChild(mgSectionChip(ln, x)));
     txt.words.forEach((w, wi) => {
+      chipsBefore(wi);
       // The scissors BETWEEN word and gloss is the first of the two split points. It sits in the
       // gap it would cut, so there is nothing to explain.
       if (wi > 0) {
@@ -11272,6 +11301,8 @@ function mgDraw() {
       }
       wbox.appendChild(mgWordStack(ln, w, wi, editable));
     });
+    chipsBefore(txt.words.length);
+    sites.filter((x) => x.final).forEach((x) => wbox.appendChild(mgSectionChip(ln, x)));
     // A blank line (from +) has nowhere to type until it has a word: give it one empty pair.
     if (editable && !txt.words.length) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
     const ftbox = li.querySelector('.mg-ft');
@@ -11660,7 +11691,6 @@ async function mgOpen(id) {
    * ✂ and ⤴ on the text side stay exactly as they were — they are now the ADJUSTMENT Seth describes,
    * applied to real phrase boundaries, rather than the only way to get any boundaries at all. */
   healFlatSegments(rec.doc);
-  await mgAskSectionBreaks(rec);
   mgLoad(rec);
   /* Unfinished work wins over the stored document, because it is NEWER by construction — the doc
    * holds the last COMMITTED state and the draft is everything since. Resumed rather than offered:

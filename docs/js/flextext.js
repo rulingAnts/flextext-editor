@@ -1869,63 +1869,81 @@ export function applyBreakKindToOrigins(doc, origins, kind, paraOfBefore = null)
   return n;
 }
 
-/* ---------------- Replacing § section breaks with real breaks (seg-word-split) ----------------
+/* ---------------- § section marks → real breaks, ONE AT A TIME (seg-word-split) ----------------
  *
  * Seth, 2026-10-14: "replace section break characters with phrase breaks or paragraph breaks when we
- * find them. Let the user decide which." A § is FLEx's forced break with no punctuation; a text that
- * came through FLEx carries one after most phrases. Here the user chooses, once per text, what those
- * marks MEAN — clause breaks or sentence breaks — and the marks themselves go:
+ * find them… the user needs to choose what kind of break on a case by case basis. But it should make
+ * them stand out and prompt the user to deal with them if there are any left (with an option to do all
+ * one or all another)." A § is FLEx's forced break with no punctuation; a text that came through FLEx
+ * carries one after most phrases. The engine lists every mark as a SITE the UI can show and offer two
+ * choices on, and resolves one site at a time:
  *   · a phrase-final §: the word is removed and the boundary to the next line takes the chosen kind;
  *   · a § with words after it inside one line (a file FLEx never re-segmented): the line is split
  *     there — the first half keeps the line's guid, time and free translation, the second half is a new
  *     untimed line (never invent a time) — and the new boundary takes the chosen kind.
- * The baseline is rebuilt from the words. On a FLEx-bound doc this is loss-free: FLEx's importer
- * re-adds § itself, and the desktop shell's diff ignores marker words and re-writes § from the phrase
- * structure. Returns { removed, split }. */
-export function countSectionBreaks(doc) {
-  let n = 0;
-  for (const p of (doc && doc.paragraphs) || []) for (const s of p.segments || []) for (const w of s.words || []) if (isBoundaryMarker(w)) n++;
-  return n;
+ * `lines` are the flat paragraphs, each holding its phrase under `segments` (the doc) or `phrases` (the
+ * Matcher's lines): the functions read either and create new lines through `opts.newLine(seg)` so a
+ * caller with its own line shape (ids) stays in charge of it. The baseline is rebuilt from the words.
+ * On a FLEx-bound doc this is loss-free: FLEx's importer re-adds § itself, and the desktop shell's diff
+ * ignores marker words and re-writes § from the phrase structure. */
+export function lineSegmentsOf(line) { return (line && (line.segments || line.phrases)) || []; }
+
+/* Every § mark: { line, word, final, visibleBefore } — `word` indexes the phrase's words, `final` says
+ * the mark ends its phrase (only punctuation follows), `visibleBefore` counts the lexical words before
+ * it (where a word-level view, which hides punctuation, places the mark). */
+export function sectionBreakSites(doc) {
+  const out = [];
+  (doc && doc.paragraphs || []).forEach((line, li) => {
+    const seg = lineSegmentsOf(line)[0];
+    const words = (seg && seg.words) || [];
+    let visible = 0;
+    words.forEach((w, wi) => {
+      if (isBoundaryMarker(w)) out.push({ line: li, word: wi, final: words.slice(wi + 1).every((x) => x.punct), visibleBefore: visible });
+      else if (!w.punct) visible++;
+    });
+  });
+  return out;
 }
-export function replaceSectionBreaks(doc, kind) {
+export function countSectionBreaks(doc) { return sectionBreakSites(doc).length; }
+
+/* Resolve ONE mark: the §
+ * at (li, wi) becomes a break of `kind`. → { ok, split } ; ok false when there is no mark there. */
+export function resolveSectionBreak(doc, li, wi, kind, opts = {}) {
   const lines = (doc && doc.paragraphs) || [];
+  const line = lines[li];
+  const seg = lineSegmentsOf(line)[0];
+  const words = (seg && seg.words) || [];
+  if (!isBoundaryMarker(words[wi])) return { ok: false, split: false };
   const k2 = normalizeBreakKind(kind);
-  let removed = 0, split = 0;
-  for (let k = 0; k < lines.length; k++) {
-    const line = lines[k];
-    if (!line.segments || line.segments.length !== 1) {   // not the flat model: only strip phrase-final markers
-      for (const s of line.segments || []) {
-        const before = (s.words || []).length;
-        markBoundaryMarkers(s);
-        s.words = (s.words || []).filter((w) => !w.boundaryMarker);
-        if (s.words.length !== before) { removed += before - s.words.length; s.baseline = baselineFromWords(s.words); }
-      }
-      continue;
-    }
-    const seg = line.segments[0];
-    const words = seg.words || [];
-    const at = words.findIndex((w, i) => isBoundaryMarker(w) && words.slice(i + 1).some((x) => !x.punct));
-    if (at >= 0) {
-      // a § with words after it: split the line here
-      const left = words.slice(0, at), right = words.slice(at + 1);
-      seg.words = left;
-      seg.baseline = baselineFromWords(left);
-      const nl = { guid: newGuid(), segments: [makeSegment(baselineFromWords(right), right)] };
-      nl.segments[0].txtLang = seg.txtLang;
-      lines.splice(k + 1, 0, nl);
-      if (Array.isArray(doc.segments)) { const segs = doc.segments.slice(); segs.splice(k + 1, 0, { start: 0, end: 0, timePending: true }); doc.segments = segs; }
-      applyNewLineBreak(lines, k + 1, k2);
-      removed++; split++;
-      continue;   // the left half is done; the right half is judged on the next pass
-    }
-    markBoundaryMarkers(seg);
-    const kept = words.filter((w) => !w.boundaryMarker);
-    if (kept.length !== words.length) {
-      removed += words.length - kept.length;
-      seg.words = kept;
-      seg.baseline = kept.length ? baselineFromWords(kept) : String(seg.baseline || '').replace(/\s*§+/gu, '').trim();
-      if (k + 1 < lines.length) setBoundaryKind(lines, k + 1, k2);
-    }
+  const final = words.slice(wi + 1).every((x) => x.punct);
+  if (final) {
+    seg.words = words.filter((w, i) => i !== wi);
+    seg.baseline = seg.words.length ? baselineFromWords(seg.words) : String(seg.baseline || '').replace(/\s*§+/gu, '').trim();
+    if (li + 1 < lines.length) setBoundaryKind(lines, li + 1, k2);
+    return { ok: true, split: false };
+  }
+  const left = words.slice(0, wi), right = words.slice(wi + 1);
+  seg.words = left;
+  seg.baseline = baselineFromWords(left);
+  const seg2 = makeSegment(baselineFromWords(right), right);
+  seg2.txtLang = seg.txtLang;
+  const nl = opts.newLine ? opts.newLine(seg2, line) : { guid: newGuid(), segments: [seg2] };
+  lines.splice(li + 1, 0, nl);
+  if (Array.isArray(doc.segments)) { const segs = doc.segments.slice(); segs.splice(li + 1, 0, { start: 0, end: 0, timePending: true }); doc.segments = segs; }
+  applyNewLineBreak(lines, li + 1, k2);
+  return { ok: true, split: true };
+}
+
+/* All remaining marks, one kind ("All → Clause" / "All → Sentence"). → { removed, split } */
+export function replaceSectionBreaks(doc, kind, opts = {}) {
+  let removed = 0, split = 0, guard = 0;
+  for (;;) {
+    const sites = sectionBreakSites(doc);
+    if (!sites.length || guard++ > 10000) break;
+    const r = resolveSectionBreak(doc, sites[0].line, sites[0].word, kind, opts);
+    if (!r.ok) break;
+    removed++;
+    if (r.split) split++;
   }
   return { removed, split };
 }

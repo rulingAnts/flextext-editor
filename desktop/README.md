@@ -62,10 +62,16 @@ same entry point as a console script, when pip's Scripts folder is on PATH. To u
 install line again. Nothing here deploys anything or touches a FLEx project until you open one for
 writing, and a copy-only build refuses that unless the folder carries `flextext-disposable-copy.txt`.
 
-⚠ This path has never been run on Windows: expect the first launch to find real problems in
-`lcm_real.py` and in the WebView2 wiring (`webview_hooks._core_webview2`). The web Segmenter itself
-should come up at `http://127.0.0.1:8017/`; the FLEx section appears only when `hello()` answers.
-Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
+⚠ Windows status (2026-10-14, Seth's Parallels VM, Python 3.13, pywebview 6.2.1): the pip install
+builds and installs. The FIRST launch found two things, both fixed the same day and both
+[unverified] since: `stage_engine` printed a non-cp1252 character under pip (wheel build failed), and
+the guard asked for the native window before pywebview had created it — pywebview runs the
+`webview.start()` function in its own thread at once — so the shell refused to run and WebView2
+reported E_ABORT for the window torn down under it. `webview_hooks.install()` now waits for the
+window and attaches on the UI thread when WebView2 is ready. Still never exercised on Windows:
+everything in `lcm_real.py`, the real `CoreWebView2` attribute path, the Save dialog for exports.
+The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
+when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
 
 ## Running the tests (Linux, Mac or Windows — no FLEx needed)
 
@@ -140,7 +146,10 @@ In this order. The scripts refuse a folder without the copy marker.
    `location`, `window.open`, `_blank`, iframe, meta refresh, form POST, pushState, non-blob download
    all refused; the OS-browser stub records exactly the expected URLs; a second launch on the taken
    port is refused by the nonce; relaunch keeps IndexedDB (`private_mode=False`). Also: the
-   `CoreWebView2` attribute path in `webview_hooks._core_webview2` for the installed pywebview.
+   WebView2 control path in `webview_hooks._webview2_control` for the installed pywebview; that an
+   allowed export download shows ONE Save dialog and lands where chosen (pywebview cancels downloads
+   first, the guard re-allows ours); that a `window.open` opens the OS browser ONCE (pywebview
+   re-issues it as a navigation of our window, which the guard must swallow).
 3. **Plan §15, each on the copy:** V-1 FLEx GUI round trip after shell writes of every op type (Seth at
    FLEx: Baseline, Interlinear, Gloss, Print tabs; elan export shows § as a phrase-final punct item
    and phrase GUIDs = segment GUIDs); V-2 auto-save race stress; V-3 kill during save (20×) and the

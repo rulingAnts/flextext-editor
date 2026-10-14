@@ -42,20 +42,24 @@ def main(argv=None):
     srv = start_server(root, port=port, connect_origins=api.connect_origins(), media=api.media)
     api.attach_server(srv)
 
+    # pywebview must never open a browser itself: a NewWindowRequested becomes a navigation of THIS
+    # window instead, which the guard then decides (webview_hooks module docstring).
+    webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False
+    webview.settings["ALLOW_DOWNLOADS"] = False   # the guard re-allows our own blobs, with a Save dialog
+
     window = webview.create_window("FlexText Segmenter for FLEx", srv.origin + "/", js_api=api,
                                    width=1280, height=860, text_select=True)
 
-    def on_loaded():
-        pass
-
     def install_guard():
+        # Runs in pywebview's own thread as soon as the GUI loop starts, before the window exists;
+        # install() waits for the window and attaches on the UI thread when WebView2 is ready.
         from . import webview_hooks
         try:
             webview_hooks.install(window, port, release=not os.environ.get("FLEXSHELL_DEVTOOLS") == "1")
-        except Exception as e:   # noqa: BLE001 — refuse to show the window rather than run unguarded
+        except Exception as e:   # noqa: BLE001 — refuse to run unguarded
             sys.stderr.write("navigation guard could not be installed: %s\n" % e)
             window.destroy()
-            raise SystemExit(2)
+            os._exit(2)   # SystemExit here would end only this thread; the GUI loop must not survive
         api.set_window(window)
 
     # private_mode=False + storage_path: pywebview's default private mode would wipe IndexedDB on exit.

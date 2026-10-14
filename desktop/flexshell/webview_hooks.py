@@ -1,13 +1,33 @@
 """WebView2 wiring for the navigation guard — WINDOWS ONLY, imported lazily by app.py (plan §2.2).
 
 Everything decided here is decided by navguard.decide(); this module only connects CoreWebView2's
-events to it. If any hook cannot be installed, install() raises and the shell refuses to show the
-window. [unverified] on real WebView2 (V-10, desktop/vm/test_navguard_e2e.py).
+events to it. If the guard cannot be attached, install() raises and the shell refuses to show the
+window.
+
+TIMING (learned on the first VM launch, 2026-10-14): pywebview runs the function given to
+`webview.start()` in a thread of its own the moment the GUI loop starts — BEFORE the native window
+exists, and long before WebView2 has finished initialising. So install() first waits for the
+window to be shown, then hops onto the UI thread and either attaches at once (CoreWebView2 already
+there) or subscribes to CoreWebView2InitializationCompleted and attaches from inside that event,
+right after pywebview's own handler and before the first navigation is dispatched. Destroying the
+window while that initialisation is still running is what WebView2 reports as E_ABORT.
+
+pywebview's own CoreWebView2 handlers run BEFORE ours (subscribed first), so attach() is written to
+run after them: pywebview cancels every download (ALLOW_DOWNLOADS=False) and we re-allow our own
+blobs with a Save dialog; pywebview turns every NewWindowRequested into a top-level navigation of
+THIS window (app.py sets OPEN_EXTERNAL_LINKS_IN_BROWSER=False so it never opens a browser itself),
+and we cancel that follow-up navigation because the new-window decision already handled the URL.
+[unverified] on real WebView2 (V-10, desktop/vm/test_navguard_e2e.py).
 """
 
+import ntpath
 import os
+import threading
+import time
 
 from . import navguard
+
+RECENT_NEW_WINDOW_S = 2.0   # a NewWindowRequested URL is remembered this long (see attach())
 
 
 def _open_in_os_browser(url, opener=None):
@@ -22,32 +42,38 @@ def _open_in_os_browser(url, opener=None):
         return False
 
 
-def install(window, port, opener=None, release=True):
-    """Attach the guard to pywebview's WinForms window (`window.native` → CoreWebView2).
+def attach(core, port, opener=None, release=True, chooser=None, now=time.monotonic):
+    """Attach the guard to an initialised CoreWebView2 (duck-typed; tests pass fakes).
 
     Settings (release builds): no DevTools, no default context menus, no status bar, no browser
     accelerator keys (F5 / Ctrl+P / Ctrl+L go nowhere), zoom control left as is.
+    `chooser(suggested_name) → path | None` asks the user where an allowed download goes.
     """
-    native = getattr(window, "native", None)
-    if native is None:
-        raise RuntimeError("no native window — the guard cannot be installed")
-    core = _core_webview2(native)
-    if core is None:
-        raise RuntimeError("CoreWebView2 not reachable — the guard cannot be installed")
-
     settings = core.Settings
     settings.AreDevToolsEnabled = not release
     settings.AreDefaultContextMenusEnabled = False
     settings.IsStatusBarEnabled = False
     settings.AreBrowserAcceleratorKeysEnabled = False
 
+    recent = {}   # url → when NewWindowRequested decided it (pywebview re-issues it as a navigation)
+
+    def recently_decided(url):
+        t = now()
+        for u in [u for u, when in recent.items() if t - when > RECENT_NEW_WINDOW_S]:
+            del recent[u]
+        return recent.pop(url, None) is not None
+
     def on_nav(sender, args):
-        d = navguard.decide(str(args.Uri), navguard.KIND_TOP, port)
+        url = str(args.Uri)
+        if recently_decided(url):
+            args.Cancel = True      # pywebview's load_url() after a NewWindowRequested we already handled
+            return
+        d = navguard.decide(url, navguard.KIND_TOP, port)
         if d == navguard.ALLOW:
             return
         args.Cancel = True
         if d == navguard.OPEN_EXTERNAL:
-            _open_in_os_browser(str(args.Uri), opener)
+            _open_in_os_browser(url, opener)
 
     def on_frame_nav(sender, args):
         if navguard.decide(str(args.Uri), navguard.KIND_FRAME, port) != navguard.ALLOW:
@@ -55,14 +81,24 @@ def install(window, port, opener=None, release=True):
 
     def on_new_window(sender, args):
         args.Handled = True   # never a second webview
-        if navguard.decide(str(args.Uri), navguard.KIND_NEW_WINDOW, port) == navguard.OPEN_EXTERNAL:
-            _open_in_os_browser(str(args.Uri), opener)
+        url = str(args.Uri)
+        recent[url] = now()
+        if navguard.decide(url, navguard.KIND_NEW_WINDOW, port) == navguard.OPEN_EXTERNAL:
+            _open_in_os_browser(url, opener)
 
     def on_download(sender, args):
         src = str(args.DownloadOperation.Uri)
+        args.Handled = True   # no download bubble either way
         if navguard.decide(src, navguard.KIND_DOWNLOAD, port) != navguard.ALLOW:
             args.Cancel = True
-            args.Handled = True
+            return
+        suggested = ntpath.basename(str(args.ResultFilePath or "")) or "export"   # always a Windows path
+        path = chooser(suggested) if chooser else None
+        if path:
+            args.ResultFilePath = path
+            args.Cancel = False   # pywebview's own handler (ALLOW_DOWNLOADS=False) cancelled it first
+        else:
+            args.Cancel = True
 
     core.NavigationStarting += on_nav
     core.FrameNavigationStarting += on_frame_nav
@@ -71,17 +107,92 @@ def install(window, port, opener=None, release=True):
     return {"nav": on_nav, "frame": on_frame_nav, "new_window": on_new_window, "download": on_download}
 
 
-def _core_webview2(native):
-    """pywebview's EdgeChromium form holds the WebView2 control; reach CoreWebView2 through it.
-    The attribute path has changed between pywebview versions, so try the known ones."""
-    for path in (("web_view", "CoreWebView2"), ("browser", "web_view", "CoreWebView2"), ("CoreWebView2",)):
+def install(window, port, opener=None, release=True, timeout=30.0):
+    """Attach the guard to pywebview's WinForms window. Blocks until it is attached (or raises).
+    Call it from the function handed to webview.start(), i.e. off the UI thread."""
+    if not window.events.shown.wait(timeout):
+        raise RuntimeError("the window was not shown within %gs — the guard cannot be installed" % timeout)
+    native = getattr(window, "native", None)
+    if native is None:
+        raise RuntimeError("no native window — the guard cannot be installed")
+    wv = _webview2_control(native)
+    if wv is None:
+        raise RuntimeError("WebView2 control not reachable — the guard cannot be installed")
+
+    done = threading.Event()
+    result = {}
+
+    def finish(core):
+        try:
+            result["handlers"] = attach(core, port, opener, release,
+                                        chooser=lambda name: _save_dialog(native, name))
+        except Exception as e:   # noqa: BLE001 — reported to the caller, which refuses to run
+            result["error"] = "%s: %s" % (type(e).__name__, e)
+        done.set()
+
+    def on_ui_thread():
+        core = getattr(wv, "CoreWebView2", None)
+        if core is not None:
+            finish(core)
+            return
+
+        def on_init(sender, args):
+            if not getattr(args, "IsSuccess", True):
+                result["error"] = "WebView2 initialisation failed: %s" % getattr(args, "InitializationException", "?")
+                done.set()
+                return
+            finish(sender.CoreWebView2)
+
+        wv.CoreWebView2InitializationCompleted += on_init
+
+    _invoke(native, on_ui_thread)
+    if not done.wait(timeout):
+        raise RuntimeError("WebView2 did not initialise within %gs — the guard cannot be installed" % timeout)
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    return result["handlers"]
+
+
+def _invoke(native, fn):
+    """Run fn on the form's UI thread (WinForms Control.Invoke), as pywebview does for its own calls."""
+    if not getattr(native, "InvokeRequired", False):
+        fn()
+        return
+    import clr  # noqa: F401  (pythonnet; Windows only)
+    from System import Func, Type
+    native.Invoke(Func[Type](fn))
+
+
+def _save_dialog(form, suggested):
+    """Where an allowed download (one of the engine's own exports) goes. Runs on the UI thread inside
+    the DownloadStarting event, like pywebview's own version. → path or None (cancelled)."""
+    import clr  # noqa: F401
+    clr.AddReference("System.Windows.Forms")
+    import System.Windows.Forms as WinForms
+    dialog = WinForms.SaveFileDialog()
+    dialog.FileName = suggested
+    dialog.RestoreDirectory = True
+    dialog.Filter = "All files (*.*)|*.*"
+    if dialog.ShowDialog(form) == WinForms.DialogResult.OK:
+        return str(dialog.FileName)
+    return None
+
+
+def _webview2_control(native):
+    """pywebview's BrowserForm holds the WebView2 WinForms control as `webview` (6.x: also
+    `browser.webview`); the attribute path has moved between versions, so try the known ones."""
+    for path in (("webview",), ("browser", "webview")):
         obj = native
-        ok = True
         for name in path:
             obj = getattr(obj, name, None)
             if obj is None:
-                ok = False
                 break
-        if ok:
+        if obj is not None and hasattr(obj, "CoreWebView2InitializationCompleted"):
             return obj
     return None
+
+
+def _core_webview2(native):
+    """Kept for the VM list's wording: the initialised CoreWebView2 of the control, or None."""
+    wv = _webview2_control(native)
+    return getattr(wv, "CoreWebView2", None) if wv is not None else None

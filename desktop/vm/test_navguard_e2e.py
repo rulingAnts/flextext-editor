@@ -70,6 +70,8 @@ def main():
         results["windows"] = len(webview.windows)
         window.destroy()
 
+    webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False   # as app.py: the guard decides, not pywebview
+    webview.settings["ALLOW_DOWNLOADS"] = False
     window = webview.create_window("navguard e2e", srv.origin + "/", width=600, height=400)
     webview.start(on_start, window, gui="edgechromium", private_mode=False,
                   storage_path=os.path.join(tempfile.gettempdir(), "navguard-e2e-storage"))

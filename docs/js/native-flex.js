@@ -41,6 +41,20 @@ function bridge() {
   } catch { return null; }
 }
 
+/* True when THIS PAGE was served by the FLEx shell: its staging step stamps the shell page with
+ * <meta name="flextext-flex-shell"> (desktop/build/stage_engine.py), readable synchronously before
+ * pywebview has injected the bridge. It says where the page came from, not that FLEx is reachable —
+ * isFlexShell() below is that. Used for the choices that must be made at module load: the shell's
+ * 127.0.0.1 origin is NOT a developer's localhost (app.js isLocalDev), so the engine talks to the
+ * production relay worker as an installed app would. */
+export function isFlexShellPage() {
+  try {
+    if (typeof document === 'undefined') return false;
+    const m = document.querySelector('meta[name="flextext-flex-shell"]');
+    return !!(m && m.getAttribute('content') === '1');
+  } catch { return false; }
+}
+
 /* True only inside the FLEx shell: the window was opened by pywebview AND the shell's hello()
  * answered with a matching contract. Before hello() has been checked this is false — call
  * whenFlexReady() first. */

@@ -73,6 +73,27 @@ def engine_version(docs):
     return m.group(1) if m else None
 
 
+SHELL_META = '<meta name="flextext-flex-shell" content="1">'
+
+
+def mark_shell_page(index_html):
+    """The staged shell page carries a <meta> the engine reads SYNCHRONOUSLY (native-flex.js
+    isFlexShellPage) before the bridge is injected: on it the engine's localhost dev switch is off,
+    so the shell talks to the production relay worker like any installed app instead of the
+    `wrangler dev` worker a developer's localhost means (Seth, 2026-10-14: a branch that is not
+    production "will run into CORS, turnstile, and callback issues")."""
+    with open(index_html, "r", encoding="utf-8") as f:
+        html = f.read()
+    if SHELL_META in html:
+        return
+    anchor = '<meta charset="utf-8">'
+    if anchor not in html:
+        raise SystemExit("stage_engine: the shell page has no <meta charset> to anchor the shell marker on")
+    html = html.replace(anchor, anchor + "\n" + SHELL_META, 1)
+    with open(index_html, "w", encoding="utf-8") as f:
+        f.write(html)
+
+
 def source_commit(repo):
     """Short commit of the checkout the engine is staged from, or None (no git, not a checkout).
     The shell prints it at start-up so "which build is this" is answered by the console, not by
@@ -109,6 +130,7 @@ def stage(out, satellite="audio-segmenter", docs=None):
     # the engine's own help pages are useful offline; keep them
     if os.path.isdir(os.path.join(docs, "help")):
         shutil.copytree(os.path.join(docs, "help"), os.path.join(eng, "help"))
+    mark_shell_page(os.path.join(out, "index.html"))
     ver = engine_version(docs)
     with open(os.path.join(out, "engine-version.json"), "w", encoding="utf-8") as f:
         json.dump({"engineVersion": ver, "satellite": satellite, "source": source_commit(os.path.dirname(docs))}, f)

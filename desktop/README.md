@@ -74,8 +74,13 @@ builds and installs. The FIRST launch found two things, both fixed the same day 
 the guard asked for the native window before pywebview had created it — pywebview runs the
 `webview.start()` function in its own thread at once — so the shell refused to run and WebView2
 reported E_ABORT for the window torn down under it. `webview_hooks.install()` now waits for the
-window and attaches on the UI thread when WebView2 is ready. Still never exercised on Windows:
-everything in `lcm_real.py`, the real `CoreWebView2` attribute path, the Save dialog for exports.
+window and attaches on the UI thread when WebView2 is ready. The fourth launch opened the window
+with a BLANK home screen: the CSP refused the shell page's inline `window.__MODE` script, so the
+engine booted as the editor — the server now hashes inline scripts into `script-src`, and the same
+page renders the Segmenter home headless on Linux (plan §2.4 items 6–7, which also cover why the
+shell is not "localhost" to the engine and the worker allow-list entry the backend still needs).
+Still never exercised on Windows: everything in `lcm_real.py`, the real `CoreWebView2` attribute
+path, the Save dialog for exports.
 The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
 when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
 

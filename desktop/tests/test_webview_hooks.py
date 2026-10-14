@@ -209,3 +209,21 @@ def test_install_refuses_when_initialisation_fails_or_the_window_never_shows():
         webview_hooks.install(FakeWindow(None, shown=False), PORT, timeout=0.05)
     with pytest.raises(RuntimeError, match="WebView2 control"):
         webview_hooks.install(FakeWindow(object()), PORT, timeout=0.05)
+
+
+def test_dev_mode_opens_devtools_itself_release_does_not():
+    """Accelerator keys and context menus stay off in both modes, so DevTools can only come up
+    if the shell opens them."""
+    class DevCore(Core):
+        def __init__(self):
+            super().__init__()
+            self.opened = 0
+
+        def OpenDevToolsWindow(self):
+            self.opened += 1
+    c = DevCore()
+    webview_hooks.attach(c, PORT, release=False)
+    assert c.opened == 1 and c.Settings.AreDevToolsEnabled is True and c.Settings.AreBrowserAcceleratorKeysEnabled is False
+    r = DevCore()
+    webview_hooks.attach(r, PORT, release=True)
+    assert r.opened == 0 and r.Settings.AreDevToolsEnabled is False

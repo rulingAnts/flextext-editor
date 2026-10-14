@@ -49,3 +49,16 @@ def test_startup_line_names_the_build(tmp_path):
     (tmp_path / "engine-version.json").write_text(json.dumps({"engineVersion": "v719", "source": "abc1234"}))
     assert app.startup_line(str(tmp_path)) == "FlexText Segmenter for FLEx: shell %s, engine v719, source abc1234" % SHELL_VERSION
     assert app.startup_line(str(tmp_path / "missing")).endswith("engine ?, source ?")
+
+
+def test_staged_shell_page_is_marked_and_the_source_is_not(tmp_path):
+    """The staged index.html carries <meta name="flextext-flex-shell"> (read by native-flex.js
+    isFlexShellPage: the shell's 127.0.0.1 is not a developer's localhost); the satellite source
+    in the repo does not, so the web app is untouched."""
+    out = se.stage(str(tmp_path / "engine"))
+    staged = open(os.path.join(out, "index.html"), encoding="utf-8").read()
+    assert se.SHELL_META in staged and staged.index('<meta charset="utf-8">') < staged.index(se.SHELL_META)
+    src = open(os.path.join(se.REPO, "satellites", "audio-segmenter", "index.html"), encoding="utf-8").read()
+    assert se.SHELL_META not in src
+    se.mark_shell_page(os.path.join(out, "index.html"))   # idempotent
+    assert open(os.path.join(out, "index.html"), encoding="utf-8").read().count(se.SHELL_META) == 1

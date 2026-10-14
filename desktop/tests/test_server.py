@@ -158,3 +158,32 @@ def test_csp_has_no_off_origin_content_sources():
     for directive in ("script-src", "frame-src"):
         assert "https://" not in csp.split(directive)[-1].split(";")[0] if directive in csp else True
     assert "default-src 'self'" in csp and "object-src 'none'" in csp
+
+
+def test_csp_allows_the_shell_pages_inline_scripts_by_hash(tmp_path):
+    """The satellite shell sets window.__MODE in an inline script; a plain default-src 'self' refused
+    it and the engine booted as the editor with a blank home (VM, 2026-10-14). Each inline script is
+    hashed into script-src — no 'unsafe-inline', and a script with src= is not hashed."""
+    import base64
+    import hashlib
+    root = tmp_path / "engine"
+    (root / "help").mkdir(parents=True)
+    body = "window.__MODE = 'segmenter';"
+    (root / "index.html").write_text("<!doctype html><meta charset=\"utf-8\"><script>%s</script>"
+                                     "<script src=\"js/app.js\" type=\"module\"></script>" % body, encoding="utf-8")
+    (root / "help" / "a.html").write_text("<html><SCRIPT type=\"text/javascript\">\n  alert(1)\n</SCRIPT></html>", encoding="utf-8")
+    hashes = srv.inline_script_hashes(str(root))
+    want = "'sha256-%s'" % base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+    assert want in hashes and len(hashes) == 2, hashes
+    assert want == "'sha256-pIcrNRRGkibS6eZNOiokmYZIVJVgafGy4YwgqWYbIQc='", "the hash WebView2 itself asked for"
+    csp = srv.csp_for([], hashes)
+    script_src = [d for d in csp.split(";") if d.strip().startswith("script-src")][0]
+    assert "'self'" in script_src and want in script_src and "unsafe-inline" not in script_src
+    port = free_port()
+    s = srv.start(str(root), port=port)
+    try:
+        status, headers, _ = get(port, "/")
+        assert status == 200 and want in headers["Content-Security-Policy"]
+    finally:
+        s.shutdown()
+        s.server_close()

@@ -15,6 +15,9 @@
   DNS-rebinding would otherwise be able to drive it).
 """
 
+import base64
+import hashlib
+import re
 import mimetypes
 import os
 import secrets
@@ -31,9 +34,38 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("application/wasm", ".wasm")
 
 
-def csp_for(connect_origins):
+_INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script>", re.IGNORECASE | re.DOTALL)
+
+
+def inline_script_hashes(root):
+    """'sha256-…' for every inline <script> in every .html under root, for the CSP's script-src.
+
+    The satellite shell page sets `window.__MODE` in a classic inline script (and carries the
+    staging-ribbon script); under a plain `default-src 'self'` WebView2 refused both, the engine
+    booted as the editor and the home screen stayed blank (first VM launch, 2026-10-14). Hashing the
+    exact script bodies keeps the CSP strict — no 'unsafe-inline' — and self-maintaining."""
+    out = []
+    for dirpath, _dirs, files in os.walk(root):
+        for f in sorted(files):
+            if not f.lower().endswith(".html"):
+                continue
+            try:
+                with open(os.path.join(dirpath, f), "r", encoding="utf-8") as fh:
+                    html = fh.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            for body in _INLINE_SCRIPT.findall(html):
+                h = "'sha256-%s'" % base64.b64encode(hashlib.sha256(body.encode("utf-8")).digest()).decode("ascii")
+                if h not in out:
+                    out.append(h)
+    return out
+
+
+def csp_for(connect_origins, script_hashes=()):
     extra = " ".join(o for o in (connect_origins or []) if o)
-    return ("default-src 'self'; frame-src 'self' blob:; form-action 'self'; base-uri 'self'; "
+    hashes = " ".join(script_hashes or ())
+    return ("default-src 'self'; script-src 'self'" + ((" " + hashes) if hashes else "") + "; "
+            "frame-src 'self' blob:; form-action 'self'; base-uri 'self'; "
             "object-src 'none'; connect-src 'self'" + ((" " + extra) if extra else "") + "; "
             "img-src 'self' blob: data:; media-src 'self' blob:; worker-src 'self' blob:; "
             "style-src 'self' 'unsafe-inline'; font-src 'self'")
@@ -216,7 +248,7 @@ class ShellServer(ThreadingHTTPServer):
     def __init__(self, root, port=DEFAULT_PORT, connect_origins=(), media=None):
         self.root = os.path.realpath(root)
         self.nonce = secrets.token_hex(16)
-        self.csp = csp_for(connect_origins)
+        self.csp = csp_for(connect_origins, inline_script_hashes(self.root))
         self.media = media or MediaRegistry()
         super().__init__(("127.0.0.1", int(port)), _Handler)
 

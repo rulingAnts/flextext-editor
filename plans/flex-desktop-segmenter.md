@@ -218,6 +218,22 @@ one cost it twice.
    resolves a newer commit — it prints "Requirement already satisfied" for the dependencies and
    installs nothing. Install with `--force-reinstall --no-deps`, and have the program print its
    source commit first thing so "which build is this" is never inferred from pip's output.
+6. **A strict CSP refuses the shell page's own inline scripts.** The satellite shell sets
+   `window.__MODE` in a classic inline `<script>`; under `default-src 'self'` WebView2 refused it,
+   the engine booted as the EDITOR and the home screen was blank (header and badge rendered, body
+   empty). `server.py` hashes every inline script in every staged `.html` into `script-src` at
+   start-up — strict and self-maintaining, no `'unsafe-inline'`. Reproduced and fixed headless on
+   Linux (Playwright against the staged engine) before the next VM round trip; do that first.
+7. **The shell's `127.0.0.1` is not a developer's localhost.** The engine's `isLocalDev()` matched
+   it and aimed at `http://localhost:8787` (the `wrangler dev` worker) with Turnstile test keys —
+   nothing of which exists on a user's machine. The staged page carries
+   `<meta name="flextext-flex-shell" content="1">` (stage_engine), `native-flex.js isFlexShellPage()`
+   reads it synchronously, and `isLocalDev()` is false on it: the shell talks to the production
+   relay worker as an installed app. **Backend step, Seth's:** the production worker's
+   `ALLOWED_ORIGINS` must carry the exact plaintext origin `http://127.0.0.1:8017` (`originAllows`
+   accepts an exact `http://` entry, never a pattern) before pairing from the shell can work.
+   OAuth callbacks are not in play: v1 has no researcher sign-in from the shell (`offsiteAuth:
+   false`).
 
 ---
 

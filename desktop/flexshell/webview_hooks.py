@@ -104,6 +104,8 @@ def attach(core, port, opener=None, release=True, chooser=None, now=time.monoton
     core.FrameNavigationStarting += on_frame_nav
     core.NewWindowRequested += on_new_window
     core.DownloadStarting += on_download
+    if not release and hasattr(core, "OpenDevToolsWindow"):
+        core.OpenDevToolsWindow()   # F12 and the context menu stay off even in dev mode: this is the only way in
     return {"nav": on_nav, "frame": on_frame_nav, "new_window": on_new_window, "download": on_download}
 
 

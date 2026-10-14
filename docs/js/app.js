@@ -14,7 +14,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { whenFlexReady, isFlexShell } from './native-flex.js';   // the FLEx desktop shell's seam (desktop/); inert on the web
+import { whenFlexReady, isFlexShell, isFlexShellPage } from './native-flex.js';   // the FLEx desktop shell's seam (desktop/); inert on the web
 import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
@@ -152,7 +152,11 @@ const LOCAL_WORKER = 'http://localhost:8787';                 // `wrangler dev` 
  * never render the widget is what makes that cap bite. */
 const TURNSTILE_SITE_KEY = '0x4AAAAAADo0TdBBVpldATJ6';
 const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';  // Cloudflare always-pass key (local dev only)
-function isLocalDev() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }
+// ⚠ NOT the FLEx desktop shell: it serves the engine from 127.0.0.1 too, but it is an installed app
+// talking to the PRODUCTION worker (its origin is allow-listed there like any other app's), not a
+// developer's rig with a `wrangler dev` worker beside it. isFlexShellPage() is the staged page's
+// own marker, readable here at module load (native-flex.js).
+function isLocalDev() { return !isFlexShellPage() && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }
 // The Cloudflare STAGING site counts as a dev host for the researcher-panel ENTRY only
 // (?mode=researcher runs the panel on the staging engine instead of redirecting to the
 // production app). Worker base + Turnstile keys deliberately do NOT follow this: staging

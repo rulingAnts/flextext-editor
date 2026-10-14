@@ -81,6 +81,22 @@ def to_engine_doc(t, media_urls=None):
     return doc
 
 
+def _drop_final_markers(words, is_punct, form):
+    """The § boundary marker is FLEx structure, not text (seg-word-split): the engine may show a text
+    with its markers replaced by real breaks, while LCM still holds the § punct items. The post-state
+    comparison is therefore MARKER-AGNOSTIC: a phrase-final run of § punctuation is dropped on both
+    sides before comparing. A § with words after it is text and stays."""
+    out = list(words)
+    while out and is_punct(out[-1]) and form(out[-1]).strip() == SECTION:
+        out.pop()
+    # markers inside a trailing punctuation run ("§" then ".") are dropped too
+    tail = []
+    while out and is_punct(out[-1]):
+        tail.append(out.pop())
+    tail = [w for w in tail if form(w).strip() != SECTION]
+    return out + list(reversed(tail))
+
+
 def post_state_of(doc, para_guids=None):
     """What the engine says a touched paragraph should look like after the save — compared by
     W4.6 against a re-read of LCM. Per FLEx paragraph: ordered phrases with text, words (form,
@@ -97,11 +113,12 @@ def post_state_of(doc, para_guids=None):
                 frees[seg.get("freeLang") or doc.get("analLang")] = seg.get("free") or ""
             frees = {k: v for k, v in frees.items() if v}
             a = seg.get("attrs") or {}
+            words = _drop_final_markers(seg["words"], lambda w: bool(w.get("punct")), lambda w: w.get("txt") or "")
             out.setdefault(pg, []).append({
                 "segGuid": fx.get("segGuid"),
-                "text": " ".join(w["txt"] for w in seg["words"]) if seg["words"] else (seg.get("baseline") or ""),
+                "text": " ".join(w["txt"] for w in words) if words else (seg.get("baseline") or ""),
                 "words": [{"txt": w["txt"], "punct": bool(w.get("punct")), "gls": w.get("gls", ""),
-                           "analysisGuid": (w.get("flex") or {}).get("analysisGuid")} for w in seg["words"]],
+                           "analysisGuid": (w.get("flex") or {}).get("analysisGuid")} for w in words],
                 "ft": frees, "lt": {k: v for k, v in (seg.get("lits") or {}).items() if v},
                 "begin": a.get("begin-time-offset"), "end": a.get("end-time-offset"),
             })
@@ -115,11 +132,12 @@ def read_model_post_state(t, para_guids=None):
         if para_guids is not None and p["guid"] not in para_guids:
             continue
         for s in p["segments"]:
+            analyses = _drop_final_markers(s["analyses"], lambda a: a["kind"] == "punct", lambda a: a["form"])
             out.setdefault(p["guid"], []).append({
                 "segGuid": s["guid"],
-                "text": " ".join(a["form"] for a in s["analyses"]),
+                "text": " ".join(a["form"] for a in analyses),
                 "words": [{"txt": a["form"], "punct": a["kind"] == "punct",
-                           "gls": (a.get("gloss") or {}).get((t["analWss"] or ["en"])[0], ""), "analysisGuid": a["guid"]} for a in s["analyses"]],
+                           "gls": (a.get("gloss") or {}).get((t["analWss"] or ["en"])[0], ""), "analysisGuid": a["guid"]} for a in analyses],
                 "ft": {k: v for k, v in s["ft"].items() if v}, "lt": {k: v for k, v in s["lt"].items() if v},
                 "begin": s["beginTime"], "end": s["endTime"],
             })

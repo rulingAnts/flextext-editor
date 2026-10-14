@@ -157,3 +157,9 @@ In this order. The scripts refuse a folder without the copy marker.
   (`splitWithTextChange`) rather than guessed: save the split first, then edit.
 - **D15** Literal translations are read into the doc (`lits`) but the engine has no editor for them,
   so `lt.set` is never emitted by the diff in v1.
+- **D16** (Seth, 2026-10-14) The engine's `breakKind` setting (Sentence = `<paragraph>`, Clause =
+  `<phrase>`) and the once-per-text replacement of § marks by the chosen kind both live on the flat
+  line model as `paraOf`, so the shell's diff sees them as `phrase.toPara` / `para.toPhrase` and the
+  post-state comparison ignores phrase-final § on both sides (`model._drop_final_markers`). FLEx keeps
+  its § items; the engine may show the text without them. V-1 should include a text whose marks were
+  replaced by sentence breaks and then saved.

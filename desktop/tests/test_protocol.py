@@ -531,3 +531,39 @@ def test_copy_only_without_marker_refuses_the_write(tmp_path):
     with pytest.raises(FlexError) as ei:
         s.save(pv["previewToken"])
     assert ei.value.code == "E_COPY_ONLY" and port.undoable_action_count() == 0
+
+
+def test_section_marks_replaced_in_the_engine_compare_clean_and_a_sentence_break_is_a_para_split(world):
+    """The engine may show a FLEx text with its § marks replaced by real breaks (seg-word-split). The
+    post-state comparison ignores phrase-final § on both sides, so a doc without the marker words still
+    matches LCM, which keeps them; a § turned into a SENTENCE break arrives as phrase.toPara."""
+    import copy
+    w, s, port = world, world["s"], world["port"]
+    doc = copy.deepcopy(w["doc"])
+    # lines 0–2 are paragraph 0: "aaa bbb ccc." | "ddd eee §" | "fff ggg."  — drop the § word from line 1
+    l1 = doc["paragraphs"][1]
+    l1["segments"][0]["words"] = [x for x in l1["segments"][0]["words"] if not x.get("boundaryMarker")]
+    pg = l1["paraOf"]
+    # (a) marker gone, nothing else: an ft edit on that line must compare clean
+    seg = l1["segments"][0]
+    seg["free"], seg["freeLang"] = "no marker here", "en"
+    ops = [{"op": "ft.set", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "ws": "en", "value": "no marker here"}]
+    pv = s.preview(w["tg"], w["rev"], ops, model.post_state_of(doc, {pg}))
+    r = s.save(pv["previewToken"])
+    assert r["saved"] == 1
+    t = port.read_text(w["tg"])
+    assert t["paragraphs"][0]["segments"][1]["analyses"][-1]["form"] == SECTION, "LCM still holds the § item"
+    # (b) the § became a sentence break: line 2 starts a new paragraph → phrase.toPara, § removed from P
+    rev = s.texts[w["tg"]]["baseRev"]
+    doc2 = copy.deepcopy(doc)
+    doc2["paragraphs"][2]["paraOf"] = "engine-new-para"
+    ops = [{"op": "phrase.toPara", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "newPara": "engine-new-para"}]
+    post = {pg: model.post_state_of(doc2, {pg})[pg], "engine-new-para": model.post_state_of(doc2, {"engine-new-para"})["engine-new-para"]}
+    pv = s.preview(w["tg"], rev, ops, post)
+    assert pv["counts"] == {"StTxtPara": 1}
+    r = s.save(pv["previewToken"])
+    t = port.read_text(w["tg"])
+    assert len(t["paragraphs"]) == 3
+    assert [x["guid"] for x in t["paragraphs"][0]["segments"]] == [doc["paragraphs"][0]["segments"][0]["attrs"]["guid"], seg["attrs"]["guid"]]
+    assert SECTION not in t["paragraphs"][0]["contents"], "the trailing § went with the paragraph split"
+    assert t["paragraphs"][1]["segments"][0]["guid"] == doc["paragraphs"][2]["segments"][0]["attrs"]["guid"]

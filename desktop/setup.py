@@ -21,7 +21,7 @@ class build_py(_build_py):
         import stage_engine
         docs = os.path.join(HERE, "..", "docs")
         if not os.path.isfile(os.path.join(docs, "index.html")):
-            self.announce("stage_engine: no ../docs beside desktop/ — building without a staged engine", level=3)
+            self.announce("stage_engine: no ../docs beside desktop/ - building without a staged engine", level=3)
             return
         out = os.path.join(self.build_lib, "flexshell", "engine")
         stage_engine.stage(out, "audio-segmenter", docs)

@@ -8,7 +8,7 @@
 # built from — pinned per shell build, as the plan requires. Windows-only dependencies carry a
 # sys_platform marker so the package installs (and its tests run) on Linux and Mac too.
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -17,7 +17,7 @@ version = "0.1.0.dev0"
 description = "FlexText Segmenter for FLEx — a Windows pywebview shell around the Audio Segmenter with FieldWorks integration"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "AGPL-3.0-only" }
+license = "AGPL-3.0-only"
 dependencies = [
   "pywebview>=5.0; sys_platform == 'win32'",
   "pythonnet>=3.0; sys_platform == 'win32'",

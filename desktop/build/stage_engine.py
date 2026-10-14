@@ -102,9 +102,11 @@ def stage(out, satellite="audio-segmenter", docs=None):
     bad = scan(out)
     if bad:
         for file, kind, ref in bad:
-            print("OFF-ORIGIN %-18s %s → %s" % (kind, file, ref), file=sys.stderr)
+            print("OFF-ORIGIN %-18s %s -> %s" % (kind, file, ref), file=sys.stderr)
         raise SystemExit("stage_engine: %d off-origin content reference(s); the shell serves only its own origin" % len(bad))
-    print("staged engine %s (%s) → %s" % (ver, satellite, out))
+    # ASCII only: under pip this runs behind a pipe whose encoding on Windows is cp1252, and a
+    # non-encodable character here failed the whole wheel build (seen on the first VM install).
+    print("staged engine %s (%s) -> %s" % (ver, satellite, out))
     return out
 
 

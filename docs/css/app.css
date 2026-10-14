@@ -3824,3 +3824,17 @@ a.offsite-off, area.offsite-off {
   color: inherit;
   cursor: default;
 }
+
+/* ── FLEx desktop shell (desktop/; flex-panel.js) — present only when the shell runs the Segmenter ── */
+.flex-home{border:1px solid var(--border,#ddd);border-radius:8px;padding:.6rem .8rem;margin:.5rem 0 1rem}
+.flex-home h3{margin:0 0 .4rem;font-size:1rem}
+.flex-home .flex-ver{font-weight:normal;opacity:.7;font-size:.8rem}
+.flex-row{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:.3rem 0}
+.flex-reasons{color:#92400e;font-size:.9rem;margin:.2rem 0}
+.flex-editor-row{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;width:100%;padding:.2rem 0}
+.flex-badge{font-size:.8rem;padding:.1rem .45rem;border-radius:999px;background:#1d4ed8;color:#fff}
+.flex-preview .flex-summary{max-height:40vh;overflow:auto;text-align:left;padding-left:1.2rem}
+.flex-preview .flex-blockers{color:#b91c1c;font-weight:600}
+.flex-preview .flex-warnings{color:#b45309}
+.flex-preview .flex-backup{opacity:.75;font-size:.85rem}
+.flex-progress{font-style:italic}

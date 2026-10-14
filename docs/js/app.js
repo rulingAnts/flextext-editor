@@ -13,6 +13,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
+import { whenFlexReady, isFlexShell } from './native-flex.js';   // the FLEx desktop shell's seam (desktop/); inert on the web
 import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
@@ -1011,6 +1012,8 @@ function enterEditor(tab) {
   updateShareButton();
   applyCutTabVisibility();
   switchTab(landingTab(tab), /* landing */ true);
+  // the FLEx shell's panel (flex-panel.js) adds its row to the editor header; nothing listens in a browser
+  document.dispatchEvent(new CustomEvent('flextext:editor-entered'));
 }
 
 /* Is this doc still UNCUT — i.e. has nobody done segmentation work on it yet? True for the seeds
@@ -9993,6 +9996,8 @@ function renderSegmenterView() {
   const pi = view.querySelector('#btn-paste-invite');
   if (pi) { pi.textContent = t('invite.pasteBtn'); pi.addEventListener('click', showInvitePasteModal); }
   sgRenderList();
+  // the FLEx shell's panel (flex-panel.js) adds its project section here; nothing listens in a browser
+  document.dispatchEvent(new CustomEvent('flextext:home-rendered'));
 }
 
 async function sgRenderList() {
@@ -12719,6 +12724,30 @@ wireExternalLinks(document, {
  * The sweep also catches fields drawn later: rows are rebuilt as the user scrolls, and a field that
  * arrives unhardened has offered a suggestion before anyone notices. See typing.js. */
 enforceTyping(document);
+
+/* THE FLEx DESKTOP SHELL (desktop/, plans/flex-desktop-segmenter.md). In a browser whenFlexReady()
+ * resolves false after a short wait and nothing below runs — the FLEx UI module is never even fetched,
+ * which is why it needs no SHELL entry. In the shell it adds the project section to the Segmenter's home
+ * and the FLEx row to the editor. Only the Segmenter wears it (the shell IS the Segmenter). */
+if (SEGMENTER_MODE) {
+  whenFlexReady().then((ready) => {
+    if (!ready || !isFlexShell()) return;
+    return import('./flex-panel.js').then((m) => m.initFlexPanel({
+      db, t, toast, confirmDialog, docStats,
+      getCurrent: () => current,
+      openRecord: (id) => sgOpen(id),
+      persist: () => persist(),
+      flush: () => { try { commitFieldUndo(); } catch { /* no field focused */ } return Promise.resolve(); },
+      activeLine: () => { const p = activeLineOnLeave(activeTab); return p && Number.isInteger(p.i) ? p.i : 0; },
+      fetchMedia: async (docId, url, name) => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('media ' + res.status);
+        const blob = await res.blob();
+        await db.putMedia(docId, { blob, name, mimeType: blob.type || 'audio/wav' });
+      },
+    }));
+  }).catch((e) => console.warn('[flex] panel failed to start', e));
+}
 
 /* ⚠ MODULE SCOPE, NOT setup() — WHICH IS WHERE THIS USED TO BE, AND WHY #43 WAS ONLY HALF FIXED.
  * setup() returns early for CROWD_MODE and PARAGRAPH_MODE before it ever got here, so the Android

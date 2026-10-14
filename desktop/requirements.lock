@@ -1,0 +1,23 @@
+# Pinned dependencies for the Windows shell (plan §12.1). Installed with `pip install --require-hashes`.
+#
+# ⚠ HASHES ARE PLACEHOLDERS UNTIL THE FIRST WINDOWS BUILD (cloud session, no Windows, no PyPI access
+# for the win_amd64 wheels). On the VM run `pip download --only-binary=:all: --platform win_amd64
+# --python-version 3.13 pywebview==5.4 pythonnet==3.0.5 pyflexicon==4.13.0 pyinstaller==6.11.1
+# pytest==8.3.4` and `pip hash` each wheel, then replace every sha256 below. pip refuses to install
+# this file while a placeholder is present — which is the point: an unpinned build is not a build.
+#
+# Versions: Python 3.13 x64 (matches the VM); pythonnet 3.x on .NET Framework (clr_loader netfx);
+# pyflexicon 4.13.0 tested on the VM (installed under its old import name there — lcm_real.py tries
+# both `flexlibs` and `flexicon`).
+pywebview==5.4 \
+    --hash=sha256:PLACEHOLDER_REPLACE_ON_FIRST_WINDOWS_BUILD_0000000000000000000000000000
+pythonnet==3.0.5 \
+    --hash=sha256:PLACEHOLDER_REPLACE_ON_FIRST_WINDOWS_BUILD_0000000000000000000000000001
+clr-loader==0.2.7 \
+    --hash=sha256:PLACEHOLDER_REPLACE_ON_FIRST_WINDOWS_BUILD_0000000000000000000000000002
+pyflexicon==4.13.0 \
+    --hash=sha256:PLACEHOLDER_REPLACE_ON_FIRST_WINDOWS_BUILD_0000000000000000000000000003
+pyinstaller==6.11.1 \
+    --hash=sha256:PLACEHOLDER_REPLACE_ON_FIRST_WINDOWS_BUILD_0000000000000000000000000004
+pytest==8.3.4 \
+    --hash=sha256:PLACEHOLDER_REPLACE_ON_FIRST_WINDOWS_BUILD_0000000000000000000000000005

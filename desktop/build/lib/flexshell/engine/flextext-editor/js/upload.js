@@ -1,0 +1,518 @@
+/* upload.js — stream the finished file into the researcher's own Google Drive
+ * THROUGH the connectivity worker (install-authed; the worker holds the
+ * researcher's OAuth token and files everything under
+ * "FlexText Uploads / <device nickname>").
+ *
+ * The old Apps Script relay leg is RETIRED (2026-07-13): uploads exist only on
+ * researcher-linked devices, small files as one POST, big files as CHUNKED
+ * RESUMABLE sessions (adaptive chunk size, exact mid-file resume across drops/
+ * reloads/offline gaps — Drive's own byte count is the source of truth).
+ * Queued items persist in IndexedDB and retry forever, exactly as before.
+ */
+
+import * as db from './db.js';
+
+const upKey = (docId) => 'upload:' + docId;
+const active = new Map();
+
+export function getUpload(docId) { return active.get(docId) || null; }
+
+// Injected by app.js (returns {url, headers} for an ENROLLED device, else null):
+// lets uploads stream through the worker into the researcher's own Drive without
+// this module importing sync.js. Evaluated fresh on every run/retry, so a device
+// enrolled (or revoked) mid-queue does the right thing on its next attempt.
+let workerTargetProvider = null;
+export function setWorkerUploadTarget(fn) { workerTargetProvider = fn; }
+
+/* The backend host an upload is actually talking to, for error messages. Hostname only — a target
+ * URL can carry a path and query, and neither belongs in a sentence shown to a transcriber. */
+export function targetHost(target) {
+  try { return new URL((target && target.url) || '').host || 'the server'; }
+  catch { return 'the server'; }
+}
+
+// Chunked-streaming tuning. Drive requires every non-final chunk to be a multiple
+// of 256 KiB. The size ADAPTS to the link: grows toward 32 MiB while chunks land
+// fast, halves toward 512 KiB on slowness or failure — village connections send
+// small reliable pieces, good connections finish big files quickly.
+const STREAM_SINGLE_MAX = 16 * 1024 * 1024;  // ≤ this → one plain POST; above → chunked resumable
+const CHUNK_UNIT = 262144;
+const CHUNK_MIN = 2 * CHUNK_UNIT;            // 512 KiB
+const CHUNK_MAX = 128 * CHUNK_UNIT;          // 32 MiB
+const CHUNK_START = 16 * CHUNK_UNIT;         // 4 MiB opening guess
+const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ⚠ PATIENCE MUST OUTLAST A REAL OUTAGE (Seth, 2026-09-09): "My apartment connection, even though
+ * it is starlink (but shared among probably 30+ users) often drops a connection for 2 minutes or
+ * more before coming back." Five strikes capped at 60s gave up after ~62 seconds — inside exactly
+ * the event it exists to survive. Eight strikes capped at 3 minutes ride it out: 2+4+8+16+32+64+128
+ * ≈ 4 minutes before handing back to the queue sweep, which re-enters and resumes from Drive own
+ * byte count.
+ *
+ * The reset-on-progress half was already right and is untouched: every delivered chunk sets
+ * `strikes = 0; waitMs = 2000`, so only a run that moves NOTHING tapers. */
+const UP_STRIKES = 8;
+const UP_WAIT_MAX_MS = 180000;
+
+/* Read a chunk's bytes BEFORE the request starts. fetch() reads a Blob body lazily, DURING
+ * transmission — and a read that fails there is invisible to script. Firefox has been seen doing
+ * exactly that on the crowd submit path (2026-08-31 HAR): a Blob freshly read back from IndexedDB
+ * produced a PUT announcing its full Content-Length and then sending ZERO body bytes, which
+ * Cloudflare's edge rejects as malformed — a raw 400 that DevTools then mislabels "CORS Missing
+ * Allow Origin". Every attempt in that submission failed identically; a later fresh read of the
+ * same stored item worked. An ArrayBuffer body cannot fail that way: either the bytes are in hand
+ * before fetch begins, or this returns null and the caller can re-read its source and retry.
+ * Non-Blob slices (test transports) pass through untouched. */
+export async function readChunk(slice) {
+  if (!slice || typeof slice.arrayBuffer !== 'function') return slice;
+  try {
+    const buf = await slice.arrayBuffer();
+    if (buf.byteLength === slice.size) return buf;
+  } catch { /* unreadable — fall through */ }
+  return null;
+}
+const roundUnit = (n) => Math.max(CHUNK_UNIT, Math.floor(n / CHUNK_UNIT) * CHUNK_UNIT);
+/* Aim for ~8 slices, so even a small file reports movement several times instead of once at the
+ * end. AIMD doubles it away within a couple of chunks on a fast link. */
+const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUnit(total / 8)));
+
+/* ── THE CHUNK LOOP, ONCE ────────────────────────────────────────────────────────────────────────
+ *
+ * Probe-first resume, AIMD sizing, halve-on-failure, bounded session restarts. This state machine
+ * had been written THREE times — `_streamChunked` below, `assignUploadFile` in researcher.js, and a
+ * flattened copy on the crowd submit path — and the third copy had neither of the two fixes v337
+ * made to the others (fixed 8 MiB slices that re-sent in full on every failure, and no progress at
+ * all below 16 MiB). The victim of that was the villager on the worst connection in the system,
+ * while the researcher on wifi got the adaptive paths. So: one implementation, three transports.
+ *
+ * It knows nothing about auth, URLs, or storage. The caller supplies:
+ *   total       bytes
+ *   slice(a,b)  -> Blob
+ *   put(id, range, body) -> {done,fileId} | {received} | {gone} | {fail}
+ *   openSession() -> streamId            (throws or returns falsy => give up now)
+ *   onSession(idOrNull)                  persist for resume across restarts (optional)
+ *   onProgress(sent, total)              (optional)
+ *   shouldStop() -> bool                 pause/cancel between chunks (optional)
+ *   streamId                             resume an existing session (optional)
+ *   refresh()                            re-fetch the source blob after an unreadable slice —
+ *                                        see readChunk() above (optional)
+ *
+ * ⚠ SESSION RESTARTS ARE CAPPED AT TWO, AND THAT CAP IS LOAD-BEARING FOR THE CROWD PATH. Opening a
+ * session there spends a Turnstile token — one bot-check per submission — so a loop that reopened
+ * freely would burn the visitor's checks and read to the server as abuse. `gone` is Drive's session
+ * expiring; a spent token is a REFUSAL from openSession, which is why openSession is allowed to
+ * throw and that throw is not retried here.
+ *
+ * Returns { done: true, fileId } | { stalled: true } | { stopped: true }. `stalled` means the
+ * persisted session is still good and the caller's queue should re-enter later — never that the
+ * bytes are lost. */
+export async function runChunkedUpload(io) {
+  const total = io.total;
+  let chunkBytes = openingChunk(total);
+  let streamId = io.streamId || null;
+  const say = (n) => { if (io.onProgress) io.onProgress(Math.min(n, total), total); };
+  const remember = async (id) => { if (io.onSession) await io.onSession(id); };
+
+  for (let session = 0; session < 2; session++) {
+    if (!streamId) {
+      streamId = await io.openSession();
+      if (!streamId) return { stalled: true };
+      await remember(streamId);
+    }
+    let waitMs = 2000, strikes = 0;
+    while (strikes < UP_STRIKES) {
+      if (io.shouldStop && io.shouldStop()) return { stopped: true };
+      // Drive's own byte count is the truth — never this client's idea of where it got to.
+      const probe = await io.put(streamId, `bytes */${total}`, null);
+      if (probe.done) { say(total); return { done: true, fileId: probe.fileId }; }
+      if (probe.gone) { streamId = null; await remember(null); break; }
+      if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS); continue; }
+
+      let offset = probe.received || 0;
+      let pushed = true;
+      say(offset);                                   // the RESUMED position, not a stale 0%
+      while (offset < total) {
+        if (io.shouldStop && io.shouldStop()) return { stopped: true };
+        const size = Math.min(chunkBytes, total - offset);
+        const t0 = Date.now();
+        let body = await readChunk(io.slice(offset, offset + size));
+        if (body === null && io.refresh) {
+          await Promise.resolve(io.refresh()).catch(() => {});
+          body = await readChunk(io.slice(offset, offset + size));
+        }
+        if (body === null) {
+          // The blob itself is unreadable right now (the Firefox IndexedDB case above) — never
+          // put an announced-but-empty body on the wire. Strike, back off, re-probe.
+          strikes++; pushed = false;
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
+          break;
+        }
+        const res = await io.put(streamId, `bytes ${offset}-${offset + size - 1}/${total}`, body);
+        if (res.done) { say(total); return { done: true, fileId: res.fileId }; }
+        if (res.gone) { streamId = null; await remember(null); pushed = false; break; }
+        if (res.fail) {
+          chunkBytes = shrinkChunk(chunkBytes);      // halve: the retry must risk less than the attempt did
+          strikes++; pushed = false;
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
+          break;                                     // re-probe rather than guess the offset
+        }
+        strikes = 0; waitMs = 2000;
+        const secs = (Date.now() - t0) / 1000;
+        if (secs < 15) chunkBytes = Math.min(CHUNK_MAX, chunkBytes * 2);
+        else if (secs > 60) chunkBytes = shrinkChunk(chunkBytes);
+        offset = res.received != null ? res.received : offset + size;
+        say(offset);
+      }
+      if (!streamId) break;                          // dead session → outer loop opens one fresh
+      if (pushed && offset >= total) strikes++;      // all bytes sent, no done yet — the probe settles it
+    }
+    if (streamId) break;                             // strikes exhausted on a LIVE session
+  }
+  return { stalled: true };
+}
+
+export function driveFolderId(text) {
+  const s = String(text || '').trim();
+  let m = s.match(/drive\.google\.com\/[^\s]*folders\/([\w-]{10,})/);
+  if (m) return m[1];
+  m = s.match(/[?&]id=([\w-]{10,})/);
+  if (m) return m[1];
+  if (/^[\w-]{20,}$/.test(s)) return s;
+  return null;
+}
+
+export class DriveUpload {
+  // record: { blob, name, mime, total, sent, docModified }
+  // onState({ status:'uploading'|'paused'|'error'|'done'|'cancelled', sent, total, indeterminate, error, name })
+  constructor(docId, record, onState) {
+    this.docId = docId;
+    this.rec = record;
+    this.onState = onState;
+    this.status = 'uploading';
+    this.abortCtl = null;
+    this.indeterminate = false;
+    this._gen = 0;
+    this.errorMessage = null;
+  }
+
+  emit() {
+    this.onState({
+      status: this.status,
+      sent: this.rec.sent,
+      total: this.rec.total,
+      indeterminate: this.indeterminate,
+      error: this.errorMessage,
+      name: this.rec.name,
+      // On 'done', the Drive file id + the send-time doc-modified stamp, so the
+      // doc can record proof-of-backup (delete-safety). Undefined until done.
+      fileId: this.uploadedFileId,
+      folderId: this.uploadedFolderId,   // per-text Drive folder (remembered for dedupe)
+      docModified: this.rec.docModified,
+      docSig: this.rec.docSig,     // content signature of the queued bundle (proof-of-backup)
+      docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
+    });
+  }
+
+  pause() {
+    if (this.status !== 'uploading') return;
+    this.status = 'paused';
+    this.abortCtl?.abort();
+    this.rec.paused = true; // persist so a deliberate pause survives a restart
+    db.putMedia(upKey(this.docId), this.rec).catch(() => {});
+    this.emit();
+  }
+
+  resume() {
+    if (this.status === 'uploading') return;
+    this.rec.paused = false;
+    db.putMedia(upKey(this.docId), this.rec).catch(() => {});
+    this.start(); // chunked uploads CONTINUE from Drive's byte count; small ones restart (they're small)
+  }
+
+  async cancel() {
+    this.status = 'cancelled';
+    this.abortCtl?.abort();
+    active.delete(this.docId);
+    await db.deleteMedia(upKey(this.docId)).catch(() => {});
+    this.onState({ status: 'cancelled', sent: this.rec.sent, total: this.rec.total, name: this.rec.name });
+  }
+
+  start() {
+    this.status = 'uploading';
+    this.errorMessage = null;
+    const run = ++this._gen;
+    active.set(this.docId, this);
+    this.donePromise = this._run(run)
+      .catch((e) => {
+        if (this._gen !== run) return;
+        if (this.status === 'paused' || this.status === 'cancelled') return;
+        this.status = 'error';
+        this.indeterminate = false;
+        this.errorMessage = e.message;
+        this.emit();
+      })
+      .finally(() => { if (this.status === 'done') active.delete(this.docId); });
+    return this.donePromise;
+  }
+
+  async _run(run) {
+    const rec = this.rec;
+    rec.sent = 0;
+    this.indeterminate = true;
+    this.emit();
+    await db.putMedia(upKey(this.docId), rec).catch(() => {});
+
+    const target = workerTargetProvider && workerTargetProvider();
+    if (!target) {
+      // The relay upload leg is retired: uploads exist ONLY through the
+      // researcher-linked streaming path. The item stays queued with a truthful
+      // message (Cancel is always available on the bar); a later enrollment —
+      // or a revoked binding coming back — picks it up on the next sweep.
+      throw new Error('Uploads need this device to be linked to a researcher.');
+    }
+
+    if (rec.total > STREAM_SINGLE_MAX) {
+      const finished = await this._streamChunked(target, run);
+      if (this._gen !== run || this.status !== 'uploading') return;
+      if (!finished) throw new Error('The upload is paused — it will continue from where it stopped when the connection is back.');
+      return;
+    }
+
+    // Small file: one streaming POST, response read directly.
+    this.abortCtl = new AbortController();
+    let resp = null;
+    try {
+      /* ⚠ DONE-NESS RIDES A QUERY PARAM, NOT A HEADER — and this is not a style choice.
+       * It was an `x-fx-done` header for about an hour, which broke EVERY upload: a custom request
+       * header must be named in the worker's Access-Control-Allow-Headers, and until that worker is
+       * deployed the browser's CORS preflight refuses the request outright. The fetch then rejects,
+       * classifies as transient, and the queue retries forever — "1 file(s) waiting to upload" with
+       * no error anyone can act on.
+       * A query param needs no preflight allowance, so a NEW client works against an OLD worker
+       * (which simply ignores it) and deploy order stops mattering. Sent explicitly as 1 or 0;
+       * ABSENT still means "no change" for engines that predate this. */
+      const doneQ = (target.url.includes('?') ? '&' : '?') + 'done=' + (rec.docDone ? '1' : '0');
+      resp = await fetch(target.url + doneQ, {
+        method: 'POST',
+        headers: {
+          ...target.headers,
+          'content-type': 'application/octet-stream',
+          'x-fx-name': encodeURIComponent(rec.name || ''),
+          'x-fx-mime': rec.mime || '',
+          // Per-text Drive folder identity. Headers, because the body is the raw bytes. A worker
+          // that predates them ignores unknown x-fx-* headers, so deploy order cannot break this.
+          // rec.docId is the WIRE identity: a Lane A record's queue key is 'media:<docId>' but its
+          // bytes belong to <docId>'s folder. Old-format records carry no docId field and fall
+          // back to the key — which for them IS the docId (backward-readable by construction).
+          'x-fx-doc': rec.docId || this.docId || '',
+          'x-fx-doctitle': encodeURIComponent(rec.docTitle || ''),
+          'x-fx-folder': rec.docFolderId || '',   // remembered per-text folder id (dedupe)
+          // v2 source package: which child folder, and the role tag every consumer matches on.
+          // Absent (old records, Lane B) → the text folder untagged, exactly as before.
+          ...(rec.sub ? { 'x-fx-sub': rec.sub } : {}),
+          ...(rec.role ? { 'x-fx-role': rec.role } : {}),
+        },
+        body: rec.blob,
+        signal: this.abortCtl.signal,
+      });
+    } catch (e) {
+      if (e.name === 'AbortError' || this._gen !== run) throw new Error('aborted');
+      /* ⚠ SAY WHICH SERVER, AND SAY THE REQUEST NEVER LEFT (Seth, 2026-08-14: a whole production
+       * instance jammed with every item reading "Failed — will retry", which names neither the cause
+       * nor anything a user could act on). A `fetch` rejection here means the browser never got a
+       * reply, and THREE very different things produce it — offline, the backend refusing this
+       * origin (CORS), and the BROWSER ITSELF refusing to send. The last one is not hypothetical: it
+       * is what actually jammed that instance. Chrome's Local Network Access blocks a request from a
+       * public page to a private address, and a network doing NAT64/DNS64 behind a VPN hands back
+       * exactly that — `connect.flextext.app` resolving to fd00::/8 (a ULA), Chrome refusing every
+       * upload, the queue retrying forever. `navigator.onLine` is TRUE throughout, which is why the
+       * tray cheerfully said "will retry shortly" for hours.
+       *
+       * We cannot tell the three apart from here (a blocked fetch and an offline fetch throw the
+       * same TypeError), so the message names all three in the order worth checking, and names the
+       * host so "which server?" is never the next question. */
+      throw new Error(`Could not reach ${targetHost(target)} — the request never left this device. `
+        + 'Check the connection; if you are on a VPN or an office network, it may be blocking it.');
+    }
+    if (this._gen !== run || this.status !== 'uploading') return;
+    const out = await resp.json().catch(() => ({}));
+    if (!(resp.ok && out.ok && out.fileId)) {
+      /* ⚠ THE HTTP STATUS IS THE DIAGNOSIS, and it used to be discarded. 401/403 is a device whose
+       * link to the researcher has lapsed (re-open the setup link) — a permanent condition that
+       * retrying can never clear, and which read identically to a flaky connection. 5xx really is
+       * worth retrying. Carrying the number costs nothing and is the difference between a user who
+       * is stuck and a user who knows what to do. */
+      /* ⚠ 410 IS "THIS DEVICE WAS DELETED FROM THE PANEL" — the worker's own answer for a revoked
+       * instance, and the exact thing that stranded a real queue (Seth deleted the device, then
+       * asked why it was still trying to upload). It belongs with 401/403: all three mean the link
+       * is gone and no amount of retrying brings it back. */
+      if (resp.status === 401 || resp.status === 403 || resp.status === 410) {
+        throw new Error(`This device is no longer signed in to the researcher (${resp.status}) — `
+          + 'open your setup or assignment link again to re-link it, then press Send now.');
+      }
+      throw new Error(out.error === 'no_drive' || out.error === 'reconnect_needed'
+        ? 'The researcher\'s Google Drive connection needs attention — this upload will keep retrying.'
+        : `The upload did not arrive (${resp.status || 'no response'}) — it will retry when the `
+          + 'connection is better.');
+    }
+    this.indeterminate = false;
+    rec.sent = rec.total;
+    this.uploadedFileId = out.fileId;   // proof-of-backup — delete-safety unchanged
+    this.uploadedFolderId = out.folderId || rec.docFolderId || null;   // remembered → next upload reuses it
+    this.status = 'done';
+    await db.deleteMedia(upKey(this.docId)).catch(() => {});
+    this.emit();
+  }
+
+  // ---- chunked resumable streaming (big files through the worker into the
+  // researcher's own Drive) ----
+
+  // One PUT to the worker's chunk relay. body null + "bytes */total" = a status
+  // probe (Drive answers with exactly how many bytes it holds). Returns
+  // { done, fileId } | { received } | { gone } (session died — restart fresh) |
+  // { fail } (transient). Abort (pause/cancel) throws like the relay path does.
+  async _chunkPut(target, rec, range, body) {
+    this.abortCtl = new AbortController();
+    let resp = null;
+    try {
+      resp = await fetch(target.url + '/chunk', {
+        method: 'PUT',
+        headers: {
+          ...target.headers,
+          'x-fx-upload': rec.streamId,
+          'x-fx-range': range,   // NOT Content-Range: Cloudflare's edge validates that literally and 400s the probe
+          ...(body ? { 'content-type': 'application/octet-stream' } : {}),
+        },
+        body,
+        signal: this.abortCtl.signal,
+      });
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('aborted');
+      return { fail: true };
+    }
+    const out = await resp.json().catch(() => ({}));
+    if (resp.ok && out.done && out.fileId) return { done: true, fileId: out.fileId };
+    if (resp.ok && out.done === false) return { received: out.received || 0 };
+    if (out.error === 'session_gone' || out.error === 'bad_upload') return { gone: true };
+    return { fail: true };
+  }
+
+  async _streamFinish(rec, fileId) {
+    delete rec.streamId;
+    delete rec.chunkBytes;
+    this.indeterminate = false;
+    rec.sent = rec.total;
+    this.uploadedFileId = fileId;   // proof-of-backup — delete-safety unchanged
+    this.uploadedFolderId = rec.folderId || rec.docFolderId || null;
+    this.status = 'done';
+    await db.deleteMedia(upKey(this.docId)).catch(() => {});
+    this.emit();
+  }
+
+  // The chunked run: open (or reuse) a Drive session, ask Drive where it stands,
+  // then push adaptive chunks. Aggressively failure-proof by construction:
+  //  - the session token + chunk size persist in this queued upload's IndexedDB
+  //    record, so a reload/crash/offline WEEK later resumes mid-file;
+  //  - every retry starts with a probe, so we always continue from Drive's own
+  //    count, never a guess;
+  //  - transient failures back off (2s→3min) and shrink the chunk; after a few
+  //    strikes we return to the queue, whose startup/online/timer sweep re-enters
+  //    here — pause/cancel behave exactly like the relay path (abort → status).
+  // Returns true when the file is fully delivered (status already 'done').
+  async _streamChunked(target, run) {
+    const rec = this.rec;
+    if (!rec.streamId) {
+      let out = null;
+      try {
+        const r = await fetch(target.url + '/start', {
+          method: 'POST',
+          headers: { ...target.headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ name: rec.name, mime: rec.mime, size: rec.total,
+                                 // Same wire-identity rule as the single-POST path: rec.docId
+                                 // (lane records) falls back to the queue key (old records).
+                                 docId: rec.docId || this.docId || '', docTitle: rec.docTitle || '',
+                                 folderId: rec.docFolderId || '',
+                                 done: rec.docDone ? '1' : '0',   // JSON body — see the query-param note on the single-POST path
+                                 ...(rec.sub ? { sub: rec.sub } : {}),
+                                 ...(rec.role ? { role: rec.role } : {}) }),
+        });
+        out = await r.json().catch(() => null);
+        if (!r.ok || !out || !out.uploadId) return false;   // no_drive/network → caller decides
+      } catch { return false; }
+      rec.streamId = out.uploadId;
+      rec.folderId = out.folderId || rec.docFolderId || '';   // persists with the session state
+      rec.chunkBytes = rec.chunkBytes || CHUNK_START;
+      await db.putMedia(upKey(this.docId), rec).catch(() => {});
+    }
+    rec.chunkBytes = Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, rec.chunkBytes || CHUNK_START));
+    let waitMs = 2000;
+    let strikes = 0;
+    while (strikes < UP_STRIKES) {
+      if (this._gen !== run || this.status !== 'uploading') return true;   // paused/cancelled — session persists
+      const probe = await this._chunkPut(target, rec, `bytes */${rec.total}`, null);
+      if (probe.done) { await this._streamFinish(rec, probe.fileId); return true; }
+      if (probe.gone) { delete rec.streamId; await db.putMedia(upKey(this.docId), rec).catch(() => {}); return false; }
+      if (probe.fail) {
+        strikes++;
+        await new Promise((r) => setTimeout(r, waitMs));
+        waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
+        continue;
+      }
+      let offset = probe.received || 0;
+      let pushFailed = false;
+      while (offset < rec.total) {
+        if (this._gen !== run || this.status !== 'uploading') return true;
+        const size = Math.min(rec.chunkBytes, rec.total - offset);
+        const t0 = Date.now();
+        // Materialized before the request — see readChunk(). An unreadable slice takes the
+        // existing transient-failure branch (shrink, strike, back off, re-probe).
+        const body = await readChunk(rec.blob.slice(offset, offset + size));
+        const res = body === null ? { fail: true } : await this._chunkPut(target, rec,
+          `bytes ${offset}-${offset + size - 1}/${rec.total}`, body);
+        if (res.done) { await this._streamFinish(rec, res.fileId); return true; }
+        if (res.gone) { delete rec.streamId; await db.putMedia(upKey(this.docId), rec).catch(() => {}); return false; }
+        if (res.fail) {
+          rec.chunkBytes = shrinkChunk(rec.chunkBytes);
+          strikes++;
+          pushFailed = true;
+          await db.putMedia(upKey(this.docId), rec).catch(() => {});
+          await new Promise((r) => setTimeout(r, waitMs));
+          waitMs = Math.min(waitMs * 2, UP_WAIT_MAX_MS);
+          break;   // re-probe: Drive tells us the true offset, we continue from there
+        }
+        // Chunk landed: adapt to the measured pace and show REAL byte progress.
+        strikes = 0;
+        waitMs = 2000;
+        const secs = (Date.now() - t0) / 1000;
+        if (secs < 15 && rec.chunkBytes < CHUNK_MAX) rec.chunkBytes = Math.min(CHUNK_MAX, rec.chunkBytes * 2);
+        else if (secs > 60) rec.chunkBytes = shrinkChunk(rec.chunkBytes);
+        offset = res.received != null ? res.received : offset + size;
+        rec.sent = offset;
+        this.indeterminate = false;
+        this.emit();
+        await db.putMedia(upKey(this.docId), rec).catch(() => {});
+      }
+      if (!pushFailed && offset >= rec.total) {
+        // All bytes sent but no done yet (edge) — the next probe resolves it.
+        strikes++;
+      }
+    }
+    return false;   // hand back to the queue's sweep; the persisted session resumes
+  }
+
+}
+
+// Pending uploads persisted from a previous session (restarted from 0 — the
+// proxy upload has no byte-level resume).
+export async function listPendingUploads() {
+  const keys = await db.listMediaKeys().catch(() => []);
+  const out = [];
+  for (const k of keys) {
+    if (String(k).startsWith('upload:')) {
+      const rec = await db.getMedia(k).catch(() => null);
+      if (rec?.blob && rec.name) out.push({ docId: String(k).slice(7), rec });
+    }
+  }
+  return out;
+}

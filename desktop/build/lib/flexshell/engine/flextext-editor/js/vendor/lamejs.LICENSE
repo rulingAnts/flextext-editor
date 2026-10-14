@@ -1,0 +1,4 @@
+lame.min.js — lamejs 1.2.1 (https://github.com/zhuker/lamejs)
+License: LGPL-3.0. Port of the LAME MP3 encoder to JavaScript.
+Used by Flextext Editor for client-side conversion of task recordings
+to small mono MP3s. Source available at the URL above.

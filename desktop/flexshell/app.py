@@ -14,12 +14,16 @@ def storage_path():
 
 
 def engine_root():
-    """The staged engine beside the executable (PyInstaller --onedir) or in the source tree."""
+    """The staged engine: inside the installed package (a pip install stages it at build time, see
+    setup.py), beside the executable (PyInstaller --onedir), or in the source tree's build folder.
+    FLEXSHELL_ENGINE overrides (a folder holding a staged engine's index.html)."""
+    env = os.environ.get("FLEXSHELL_ENGINE")
     here = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, "frozen", False) else __file__))
-    for cand in (os.path.join(here, "engine"), os.path.join(here, "..", "build", "engine")):
-        if os.path.isfile(os.path.join(cand, "index.html")):
+    for cand in ([env] if env else []) + [os.path.join(here, "engine"), os.path.join(here, "..", "build", "engine")]:
+        if cand and os.path.isfile(os.path.join(cand, "index.html")):
             return os.path.realpath(cand)
-    raise SystemExit("engine bundle not found — run desktop/build/stage_engine.py first")
+    raise SystemExit("engine bundle not found — pip install from the repository (which stages it), or run "
+                     "desktop/build/stage_engine.py and set FLEXSHELL_ENGINE")
 
 
 def main(argv=None):

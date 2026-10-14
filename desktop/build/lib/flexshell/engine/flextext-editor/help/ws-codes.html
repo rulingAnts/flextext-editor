@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLEx Writing System Codes — FlexText</title>
+<style>
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 20px; color: #1c2733; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 1.6em; }
+  .warn { background: #fdf3d7; border: 1px solid #e5c66a; border-radius: 8px; padding: 12px 14px; }
+  code { background: #eef2f6; padding: 1px 5px; border-radius: 4px; }
+  img { max-width: 100%; border: 1px solid #cfd8e0; border-radius: 8px; }
+  figcaption, .note { color: #5b6b7a; font-size: 14px; }
+  hr { margin: 2.2em 0; border: 0; border-top: 1px solid #cfd8e0; }
+</style>
+</head>
+<body>
+<h1>FLEx Vernacular and Analysis Writing System Codes</h1>
+<p class="warn"><strong>Codes are CASE-SENSITIVE.</strong> <code>fau</code>, <code>Fau</code> and <code>FAU</code> are three different codes to FLEx — copy the Code exactly, letter for letter. A wrong-case code makes FLEx silently create a <strong>duplicate</strong> writing system on import, leaving a mess to clean up.</p>
+<h2>Which code to use</h2>
+<p>Use the value labelled <strong>Code</strong> on the <em>General</em> tab of the Writing System properties — <strong>not</strong> the Abbreviation, the Language Name, the Language Code, or the Ethnologue code.</p>
+<h2>Where to find it in FLEx</h2>
+<ol>
+  <li>FLEx → <strong>Tools → Configure → Writing Systems…</strong></li>
+  <li>Pick the writing system — <strong>Vernacular</strong> for the baseline text, <strong>Analysis</strong> for glosses and free translation.</li>
+  <li>On the <strong>General</strong> tab, copy the <strong>Code</strong> (e.g. <code>grc</code>, <code>iau-Latn-x-tmu</code>).</li>
+</ol>
+<figure><img src="ws-flex-codes.png" alt="FLEx Writing System properties — use the Code value" loading="lazy">
+<figcaption>Use the <strong>Code</strong> value. Not <em>Abbreviation</em> or <em>Language Name</em>.</figcaption></figure>
+<p>Codes are BCP-47 tags (<code>en</code>, <code>grc</code>, <code>es-419</code>, or custom). Enter them exactly as FLEx shows them, including upper/lower case and any hyphens.</p>
+<h2>Checklist</h2>
+<ul>
+  <li>Vernacular code matches FLEx exactly (case included)</li>
+  <li>Analysis (gloss / free translation) code matches exactly</li>
+  <li>No stray spaces before or after the code</li>
+</ul>
+<p class="note">Texts created in the FlexText apps take these codes at <em>export</em> time — correcting a code here fixes every text you export afterwards. Imported FLEx texts keep their own codes.</p>
+<hr>
+<h1 lang="id">Kode Sistem Penulisan Vernakular dan Analisis FLEx</h1>
+<p class="warn" lang="id"><strong>Kode PEKA HURUF BESAR/KECIL.</strong> <code>fau</code>, <code>Fau</code>, dan <code>FAU</code> adalah tiga kode yang berbeda bagi FLEx — salin Code persis huruf demi huruf. Kode dengan huruf besar/kecil yang salah membuat FLEx diam-diam membuat sistem penulisan <strong>duplikat</strong> saat impor.</p>
+<h2 lang="id">Kode mana yang dipakai</h2>
+<p lang="id">Gunakan nilai berlabel <strong>Code</strong> pada tab <em>General</em> di properti Writing System — <strong>bukan</strong> Abbreviation, nama bahasa, Language Code, atau kode Ethnologue.</p>
+<h2 lang="id">Di mana menemukannya di FLEx</h2>
+<ol lang="id">
+  <li>FLEx → <strong>Tools → Configure → Writing Systems…</strong></li>
+  <li>Pilih sistem penulisannya — <strong>Vernacular</strong> untuk teks dasar, <strong>Analysis</strong> untuk glos dan terjemahan bebas.</li>
+  <li>Pada tab <strong>General</strong>, salin <strong>Code</strong> (mis. <code>grc</code>, <code>iau-Latn-x-tmu</code>).</li>
+</ol>
+<p lang="id">Kode berupa tag BCP-47. Masukkan persis seperti yang ditampilkan FLEx, termasuk huruf besar/kecil dan tanda hubungnya.</p>
+<p class="note" lang="id">Teks yang dibuat di aplikasi FlexText memakai kode ini saat <em>ekspor</em> — memperbaiki kode di sini memperbaiki semua teks yang diekspor setelahnya. Teks FLEx yang diimpor mempertahankan kodenya sendiri.</p>
+</body>
+</html>

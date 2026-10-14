@@ -1,0 +1,40 @@
+# pip-installable from GitHub (plan §12.1, "pip install like the other Fable-built project"):
+#
+#   pip install "git+https://github.com/rulingAnts/flextext-editor.git@desktop-flex#subdirectory=desktop"
+#   flextext-segmenter-flex
+#
+# The build stages the engine (docs/ + satellites/audio-segmenter/) INTO the wheel (setup.py's
+# build_py hook runs build/stage_engine.py), so the installed package carries the exact engine it was
+# built from — pinned per shell build, as the plan requires. Windows-only dependencies carry a
+# sys_platform marker so the package installs (and its tests run) on Linux and Mac too.
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flextext-segmenter-flex"
+version = "0.1.0.dev0"
+description = "FlexText Segmenter for FLEx — a Windows pywebview shell around the Audio Segmenter with FieldWorks integration"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-only" }
+dependencies = [
+  "pywebview>=5.0; sys_platform == 'win32'",
+  "pythonnet>=3.0; sys_platform == 'win32'",
+  "clr-loader>=0.2; sys_platform == 'win32'",
+  "pyflexicon>=4.13; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+build = ["pyinstaller>=6"]
+
+[project.scripts]
+flextext-segmenter-flex = "flexshell.app:main"
+
+[tool.setuptools]
+packages = ["flexshell"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+flexshell = ["engine/**/*", "engine/**/.*"]

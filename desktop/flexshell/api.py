@@ -22,7 +22,9 @@ from .protocol import Session
 from .server import MediaRegistry
 from .worker import ProjectRegistry, Worker
 
-RELAY_ORIGINS = ("https://connect.flextext.app",)   # the relay worker the engine may talk to (CSP connect-src)
+# The relay workers the engine may talk to (CSP connect-src): production, and the staging worker a
+# device opts into with ?devworker=staging (app.js DEFAULT_WORKER / STAGING_WORKER). Data, never content.
+RELAY_ORIGINS = ("https://connect.flextext.app", "https://flextext-r2-worker-staging.68mh29kgsd.workers.dev")
 
 
 def _ok(result):

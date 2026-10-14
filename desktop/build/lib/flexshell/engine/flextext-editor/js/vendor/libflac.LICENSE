@@ -1,0 +1,5 @@
+libflac.min.wasm.js + libflac.min.wasm.wasm — libflac.js (https://github.com/mmig/libflac.js)
+License: BSD-3-Clause (wrapper) wrapping libFLAC by the Xiph.Org Foundation (BSD-3-Clause).
+A WebAssembly build of the FLAC reference encoder/decoder. Used by Flextext Editor
+for client-side, offline encoding of archival recordings to lossless 24-bit FLAC.
+Source available at the URL above.

@@ -47,6 +47,26 @@ Engine side (`docs/js/`): `native-flex.js` is the only engine file that may touc
 FLEx base doc against the current doc into typed ops keyed by GUID; `printview-tsv.js` rebuilds
 FLEx's Print-view clipboard text; `flex-panel.js` is the UI, dynamically imported only in the shell.
 
+## Installing on the Windows VM with pip (the quick way to try it)
+
+Python 3.13 and git must be on the VM. In PowerShell:
+
+```powershell
+py -3.13 -m pip install --upgrade "git+https://github.com/rulingAnts/flextext-editor.git@desktop-flex#subdirectory=desktop"
+py -3.13 -m flexshell
+```
+
+The build stages the engine from the same commit into the package, so the shell runs the exact
+engine it was installed with (`engine-version.json` beside it). `flextext-segmenter-flex` is the
+same entry point as a console script, when pip's Scripts folder is on PATH. To update, run the same
+install line again. Nothing here deploys anything or touches a FLEx project until you open one for
+writing, and a copy-only build refuses that unless the folder carries `flextext-disposable-copy.txt`.
+
+⚠ This path has never been run on Windows: expect the first launch to find real problems in
+`lcm_real.py` and in the WebView2 wiring (`webview_hooks._core_webview2`). The web Segmenter itself
+should come up at `http://127.0.0.1:8017/`; the FLEx section appears only when `hello()` answers.
+Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
+
 ## Running the tests (Linux, Mac or Windows — no FLEx needed)
 
 ```sh

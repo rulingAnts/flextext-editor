@@ -1,0 +1,22 @@
+{
+  "lang": "en",
+  "id": "/",
+  "name": "Flextext Audio Segmenter",
+  "short_name": "Flextext Seg",
+  "name_localized": { "id": "Pemotong Audio Flextext" },
+  "short_name_localized": { "id": "Pemotong Flextext" },
+  "description": "Cut a recording into segments and match them to the lines of a text you already have. Works offline.",
+  "description_localized": { "id": "Potong rekaman menjadi segmen dan cocokkan dengan baris teks yang sudah ada. Bisa dipakai tanpa internet." },
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "launch_handler": { "client_mode": "navigate-existing" },
+  "background_color": "#ffffff",
+  "theme_color": "#b45309",
+  "icons": [
+    { "src": "icons/segmenter-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/segmenter-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/segmenter-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/segmenter.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

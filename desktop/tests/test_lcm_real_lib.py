@@ -97,7 +97,8 @@ SOURCE_NAMESPACES = {
     "SharedBackendServices": "SIL.LCModel.DomainServices", "SegmentServices": "SIL.LCModel.DomainServices",
     "ParagraphParser": "SIL.LCModel.DomainServices",
     "ProjectBackupService": "SIL.LCModel.DomainServices.BackupRestore", "BackupProjectSettings": "SIL.LCModel.DomainServices.BackupRestore",
-    "TsStringUtils": "SIL.LCModel.Core.Text",
+    "TsStringUtils": "SIL.LCModel.Core.Text", "ITsString": "SIL.LCModel.Core.KernelInterfaces",
+    "IStTxtPara": "SIL.LCModel", "IWfiWordform": "SIL.LCModel", "IWfiAnalysis": "SIL.LCModel",
     "FwDirectoryFinder": "SIL.FieldWorks.Common.FwUtils",
     "InterlinearExporter": "SIL.FieldWorks.IText", "LinguaLinksImport": "SIL.FieldWorks.IText",
     "InterlinVc": "SIL.FieldWorks.IText", "InterlinLineChoices": "SIL.FieldWorks.IText",
@@ -118,3 +119,52 @@ def test_every_dotnet_import_in_lcm_real_matches_the_source_namespaces():
     assert "IUndoStackManager" in seen and "FwDirectoryFinder" in seen
     src = inspect.getsource(lcm_real)
     assert "SIL.LCModel.Utils import" not in src, "HeadlessThreadedProgress is pyflexicon's; FwDirectoryFinder is FieldWorks'"
+
+
+def test_cast_is_total_and_uses_the_classname_interface(monkeypatch):
+    """pythonnet interface typing: _cast(obj) → SIL.LCModel.I<ClassName>(obj), unchanged when it cannot."""
+    import types
+    calls = []
+
+    class ISegment:
+        def __init__(self, obj):
+            calls.append(obj)
+            self.wrapped = obj
+
+    def IBroken(obj):
+        raise RuntimeError("CLR cast failed")
+    lcm = types.ModuleType("SIL.LCModel")
+    lcm.ISegment = ISegment
+    lcm.IBroken = IBroken
+    sil = types.ModuleType("SIL")
+    sil.LCModel = lcm
+    monkeypatch.setitem(sys.modules, "SIL", sil)
+    monkeypatch.setitem(sys.modules, "SIL.LCModel", lcm)
+    seg = types.SimpleNamespace(ClassName="Segment")
+    out = lcm_real._cast(seg)
+    assert isinstance(out, ISegment) and out.wrapped is seg
+    unknown = types.SimpleNamespace(ClassName="NoSuchClass")
+    assert lcm_real._cast(unknown) is unknown
+    broken = types.SimpleNamespace(ClassName="Broken")
+    assert lcm_real._cast(broken) is broken
+    assert lcm_real._cast(None) is None and lcm_real._cast("x") == "x"
+
+
+def test_services_come_from_getservice_never_getinstance():
+    """pyflexicon's pattern everywhere; the generic GetInstance<T> is not reachable from pythonnet
+    (seventh VM launch: 'ILcmServiceLocator' object has no attribute 'GetInstance')."""
+    import ast
+    import inspect
+    import re
+    src = inspect.getsource(lcm_real)
+    lines = src.splitlines()
+    for node in ast.walk(ast.parse(src)):   # blank every docstring / bare string statement
+        if isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant) and isinstance(node.value.value, str):
+            for i in range(node.lineno - 1, node.end_lineno):
+                lines[i] = ""
+    code = "\n".join(l.split("#", 1)[0] for l in lines)
+    assert "GetInstance" not in code, "GetInstance in code (only docstrings may mention it)"
+    assert "ServiceLocator.GetService(" in src and "ServiceLocator.GetObject(System.Guid(" in src
+    assert "get_Properties(0).GetIntPropValues(1, 0)" in src, "run-0 writing system, pyflexicon's idiom"
+    assert "ITsString(tss).Text" in src, "ITsString cast before .Text, pyflexicon's idiom"
+    assert re.search(r"TryGetObject\(tss\)", src), "out parameter omitted → tuple"

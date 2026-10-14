@@ -260,6 +260,34 @@ one cost it twice.
    namespace has been read from source too. Sparse clones for the lookup:
    `git clone --filter=blob:none --depth 1 https://github.com/sillsdev/liblcm` and the same for
    `sillsdev/FieldWorks` with `git sparse-checkout` on `Src/LexText/Interlinear`.
+10. **pythonnet rules — read pyflexicon's code, not just liblcm's signatures** (Seth, after the
+    seventh launch died on `'ILcmServiceLocator' object has no attribute 'GetInstance'`: *"Do we
+    really have to do this one error at a time… go thoroughly read the pyflexicon documentation
+    instead of just doing trial and error."*). The whole of `lcm_real.py` was then audited line
+    by line against pyflexicon 4.13 (`github.com/MattGyverLee/flexicon`: `flexicon/code/*`,
+    `docs/EXCEPTION_HANDLING.md`, `docs/TRANSACTION_GUIDE.md`, `lcm_casting.py`) and liblcm's
+    `MasterLCModel.xml`. What a correct call looks like, each with pyflexicon's own usage as the
+    witness:
+    - services, factories, repositories: `ServiceLocator.GetService(IFoo)` (40+ uses); the generic
+      `GetInstance<T>` is unreachable from pythonnet (`FLExProject.GetFactory` docstring).
+    - an object by GUID: `ServiceLocator.GetObject(System.Guid(g))` (`FLExProject.Object`).
+    - **interface typing is strict**: `ParagraphsOS` yields `IStPara` (no `Contents`, no
+      `SegmentsOS`), `AnalysesRS` yields `IAnalysis` (no `Form`), `.Owner` is `ICmObject`. Cast:
+      `IStTxtPara(p)`, `IWfiWordform(an.Owner)`, or by ClassName (`cast_to_concrete`; ours is
+      `_cast`, total). `MediaFilesOA` is reached on the cast text.
+    - multi-strings: `ITsString(ms.get_String(ws)).Text`; present alternatives are
+      `ms.AvailableWritingSystemIds`; `IStTxtPara.Contents` is a bare `ITsString` whose run-0
+      writing system is `Contents.get_Properties(0).GetIntPropValues(1, 0)[0]`.
+    - `out` parameters, omitted from the call, come back in a tuple (`TryGetObject(tss)`,
+      `BackupProject(progress)`).
+    - a throwing CLR **property** getter surfaces as a bare `TypeError` with the .NET type
+      stripped: probe state, never catch exception types around a property read.
+    - edits to `Contents` go through `GetBldr()` + `ReplaceTsString` + `GetString()`
+      (`SegmentOperations.SetBaselineText`); the assignment fires `AnalysisAdjuster`.
+    - approvals: `IWfiAnalysis.GetAgentOpinion/SetAgentOpinion(lp.DefaultUserAgent, Opinions.…)`
+      (interface-declared; pyflexicon's `SetApprovalStatus` writes the same opinion through
+      `ICmAgent.SetEvaluation`).
+    `test_lcm_real_lib.py` pins the source idioms and that no `GetInstance` is in code.
 
 ---
 

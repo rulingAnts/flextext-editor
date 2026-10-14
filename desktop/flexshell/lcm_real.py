@@ -27,6 +27,20 @@ Python 3.13, pythonnet):
   invariant [s.BeginOffset for s in para.SegmentsOS] == [x.IchMin for x in
             SegmentServices.GetSegments(para.Contents, cache.WritingSystemFactory)]
 Every LCM call happens on ONE worker thread (worker.py); this class asserts it.
+
+pythonnet RULES (audited 2026-10-14 against pyflexicon 4.13's own code + liblcm source, after six
+VM launches each died on the next line — plan §2.4 items 9–10):
+  - services/factories/repositories: ServiceLocator.GetService(IFoo) — the generic GetInstance<T>
+    is not reachable; pyflexicon uses GetService in 40+ places.
+  - an object by GUID: ServiceLocator.GetObject(System.Guid(g)) → typed ICmObject → _cast().
+  - pythonnet respects .NET interface typing STRICTLY: an element of ParagraphsOS is an IStPara
+    (no Contents, no SegmentsOS), of AnalysesRS an IAnalysis (no Form), .Owner an ICmObject.
+    _cast(obj) = SIL.LCModel.I<ClassName>(obj), total (returns obj unchanged when it cannot).
+  - IMultiString/IMultiUnicode: ITsString(ms.get_String(ws)).Text; the alternatives present are
+    ms.AvailableWritingSystemIds. IStTxtPara.Contents is a bare ITsString: the writing system of
+    run 0 is Contents.get_Properties(0).GetIntPropValues(1, 0)[0] (ktptWs == 1; out param → tuple).
+  - `out` parameters come back as a tuple when omitted from the call (TryGetObject, BackupProject).
+  - a CLR PROPERTY getter that throws surfaces as a bare TypeError: probe state, never catch types.
 """
 
 import logging
@@ -160,6 +174,22 @@ def _map_open_error(e):
     return e
 
 
+def _cast(obj):
+    """pythonnet respects .NET interface typing strictly (pyflexicon lcm_casting): an element of a
+    collection or an .Owner is typed as the base interface and exposes nothing of the concrete one.
+    Cast by ClassName to SIL.LCModel.I<ClassName>; TOTAL — anything that cannot be cast is returned
+    unchanged (an unrecognised class, no ClassName, a CLR cast failure)."""
+    name = getattr(obj, "ClassName", None)
+    if not name:
+        return obj
+    try:
+        import SIL.LCModel as lcm   # type: ignore[import-not-found]
+        iface = getattr(lcm, "I" + str(name), None)
+        return iface(obj) if iface is not None else obj
+    except Exception:   # noqa: BLE001 — total by design
+        return obj
+
+
 class RealLcm(FlexPort):
     def __init__(self, projects_dir):
         self.projects_dir = projects_dir
@@ -202,7 +232,8 @@ class RealLcm(FlexPort):
             raise mapped from e
         self.cache = self.project.project
         from SIL.LCModel import IUndoStackManager   # type: ignore[import-not-found]  # InterfaceDeclarations.cs: SIL.LCModel, NOT .Infrastructure
-        self.usm = IUndoStackManager(self.cache.ServiceLocator.GetService(IUndoStackManager))
+        # pyflexicon: usm = self.ObjectRepository(IUndoStackManager) == ServiceLocator.GetService(…)
+        self.usm = self.cache.ServiceLocator.GetService(IUndoStackManager)
         self.ah = self.cache.ActionHandlerAccessor
         self._name = name
         self._write = bool(write)
@@ -223,12 +254,13 @@ class RealLcm(FlexPort):
 
     def stop_save_timer(self):
         self._t()
-        self.usm.StopSaveTimer()
+        self.usm.StopSaveTimer()   # IUndoStackManager.StopSaveTimer [source: InterfaceDeclarations.cs]
 
     def subscribe_log(self, handler):
-        """Attach to flexicon's headless-UI logger: any ERROR record is the only signal of a silent save
-        failure [verified]."""
-        for name in ("flexlibs", "flexicon", "FwLcmUI", ""):
+        """Attach to flexicon's headless-UI logger (flexicon.code.headless_ui logs ERROR on
+        ReportException / ReportDuplicateGuids / ConflictingSave): any ERROR record is the only
+        signal of a silent save failure [verified]."""
+        for name in ("flexicon", "flexlibs2", "FwLcmUI", ""):
             logging.getLogger(name).addHandler(handler)
         self._handlers.append(handler)
 
@@ -251,8 +283,8 @@ class RealLcm(FlexPort):
     def complete_all_commits(self):
         self._t()
         from SIL.LCModel.Infrastructure import IDataSetup   # type: ignore[import-not-found]
-        ds = IDataSetup(self.cache.ServiceLocator.GetService(IDataSetup))
-        ds.GetType().GetMethod("CompleteAllCommits").Invoke(ds, None)
+        ds = self.cache.ServiceLocator.GetService(IDataSetup)
+        ds.GetType().GetMethod("CompleteAllCommits").Invoke(ds, None)   # [verified] via reflection
 
     def backup(self, comment):
         self._t()
@@ -263,13 +295,14 @@ class RealLcm(FlexPort):
         HeadlessThreadedProgress = _flexicon().HeadlessThreadedProgress   # pyflexicon's own (headless_ui), not a liblcm type
         from . import fwfind
         settings = BackupProjectSettings(self.cache, None, FwDirectoryFinder.DefaultBackupDirectory, fwfind.fw_version() or "9.3")
-        settings.Comment = comment or ""
+        if hasattr(settings, "Comment"):
+            settings.Comment = comment or ""
         for flag in ("IncludeConfigurationSettings", "IncludeLinkedFiles", "IncludeSupportingFiles", "IncludeSpellCheckAdditions", "IncludeMediaFiles", "IncludeFonts", "IncludeKeyboards"):
             if hasattr(settings, flag):
                 setattr(settings, flag, False)
         svc = ProjectBackupService(self.cache, settings)
-        # bool BackupProject(IThreadedProgress, out string backupFile): pythonnet returns the out
-        # parameter as a tuple (ok, path) when it is omitted from the call [source: liblcm; unverified]
+        # bool BackupProject(IThreadedProgress, out string backupFile) [source]: with the out
+        # parameter omitted pythonnet returns (ok, path)
         r = svc.BackupProject(HeadlessThreadedProgress())
         ok, path = (r[0], r[1]) if isinstance(r, tuple) else (bool(r), None)
         if not ok or not path:
@@ -296,10 +329,60 @@ class RealLcm(FlexPort):
         from . import fwfind
         return {"fw": fwfind.fw_version(), "lcm": None, "model": self.model_version(), "backend": "real", "untested": UNTESTED}
 
-    # ---- reads -----------------------------------------------------------------------------------
+    # ---- pythonnet idioms (module docstring) -----------------------------------------------------
     def _repo(self, iface):
-        return self.cache.ServiceLocator.GetInstance(iface)
+        return self.cache.ServiceLocator.GetService(iface)
 
+    def _lookup(self, guid):
+        """ServiceLocator.GetObject(Guid) → ICmObject, cast to its concrete interface."""
+        import System   # type: ignore[import-not-found]
+        return _cast(self.cache.ServiceLocator.GetObject(System.Guid(str(guid))))
+
+    _text = _para = _segment = _obj = _lookup
+
+    def _tss_text(self, tss):
+        """ITsString → str ('' for null), via the explicit ITsString cast pyflexicon applies."""
+        if tss is None:
+            return ""
+        from SIL.LCModel.Core.KernelInterfaces import ITsString   # type: ignore[import-not-found]
+        return nfc(str(ITsString(tss).Text or ""))
+
+    def _multi(self, ms):
+        """Every non-empty alternative of an IMultiString/IMultiUnicode: {ws id: text}."""
+        out = {}
+        if ms is None:
+            return out
+        for handle in list(ms.AvailableWritingSystemIds):
+            text = self._tss_text(ms.get_String(handle))
+            if text:
+                out[self._ws_id(handle)] = text
+        return out
+
+    def _best(self, ms):
+        return self._tss_text(ms.BestAnalysisAlternative) if ms is not None else ""
+
+    def _run0_ws(self, tss):
+        """Writing system of run 0 of a bare ITsString (pyflexicon ParagraphOperations idiom):
+        get_Properties(0).GetIntPropValues(ktptWs=1, out var) → (value, var)."""
+        if tss is None or not tss.Length:
+            return int(self.cache.DefaultVernWs)
+        r = tss.get_Properties(0).GetIntPropValues(1, 0)
+        return int(r[0] if isinstance(r, tuple) else r)
+
+    def _ws_id(self, handle):
+        return str(self.cache.ServiceLocator.WritingSystemManager.Get(int(handle)).Id)
+
+    def _ws_handle(self, ws_id):
+        h = int(self.cache.ServiceLocator.WritingSystemManager.GetWsFromStr(ws_id))
+        if h <= 0:
+            raise FlexError("E_SCOPE", "unknown writing system", {"ws": ws_id})
+        return h
+
+    def _tss(self, text, ws_handle):
+        from SIL.LCModel.Core.Text import TsStringUtils   # type: ignore[import-not-found]
+        return TsStringUtils.MakeString(nfd(text or ""), int(ws_handle))
+
+    # ---- reads -----------------------------------------------------------------------------------
     def counts(self):
         self._t()
         from SIL.LCModel import (ILexEntryRepository, ILexSenseRepository, IMoFormRepository, IWfiWordformRepository,   # type: ignore[import-not-found]
@@ -311,69 +394,68 @@ class RealLcm(FlexPort):
                  "WfiMorphBundle": IWfiMorphBundleRepository, "PunctuationForm": IPunctuationFormRepository, "Text": ITextRepository,
                  "StText": IStTextRepository, "StTxtPara": IStTxtParaRepository, "Segment": ISegmentRepository,
                  "CmMediaContainer": ICmMediaContainerRepository, "CmMediaURI": ICmMediaURIRepository}
-        return {cls: int(self._repo(repos[cls]).Count) for cls in COUNTED_CLASSES}
+        return {cls: int(self._repo(repos[cls]).Count) for cls in COUNTED_CLASSES}   # IRepository<T>.Count [source]
 
     def writing_systems(self):
         self._t()
-        wsf = self.cache.ServiceLocator.WritingSystems
+        wsc = self.cache.ServiceLocator.WritingSystems   # IWritingSystemContainer [source]
+
         def one(ws, default):
             extra = []
             try:
                 for ch in (ws.CharacterSets or []):
-                    if getattr(ch, "Type", "") == "main":
-                        extra.extend([c for c in ch.Characters if c and not c.isspace()])
-            except Exception:   # noqa: BLE001
+                    if str(getattr(ch, "Type", "")) == "main":
+                        extra.extend([str(c) for c in ch.Characters if str(c) and not str(c).isspace()])
+            except Exception:   # noqa: BLE001 — CharacterSets is SIL.WritingSystems territory; optional
                 pass
-            return {"id": str(ws.Id), "abbr": str(ws.Abbreviation), "isDefault": default, "rtl": bool(ws.RightToLeftScript),
-                    "graphite": bool(getattr(ws, "IsGraphiteEnabled", False)), "wordForming": extra}
-        vern = [one(w, w == wsf.DefaultVernacularWritingSystem) for w in wsf.CurrentVernacularWritingSystems]
-        anal = [one(w, w == wsf.DefaultAnalysisWritingSystem) for w in wsf.CurrentAnalysisWritingSystems]
+            return {"id": str(ws.Id), "abbr": str(ws.Abbreviation or ""), "isDefault": default,
+                    "rtl": bool(ws.RightToLeftScript), "graphite": bool(getattr(ws, "IsGraphiteEnabled", False)),
+                    "wordForming": extra}
+        dv, da = wsc.DefaultVernacularWritingSystem, wsc.DefaultAnalysisWritingSystem
+        vern = [one(w, w.Handle == dv.Handle) for w in wsc.CurrentVernacularWritingSystems]
+        anal = [one(w, w.Handle == da.Handle) for w in wsc.CurrentAnalysisWritingSystems]
         return {"vern": vern, "anal": anal}
 
-    def _ws_id(self, handle):
-        return str(self.cache.ServiceLocator.WritingSystemManager.Get(handle).Id)
+    def _paras(self, text):
+        """IStTxtPara for every paragraph (ParagraphsOS yields the base IStPara)."""
+        from SIL.LCModel import IStTxtPara   # type: ignore[import-not-found]
+        st = text.ContentsOA
+        return [IStTxtPara(p) for p in st.ParagraphsOS] if st is not None else []
 
-    def _ws_handle(self, ws_id):
-        return int(self.cache.ServiceLocator.WritingSystemManager.GetWsFromStr(ws_id))
-
-    def _multi(self, ms):
-        out = {}
-        for i in range(ms.StringCount):
-            tss = ms.GetStringFromIndex(i, None)
-            ws = tss.get_WritingSystemAt(0) if tss.Length else None
-        for handle in list(ms.AvailableWritingSystemIds):
-            s = ms.get_String(handle)
-            if s is not None and s.Length:
-                out[self._ws_id(handle)] = nfc(str(s.Text))
-        return out
+    def _media_uris(self, text):
+        """[(ICmMediaURI, path)] — MediaFilesOA is reached on the cast text (pyflexicon R4 note)."""
+        cont = getattr(text, "MediaFilesOA", None)
+        if cont is None:
+            return []
+        return [(u, str(u.MediaURI or "")) for u in cont.MediaURIsOC]
 
     def _analysis_ref(self, obj):
-        from SIL.LCModel import IWfiWordform, IWfiAnalysis, IWfiGloss, IPunctuationForm   # type: ignore[import-not-found]
+        from SIL.LCModel import IWfiWordform, IWfiAnalysis   # type: ignore[import-not-found]
+        obj = _cast(obj)
         vern = self.cache.DefaultVernWs
         g = str(obj.Guid)
-        if IPunctuationForm(obj) is not None if hasattr(obj, "ClassID") and obj.ClassName == "PunctuationForm" else False:
-            return {"guid": g, "kind": "punct", "form": nfc(str(obj.Form.Text))}
-        cn = obj.ClassName
+        cn = str(obj.ClassName)
         if cn == "PunctuationForm":
-            return {"guid": g, "kind": "punct", "form": nfc(str(obj.Form.Text))}
+            return {"guid": g, "kind": "punct", "form": self._tss_text(obj.Form)}
         if cn == "WfiWordform":
-            return {"guid": g, "kind": "wordform", "form": nfc(str(obj.Form.get_String(vern).Text)), "wordformGuid": g}
+            return {"guid": g, "kind": "wordform", "form": self._tss_text(obj.Form.get_String(vern)), "wordformGuid": g}
         if cn == "WfiAnalysis":
-            wf = obj.Owner
-            return {"guid": g, "kind": "analysis", "form": nfc(str(wf.Form.get_String(vern).Text)), "wordformGuid": str(wf.Guid), "analysisGuid": g}
+            wf = IWfiWordform(obj.Owner)
+            return {"guid": g, "kind": "analysis", "form": self._tss_text(wf.Form.get_String(vern)), "wordformGuid": str(wf.Guid), "analysisGuid": g}
         if cn == "WfiGloss":
-            an = obj.Owner
-            wf = an.Owner
-            return {"guid": g, "kind": "gloss", "form": nfc(str(wf.Form.get_String(vern).Text)), "wordformGuid": str(wf.Guid),
+            an = IWfiAnalysis(obj.Owner)
+            wf = IWfiWordform(an.Owner)
+            return {"guid": g, "kind": "gloss", "form": self._tss_text(wf.Form.get_String(vern)), "wordformGuid": str(wf.Guid),
                     "analysisGuid": str(an.Guid), "gloss": self._multi(obj.Form)}
         return {"guid": g, "kind": cn, "form": ""}
 
     def _seg_read(self, para, seg):
+        seg = _cast(seg)
         return {"guid": str(seg.Guid), "begin": int(seg.BeginOffset), "end": int(seg.EndOffset),
                 "ft": self._multi(seg.FreeTranslation), "lt": self._multi(seg.LiteralTranslation),
-                "notes": [nfc(str(n.Content.BestAnalysisAlternative.Text)) for n in seg.NotesOS],
+                "notes": [self._best(_cast(n).Content) for n in seg.NotesOS],
                 "analyses": [self._analysis_ref(a) for a in seg.AnalysesRS],
-                "beginTime": str(seg.BeginTimeOffset) if seg.BeginTimeOffset else None,
+                "beginTime": str(seg.BeginTimeOffset) if seg.BeginTimeOffset else None,   # Unicode in the model
                 "endTime": str(seg.EndTimeOffset) if seg.EndTimeOffset else None,
                 "mediaUri": str(seg.MediaURIRA.Guid) if seg.MediaURIRA is not None else None,
                 "speaker": str(seg.SpeakerRA.Guid) if seg.SpeakerRA is not None else None,
@@ -384,74 +466,45 @@ class RealLcm(FlexPort):
         from SIL.LCModel import ITextRepository   # type: ignore[import-not-found]
         out = []
         for t in self._repo(ITextRepository).AllInstances():
-            st = t.ContentsOA
-            paras = list(st.ParagraphsOS) if st is not None else []
-            segs = [s for p in paras for s in p.SegmentsOS]
-            media = []
-            if t.MediaFilesOA is not None:
-                for u in t.MediaFilesOA.MediaURIsOC:
-                    media.append({"guid": str(u.Guid), "uri": str(u.MediaURI or ""), "exists": os.path.isfile(str(u.MediaURI or ""))})
-            out.append({"guid": str(t.Guid), "title": nfc(str(t.Name.BestAnalysisAlternative.Text)), "paras": len(paras), "segs": len(segs),
-                        "timedSegs": sum(1 for s in segs if s.BeginTimeOffset), "media": media, "labelSegs": sum(1 for s in segs if s.IsLabel)})
+            t = _cast(t)
+            paras = self._paras(t)
+            segs = [_cast(s) for p in paras for s in p.SegmentsOS]
+            media = [{"guid": str(u.Guid), "uri": path, "exists": bool(path) and os.path.isfile(path)} for u, path in self._media_uris(t)]
+            out.append({"guid": str(t.Guid), "title": self._best(t.Name), "paras": len(paras), "segs": len(segs),
+                        "timedSegs": sum(1 for s in segs if s.BeginTimeOffset), "media": media,
+                        "labelSegs": sum(1 for s in segs if s.IsLabel)})
         return out
-
-    def _text(self, guid):
-        import System   # type: ignore[import-not-found]
-        from SIL.LCModel import ITextRepository   # type: ignore[import-not-found]
-        return self._repo(ITextRepository).GetObject(System.Guid(guid))
-
-    def _para(self, guid):
-        import System   # type: ignore[import-not-found]
-        from SIL.LCModel import IStTxtParaRepository   # type: ignore[import-not-found]
-        return self._repo(IStTxtParaRepository).GetObject(System.Guid(guid))
-
-    def _segment(self, guid):
-        import System   # type: ignore[import-not-found]
-        from SIL.LCModel import ISegmentRepository   # type: ignore[import-not-found]
-        return self._repo(ISegmentRepository).GetObject(System.Guid(guid))
-
-    def _obj(self, guid):
-        import System   # type: ignore[import-not-found]
-        from SIL.LCModel import ICmObjectRepository   # type: ignore[import-not-found]
-        return self._repo(ICmObjectRepository).GetObject(System.Guid(guid))
 
     def read_text(self, guid):
         self._t()
         t = self._text(guid)
-        wsf = self.cache.ServiceLocator.WritingSystems
+        wsc = self.cache.ServiceLocator.WritingSystems
         paras = []
-        for p in t.ContentsOA.ParagraphsOS:
+        for p in self._paras(t):
             contents = p.Contents
-            ws = self._ws_id(contents.get_WritingSystemAt(0)) if contents.Length else self._ws_id(self.cache.DefaultVernWs)
-            paras.append({"guid": str(p.Guid), "contents": nfc(str(contents.Text or "")), "ws": ws,
+            paras.append({"guid": str(p.Guid), "contents": self._tss_text(contents), "ws": self._ws_id(self._run0_ws(contents)),
                           "segments": [self._seg_read(p, s) for s in p.SegmentsOS], "style": str(p.StyleName or "") or None})
-        media = []
-        if t.MediaFilesOA is not None:
-            for u in t.MediaFilesOA.MediaURIsOC:
-                media.append({"guid": str(u.Guid), "uri": str(u.MediaURI or "")})
-        return {"guid": guid, "title": nfc(str(t.Name.BestAnalysisAlternative.Text)), "paragraphs": paras, "media": media,
-                "mediaContainer": str(t.MediaFilesOA.Guid) if t.MediaFilesOA is not None else None,
-                "vernWs": str(wsf.DefaultVernacularWritingSystem.Id), "analWss": [str(w.Id) for w in wsf.CurrentAnalysisWritingSystems]}
+        media = [{"guid": str(u.Guid), "uri": path} for u, path in self._media_uris(t)]
+        cont = getattr(t, "MediaFilesOA", None)
+        return {"guid": str(guid), "title": self._best(t.Name), "paragraphs": paras, "media": media,
+                "mediaContainer": str(cont.Guid) if cont is not None else None,
+                "vernWs": str(wsc.DefaultVernacularWritingSystem.Id), "analWss": [str(w.Id) for w in wsc.CurrentAnalysisWritingSystems]}
 
     def get_segments(self, text, ws):
         self._t()
         from SIL.LCModel.DomainServices import SegmentServices   # type: ignore[import-not-found]
-        from SIL.LCModel.Core.Text import TsStringUtils   # type: ignore[import-not-found]
-        tss = TsStringUtils.MakeString(nfd(text), self._ws_handle(ws))
+        tss = self._tss(text, self._ws_handle(ws))
+        # extension method GetSegments(this ITsString, ILgWritingSystemFactory) called statically [source]
         return [(int(x.IchMin), int(x.IchLim)) for x in SegmentServices.GetSegments(tss, self.cache.WritingSystemFactory)]
 
     def get_diffs(self, old, new):
-        """TsStringUtils.GetDiffsInTsStrings → (ich, cchInsert, cchDelete). Falls back to lcm_diff
-        when the static method is not reachable; the protocol compares the two anyway."""
+        """TsStringUtils.GetDiffsInTsStrings(old, new) → TsStringDiffInfo (null when identical) [source];
+        lcm_diff when the call is not reachable — the protocol compares the two anyway."""
         self._t()
         try:
             from SIL.LCModel.Core.Text import TsStringUtils   # type: ignore[import-not-found]
             ws = self.cache.DefaultVernWs
-            a = TsStringUtils.MakeString(nfd(old), ws)
-            b = TsStringUtils.MakeString(nfd(new), ws)
-            # TsStringDiffInfo GetDiffsInTsStrings(ITsString, ITsString) [source: TsStringUtils.cs]:
-            # null when identical, else IchFirstDiff / CchInsert / CchDeleteFromOld
-            r = TsStringUtils.GetDiffsInTsStrings(a, b)
+            r = TsStringUtils.GetDiffsInTsStrings(self._tss(old, ws), self._tss(new, ws))
             if r is None:
                 return (0, 0, 0)
             return (int(r.IchFirstDiff), int(r.CchInsert), int(r.CchDeleteFromOld))
@@ -462,33 +515,31 @@ class RealLcm(FlexPort):
     def has_punct_form(self, form):
         self._t()
         from SIL.LCModel import IPunctuationFormRepository   # type: ignore[import-not-found]
-        return any(nfd(str(p.Form.Text)) == nfd(form) for p in self._repo(IPunctuationFormRepository).AllInstances())
+        return any(nfd(self._tss_text(p.Form)) == nfd(form) for p in self._repo(IPunctuationFormRepository).AllInstances())
 
     def has_wordform(self, form):
         self._t()
         from SIL.LCModel import IWfiWordformRepository   # type: ignore[import-not-found]
-        from SIL.LCModel.Core.Text import TsStringUtils   # type: ignore[import-not-found]
-        tss = TsStringUtils.MakeString(nfd(form), self.cache.DefaultVernWs)
-        wf = None
-        try:
-            ok, wf = self._repo(IWfiWordformRepository).TryGetObject(tss, wf)
-            return bool(ok)
-        except Exception:   # noqa: BLE001
-            return any(nfd(str(w.Form.get_String(self.cache.DefaultVernWs).Text)) == nfd(form) for w in self._repo(IWfiWordformRepository).AllInstances())
+        repo = self._repo(IWfiWordformRepository)
+        tss = self._tss(form, self.cache.DefaultVernWs)
+        # bool TryGetObject(ITsString, out IWfiWordform) [source]: the out parameter omitted → (ok, wf)
+        r = repo.TryGetObject(tss)
+        return bool(r[0] if isinstance(r, tuple) else r)
 
     def force_parse(self, para_guid):
         self._t()
         from SIL.LCModel.DomainServices import ParagraphParser   # type: ignore[import-not-found]
-        ParagraphParser(self.cache).ForceParse(self._para(para_guid))
+        ParagraphParser(self.cache).ForceParse(self._para(para_guid))   # ParagraphParser(LcmCache); ForceParse(IStTxtPara) [source]
 
     def export_elan(self, text_guid):
-        """FLEx's InterlinearExporter, mode `elan` [verified: mode xml drops all times]. The exporter
-        lives in ITextDll (FieldWorks, not liblcm); its constructor signature is [unverified]."""
+        """FLEx's InterlinearExporter, mode `elan` [verified: mode xml drops all times], built as
+        FLEx's InterlinearExportDialog builds it [source]: ExportDisplay() dereferences the view
+        constructor, so a real InterlinVc with DefaultChoices; root object = the text's StText.
+        Which lines the elan export then carries is [unverified] (V-1)."""
         self._t()
         import clr   # type: ignore[import-not-found]
         clr.AddReference("ITextDll")
-        import System   # type: ignore[import-not-found]
-        from SIL.FieldWorks.IText import InterlinearExporter   # type: ignore[import-not-found]
+        from SIL.FieldWorks.IText import InterlinearExporter, InterlinVc, InterlinLineChoices   # type: ignore[import-not-found]
         from System.IO import StringWriter   # type: ignore[import-not-found]
         from System.Xml import XmlWriter, XmlWriterSettings   # type: ignore[import-not-found]
         sw = StringWriter()
@@ -496,12 +547,7 @@ class RealLcm(FlexPort):
         settings.Indent = True
         xw = XmlWriter.Create(sw, settings)
         t = self._text(text_guid)
-        # As FLEx's InterlinearExportDialog does [source]: the exporter's ExportDisplay() dereferences
-        # the view constructor, so a null vc crashes; root object = the text's StText.
-        from SIL.FieldWorks.IText import InterlinVc, InterlinLineChoices   # type: ignore[import-not-found]
         vc = InterlinVc(self.cache)
-        # DefaultChoices(ILangProject, vern, anal) [source: InterlinLineChoices.cs]; which lines the
-        # elan export then carries is [unverified] (V-1 checks § and phrase GUIDs in that file)
         choices = InterlinLineChoices.DefaultChoices(self.cache.LanguageProject, int(self.cache.DefaultVernWs), int(self.cache.DefaultAnalWs))
         vc.LineChoices = choices
         exporter = InterlinearExporter.Create("elan", self.cache, xw, t.ContentsOA, choices, vc)
@@ -517,13 +563,13 @@ class RealLcm(FlexPort):
         if self.ah.CurrentDepth > 0:
             raise RuntimeError("Nested tasks are not supported")
         from SIL.LCModel.Infrastructure import UndoableUnitOfWorkHelper   # type: ignore[import-not-found]
-        h = UndoableUnitOfWorkHelper(self.ah, undo_label, redo_label)
+        h = UndoableUnitOfWorkHelper(self.ah, undo_label, redo_label)   # pyflexicon undoable_operation.py does the same
         self._handle = h
         return h
 
     def commit(self, handle):
         self._t()
-        handle.set_RollBack(False)   # ⚠ NOT `handle.RollBack = False`: that silently keeps rolling back [verified]
+        handle.set_RollBack(False)   # ⚠ NOT `handle.RollBack = False`: that silently keeps rolling back [verified; pyflexicon agrees]
         try:
             handle.Dispose()
         except Exception:
@@ -536,7 +582,8 @@ class RealLcm(FlexPort):
     def rollback(self, handle):
         self._t()
         try:
-            handle.Dispose()          # RollBack left true → the UOW is rolled back
+            handle.set_RollBack(True)
+            handle.Dispose()          # RollBack true → the UOW is rolled back
         except Exception:
             if self.ah.CurrentDepth == 1:
                 self.ah.Rollback(0)
@@ -576,36 +623,32 @@ class RealLcm(FlexPort):
         return self._undo_result(self.ah.Redo())
 
     # ---- writes ------------------------------------------------------------------------------------
-    def _tss(self, text, ws_handle):
-        from SIL.LCModel.Core.Text import TsStringUtils   # type: ignore[import-not-found]
-        return TsStringUtils.MakeString(nfd(text), ws_handle) if text else TsStringUtils.EmptyString(ws_handle)
-
     def set_contents(self, para_guid, text):
-        """ONE Contents assignment with NULL properties for the inserted run (it inherits the previous
-        run, so the diff stays minimal) — built by editing the existing TsString rather than replacing
-        the whole string with a fresh one, so run properties are kept."""
+        """ONE Contents assignment, built by editing the existing TsString so untouched runs keep
+        their properties; the replaced range takes the writing system of run 0 — pyflexicon's
+        SetBaselineText idiom (bldr.ReplaceTsString + MakeString), minimal diff from lcm_diff."""
         self._t()
         p = self._para(para_guid)
         old = p.Contents
-        old_text = str(old.Text or "")
+        old_text = str(old.Text or "") if old is not None else ""
         ich, ins, dele = lcm_diff(old_text, nfd(text))
         bldr = old.GetBldr()
-        bldr.Replace(ich, ich + dele, nfd(text)[ich:ich + ins], None)   # null props → inherits
+        bldr.ReplaceTsString(ich, ich + dele, self._tss(nfd(text)[ich:ich + ins], self._run0_ws(old)))
         p.Contents = bldr.GetString()
 
     def split_para_at(self, para_guid, ich):
         self._t()
-        newp = self._para(para_guid).SplitParaAt(int(ich))
+        newp = self._para(para_guid).SplitParaAt(int(ich))   # IStTxtPara SplitParaAt(int) [source]
         return str(newp.Guid)
 
     def merge_para_with_next(self, para_guid):
         self._t()
-        self._para(para_guid).MergeParaWithNext()
+        self._para(para_guid).MergeParaWithNext()   # [source]
 
     def set_segment_times(self, seg_guid, begin, end):
         self._t()
         s = self._segment(seg_guid)
-        s.BeginTimeOffset = "" if begin is None else str(int(begin))
+        s.BeginTimeOffset = "" if begin is None else str(int(begin))   # Unicode in the model
         s.EndTimeOffset = "" if end is None else str(int(end))
 
     def set_segment_media(self, seg_guid, uri_guid):
@@ -629,27 +672,28 @@ class RealLcm(FlexPort):
     def set_analysis(self, seg_guid, index, analysis_guid):
         self._t()
         s = self._segment(seg_guid)
-        s.AnalysesRS[int(index)] = self._obj(analysis_guid)
+        s.AnalysesRS[int(index)] = self._obj(analysis_guid)   # pyflexicon SetAnalysis writes the indexer the same way
 
     def _is_trivial(self, an):
+        from SIL.LCModel import IWfiWordform   # type: ignore[import-not-found]
         if an.CategoryRA is not None:
             return False
-        bundles = list(an.MorphBundlesOS)
+        bundles = [_cast(b) for b in an.MorphBundlesOS]
         if not bundles:
             return True
         if len(bundles) != 1:
             return False
         mb = bundles[0]
-        wf = an.Owner
+        wf = IWfiWordform(an.Owner)
         vern = self.cache.DefaultVernWs
         return (mb.MorphRA is None and mb.MsaRA is None and mb.SenseRA is None and mb.InflTypeRA is None
-                and str(mb.Form.get_String(vern).Text or "") == str(wf.Form.get_String(vern).Text or ""))
+                and self._tss_text(mb.Form.get_String(vern)) == self._tss_text(wf.Form.get_String(vern)))
 
     def find_trivial_analysis(self, wordform_guid):
         self._t()
         wf = self._obj(wordform_guid)
         for an in wf.AnalysesOC:
-            if self._is_trivial(an):
+            if self._is_trivial(_cast(an)):
                 return str(an.Guid)
         return None
 
@@ -675,9 +719,9 @@ class RealLcm(FlexPort):
         self._t()
         g = self._obj(gloss_guid)
         n = 0
-        for ref in g.ReferringObjects:
-            if ref.ClassName == "Segment":
-                n += sum(1 for a in ref.AnalysesRS if str(a.Guid) == gloss_guid)
+        for ref in g.ReferringObjects:   # HashSet<ICmObject> [source]
+            if str(ref.ClassName) == "Segment":
+                n += sum(1 for a in _cast(ref).AnalysesRS if str(a.Guid) == str(gloss_guid))
         return n
 
     def create_gloss(self, analysis_guid, forms):
@@ -699,22 +743,22 @@ class RealLcm(FlexPort):
 
     def is_approved(self, analysis_guid):
         self._t()
+        from SIL.LCModel import Opinions   # type: ignore[import-not-found]
         an = self._obj(analysis_guid)
         agent = self.cache.LanguageProject.DefaultUserAgent
-        try:
-            from SIL.LCModel import Opinions   # type: ignore[import-not-found]
-            return an.GetAgentOpinion(agent) == Opinions.approves
-        except Exception:   # noqa: BLE001
-            return any(str(e.Owner.Guid) == str(agent.Guid) and e.Approves for e in an.EvaluationsRC)
+        return an.GetAgentOpinion(agent) == Opinions.approves   # IWfiAnalysis.GetAgentOpinion [source: InterfaceAdditions.cs]
 
     def set_evaluation(self, analysis_guid, approves=True):
-        """SetAgentOpinion(DefaultUserAgent, approves) as FLEx does; exact objects added [unverified, V-12]."""
+        """IWfiAnalysis.SetAgentOpinion(DefaultUserAgent, …) [source; pyflexicon writes the same
+        opinion through ICmAgent.SetEvaluation]; exact objects added [unverified, V-12]."""
         self._t()
         from SIL.LCModel import Opinions   # type: ignore[import-not-found]
         an = self._obj(analysis_guid)
         an.SetAgentOpinion(self.cache.LanguageProject.DefaultUserAgent, Opinions.approves if approves else Opinions.disapproves)
 
     def create_media(self, text_guid, path):
+        """As pyflexicon TextOperations does [source]: ICmMediaContainerFactory for MediaFilesOA,
+        ICmMediaURIFactory elements added to MediaURIsOC BEFORE MediaURI is set."""
         self._t()
         from SIL.LCModel import ICmMediaContainerFactory, ICmMediaURIFactory   # type: ignore[import-not-found]
         t = self._text(text_guid)
@@ -730,7 +774,8 @@ class RealLcm(FlexPort):
         self._obj(uri_guid).MediaURI = path
 
     def import_flextext(self, path):
-        """FLEx's own importer inside OUR UOW (it joins it) [verified]."""
+        """FLEx's own importer inside OUR UOW (it joins it) [verified]. LinguaLinksImport(cache,
+        tempDir, rootDir); ImportInterlinear(IThreadedProgress, object[] {path}) [source]."""
         self._t()
         import clr   # type: ignore[import-not-found]
         clr.AddReference("ITextDll")

@@ -83,8 +83,10 @@ The fifth launch listed the FLEx projects with the real FieldWorks version (pre-
 `list_projects` all real) and failed on open: FLExTools' `flexlibs` had been imported instead of
 pyflexicon's `flexicon` (plan §2.4 item 8). The sixth opened the project for real and died on a .NET
 namespace written from memory; every namespace in `lcm_real.py` is now read from liblcm/FieldWorks
-source and pinned by a test (plan §2.4 item 9). Still never exercised on Windows: everything in
-`lcm_real.py` past `OpenProject` + the undo-stack lookup, the real `CoreWebView2` attribute path,
+source and pinned by a test (plan §2.4 item 9). The seventh died on a pythonnet idiom
+(`GetInstance`), after which the WHOLE file was audited against pyflexicon's own code and docs and
+liblcm's model (plan §2.4 item 10) instead of one line per launch. Still never exercised on
+Windows: everything in `lcm_real.py` past `OpenProject`, the real `CoreWebView2` attribute path,
 the Save dialog for exports.
 The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
 when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.

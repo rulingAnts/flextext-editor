@@ -69,6 +69,10 @@ Do not copy this handoff file into the repository. The plan file (below) is the 
 - **Copy-only:** dev builds refuse writes unless the project carries the disposable-copy marker
   (plan §12.3). Fail closed.
 - No WSL/Git Bash/bash assumptions on Windows: Windows-side scripts are PowerShell or Python.
+- **pywebview pitfalls (plan §2.4) — read them first.** The `js_api` object is exposed to the page
+  recursively (every public member must be an `@exposed` method, nothing else — `test_api` pins
+  it); the `webview.start()` function runs before the window exists; pywebview's own WebView2
+  handlers run before yours. Each has already cost a VM round trip on two projects.
 
 ## 3. What to build (in order)
 

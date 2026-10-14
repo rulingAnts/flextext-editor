@@ -185,6 +185,40 @@ The shell must never become a browser. Rules, all enforced in Python, fail-close
 - **Exceptions never cross into JS.** `api.py` wraps every call: `{ok: true, result}` or
   `{ok: false, error: {code, message, detail}}`.
 
+### 2.4 pywebview pitfalls — hit on TWO projects now (Seth, 2026-10-14: *"Last project you made had this problem too."*)
+
+Read these before writing a line against pywebview; each one cost a VM round trip, and the second
+one cost it twice.
+
+1. **The `js_api` object is exposed to the page RECURSIVELY.** `util.parse_api_js` walks every
+   attribute without a leading underscore: a method becomes `window.pywebview.api.<name>`, and a
+   non-callable object is walked in turn. So a public `worker` hands the page `worker.run()`, a
+   public `server` hands it `server.stop()`, and a stored pywebview `window` sends the walker into
+   WinForms (`native.AccessibilityObject.Bounds.Empty.Empty…`) until *maximum recursion depth
+   exceeded* — the symptom both projects showed. **Rule:** every public member of the api object is
+   an `@exposed` method and nothing else; attributes and wiring methods are underscored.
+   `desktop/tests/test_api.py::test_the_page_can_reach_only_exposed_methods` reimplements the walk
+   and fails on anything else.
+2. **The function handed to `webview.start()` runs at once, in its own thread, before the window
+   exists.** `window.native` is `None` there, and WebView2 has not begun initialising. Anything that
+   needs the native window waits for `window.events.shown`, then runs on the UI thread
+   (`native.Invoke`, as pywebview does), and attaches to `CoreWebView2` either at once or from
+   `CoreWebView2InitializationCompleted`. Destroying the window while that initialisation runs is
+   what WebView2 reports as **E_ABORT** — a consequence, not a cause. `SystemExit` raised in that
+   thread ends the thread, not the process; use `os._exit` to refuse to run.
+3. **pywebview's own CoreWebView2 handlers are subscribed first and run first.** It cancels every
+   download (`ALLOW_DOWNLOADS=False`) — re-allow yours by setting `Cancel = False` after it; and it
+   turns every `NewWindowRequested` into a navigation of the same window (or, with
+   `OPEN_EXTERNAL_LINKS_IN_BROWSER=True`, the default, opens the OS browser itself, bypassing any
+   policy of yours). Set that to `False` and swallow the follow-up navigation.
+4. **Build-time output is read through a pipe encoded as cp1252 on Windows** (pip's wheel build): a
+   non-ASCII character in a `print()` fails the whole install. ASCII only in anything that runs
+   under pip.
+5. **pip does not reinstall a `git+…@branch` package whose version has not changed**, even when it
+   resolves a newer commit — it prints "Requirement already satisfied" for the dependencies and
+   installs nothing. Install with `--force-reinstall --no-deps`, and have the program print its
+   source commit first thing so "which build is this" is never inferred from pip's output.
+
 ---
 
 ## 3. Bridge API (`window.pywebview.api`, wrapped by `native-flex.js`)

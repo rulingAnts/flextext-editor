@@ -30,7 +30,7 @@ def api(tmp_path):
             copy_text_fn=lambda t: True, pick_file_fn=lambda k: str(tmp_path / ("pick." + k)))
     a._opened = opened
     yield a
-    a.worker.stop()
+    a._worker.stop()
 
 
 def ok(r):
@@ -56,7 +56,7 @@ def test_hello_is_pure(api):
     h = ok(api.hello())
     assert h["contract"] == FLEX_CONTRACT and h["copyOnly"] is True and h["engineVersion"] == "v999"
     assert h["capabilities"]["offsiteAuth"] is False and h["modelVersion"] == 7000072
-    assert api.session is None and api._factory.last is None, "no LCM work"
+    assert api._session is None and api._factory.last is None, "no LCM work"
 
 
 def test_every_exposed_method_answers_the_envelope_and_never_raises(api):
@@ -152,7 +152,7 @@ def test_poisoned_session_answers_e_poisoned_until_closed(api):
     tg = ok(api.list_texts())[0]["guid"]
     r = ok(api.open_text(tg))
     from flexshell.errors import FlexError
-    api.session._poison(FlexError("E_SAVE_FAILED", "test", {}))
+    api._session._poison(FlexError("E_SAVE_FAILED", "test", {}))
     assert err(api.list_texts())["code"] == "E_POISONED"
     assert err(api.preview_save(tg, r["baseRev"], [], None))["code"] == "E_POISONED"
     e = err(api.open_text(tg))
@@ -171,12 +171,12 @@ def test_get_media_registers_tokens_and_reports_missing(api, tmp_path):
     tg = ok(api.list_texts())[0]["guid"]
     m = ok(api.get_media(tg))
     assert len(m["tracks"]) == 2
-    assert m["tracks"][0]["exists"] and m["tracks"][0]["url"].startswith("/media/") and len(api.media) == 1
+    assert m["tracks"][0]["exists"] and m["tracks"][0]["url"].startswith("/media/") and len(api._media) == 1
     assert m["tracks"][1]["exists"] is False and m["tracks"][1]["url"] is None
     doc = ok(api.open_text(tg))["doc"]
     assert doc["flex"]["media"][0]["url"].startswith("/media/")
     ok(api.close_project())
-    assert len(api.media) == 0, "tokens die with the project session"
+    assert len(api._media) == 0, "tokens die with the project session"
 
 
 def test_misc_bridge_calls(api):
@@ -203,3 +203,79 @@ def test_printview_data(api):
     assert d["paraNumber"] == 1 and d["segNumber"] == 2 and d["segsInPara"] == 2
     assert [w["form"] for w in d["words"]] == ["ccc", "ddd", "."] and d["words"][2]["punct"]
     assert err(api.printview_data("nope"))["code"] == "E_NOT_FOUND"
+
+
+def _pywebview_surface(obj, base="", seen=None, out=None, depth=0):
+    """pywebview's util.parse_api_js walk, reimplemented: every attribute WITHOUT a leading underscore
+    is exposed to the page — methods as functions, other objects RECURSIVELY. → {full_name: kind}."""
+    import inspect
+    seen = set() if seen is None else seen
+    out = {} if out is None else out
+    if id(obj) in seen or depth > 6:
+        return out
+    seen.add(id(obj))
+    for name in dir(obj):
+        if name.startswith("_"):
+            continue
+        attr = getattr(obj, name)
+        full = base + "." + name if base else name
+        if inspect.ismethod(attr) or inspect.isfunction(attr):
+            out[full] = "exposed" if getattr(attr, "__exposed__", False) else "METHOD"
+        elif inspect.isclass(attr) or (not callable(attr) and hasattr(attr, "__module__")):
+            out[full] = "OBJECT"
+            _pywebview_surface(attr, full, seen, out, depth + 1)
+    return out
+
+
+def test_the_page_can_reach_only_exposed_methods(api):
+    """What pywebview hands the page as window.pywebview.api is EXACTLY the @exposed methods: no
+    attribute, no wiring method, nothing nested (a public `worker` would give JS worker.run(); a
+    public `window` recursed into WinForms until 'maximum recursion depth exceeded' on the VM)."""
+    import types
+
+    class FakeWindow:   # as after webview_hooks.install(): the api holds pywebview's window
+        native = types.SimpleNamespace(AccessibilityObject=object())
+    api._set_window(FakeWindow())
+    api._attach_server(types.SimpleNamespace(media=api._media, origin="http://127.0.0.1:1", stop=lambda: None))
+    surface = _pywebview_surface(api)
+    bad = {k: v for k, v in surface.items() if v != "exposed"}
+    assert not bad, "reachable from the page but not an @exposed method: %r" % bad
+    assert {"hello", "list_projects", "open_project", "save_to_flex", "job_status"} <= set(surface)
+
+
+def _pywebview_surface(obj, base="", seen=None, out=None, depth=0):
+    """pywebview's util.parse_api_js walk, reimplemented: every attribute WITHOUT a leading underscore
+    is exposed to the page — methods as functions, other objects RECURSIVELY. → {full_name: kind}."""
+    import inspect
+    seen = set() if seen is None else seen
+    out = {} if out is None else out
+    if id(obj) in seen or depth > 6:
+        return out
+    seen.add(id(obj))
+    for name in dir(obj):
+        if name.startswith("_"):
+            continue
+        attr = getattr(obj, name)
+        full = base + "." + name if base else name
+        if inspect.ismethod(attr) or inspect.isfunction(attr):
+            out[full] = "exposed" if getattr(attr, "__exposed__", False) else "METHOD"
+        elif inspect.isclass(attr) or (not callable(attr) and hasattr(attr, "__module__")):
+            out[full] = "OBJECT"
+            _pywebview_surface(attr, full, seen, out, depth + 1)
+    return out
+
+
+def test_the_page_can_reach_only_exposed_methods(api):
+    """What pywebview hands the page as window.pywebview.api is EXACTLY the @exposed methods: no
+    attribute, no wiring method, nothing nested (a public `worker` would give JS worker.run(); a
+    public `window` recursed into WinForms until 'maximum recursion depth exceeded' on the VM)."""
+    import types
+
+    class FakeWindow:   # as after webview_hooks.install(): the api holds pywebview's window
+        native = types.SimpleNamespace(AccessibilityObject=object())
+    api._set_window(FakeWindow())
+    api._attach_server(types.SimpleNamespace(media=api._media, origin="http://127.0.0.1:1", stop=lambda: None))
+    surface = _pywebview_surface(api)
+    bad = {k: v for k, v in surface.items() if v != "exposed"}
+    assert not bad, "reachable from the page but not an @exposed method: %r" % bad
+    assert {"hello", "list_projects", "open_project", "save_to_flex", "job_status"} <= set(surface)

@@ -55,8 +55,8 @@ def main(argv=None):
     root = engine_root()
     sys.stderr.write(startup_line(root) + "\n")
     api = Api(backend_factory=RealBackendFactory(), engine_root=root)
-    srv = start_server(root, port=port, connect_origins=api.connect_origins(), media=api.media)
-    api.attach_server(srv)
+    srv = start_server(root, port=port, connect_origins=api._connect_origins(), media=api._media)
+    api._attach_server(srv)
 
     # pywebview must never open a browser itself: a NewWindowRequested becomes a navigation of THIS
     # window instead, which the guard then decides (webview_hooks module docstring).
@@ -76,7 +76,7 @@ def main(argv=None):
             sys.stderr.write("navigation guard could not be installed: %s\n" % e)
             window.destroy()
             os._exit(2)   # SystemExit here would end only this thread; the GUI loop must not survive
-        api.set_window(window)
+        api._set_window(window)
 
     # private_mode=False + storage_path: pywebview's default private mode would wipe IndexedDB on exit.
     # gui='edgechromium' only: refuse any other backend (plan §2.2 item 3).

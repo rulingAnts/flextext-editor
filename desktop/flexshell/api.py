@@ -57,12 +57,12 @@ class Api:
         self._engine_root = engine_root
         self._projects_dir = projects_dir or getattr(backend_factory, "projects_dir", None)
         self._copy_only = copyonly.is_copy_only(stamp_dir or engine_root)
-        self.media = MediaRegistry()
-        self.worker = worker or Worker(name="flexshell-lcm")
-        self.registry = ProjectRegistry()
-        self.session = None
-        self.server = None
-        self.window = None
+        self._media = MediaRegistry()
+        self._worker = worker or Worker(name="flexshell-lcm")
+        self._registry = ProjectRegistry()
+        self._session = None
+        self._server = None
+        self._window = None
         self._export_dir = export_dir or os.path.join(tempfile.gettempdir(), "FlexTextSegmenterFLEx", "exports")
         self._opener = opener
         self._copy_text = copy_text_fn
@@ -70,14 +70,20 @@ class Api:
         self._lock = threading.Lock()
 
     # ---- wiring --------------------------------------------------------------------------------
-    def attach_server(self, server):
-        self.server = server
-        self.media = server.media
+    # ⚠ EVERYTHING pywebview can reach from this object without a leading underscore is exposed to the
+    # page as window.pywebview.api.<name>, RECURSIVELY (util.parse_api_js walks every public attribute:
+    # a public `worker` would hand JS worker.run()). So: every public member is an @exposed method and
+    # nothing else — attributes and wiring are underscored. test_api pins the rule. Learned on the VM
+    # (2026-10-14): a public `window` sent the walker into WinForms' AccessibilityObject.Bounds.Empty…
+    # until "maximum recursion depth exceeded".
+    def _attach_server(self, server):
+        self._server = server
+        self._media = server.media
 
-    def set_window(self, window):
-        self.window = window
+    def _set_window(self, window):
+        self._window = window
 
-    def connect_origins(self):
+    def _connect_origins(self):
         return list(RELAY_ORIGINS)
 
     def _install_info(self):
@@ -96,7 +102,7 @@ class Api:
         return {"contract": FLEX_CONTRACT, "shellVersion": SHELL_VERSION, "engineVersion": _engine_version(self._engine_root),
                 "fwVersion": info.get("fwVersion"), "lcmVersion": info.get("lcmVersion"), "modelVersion": info.get("modelVersion"),
                 "python": sys.version.split()[0], "copyOnly": self._copy_only,
-                "capabilities": {"offsiteAuth": False, "clipboard": sys.platform == "win32", "fileDialog": self.window is not None,
+                "capabilities": {"offsiteAuth": False, "clipboard": sys.platform == "win32", "fileDialog": self._window is not None,
                                  "write": True, "import": True, "export": True, "media": True}}
 
     @exposed
@@ -134,7 +140,7 @@ class Api:
             copyonly.check_write_allowed(folder, name, self._copy_only)   # B6, fail closed
         else:
             prechecks.require_read(report)
-        self.registry.claim(name)
+        self._registry.claim(name)
 
         def job(j):
             port = self._factory()
@@ -147,57 +153,57 @@ class Api:
                     pass
                 raise
         try:
-            self.session = self.worker.run("open_project", job)
+            self._session = self._worker.run("open_project", job)
         except Exception:
-            self.registry.release()
+            self._registry.release()
             raise
-        ws = self.session.port.writing_systems()
+        ws = self._session.port.writing_systems()
         return {"session": name, "writable": mode == "write", "reasons": report["reasons"], "ws": ws,
                 "printViewConfig": _print_view_config(folder), "glossWsDefaults": [w["id"] for w in ws["anal"][:1]],
-                "versions": self.session.port.versions()}
+                "versions": self._session.port.versions()}
 
     def _need_session(self):
-        if not self.session:
+        if not self._session:
             raise FlexError("E_NOT_FOUND", "no project is open", {})
-        return self.session
+        return self._session
 
     @exposed
     def close_project(self):
         s = self._need_session()
         try:
-            r = self.worker.run("close_project", lambda j: s.close())
+            r = self._worker.run("close_project", lambda j: s.close())
         finally:
-            self.session = None
-            self.registry.release()
-            self.media.clear()
+            self._session = None
+            self._registry.release()
+            self._media.clear()
         return r
 
     @exposed
     def list_texts(self):
         s = self._need_session()
-        return self.worker.run("list_texts", lambda j: (s.guard(), s.port.list_texts())[1])
+        return self._worker.run("list_texts", lambda j: (s.guard(), s.port.list_texts())[1])
 
     @exposed
     def open_text(self, text_guid):
         s = self._need_session()
         urls = {}
-        for m in self.worker.run("media", lambda j: (s.guard(), s.port.read_text(text_guid)["media"])[1]):
+        for m in self._worker.run("media", lambda j: (s.guard(), s.port.read_text(text_guid)["media"])[1]):
             if m["uri"] and os.path.isfile(m["uri"]):
-                urls[m["guid"]] = "/media/" + self.media.register(m["uri"])
-        return self.worker.run("open_text", lambda j: s.open_text(text_guid, urls))
+                urls[m["guid"]] = "/media/" + self._media.register(m["uri"])
+        return self._worker.run("open_text", lambda j: s.open_text(text_guid, urls))
 
     @exposed
     def close_text(self, text_guid):
         s = self._need_session()
-        return self.worker.run("close_text", lambda j: s.close_text(text_guid))
+        return self._worker.run("close_text", lambda j: s.close_text(text_guid))
 
     @exposed
     def preview_save(self, text_guid, base_rev, ops, post_state=None, chosen_wss=None):
         s = self._need_session()
-        return self.worker.run("preview_save", lambda j: s.preview(text_guid, base_rev, ops, post_state, chosen_wss))
+        return self._worker.run("preview_save", lambda j: s.preview(text_guid, base_rev, ops, post_state, chosen_wss))
 
     def _job(self, label, fn):
-        job = self.worker.submit(label, fn, write=True)
+        job = self._worker.submit(label, fn, write=True)
         return {"jobId": job.id}
 
     @exposed
@@ -220,7 +226,7 @@ class Api:
         s = self._need_session()
         entry = s.texts.get(text_guid)
         base_rev = entry["baseRev"] if entry else None
-        return self.worker.run("relink_preview", lambda j: s.preview(text_guid, base_rev, [{"op": "media.relink", "uriGuid": uri_guid, "path": new_path}], {}))
+        return self._worker.run("relink_preview", lambda j: s.preview(text_guid, base_rev, [{"op": "media.relink", "uriGuid": uri_guid, "path": new_path}], {}))
 
     @exposed
     def export_editor_bundle(self, text_guid):
@@ -230,18 +236,18 @@ class Api:
     @exposed
     def get_media(self, text_guid):
         s = self._need_session()
-        media = self.worker.run("get_media", lambda j: (s.guard(), s.port.read_text(text_guid)["media"])[1])
+        media = self._worker.run("get_media", lambda j: (s.guard(), s.port.read_text(text_guid)["media"])[1])
         tracks = []
         for m in media:
             exists = bool(m["uri"]) and os.path.isfile(m["uri"])
-            tracks.append({"uriGuid": m["guid"], "url": ("/media/" + self.media.register(m["uri"])) if exists else None, "exists": exists,
+            tracks.append({"uriGuid": m["guid"], "url": ("/media/" + self._media.register(m["uri"])) if exists else None, "exists": exists,
                            "name": os.path.basename(m["uri"] or "")})
         return {"tracks": tracks}
 
     @exposed
     def import_preview(self, path):
         s = self._need_session()
-        return self.worker.run("import_preview", lambda j: s.import_preview(path))
+        return self._worker.run("import_preview", lambda j: s.import_preview(path))
 
     @exposed
     def import_flextext(self, preview_token):
@@ -251,12 +257,12 @@ class Api:
     @exposed
     def recover(self, choice):
         s = self._need_session()
-        return self.worker.run("recover", lambda j: s.recover(choice))
+        return self._worker.run("recover", lambda j: s.recover(choice))
 
     @exposed
     def printview_data(self, seg_guid):
         s = self._need_session()
-        return self.worker.run("printview_data", lambda j: _printview_data(s, seg_guid))
+        return self._worker.run("printview_data", lambda j: _printview_data(s, seg_guid))
 
     @exposed
     def copy_text(self, text):
@@ -273,11 +279,11 @@ class Api:
             raise FlexError("E_SCOPE", "kind must be media or flextext", {})
         if self._pick_file:
             return {"path": self._pick_file(kind)}
-        if not self.window:
+        if not self._window:
             raise FlexError("E_INTERNAL", "no window to open a dialog from", {})
         import webview
         types = ("Audio (*.wav;*.mp3;*.flac;*.m4a;*.ogg;*.webm)",) if kind == "media" else ("FLEx interlinear text (*.flextext)",)
-        r = self.window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False, file_types=types)
+        r = self._window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False, file_types=types)
         return {"path": r[0] if r else None}
 
     @exposed
@@ -290,7 +296,7 @@ class Api:
 
     @exposed
     def job_status(self, job_id):
-        return self.worker.status(job_id)
+        return self._worker.status(job_id)
 
 
 def _engine_version(root):

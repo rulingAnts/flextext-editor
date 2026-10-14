@@ -67,6 +67,7 @@ worker/.seed-local.sql
 desktop/build/engine/
 desktop/build/dist/
 desktop/build/build/
+desktop/build/lib/
 desktop/*.egg-info/
 desktop/build/*.egg-info/
 desktop/.venv/

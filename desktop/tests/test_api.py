@@ -279,3 +279,34 @@ def test_the_page_can_reach_only_exposed_methods(api):
     bad = {k: v for k, v in surface.items() if v != "exposed"}
     assert not bad, "reachable from the page but not an @exposed method: %r" % bad
     assert {"hello", "list_projects", "open_project", "save_to_flex", "job_status"} <= set(surface)
+
+
+def test_every_port_call_runs_on_the_worker_thread(api):
+    """The mock enforces the one-thread rule through ThreadBound exactly as the real port does, so an
+    off-worker call fails here, not on the VM (eighth launch: writing_systems() on the bridge thread)."""
+    ok(api.open_project("copy-api", "read"))
+    port = api._session.port
+    with pytest.raises(RuntimeError, match="off the worker thread"):
+        port.writing_systems()
+    assert api._worker.run("probe", lambda j: port.writing_systems())["vern"], "the same call on the worker works"
+    ok(api.close_project())
+
+
+def test_a_failed_open_releases_the_project_and_a_second_open_is_refused_while_one_is_live(api, monkeypatch):
+    from flexshell import api as api_mod
+    real_session = api_mod.Session
+
+    class Boom(real_session):
+        def __init__(self, port, *a, **kw):
+            super().__init__(port, *a, **kw)
+            raise RuntimeError("read-back failed after the open")
+    monkeypatch.setattr(api_mod, "Session", Boom)
+    r = api.open_project("copy-api", "read")
+    assert r["ok"] is False and "read-back failed" in r["error"]["message"]
+    assert api._session is None and api._registry.open_name is None, "the open was undone: no session, no claim"
+    monkeypatch.setattr(api_mod, "Session", real_session)
+    assert api._factory.last.calls.count(("open", "copy-api", False)) == 1
+    ok(api.open_project("copy-api", "read"))   # the lock was released: this open succeeds
+    r2 = api.open_project("copy-api", "read")
+    assert r2["ok"] is False and r2["error"]["code"] == "E_ALREADY_OPEN", r2
+    ok(api.close_project())

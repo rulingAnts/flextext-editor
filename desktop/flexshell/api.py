@@ -20,7 +20,7 @@ from . import copyonly, prechecks
 from .errors import FlexError
 from .protocol import Session
 from .server import MediaRegistry
-from .worker import ProjectRegistry, Worker
+from .worker import ProjectRegistry, ThreadBound, Worker
 
 # The relay workers the engine may talk to (CSP connect-src): production, and the staging worker a
 # device opts into with ?devworker=staging (app.js DEFAULT_WORKER / STAGING_WORKER). Data, never content.
@@ -129,6 +129,8 @@ class Api:
             raise FlexError("E_SCOPE", "mode must be read or write", {"mode": mode})
         if not isinstance(name, str) or not name or os.sep in name or "/" in name or name.startswith("."):
             raise FlexError("E_NOT_FOUND", "no such project", {})
+        if self._session is not None:   # before the pre-checks, which would otherwise report OUR OWN lock as another program's
+            raise FlexError("E_ALREADY_OPEN", "a project is already open in this shell", {"open": self._registry.open_name})
         folder = os.path.join(self._projects_dir, name)
         if not os.path.isdir(folder):
             raise FlexError("E_NOT_FOUND", "no such project", {"project": name})
@@ -143,9 +145,13 @@ class Api:
         self._registry.claim(name)
 
         def job(j):
-            port = self._factory()
+            # EVERY port call on the worker thread, this read-back included: the eighth VM launch read
+            # writing_systems() on the bridge thread after the open, the guard fired, and the session
+            # it left open held the project's lock until the shell was restarted.
+            port = ThreadBound(self._factory(), self._worker)
             try:
-                return Session(port, name, mode == "write", self._copy_only, marker)
+                session = Session(port, name, mode == "write", self._copy_only, marker)
+                return session, port.writing_systems(), port.versions()
             except Exception:
                 try:
                     port.close_without_save()
@@ -153,14 +159,13 @@ class Api:
                     pass
                 raise
         try:
-            self._session = self._worker.run("open_project", job)
+            self._session, ws, versions = self._worker.run("open_project", job)
         except Exception:
             self._registry.release()
             raise
-        ws = self._session.port.writing_systems()
         return {"session": name, "writable": mode == "write", "reasons": report["reasons"], "ws": ws,
                 "printViewConfig": _print_view_config(folder), "glossWsDefaults": [w["id"] for w in ws["anal"][:1]],
-                "versions": self._session.port.versions()}
+                "versions": versions}
 
     def _need_session(self):
         if not self._session:

@@ -85,8 +85,9 @@ pyflexicon's `flexicon` (plan §2.4 item 8). The sixth opened the project for re
 namespace written from memory; every namespace in `lcm_real.py` is now read from liblcm/FieldWorks
 source and pinned by a test (plan §2.4 item 9). The seventh died on a pythonnet idiom
 (`GetInstance`), after which the WHOLE file was audited against pyflexicon's own code and docs and
-liblcm's model (plan §2.4 item 10) instead of one line per launch. Still never exercised on
-Windows: everything in `lcm_real.py` past `OpenProject`, the real `CoreWebView2` attribute path,
+liblcm's model (plan §2.4 item 10) instead of one line per launch. The eighth opened the project
+and tripped the shell's own one-thread guard on the read-back after the open (item 11: the rule is
+now enforced on the mock too, so the suite catches it). Still never exercised on Windows: everything in `lcm_real.py` past `OpenProject`, the real `CoreWebView2` attribute path,
 the Save dialog for exports.
 The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
 when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.

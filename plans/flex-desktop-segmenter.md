@@ -288,6 +288,17 @@ one cost it twice.
       (interface-declared; pyflexicon's `SetApprovalStatus` writes the same opinion through
       `ICmAgent.SetEvaluation`).
     `test_lcm_real_lib.py` pins the source idioms and that no `GetInstance` is in code.
+11. **The one-thread rule is enforced by a proxy, on the mock too.** Eighth launch: *"LCM call off
+    the worker thread"* — the open had run on the worker, then `api.open_project` read
+    `writing_systems()` on pywebview's bridge thread; and because that happened AFTER the open, the
+    session stayed live holding the project's lock, so the next click reported *another program*
+    holding it (our own). `worker.ThreadBound` now wraps every port — real and mock — and raises on
+    any call off the worker thread, so the suite finds such a call on Linux; the open's read-back
+    runs inside the job; a failure after the open closes the session without saving and releases
+    the claim; a second open while one is live is `E_ALREADY_OPEN` before the pre-checks run.
+    ⚠ Seth's Mac runs a separate LCM bridge server on the VM: if it holds the same project with
+    sharing off, every open from the shell is `E_LOCKED_OTHER` for real; with sharing on, reads
+    work and writes stay refused (§14).
 
 ---
 

@@ -139,6 +139,34 @@ def _com_init_sta():
         pass
 
 
+class ThreadBound:
+    """A port that may be used ONLY on the worker's thread — the one-thread rule (plan §2.3,
+    handoff §4: a unit of work begun on one thread and touched on another wedges the session) made
+    unconditional and testable. Every callable attribute of the wrapped port is checked at call time
+    and raises the same RuntimeError the real port raises, so the MOCK enforces the rule in the suite
+    and an off-worker call fails on Linux instead of on the VM (eighth launch, 2026-10-14: api.py read
+    writing_systems() on pywebview's bridge thread after the worker had opened the project)."""
+
+    def __init__(self, port, worker):
+        object.__setattr__(self, "_port", port)
+        object.__setattr__(self, "_worker", worker)
+
+    def __getattr__(self, name):
+        attr = getattr(object.__getattribute__(self, "_port"), name)
+        if not callable(attr):
+            return attr
+        worker = object.__getattribute__(self, "_worker")
+
+        def bound(*a, **kw):
+            if threading.get_ident() != worker.thread_id:
+                raise RuntimeError("LCM call off the worker thread (would wedge the session): " + name)
+            return attr(*a, **kw)
+        return bound
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "_port"), name, value)
+
+
 class ProjectRegistry:
     """One open project per process (plan §2.3). [verified] a second OpenProject of the same project
     inside one process succeeds — LCM's lock is per process — so the shell must refuse it itself."""

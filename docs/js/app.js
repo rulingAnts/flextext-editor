@@ -6,6 +6,9 @@ import {
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets, spansForExport,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
   mergePhrases, baselineFromWords,
+  // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
+  splitWordAt, insertWordAt, isBoundaryMarker, markBoundaryMarkers,
+  hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
@@ -4831,6 +4834,10 @@ function applyBaseline() {
    * segmentation is OFF just the same. */
   const aligned = docCarriesTime(current.doc);
   const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => aligned || s || arr.length === 1);
+  /* ⚠ THE CLASSIC BOX SHOWS THE RAW BASELINE, § INCLUDED (seg-word-split). The marker is hidden in
+   * every WORD-LEVEL view (Gloss tab, the Matcher), where it is an item nobody should edit; this box
+   * is the file's text itself, and four suites pin that it is filled and compared raw. flextext.js
+   * carries getDisplayParagraphs/restoreBoundaryMarkers, tested, for the day the box hides it too. */
   const before = JSON.stringify(getBaselineParagraphs(current.doc));
   if (JSON.stringify(paras) === before) return;
   const lines = paras.length ? paras : [''];
@@ -4946,7 +4953,9 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   if (wordGlossOn()) labels.append(lw, lg); else labels.append(lw);
   row.appendChild(labels);
 
+  markBoundaryMarkers(seg);
   seg.words.forEach((w, i) => {
+    if (w.boundaryMarker) return;   // a phrase-final § is FLEx structure, hidden here (seg-word-split)
     if (w.punct) {
       const cell = document.createElement('div');
       cell.className = 'word-cell punct-cell';
@@ -10707,6 +10716,13 @@ function mgWireEditable(el, ln, wi, field) {
       mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after');
       return;
     }
+    /* Space INSIDE a word splits it in two (seg-word-split; plan flex-desktop-segmenter.md §6.5) —
+     * one user action, ONE undo step, however the text had been edited before the space. */
+    if (e.key === ' ' && at > 0 && at < len) {
+      e.preventDefault();
+      mgSplitWord(ln.id, wi, el.textContent, at);
+      return;
+    }
     if (e.key === 'Backspace' && len === 0) { e.preventDefault(); mgDeleteWord(ln.id, wi); }
   });
   el.addEventListener('blur', () => mgCommitEdit(el, ln, wi, field));
@@ -10793,6 +10809,44 @@ function mgDeleteWord(id, wi) {
   ph.baseline = baselineFromWords(ph.words);
   mgDraw();
   mgFocusWord(id, Math.max(0, wi - 1));
+}
+/* SPLIT A WORD WHERE THE CARET IS (seg-word-split). `text` is what the box holds at the keystroke
+ * (the field may have been edited since focus); `at` is the caret offset in it. The edit and the
+ * split are ONE captured action — Undo gives back the old word with its gloss, Redo redoes both.
+ * Both halves come back unglossed, as FLEx leaves them (flextext.js splitWordAt), and a gloss that
+ * was lost is said out loud. */
+function mgSplitWord(id, wi, text, at) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  const k = mgRealIndex(ph.words, wi);
+  if (k < 0) return;
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  const probe = { words: [{ ...ph.words[k], txt: value }] };
+  const dry = splitWordAt(probe, 0, at);
+  if (!dry.ok) { toast(t('mg.splitWordRefused')); return; }
+  mgCapture();
+  ph.words[k].txt = value;
+  const r = splitWordAt(ph, k, at);
+  if (r.removedGloss) toast(t('mg.splitWordGloss', { g: r.removedGloss }));
+  mgSaveDraft();
+  mgDraw();
+  mgFocusWord(id, wi + 1);
+}
+/* PARAGRAPH BREAK OR NOT, between this line and the one above (seg-word-split; plan §6.4). Shown only
+ * for a text whose author distinguished paragraphs from phrases (`paraOf` on the lines — the same
+ * memory serializeFlextext regroups on). One click, one undo step; text and times untouched. */
+function mgToggleParaBreak(id) {
+  const i = MG ? MG.lines.findIndex((l) => l.id === id) : -1;
+  if (i <= 0) return;
+  const doc = { paragraphs: MG.lines };
+  const isBreak = paragraphBreakBefore(doc, i);
+  if (isBreak === null) return;
+  mgCapture();
+  const done = isBreak ? joinParagraphBefore(doc, i) : breakParagraphBefore(doc, i);
+  if (!done) { mgUndoStack.pop(); return; }   // nothing changed: no empty history item
+  mgSaveDraft();
+  mgDraw();
 }
 // After a redraw: put the caret at the end of the wi-th word of the line. A macrotask, not rAF —
 // rAF never fires in a background tab (segment-strips' own lesson).
@@ -11119,6 +11173,18 @@ function mgDraw() {
       <span class="mg-actions">
         <button class="mg-join icon-btn2" title="${esc(t('mg.joinPrev'))}"${i === 0 ? ' disabled' : ''}>⤴</button>
       </span>`;
+    /* ¶ — paragraph break above this line, or not (seg-word-split). Only for a text that HAS paragraphs
+     * (paraOf on its lines); a flat text offers nothing, since there is nothing to split or join. */
+    if (i > 0 && hasParagraphStructure({ paragraphs: MG.lines })) {
+      const isBreak = paragraphBreakBefore({ paragraphs: MG.lines }, i);
+      const pb = document.createElement('button');
+      pb.className = 'mg-para icon-btn2' + (isBreak ? ' mg-para-on' : '');
+      pb.textContent = '¶';
+      pb.title = t(isBreak ? 'mg.paraJoin' : 'mg.paraBreak');
+      pb.onclick = () => mgToggleParaBreak(ln.id);
+      li.querySelector('.mg-actions').prepend(pb);
+      if (isBreak) li.classList.add('mg-para-start');
+    }
     li.querySelector('.mg-pick').textContent = String(i + 1);
     li.querySelector('.mg-pick').title = t('mg.badgeTip');
     li.querySelector('.mg-pick').onclick = () => mgPick('line', ln.id);

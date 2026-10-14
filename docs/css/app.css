@@ -3736,6 +3736,11 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 .mg-item.mg-mapped .mg-pick{background:hsl(var(--mg-hue,200) 65% 45%);color:#fff;border-color:transparent}
 .mg-time{font-variant-numeric:tabular-nums;font-size:.9rem;padding-top:.35rem}
 .mg-actions{margin-left:auto;display:flex;gap:.2rem}
+/* ¶ (seg-word-split): a paragraph break above this line, lit when there is one; the row starting a
+ * paragraph gets a rule above it so the structure is visible without reading the buttons. */
+.mg-para{opacity:.55}
+.mg-para.mg-para-on{opacity:1;color:var(--topbar,#b45309)}
+.mg-line.mg-para-start{border-top:2px solid var(--topbar,#b45309);margin-top:.35rem}
 .mg-interlinear{flex:1;min-width:0}
 .mg-words{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.1rem .35rem}
 .mg-wstack{display:flex;flex-direction:column;line-height:1.15}

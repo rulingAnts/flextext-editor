@@ -818,6 +818,9 @@ const GROUPS = [
     // for an unpaired device — somebody working alone — and are the researcher's to switch off.
     { k: 'allowBlankLines', type: 'checkbox' },
     { k: 'allowTextEdit', type: 'checkbox' },
+    // What kind of break a cut makes in the Audio Segmenter (Seth, 2026-10-14): a Sentence (a FLEx
+    // <paragraph>) — the default, as every cut has always been — or a Clause (a <phrase> inside it).
+    { k: 'breakKind', type: 'select', opts: ['sentence', 'clause'], optPrefix: 'panel.opt.breakKind.', note: 'panel.f.breakKindNote' },
   ] },
   /* WHAT THE KEYBOARD DOES. Split across two tabs before this: Enter, the gloss landing box and the
    * Cut-tab landing were under "Tasks", the Space bar under "Other". */

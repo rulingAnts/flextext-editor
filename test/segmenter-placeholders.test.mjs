@@ -53,6 +53,7 @@ function segmenter(store, extra = {}) {
     const t = (k) => k, toast = (m) => log.toasts.push(m);
     const confirmDialog = async (msg, opts) => { log.confirms.push([msg, opts]); return !!extra.resume; };
     const healFlatSegments = () => false;
+    const mgAskSectionBreaks = async () => {};   // the § question (seg-word-split) is not this suite's concern
     const $ = () => null, show = () => {}, mgDraw = () => { log.drawn++; }, mgPrepareAudio = () => {};
     const setTimeout = (fn) => { fn(); return 0; }, clearTimeout = () => {};
     async function uploadDocById() {}

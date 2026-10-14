@@ -1793,6 +1793,143 @@ export function joinParagraphBefore(doc, k) {
   return true;
 }
 
+/* ---------------- Break kinds: Sentence (<paragraph>) or Clause (<phrase>) (seg-word-split) ----------------
+ *
+ * Seth, 2026-10-14: a text's segment breaks are of two kinds, and the engine has to know which it is
+ * making. In the file a SENTENCE break is a <paragraph> boundary and a CLAUSE break is a <phrase>
+ * boundary inside one paragraph. On the flat line model that is `paraOf`: lines in one paragraph share
+ * it (clause breaks between them); a line with a different (or no) paraOf starts a paragraph (a sentence
+ * break before it). The device setting `breakKind` says which kind a NEW cut makes — 'sentence', the
+ * default and what every cut has always made, or 'clause'. Only the Audio Segmenter shows the setting
+ * for now; the engine honours it wherever a line boundary is created.
+ *
+ *   setBoundaryKind(lines, k, kind)   — the boundary BEFORE line k becomes that kind (lines = the flat
+ *                                       paragraphs array, each with `guid` and optional `paraOf`)
+ *   applyNewLineBreak(lines, idx, kind) — line idx was just inserted after idx−1: give the boundary
+ *                                       between them the kind (a 'clause' joins the paragraph, creating
+ *                                       one when the text had none; a 'sentence' starts a new paragraph,
+ *                                       and the rest of the old paragraph follows it)
+ *   applyBreakKindToOrigins(doc, origins, kind) — after reconcileBaselineWithOrigins: every piece of a
+ *                                       split line gets the kind before it
+ * None of these touch text, words, times or free translations. Callers capture undo. */
+export const BREAK_KINDS = ['sentence', 'clause'];
+export const DEFAULT_BREAK_KIND = 'sentence';
+export function normalizeBreakKind(v) { return v === 'clause' ? 'clause' : 'sentence'; }
+
+export function setBoundaryKind(lines, k, kind) {
+  if (!Array.isArray(lines) || !(k > 0 && k < lines.length)) return false;
+  const prev = lines[k - 1], line = lines[k];
+  if (normalizeBreakKind(kind) === 'clause') {
+    if (prev.paraOf == null) prev.paraOf = prev.guid || newGuid();
+    const group = prev.paraOf;
+    if (line.paraOf != null && String(line.paraOf) === String(group)) return false;
+    const old = line.paraOf;
+    for (let j = k; j < lines.length; j++) {
+      if (j > k && (old == null || lines[j].paraOf == null || String(lines[j].paraOf) !== String(old))) break;
+      lines[j].paraOf = group;
+      if (old == null) break;   // an untagged line is its own paragraph: only it joins
+    }
+    return true;
+  }
+  // sentence
+  if (line.paraOf == null) return false;                                       // already its own paragraph
+  if (prev.paraOf == null || String(prev.paraOf) !== String(line.paraOf)) return false;   // already a break
+  const old = line.paraOf, fresh = newGuid();
+  for (let j = k; j < lines.length && lines[j].paraOf != null && String(lines[j].paraOf) === String(old); j++) lines[j].paraOf = fresh;
+  return true;
+}
+
+export function applyNewLineBreak(lines, idx, kind) {
+  if (!Array.isArray(lines) || !(idx > 0 && idx < lines.length)) return false;
+  const prev = lines[idx - 1];
+  if (prev.paraOf != null) lines[idx].paraOf = prev.paraOf; else delete lines[idx].paraOf;   // start inside prev's paragraph
+  setBoundaryKind(lines, idx, kind);
+  return true;
+}
+
+export function applyBreakKindToOrigins(doc, origins, kind, paraOfBefore = null) {
+  const lines = (doc && doc.paragraphs) || [];
+  /* The reconcile builds a changed line as a NEW paragraph object, so an edited or split line used to
+   * leave its FLEx paragraph (and the export fell back to flat). With the paragraph memberships from
+   * before the edit, every piece of an old line first takes that line's paraOf back… */
+  if (Array.isArray(paraOfBefore)) {
+    (origins || []).forEach((o, j) => {
+      const line = lines[j];
+      if (!line || !o || line.paraOf != null) return;
+      const from = o.kind === 'join' ? (Array.isArray(o.from) ? o.from[0] : null) : (o.kind === 'new' ? null : o.from);
+      if (from != null && paraOfBefore[from] != null) line.paraOf = paraOfBefore[from];
+    });
+  }
+  /* …and then the boundary between two pieces of ONE old line takes the device's break kind. */
+  let n = 0;
+  for (let j = 1; j < lines.length && j < (origins || []).length; j++) {
+    const o = origins[j], p = origins[j - 1];
+    if (o && p && o.kind === 'split' && p.kind === 'split' && o.from === p.from) { applyNewLineBreak(lines, j, kind); n++; }
+  }
+  return n;
+}
+
+/* ---------------- Replacing § section breaks with real breaks (seg-word-split) ----------------
+ *
+ * Seth, 2026-10-14: "replace section break characters with phrase breaks or paragraph breaks when we
+ * find them. Let the user decide which." A § is FLEx's forced break with no punctuation; a text that
+ * came through FLEx carries one after most phrases. Here the user chooses, once per text, what those
+ * marks MEAN — clause breaks or sentence breaks — and the marks themselves go:
+ *   · a phrase-final §: the word is removed and the boundary to the next line takes the chosen kind;
+ *   · a § with words after it inside one line (a file FLEx never re-segmented): the line is split
+ *     there — the first half keeps the line's guid, time and free translation, the second half is a new
+ *     untimed line (never invent a time) — and the new boundary takes the chosen kind.
+ * The baseline is rebuilt from the words. On a FLEx-bound doc this is loss-free: FLEx's importer
+ * re-adds § itself, and the desktop shell's diff ignores marker words and re-writes § from the phrase
+ * structure. Returns { removed, split }. */
+export function countSectionBreaks(doc) {
+  let n = 0;
+  for (const p of (doc && doc.paragraphs) || []) for (const s of p.segments || []) for (const w of s.words || []) if (isBoundaryMarker(w)) n++;
+  return n;
+}
+export function replaceSectionBreaks(doc, kind) {
+  const lines = (doc && doc.paragraphs) || [];
+  const k2 = normalizeBreakKind(kind);
+  let removed = 0, split = 0;
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k];
+    if (!line.segments || line.segments.length !== 1) {   // not the flat model: only strip phrase-final markers
+      for (const s of line.segments || []) {
+        const before = (s.words || []).length;
+        markBoundaryMarkers(s);
+        s.words = (s.words || []).filter((w) => !w.boundaryMarker);
+        if (s.words.length !== before) { removed += before - s.words.length; s.baseline = baselineFromWords(s.words); }
+      }
+      continue;
+    }
+    const seg = line.segments[0];
+    const words = seg.words || [];
+    const at = words.findIndex((w, i) => isBoundaryMarker(w) && words.slice(i + 1).some((x) => !x.punct));
+    if (at >= 0) {
+      // a § with words after it: split the line here
+      const left = words.slice(0, at), right = words.slice(at + 1);
+      seg.words = left;
+      seg.baseline = baselineFromWords(left);
+      const nl = { guid: newGuid(), segments: [makeSegment(baselineFromWords(right), right)] };
+      nl.segments[0].txtLang = seg.txtLang;
+      lines.splice(k + 1, 0, nl);
+      if (Array.isArray(doc.segments)) { const segs = doc.segments.slice(); segs.splice(k + 1, 0, { start: 0, end: 0, timePending: true }); doc.segments = segs; }
+      applyNewLineBreak(lines, k + 1, k2);
+      removed++; split++;
+      continue;   // the left half is done; the right half is judged on the next pass
+    }
+    markBoundaryMarkers(seg);
+    const kept = words.filter((w) => !w.boundaryMarker);
+    if (kept.length !== words.length) {
+      removed += words.length - kept.length;
+      seg.words = kept;
+      seg.baseline = kept.length ? baselineFromWords(kept) : String(seg.baseline || '').replace(/\s*§+/gu, '').trim();
+      if (k + 1 < lines.length) setBoundaryKind(lines, k + 1, k2);
+    }
+  }
+  return { removed, split };
+}
+
 /* ---------------- Writing-system survey / remap (research utility) ---------------- */
 
 // Survey distinct lang codes per interlinear "line" in a raw flextext DOM.

@@ -44,6 +44,7 @@ const SHELL = [
   // started. test/shells-precache-startup-modules.test.mjs walks the real import graph so it cannot recur.
   'js/typing.js',
   'js/external-link.js',
+  'js/native-flex.js',   // the FLEx desktop shell's seam (desktop/); a static import of external-link.js, inert on the web
   'js/lameta.js',
   'js/artifacts.js',
   'js/audio-capture-worklet.js',

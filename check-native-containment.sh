@@ -41,6 +41,59 @@ else
   echo "  ok: only $CHOKEPOINT touches the desktop bridge"
 fi
 
+# 1c. THE FLEx DESKTOP SHELL'S BRIDGE (desktop/, pywebview): a SECOND, SEPARATE chokepoint with the
+#     same rules. docs/js/native-flex.js is the only engine file that may reference window.pywebview
+#     (plans/flex-desktop-segmenter.md §2.1). Separate from native-audio.js on purpose — that file's
+#     header forbids touching it for unrelated work, because installed APKs depend on it.
+FLEX_CHOKEPOINT="docs/js/native-flex.js"
+offenders=$(grep -rln "pywebview" docs/js/ 2>/dev/null | grep -v "^$FLEX_CHOKEPOINT$" || true)
+if [ -n "$offenders" ]; then
+  echo "FAIL: files outside $FLEX_CHOKEPOINT reference the pywebview bridge:" >&2
+  echo "$offenders" | sed 's/^/  - /' >&2
+  echo "  Move that code into $FLEX_CHOKEPOINT and call it through the exported interface." >&2
+  fail=1
+else
+  echo "  ok: only $FLEX_CHOKEPOINT touches the pywebview bridge"
+fi
+if [ ! -f "$FLEX_CHOKEPOINT" ]; then
+  echo "FAIL: $FLEX_CHOKEPOINT is missing — the FLEx shell depends on it." >&2
+  fail=1
+elif ! grep -q "THE ENGINE AUTO-UPDATES. THE SHELL DOES NOT" "$FLEX_CHOKEPOINT"; then
+  echo "FAIL: $FLEX_CHOKEPOINT lost its warning header; restore it (it is the guard rail)." >&2
+  fail=1
+else
+  echo "  ok: $FLEX_CHOKEPOINT present with its warning header"
+fi
+n=$(grep -c "EXPECTED_FLEX_CONTRACT = " "$FLEX_CHOKEPOINT" 2>/dev/null || echo 0)
+if [ "$n" != "1" ]; then
+  echo "FAIL: expected exactly one EXPECTED_FLEX_CONTRACT declaration in $FLEX_CHOKEPOINT (found $n)." >&2
+  fail=1
+else
+  echo "  ok: FLEx contract version declared once ($(grep -oE 'EXPECTED_FLEX_CONTRACT = [0-9]+' "$FLEX_CHOKEPOINT"))"
+fi
+# The two contract numbers must agree: the engine's and the shell's (desktop/flexshell/__init__.py).
+if [ -f desktop/flexshell/__init__.py ]; then
+  js_c=$(grep -oE 'EXPECTED_FLEX_CONTRACT = [0-9]+' "$FLEX_CHOKEPOINT" | grep -oE '[0-9]+$')
+  py_c=$(grep -oE '^FLEX_CONTRACT = [0-9]+' desktop/flexshell/__init__.py | grep -oE '[0-9]+$')
+  if [ "$js_c" != "$py_c" ]; then
+    echo "FAIL: engine EXPECTED_FLEX_CONTRACT ($js_c) ≠ shell FLEX_CONTRACT ($py_c) — bump both together." >&2
+    fail=1
+  else
+    echo "  ok: engine and shell agree on FLEx contract $js_c"
+  fi
+fi
+# And the two trees must not reach into each other (same rule as #5 below): the shell SERVES a staged
+# copy of docs/ (desktop/build/stage_engine.py); it never imports engine source into Python, and the
+# engine never references the desktop tree.
+cross=$(grep -rn "desktop/flexshell\|from desktop\|flexshell" docs/js/ 2>/dev/null | grep -vE "^[^:]+:[0-9]+:\s*(\*|//|/\*)" | grep -v "^$FLEX_CHOKEPOINT:" || true)
+if [ -n "$cross" ]; then
+  echo "FAIL: engine code references the desktop shell tree — the engine must stay browser-only:" >&2
+  echo "$cross" | sed 's/^/  /' >&2
+  fail=1
+else
+  echo "  ok: engine does not reference the desktop shell tree"
+fi
+
 # 2. The chokepoint must still exist and still carry its warning header.
 if [ ! -f "$CHOKEPOINT" ]; then
   echo "FAIL: $CHOKEPOINT is missing — the native apps depend on it." >&2

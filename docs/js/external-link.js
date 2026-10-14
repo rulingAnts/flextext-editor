@@ -25,6 +25,8 @@
  * actually a good way to get at that, especially if it's a capability that really is Android/mobile
  * specific"). `intent://` is Android-only by construction — there is no capability to feature-detect. */
 
+import { isFlexShell, flex } from './native-flex.js';
+
 export function isAndroid() {
   return typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
 }
@@ -61,6 +63,15 @@ function intentUrl(u) {
 /* The only sanctioned way to send someone offsite. Returns true if a hand-off was attempted. */
 export function openExternal(url) {
   if (!isOffsite(url)) return false;
+  /* THE FLEx DESKTOP SHELL (desktop/): the window is a WebView2 that refuses every off-origin
+   * navigation, so a new window here would be cancelled by the shell's own guard. The seam hands the
+   * URL to the OS default browser through the bridge — and, exactly as on Android, with NO fallback:
+   * if the OS refuses, nothing opens. This module never touches the bridge global; only the seam
+   * (native-flex.js) does, and in a browser isFlexShell() is simply false. */
+  if (isFlexShell()) {
+    flex.openExternal(url).catch(() => { /* refused by the OS or the shell: nothing opens, by design */ });
+    return true;
+  }
   if (isAndroid()) {
     /* A top-level assignment is what Chrome intercepts to fire the intent; the page itself does not
      * navigate. If nothing can handle it — a kiosk, a blocked browser — nothing happens, which is

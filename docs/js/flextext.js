@@ -32,6 +32,28 @@ export function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ESC[c]);
 // word-internal punctuation used in orthographies).
 const WORD_CHAR = /[\p{L}\p{M}\p{N}'’ʼ‘\-_=ʔ]/u;
 
+/* ⚠ THE WORD-FORMING SET CAN BE WIDENED, NEVER NARROWED (seg-word-split, plan
+ * flex-desktop-segmenter.md §4.3 item 5). FLEx decides what is word-forming PER WRITING SYSTEM —
+ * `IsWordForming` plus the WS's own character-set overrides — so an orthography that writes a
+ * glottal stop as `7` or a tone letter as `ꜝ` tokenises differently in FLEx than the Unicode rule
+ * above would. A FLEx-bound doc (the desktop shell's `open_project` returns each WS's extra
+ * word-forming characters) must tokenise the way FLEx will, or every word-level diff is off by one.
+ *
+ * Two routes, both ADDITIVE: `tokenize(text, { wordChars })` for one call, or
+ * `setExtraWordForming(chars)` for the module default (the shell sets it once per open project;
+ * `setExtraWordForming('')` clears it). With neither, the default is exactly what it has always
+ * been — the web app's behaviour does not change by this existing. */
+let EXTRA_WORD_CHARS = new Set();
+export function setExtraWordForming(chars) {
+  EXTRA_WORD_CHARS = new Set(Array.from(chars || []).filter((c) => c && !/\s/u.test(c)));
+  return EXTRA_WORD_CHARS.size;
+}
+export function isWordForming(ch, extra) {
+  if (WORD_CHAR.test(ch)) return true;
+  if (extra) { for (const c of extra) if (c === ch) return true; }
+  return EXTRA_WORD_CHARS.has(ch);
+}
+
 // Split a paragraph's text into sentence segments, FLEx-style:
 // a segment ends after sentence-final punctuation (. ! ? …) plus any
 // trailing closing quotes/brackets.
@@ -50,15 +72,17 @@ export function segmentText(text) {
 
 // Tokenize a segment into word and punctuation tokens.
 // Consecutive punctuation characters group into a single punct token.
-export function tokenize(text) {
+// `opts.wordChars` (iterable of characters) widens the word-forming set for this call only.
+export function tokenize(text, opts = {}) {
   const tokens = [];
+  const extra = opts && opts.wordChars ? Array.from(opts.wordChars) : null;
   let cur = '';
   let curPunct = '';
   for (const ch of text) {
     if (/\s/u.test(ch)) {
       if (cur) { tokens.push({ txt: cur, punct: false }); cur = ''; }
       if (curPunct) { tokens.push({ txt: curPunct, punct: true }); curPunct = ''; }
-    } else if (WORD_CHAR.test(ch)) {
+    } else if (isWordForming(ch, extra)) {
       if (curPunct) { tokens.push({ txt: curPunct, punct: true }); curPunct = ''; }
       cur += ch;
     } else {
@@ -69,6 +93,116 @@ export function tokenize(text) {
   if (cur) tokens.push({ txt: cur, punct: false });
   if (curPunct) tokens.push({ txt: curPunct, punct: true });
   return tokens;
+}
+
+/* ---------------- The § boundary marker (seg-word-split; plan §4.3 item 2, §6.1) ----------------
+ *
+ * FLEx's segment breaker treats U+00A7 `§` as an end-of-sentence character: a forced phrase break
+ * where the text has no punctuation. FLEx's own .flextext IMPORTER writes one after every phrase
+ * that does not already end in `. ! ?` [source + verified on FW 9.3.12], so a text that has been
+ * through FLEx carries hundreds of them as phrase-final punct items — and a text the desktop shell
+ * reads straight out of a FLEx project carries them in its baselines.
+ *
+ * They are structure, not text. The engine therefore HIDES a phrase-final § in every word-level
+ * view, never offers it for editing, and round-trips it UNCHANGED: it stays a punct word in
+ * `seg.words` and in `seg.baseline`, so serializeFlextext writes exactly what was read. A § the
+ * shell's own split recipe inserts (plan §6.3) is the same item.
+ *
+ * "Phrase-final" means: the item, and everything after it in the phrase, is punctuation. A § with a
+ * word after it inside one phrase cannot come from FLEx (FLEx would have broken the phrase there)
+ * and is shown as the text it is — see the internal end-of-sentence warning below. */
+export const BOUNDARY_MARKER = '§';
+export function isBoundaryMarker(w) {
+  return !!(w && w.punct && String(w.txt || '').trim() === BOUNDARY_MARKER);
+}
+/* Flag the phrase-final § items of a phrase (idempotent). parsePhrase calls it; the shell's reader
+ * sets the same flag (plan §4.1). */
+export function markBoundaryMarkers(seg) {
+  const words = (seg && seg.words) || [];
+  let tail = true;
+  for (let i = words.length - 1; i >= 0; i--) {
+    const w = words[i];
+    if (!w.punct) tail = false;
+    if (isBoundaryMarker(w)) { if (tail) w.boundaryMarker = true; else delete w.boundaryMarker; }
+  }
+  return seg;
+}
+/* The words a word-level view shows: everything but a phrase-final §. */
+export function visibleWords(seg) {
+  const words = (seg && seg.words) || [];
+  if (!words.some(isBoundaryMarker)) return words;
+  markBoundaryMarkers(seg);
+  return words.filter((w) => !w.boundaryMarker);
+}
+/* A phrase's baseline as the classic text box shows it: a trailing § (with the space before it) is
+ * taken off. restoreBoundaryMarkers puts it back on an unchanged line. */
+export function displayBaseline(text) {
+  return String(text || '').replace(/\s*§+\s*$/u, '');
+}
+export function getDisplayParagraphs(doc) {
+  return doc.paragraphs.map((p) => p.segments.map((s) => displayBaseline(s.baseline)).join(' ').trim());
+}
+/* Text typed back from the box, line by line, with each UNCHANGED line's § restored — so a line the
+ * user did not touch reconciles as kept, marker and all, while a line they edited is their text (a
+ * baseline edit; FLEx re-derives its own breaks from it, and a FLEx-bound doc diffs it as one). */
+export function restoreBoundaryMarkers(doc, texts) {
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const shown = getDisplayParagraphs(doc);
+  const full = getBaselineParagraphs(doc);
+  return texts.map((t, i) => (i < shown.length && norm(t) === norm(shown[i]) && shown[i] !== full[i] ? full[i] : t));
+}
+
+/* ---------------- FLEx-bound warnings (seg-word-split; plan §4.3 item 3, §6.1, §6.8) ----------------
+ *
+ * Computed everywhere (they are facts about the text); SHOWN only where the doc is FLEx-bound and
+ * BLOCKING only in the desktop shell's Save to FLEx. Two conditions FLEx's segment breaker would act
+ * on [source: SegmentBreaker in liblcm]:
+ *   noWordChar  — the phrase has no word-forming character. FLEx cannot make it a segment (it joins
+ *                 the next), so its times and free translation would land on the wrong text. The
+ *                 Segmenter makes such lines on purpose (a timed, not-yet-transcribed span): they stay
+ *                 in the editor until text is typed or the user merges them (Decision D4).
+ *   internalEos — an end-of-sentence character followed, after optional closing marks and space, by
+ *                 a word-forming character INSIDE one phrase. FLEx will split there: a timed segment
+ *                 followed by an untimed one, and the free translation on the first half only.
+ * The EOS list is FLEx's fixed one, not per WS: `! . ?`, their script variants, `‼ ‽ ⁇ ⁈ ⁉` and §.
+ * A period between digits (3.5), an exact three-dot ellipsis, or a period right after another one
+ * does not break; four periods do. */
+export const FLEX_EOS = /[.!?§؟।॥‼‽⁇⁈⁉。！．？｡]/u;
+export const FLEX_CLOSERS = /["'”’)\]}»\s]/u;
+export function flexPhraseWarnings(seg, opts = {}) {
+  const out = [];
+  const text = String((seg && seg.baseline) || '');
+  const chars = Array.from(text);
+  const wordChars = opts.wordChars || null;
+  if (!chars.some((c) => isWordForming(c, wordChars))) { out.push({ code: 'noWordChar' }); return out; }
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if (!FLEX_EOS.test(c)) continue;
+    if (c === '.') {
+      const prev = chars[i - 1], next = chars[i + 1];
+      if (prev === '.' ) continue;                                   // a run: judged at its first dot
+      if (/\p{N}/u.test(prev || '') && /\p{N}/u.test(next || '')) continue;   // 3.5
+      let run = 1; while (chars[i + run] === '.') run++;
+      if (run === 3) { i += 2; continue; }                           // an exact ellipsis
+      if (run === 2) { i += 1; continue; }                           // a period after a period
+      i += run - 1;
+    }
+    // skip closers and whitespace; a following word-forming character means FLEx breaks here
+    let j = i + 1, sawSpace = false;
+    while (j < chars.length && FLEX_CLOSERS.test(chars[j])) { if (/\s/u.test(chars[j])) sawSpace = true; j++; }
+    if (j < chars.length && isWordForming(chars[j], wordChars) && (sawSpace || c !== '.')) {
+      /* a break also needs a word-forming character BEFORE it */
+      if (chars.slice(0, i).some((x) => isWordForming(x, wordChars))) out.push({ code: 'internalEos', at: i, char: c });
+    }
+  }
+  return out;
+}
+export function flexDocWarnings(doc, opts = {}) {
+  const out = [];
+  (doc && doc.paragraphs || []).forEach((p, pi) => (p.segments || []).forEach((s, si) => {
+    for (const w of flexPhraseWarnings(s, opts)) out.push({ para: pi, phrase: si, guid: s.attrs && s.attrs.guid, ...w });
+  }));
+  return out;
 }
 
 /* ---------------- Model constructors ---------------- */
@@ -387,6 +521,7 @@ function parsePhrase(phEl, doc, prefs = {}) {
   }
   // If no baseline txt item, reconstruct from words.
   if (!seg.baseline) seg.baseline = baselineFromWords(seg.words);
+  markBoundaryMarkers(seg);   // a phrase-final § is structure FLEx wrote, hidden in every word-level view
   // Words without their own txt item (morphemes-only exports) get a derived
   // form, which may differ from the baseline surface form (e.g. aː vs a).
   // FLEx shows the surface form, so map baseline tokens onto those words.
@@ -1557,6 +1692,104 @@ export function breakPhrase(seg, i) {
     return nw;
   });
   seg.words.splice(i, 1, ...repl);
+  return true;
+}
+
+/* ---------------- Word split / insert (seg-word-split; plan §4.3 item 1, §6.5) ----------------
+ *
+ * Two edits that CHANGE THE BASELINE from a word-level view, written so that a later Save to FLEx is
+ * the minimal diff FLEx itself would make:
+ *
+ *   splitWordAt(seg, k, offset)  — word k becomes two words, cut at character `offset` of its text.
+ *     FLEx's equivalent is inserting ONE space inside the word [verified: only that word becomes two
+ *     unanalysed WfiWordforms; every other analysis GUID is kept]. So BOTH halves are new,
+ *     unglossed words here too: the old word's gloss described a word that no longer exists, and
+ *     carrying it onto one half would make the FLEx write a gloss.set (a new analysis + gloss) on
+ *     top of the split. The removed gloss is returned so a UI can say so; Undo restores it.
+ *   insertWordAt(seg, at, txt) — a new word at index `at` (0 = before the first, words.length =
+ *     after the last). FLEx's equivalent is `"new "` at the next word's start or `" new"` at the
+ *     previous word's end [verified: only the new word is unanalysed].
+ *
+ * Both rebuild `seg.baseline` from the words (baselineFromWords), so the baseline and the word forms
+ * stay one string, which is also how LCM keeps them. Neither touches `seg.attrs`, times, the free
+ * translation or any preserved item. Neither captures undo: the CALLER does, once per user action
+ * (Seth's rule — one action, one Undo, one Redo). Both are pure and node-tested. */
+export function splitWordAt(seg, k, offset) {
+  const words = (seg && seg.words) || [];
+  const w = words[k];
+  if (!w || w.punct || w.phrase) return { ok: false, reason: 'notAWord' };
+  const chars = Array.from(String(w.txt || ''));
+  const at = Number(offset);
+  if (!(Number.isInteger(at) && at > 0 && at < chars.length)) return { ok: false, reason: 'badOffset' };
+  const left = chars.slice(0, at).join(''), right = chars.slice(at).join('');
+  // the two halves must each hold a word-forming character, as FLEx needs them to
+  if (!Array.from(left).some((c) => isWordForming(c)) || !Array.from(right).some((c) => isWordForming(c))) return { ok: false, reason: 'noWordChar' };
+  const a = makeWord(left), b = makeWord(right);
+  a.txtLang = w.txtLang; b.txtLang = w.txtLang;
+  words.splice(k, 1, a, b);
+  seg.baseline = baselineFromWords(words);
+  return { ok: true, words: [a, b], removedGloss: w.gls || '' };
+}
+export function insertWordAt(seg, at, txt = '') {
+  const words = (seg && seg.words) || [];
+  const i = Math.max(0, Math.min(words.length, Number(at) | 0));
+  const w = makeWord(String(txt || ''));
+  const nb = words[i] || words[i - 1];
+  if (nb && nb.txtLang) w.txtLang = nb.txtLang;
+  words.splice(i, 0, w);
+  seg.baseline = baselineFromWords(words);
+  return { ok: true, word: w, at: i };
+}
+
+/* ---------------- Paragraph structure on flat lines (seg-word-split; plan §4.3 item 4, §6.4) ----
+ *
+ * The engine holds ONE PHRASE PER LINE and remembers paragraphs as `paraOf` on each line — the
+ * original paragraph's guid, set by normalizePhraseLines only for a doc whose author distinguished
+ * phrases from paragraphs, and regrouped on export by serializeFlextext (consecutive lines sharing
+ * a paraOf become one <paragraph>). A FLEx-bound doc carries the FLEx paragraph GUID the same way.
+ * So "paragraph split", "paragraph join", "phrase boundary → paragraph boundary" and "paragraph
+ * boundary → phrase boundary" are all edits to WHICH GROUP a run of lines belongs to:
+ *
+ *   breakParagraphBefore(doc, k) — the boundary before line k becomes a paragraph boundary: line k
+ *     and the lines after it that shared its group move to a NEW group (a fresh guid: a split
+ *     paragraph's second half is new containment, as FLEx's SplitParaAt makes it [verified]).
+ *   joinParagraphBefore(doc, k)  — the boundary before line k becomes a phrase boundary: line k's
+ *     whole group takes line k−1's group id (the second paragraph's identity is lost — that is what
+ *     a join means [verified: MergeParaWithNext]).
+ *
+ * Both refuse (return false) when the doc has no paragraph structure to express — a flat text has no
+ * paragraphs to split or join — or when the boundary is already of the asked kind. Neither touches
+ * text, words, times or free translations: one line stays one phrase. The caller captures undo. */
+export function hasParagraphStructure(doc) {
+  return !!(doc && Array.isArray(doc.paragraphs) && doc.paragraphs.some((p) => p && p.paraOf != null));
+}
+export function paragraphBreakBefore(doc, k) {
+  const ps = (doc && doc.paragraphs) || [];
+  if (!(k > 0 && k < ps.length) || !hasParagraphStructure(doc)) return null;
+  const a = ps[k - 1].paraOf != null ? String(ps[k - 1].paraOf) : null;
+  const b = ps[k].paraOf != null ? String(ps[k].paraOf) : null;
+  return a === null || b === null ? true : a !== b;
+}
+export function breakParagraphBefore(doc, k) {
+  const ps = (doc && doc.paragraphs) || [];
+  if (paragraphBreakBefore(doc, k) !== false) return false;   // no structure, out of range, or already a break
+  const group = String(ps[k].paraOf);
+  const fresh = newGuid();
+  for (let i = k; i < ps.length && String(ps[i].paraOf) === group; i++) ps[i].paraOf = fresh;
+  return true;
+}
+export function joinParagraphBefore(doc, k) {
+  const ps = (doc && doc.paragraphs) || [];
+  if (paragraphBreakBefore(doc, k) !== true) return false;    // no structure, out of range, or already joined
+  const target = ps[k - 1].paraOf != null ? ps[k - 1].paraOf : ps[k - 1].guid;
+  if (ps[k - 1].paraOf == null) ps[k - 1].paraOf = target;
+  const group = ps[k].paraOf != null ? String(ps[k].paraOf) : null;
+  for (let i = k; i < ps.length; i++) {
+    const g = ps[i].paraOf != null ? String(ps[i].paraOf) : null;
+    if (i > k && g !== group) break;
+    ps[i].paraOf = target;
+    if (group === null) break;   // an untagged line is its own paragraph
+  }
   return true;
 }
 

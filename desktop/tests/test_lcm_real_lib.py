@@ -89,6 +89,10 @@ SOURCE_NAMESPACES = {
     "IWfiWordform": "SIL.LCModel", "IWfiAnalysis": "SIL.LCModel", "IWfiGloss": "SIL.LCModel", "IPunctuationForm": "SIL.LCModel",
     "ICmMediaContainerFactory": "SIL.LCModel", "ICmMediaURIFactory": "SIL.LCModel", "IWfiAnalysisFactory": "SIL.LCModel",
     "IWfiMorphBundleFactory": "SIL.LCModel", "IWfiGlossFactory": "SIL.LCModel",
+    # generated repository interfaces: same namespace as the hand-written additions in
+    # RepositoryInterfaceAdditions.cs (SIL.LCModel); pyflexicon imports IWfiAnalysisRepository from there
+    "IWfiAnalysisRepository": "SIL.LCModel", "IWfiGlossRepository": "SIL.LCModel", "IWfiMorphBundleRepository": "SIL.LCModel",
+    "IStTextRepository": "SIL.LCModel", "ICmMediaContainerRepository": "SIL.LCModel", "ICmMediaURIRepository": "SIL.LCModel",
     "IDataSetup": "SIL.LCModel.Infrastructure", "UndoableUnitOfWorkHelper": "SIL.LCModel.Infrastructure",
     "SharedBackendServices": "SIL.LCModel.DomainServices", "SegmentServices": "SIL.LCModel.DomainServices",
     "ParagraphParser": "SIL.LCModel.DomainServices",

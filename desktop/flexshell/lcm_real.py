@@ -33,6 +33,7 @@ import logging
 import os
 import threading
 
+from .errors import FlexError
 from .port import FlexPort, COUNTED_CLASSES, UNDO_SUCCESS, UNDO_FAILED, lcm_diff, nfd, nfc
 
 LOG = logging.getLogger("flexshell.lcm_real")
@@ -80,10 +81,77 @@ def _load_assemblies(code_dir):
             pass
 
 
+def _flexicon():
+    """pyflexicon — import name `flexicon` (4.x; `flexlibs2` is its deprecated alias). Every verified
+    call sequence in the plan ran against it. ⚠ NEVER FLExTools' `flexlibs`: a different library that
+    may sit on the same machine (it did on the VM, 2026-10-14, and was picked up first), whose
+    OpenProject has no `undoable` and opens one session-long non-undoable task — the write protocol
+    cannot run on it. The signature check makes a wrong library a clear refusal, not a TypeError."""
+    mod = None
+    for name in ("flexicon", "flexlibs2"):
+        try:
+            mod = __import__(name)
+            break
+        except ImportError:
+            continue
+    if mod is None:
+        raise FlexError("E_INTERNAL", "pyflexicon is not installed (py -m pip install pyflexicon); "
+                        "the FLEx shell does not use FLExTools' flexlibs", {"library": "pyflexicon"})
+    import inspect
+    try:
+        params = inspect.signature(mod.FLExProject.OpenProject).parameters
+    except (AttributeError, TypeError, ValueError):
+        params = {}
+    if "undoable" not in params or "writeEnabled" not in params:
+        raise FlexError("E_INTERNAL", "the installed %s is not pyflexicon 4.x (FLExProject.OpenProject has no "
+                        "`undoable`); install pyflexicon" % mod.__name__, {"library": mod.__name__})
+    return mod
+
+
+_initialised = False
+
+
+def _initialise_once(fx):
+    """FLExInitialize() once per process before the first open — registry, ICU and the SLDR
+    (offline). Without it liblcm finds the SLDR down, renames the project's .ldml files to
+    .ldml.bad and re-synthesises its writing systems on every open (pyflexicon #249) — a write to
+    the project folder even in a read-only session, so it is not optional. FLExCleanup() at exit."""
+    global _initialised
+    if _initialised:
+        return
+    fx.FLExInitialize()
+    _initialised = True
+    import atexit
+    atexit.register(_cleanup_quietly, fx)
+
+
+def _cleanup_quietly(fx):
+    try:
+        fx.FLExCleanup()
+    except Exception:   # noqa: BLE001 — teardown; nothing left to protect
+        pass
+
+
+def _map_open_error(e):
+    """pyflexicon's open-time exceptions → our codes (matched by class name so the module need not
+    be importable on Linux). Anything else is returned unchanged."""
+    n = type(e).__name__
+    msg = str(e) or n
+    if n == "FP_FileLockedError":
+        return FlexError("E_LOCKED_OTHER", "the project is locked by another program", {"lib": msg})
+    if n == "FP_MigrationRequired":
+        return FlexError("E_MODEL_OLDER", "the project needs FLEx's own data migration first — open it in FLEx once", {"lib": msg})
+    if n == "FP_FileNotFoundError":
+        return FlexError("E_NOT_FOUND", "no such project", {"lib": msg})
+    if n == "FP_ProjectError":
+        return FlexError("E_INTERNAL", "FLEx could not open the project: " + msg, {"lib": msg})
+    return e
+
+
 class RealLcm(FlexPort):
     def __init__(self, projects_dir):
         self.projects_dir = projects_dir
-        self.project = None       # flexlibs/pyflexicon FLExProject
+        self.project = None       # pyflexicon FLExProject (flexicon)
         self.cache = None
         self.ah = None            # IActionHandler
         self.usm = None           # IUndoStackManager
@@ -104,13 +172,22 @@ class RealLcm(FlexPort):
     # ---- session -------------------------------------------------------------------------------
     def open(self, name, write):
         self._t()
-        try:
-            from flexlibs import FLExProject          # pyflexicon's import name on current installs
-        except ImportError:
-            from flexicon import FLExProject   # type: ignore[no-redef]  # the older import name seen on the VM
+        fx = _flexicon()
+        _initialise_once(fx)
         _load_assemblies(None)
-        self.project = FLExProject()
-        self.project.OpenProject(name, writeEnabled=bool(write), undoable=True)   # never undoable=False [verified]
+        self.project = fx.FLExProject()
+        # The full .fwdata path when the project sits in OUR projects folder (which is what
+        # list_projects enumerated); the bare name falls back to FLEx's default location.
+        fwdata = os.path.join(self.projects_dir, name, name + ".fwdata") if self.projects_dir else ""
+        target = fwdata if fwdata and os.path.isfile(fwdata) else name
+        try:
+            # headless UI + data migration disabled are pyflexicon's defaults [source]; never undoable=False [verified]
+            self.project.OpenProject(target, writeEnabled=bool(write), undoable=True)
+        except Exception as e:   # noqa: BLE001
+            mapped = _map_open_error(e)
+            if mapped is e:
+                raise
+            raise mapped from e
         self.cache = self.project.project
         from SIL.LCModel.Infrastructure import IUndoStackManager   # type: ignore[import-not-found]
         self.usm = IUndoStackManager(self.cache.ServiceLocator.GetService(IUndoStackManager))

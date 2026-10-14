@@ -234,6 +234,17 @@ one cost it twice.
    accepts an exact `http://` entry, never a pattern) before pairing from the shell can work.
    OAuth callbacks are not in play: v1 has no researcher sign-in from the shell (`offsiteAuth:
    false`).
+8. **pyflexicon is `flexicon`; FLExTools' `flexlibs` is a DIFFERENT library on the same machine.**
+   `lcm_real` imported `flexlibs` first "as pyflexicon's import name" — wrong: pyflexicon 4.x is
+   `flexicon` (`flexlibs2` its deprecated alias), and a FLExTools install provides a `flexlibs`
+   whose `OpenProject(projectName, writeEnabled)` has no `undoable` and opens one session-long
+   non-undoable task (`TypeError … unexpected keyword argument 'undoable'`, fifth VM launch).
+   `_flexicon()` imports `flexicon` then `flexlibs2`, never `flexlibs`, and checks the signature.
+   And **`FLExInitialize()` once per process before the first open** (registry, ICU, offline SLDR):
+   without it liblcm finds the SLDR down, renames the project's `.ldml` files to `.ldml.bad` and
+   re-synthesises writing systems on every open (pyflexicon #249) — a write to the project folder
+   even read-only. `FLExCleanup()` at exit. Headless UI and `DisableDataMigration` are pyflexicon's
+   own defaults **[source]**; its `FP_*` open errors map to our codes by class name.
 
 ---
 

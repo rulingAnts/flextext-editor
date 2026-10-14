@@ -79,8 +79,11 @@ with a BLANK home screen: the CSP refused the shell page's inline `window.__MODE
 engine booted as the editor — the server now hashes inline scripts into `script-src`, and the same
 page renders the Segmenter home headless on Linux (plan §2.4 items 6–7, which also cover why the
 shell is not "localhost" to the engine and the worker allow-list entry the backend still needs).
-Still never exercised on Windows: everything in `lcm_real.py`, the real `CoreWebView2` attribute
-path, the Save dialog for exports.
+The fifth launch listed the FLEx projects with the real FieldWorks version (pre-checks, `hello`,
+`list_projects` all real) and failed on open: FLExTools' `flexlibs` had been imported instead of
+pyflexicon's `flexicon` (plan §2.4 item 8). Still never exercised on Windows: everything in
+`lcm_real.py` past `OpenProject`, the real `CoreWebView2` attribute path, the Save dialog for
+exports.
 The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
 when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
 

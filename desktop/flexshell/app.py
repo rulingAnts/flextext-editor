@@ -26,6 +26,21 @@ def engine_root():
                      "desktop/build/stage_engine.py and set FLEXSHELL_ENGINE")
 
 
+def startup_line(root):
+    """One console line naming the build: shell version, engine version, source commit (from
+    engine-version.json, written by stage_engine). The first thing to read when a fix "did not
+    take" — pip has been seen to keep an older install while resolving a newer commit."""
+    import json
+    info = {}
+    try:
+        with open(os.path.join(root, "engine-version.json"), "r", encoding="utf-8") as f:
+            info = json.load(f)
+    except (OSError, ValueError):
+        pass
+    return "FlexText Segmenter for FLEx: shell %s, engine %s, source %s" % (
+        SHELL_VERSION, info.get("engineVersion") or "?", info.get("source") or "?")
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     port = int(os.environ.get("FLEXSHELL_PORT", DEFAULT_PORT))
@@ -38,6 +53,7 @@ def main(argv=None):
     from .lcm_real import RealBackendFactory
 
     root = engine_root()
+    sys.stderr.write(startup_line(root) + "\n")
     api = Api(backend_factory=RealBackendFactory(), engine_root=root)
     srv = start_server(root, port=port, connect_origins=api.connect_origins(), media=api.media)
     api.attach_server(srv)

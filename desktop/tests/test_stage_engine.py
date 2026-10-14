@@ -37,4 +37,15 @@ def test_stage_the_real_engine(tmp_path):
     assert os.path.isfile(os.path.join(out, "engine-version.json"))
     import json
     with open(os.path.join(out, "engine-version.json")) as f:
-        assert json.load(f)["engineVersion"].startswith("v")
+        info = json.load(f)
+    assert info["engineVersion"].startswith("v")
+    assert "source" in info, "the staged commit, for the shell's start-up line (None when not a git checkout)"
+    assert info["source"] is None or len(info["source"]) >= 7
+
+
+def test_startup_line_names_the_build(tmp_path):
+    import json
+    from flexshell import app, SHELL_VERSION
+    (tmp_path / "engine-version.json").write_text(json.dumps({"engineVersion": "v719", "source": "abc1234"}))
+    assert app.startup_line(str(tmp_path)) == "FlexText Segmenter for FLEx: shell %s, engine v719, source abc1234" % SHELL_VERSION
+    assert app.startup_line(str(tmp_path / "missing")).endswith("engine ?, source ?")

@@ -52,14 +52,20 @@ FLEx's Print-view clipboard text; `flex-panel.js` is the UI, dynamically importe
 Python 3.13 and git must be on the VM. In PowerShell:
 
 ```powershell
-py -3.13 -m pip install --upgrade "git+https://github.com/rulingAnts/flextext-editor.git@desktop-flex#subdirectory=desktop"
+py -3.13 -m pip install --upgrade --force-reinstall --no-deps "git+https://github.com/rulingAnts/flextext-editor.git@desktop-flex#subdirectory=desktop"
 py -3.13 -m flexshell
 ```
 
 The build stages the engine from the same commit into the package, so the shell runs the exact
 engine it was installed with (`engine-version.json` beside it). `flextext-segmenter-flex` is the
 same entry point as a console script, when pip's Scripts folder is on PATH. To update, run the same
-install line again. Nothing here deploys anything or touches a FLEx project until you open one for
+install line again. ⚠ `--force-reinstall --no-deps` is not decoration: the package version does not
+change per commit, and pip was seen (2026-10-14) to resolve the new commit, print "Requirement
+already satisfied" for the dependencies and then install NOTHING — the old shell ran and showed the
+old failure. The flag makes it rebuild every time; `--no-deps` keeps it from touching pywebview and
+friends. **The first console line names the build** — `shell 0.1.0-dev, engine v719, source
+<commit>` — compare that commit to the one pip printed in `Resolved … to commit` before reading any
+other output. Nothing here deploys anything or touches a FLEx project until you open one for
 writing, and a copy-only build refuses that unless the folder carries `flextext-disposable-copy.txt`.
 
 ⚠ Windows status (2026-10-14, Seth's Parallels VM, Python 3.13, pywebview 6.2.1): the pip install

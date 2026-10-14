@@ -73,6 +73,19 @@ def engine_version(docs):
     return m.group(1) if m else None
 
 
+def source_commit(repo):
+    """Short commit of the checkout the engine is staged from, or None (no git, not a checkout).
+    The shell prints it at start-up so "which build is this" is answered by the console, not by
+    trusting pip: a `pip install git+…` that resolves a new commit can still skip the reinstall."""
+    try:
+        import subprocess
+        r = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"], capture_output=True,
+                           text=True, timeout=10)
+        return r.stdout.strip() or None if r.returncode == 0 else None
+    except Exception:   # noqa: BLE001 — git missing or not a checkout: the build does not care
+        return None
+
+
 def stage(out, satellite="audio-segmenter", docs=None):
     docs = docs or os.path.join(REPO, "docs")
     sat = os.path.join(REPO, "satellites", satellite)
@@ -98,7 +111,7 @@ def stage(out, satellite="audio-segmenter", docs=None):
         shutil.copytree(os.path.join(docs, "help"), os.path.join(eng, "help"))
     ver = engine_version(docs)
     with open(os.path.join(out, "engine-version.json"), "w", encoding="utf-8") as f:
-        json.dump({"engineVersion": ver, "satellite": satellite}, f)
+        json.dump({"engineVersion": ver, "satellite": satellite, "source": source_commit(os.path.dirname(docs))}, f)
     bad = scan(out)
     if bad:
         for file, kind, ref in bad:

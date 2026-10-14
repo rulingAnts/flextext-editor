@@ -9,6 +9,7 @@ import {
   // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
   splitWordAt, insertWordAt, isBoundaryMarker, markBoundaryMarkers,
   hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
+  normalizeBreakKind, applyNewLineBreak, applyBreakKindToOrigins, countSectionBreaks, replaceSectionBreaks,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
@@ -2666,7 +2667,9 @@ function switchTab(tab, landing) {
       // Which document the peaks cache must belong to before its duration may seed anything.
       getDocId: () => current && current.id,
       getParagraphs: (doc) => getBaselineParagraphs(doc),
-      setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
+      // A split line's pieces take the device's break kind (Sentence or Clause) — flextext.js
+      // applyBreakKindToOrigins reads the reconcile's own account of which lines are pieces of which.
+      setParagraphs: (doc, paras) => { const pb = doc.paragraphs.map((p) => p.paraOf); const o = reconcileBaselineWithOrigins(doc, paras.length ? paras : [''], { flatSegments: true }); applyBreakKindToOrigins(doc, o, breakKindSetting(), pb); schedulePersist(); },
       onPlayTarget: () => { lastPlayTarget = null; },
       capture: () => captureUndo(),
       persist: () => schedulePersist(),
@@ -2717,7 +2720,7 @@ function switchTab(tab, landing) {
         getDoc: () => current && current.doc,
         getDocId: () => current && current.id,   // see peaksDurationFor
         getParagraphs: (doc) => getBaselineParagraphs(doc),
-        setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
+        setParagraphs: (doc, paras) => { const pb = doc.paragraphs.map((p) => p.paraOf); const o = reconcileBaselineWithOrigins(doc, paras.length ? paras : [''], { flatSegments: true }); applyBreakKindToOrigins(doc, o, breakKindSetting(), pb); schedulePersist(); },
         onPlayTarget: (seg) => { lastPlayTarget = seg; },
         capture: () => captureUndo(),
         persist: () => schedulePersist(),
@@ -7621,6 +7624,11 @@ const SETUP_GROUPS = [
     // switch off on a device they manage.
     { k: 'allowBlankLines', type: 'checkbox', off: 'setup.off.allowBlankLines', only: 'segmenter' },
     { k: 'allowTextEdit', type: 'checkbox', off: 'setup.off.allowTextEdit', only: 'segmenter' },
+    /* WHAT KIND OF BREAK A CUT MAKES (Seth, 2026-10-14): a Sentence (<paragraph>) or a Clause (<phrase>
+     * inside the paragraph). The engine honours it wherever a line is made (flextext.js applyNewLineBreak);
+     * the Audio Segmenter is the one app with the UI for now, so `only`. A plain preference: it works
+     * alone and a researcher can push it, so no `off`. Default 'sentence' = every cut as it always was. */
+    { k: 'breakKind', type: 'select', opts: ['sentence', 'clause'], optPrefix: 'panel.opt.breakKind.', note: 'panel.f.breakKindNote', only: 'segmenter' },
   ] },
   { id: 'typing', fields: [
     /* ⚠ THESE THREE GOVERN THE ANALYSIS LANGUAGE ONLY — glosses and free translations. The
@@ -8373,7 +8381,10 @@ function updateSetupConditionals(box) {
  * permissions. The segmentation switch, the Cut-tab preferences and everything about recording,
  * consent and sending are the editor's and the recorder's, and would either be inert or a lie. */
 const SEGMENTER_SETUP_KEYS = new Set(['appLang', 'vernLang', 'analLang', 'segTimeNotes',
-  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines', 'allowTextEdit', 'uiScale', 'headerLabels', 'adjustBoundaries']);
+  ...SETUP_EXPORT_KEYS, 'allowDelete', 'allowAudioRemove', 'allowAudioSwap', 'allowBlankLines', 'allowTextEdit', 'breakKind', 'uiScale', 'headerLabels', 'adjustBoundaries']);
+/* The kind of break a new cut makes (flextext.js BREAK_KINDS). Read through a function so a researcher
+ * push lands mid-session, as every other gate does. */
+function breakKindSetting() { return normalizeBreakKind(settings.breakKind); }
 function setupGroupsFor() {
   const mode = SEGMENTER_MODE ? 'segmenter' : 'editor';
   return SETUP_GROUPS
@@ -10058,6 +10069,44 @@ async function sgOpen(id) {
   enterEditor('cut');
 }
 
+/* § SECTION BREAKS → REAL BREAKS, THE USER'S CHOICE (Seth, 2026-10-14: "replace section break
+ * characters with phrase breaks or paragraph breaks when we find them. Let the user decide which").
+ * Asked ONCE per text, the first time it opens here with any § in it; the answer is remembered on the
+ * record (`sectionBreaks`: 'clause' | 'sentence' | 'keep') so the question never comes back. Escape
+ * decides nothing and asks again next time. The replacement is flextext.js replaceSectionBreaks: the
+ * marks go, the boundaries take the chosen kind, a § inside a line splits it (the new half untimed). */
+async function mgAskSectionBreaks(rec) {
+  if (!rec || !rec.doc || rec.sectionBreaks) return;
+  const n = countSectionBreaks(rec.doc);
+  if (!n) return;
+  const choice = await new Promise((resolve) => {
+    if (document.querySelector('[data-confirm-dialog]')) { resolve(null); return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.confirmDialog = '1';
+    wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+      <p style="white-space:pre-wrap">${esc(t('mg.sectionBreaks', { n }))}</p>
+      <button class="primary-btn" data-sb="clause">${esc(t('mg.sectionClause'))}</button>
+      <button class="primary-btn" data-sb="sentence">${esc(t('mg.sectionSentence'))}</button>
+      <button class="link-btn" data-sb="keep">${esc(t('mg.sectionKeep'))}</button>
+    </div>`;
+    document.body.appendChild(wrap);
+    const finish = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); } }
+    document.addEventListener('keydown', onKey, true);
+    wrap.querySelectorAll('[data-sb]').forEach((b) => b.addEventListener('click', () => finish(b.dataset.sb)));
+  });
+  if (!choice) return;
+  rec.sectionBreaks = choice;
+  if (choice !== 'keep') {
+    const r = replaceSectionBreaks(rec.doc, choice);
+    Object.assign(rec, docStats(rec.doc));
+    rec.modified = Date.now();
+    toast(t('mg.sectionReplaced', { n: r.removed, s: r.split }), 6000);
+  }
+  await db.putDoc(rec);
+}
+
 /* ─────────────────── THE MATCHER (audio segmenter) ───────────────────
  * Two panes. Audio spans on the left, text lines on the right, split and joined INDEPENDENTLY,
  * then mapped piece to piece until everything is paired and the user presses Done.
@@ -10635,6 +10684,7 @@ function mgSplitLine(id, wordIdx, ftCharIdx) {
     phrases: [makeSegment(baselineFromWords(words), words, { free })],
   });
   MG.lines.splice(i, 1, mk(flat.slice(0, at), left, 'a'), mk(flat.slice(at), right, 'b'));
+  applyNewLineBreak(MG.lines, i + 1, breakKindSetting());   // the new boundary is a Sentence or a Clause break (Seth, 2026-10-14)
   mgDraw();
 }
 
@@ -10659,8 +10709,14 @@ function mgInsertLine(after) {
     guid: newGuid(),
     phrases: [makeSegment('', [])],
   };
-  if (above && above.paraOf != null) line.paraOf = above.paraOf;
   MG.lines.splice(after + 1, 0, line);
+  /* Inside a paragraph the blank line BELONGS to it (Seth's earlier rule, pinned by matcher-audio):
+   * inheriting paraOf, so inserting inside a sentence does not start a new one. Only where the text
+   * has no paragraph yet does the device's break kind decide (a 'clause' makes one with the line
+   * above; a 'sentence' stays its own, as every line always was). A line added at the very top starts
+   * its own paragraph. */
+  if (above && above.paraOf != null) line.paraOf = above.paraOf;
+  else if (above) applyNewLineBreak(MG.lines, after + 1, breakKindSetting());
   mgDraw();
 }
 
@@ -10918,8 +10974,9 @@ async function mgCommit() {
   for (let i = lines.length; i < padTo; i++) {
     lines.push({
       id: 'ln+end' + i, guid: newGuid(), phrases: [makeSegment('', [])],
-      ...(last && last.paraOf != null ? { paraOf: last.paraOf } : {}),
+      ...(last && last.paraOf != null ? { paraOf: last.paraOf } : {}),   // inside a paragraph: belongs to it (as before)
     });
+    if (!(last && last.paraOf != null)) applyNewLineBreak(lines, lines.length - 1, breakKindSetting());   // no paragraph yet: the break kind decides
   }
   const blankAdded = lines.length - MG.lines.length;
   /* ⚠ WRITE doc.segments, NOT rec.segments — the same field mgLoad reads and the only one anything
@@ -11598,6 +11655,7 @@ async function mgOpen(id) {
    * ✂ and ⤴ on the text side stay exactly as they were — they are now the ADJUSTMENT Seth describes,
    * applied to real phrase boundaries, rather than the only way to get any boundaries at all. */
   healFlatSegments(rec.doc);
+  await mgAskSectionBreaks(rec);
   mgLoad(rec);
   /* Unfinished work wins over the stored document, because it is NEWER by construction — the doc
    * holds the last COMMITTED state and the draft is everything since. Resumed rather than offered:

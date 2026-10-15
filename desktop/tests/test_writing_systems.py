@@ -76,6 +76,7 @@ def test_what_a_text_uses_and_what_it_opens_in(ws_world):
     r = s.text_ws(ws_world["two"])
     assert r["usage"]["vern"] == {"xx": 2}
     assert r["usage"]["anal"] == {"en": {"ft": 1, "lt": 1, "gloss": 1}, "id": {"ft": 2, "lt": 0, "gloss": 1}}
+    assert r["usage"]["words"] == {"approved": 1, "unapproved": 4}, "one word glossed in FLEx; FLEx's guesses on the rest are not glosses"
     assert r["default"] == {"vern": "xx", "anal": "id"}, "the analysis writing system the text uses most"
     assert r["current"] is None, "asking does not open the text"
     assert s.text_ws(ws_world["ipa"])["default"] == {"vern": "xx-x-ipa", "anal": "en"}, "its paragraph's own; FLEx's first analysis when nothing is translated"

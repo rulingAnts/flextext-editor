@@ -398,21 +398,55 @@ export function flexDocId(projectName, textGuid) {
 /* A FLEx text's local record (flexDocId); the app's own records have GUID ids. */
 export const isFlexDocId = (id) => /^flex-/.test(String(id || ''));
 
+/* Work on a FLEx text's local record that FLEx does not have: a Matcher draft in progress, a save to
+ * FLEx that was undone (`flex.dirty`), or anything Save to FLEx would write — judged by that same diff,
+ * never by timestamps (a Done that changed nothing has done nothing). A record the diff cannot read
+ * counts as work: the answer that cannot lose anything. */
+export function hasLocalWork(rec) {
+  if (!rec || !rec.flex) return false;
+  if (rec.matchDraft || rec.flex.dirty) return true;
+  try {
+    const d = diffFlexDoc(rec.flex.base, rec.doc, { ws: rec.doc.analLang });
+    return d.ops.length > 0 || d.unsupported.length > 0;
+  } catch { return true; }
+}
+
 /* What re-opening a FLEx text does with its local record — never discard local work silently.
- * Local work = a stamped edit since the record was loaded from FLEx (persist() and the Matcher's Done
- * stamp `modified`; opening and the engine's quiet writes do not), a Segmenter draft in progress, or a
- * save to FLEx that was undone (`flex.dirty`: the work is here and no longer in FLEx).
  *   'new'     no local record yet
- *   'keep'    FLEx unchanged → open the local record (with or without local work, it is FLEx's text
- *             plus whatever was done here)
- *   'replace' nothing done here, FLEx changed → load FLEx's version
- *   'ask'     both changed → the user decides; the safe answer keeps the local work */
-export function reopenDecision(rec, baseRev) {
+ *   'replace' no work here (hasLocalWork) → FLEx's text, read again. Always, not only when FLEx changed:
+ *             FLEx is where the text lives, so a record with nothing of its own is re-read in the
+ *             writing systems chosen for it — a gloss corrected in FLEx (no fingerprint covers a gloss's
+ *             wording), and a record an older build made in another writing system (Seth, 2026-10-15:
+ *             texts glossed in FLEx opening with no glosses), both come back right
+ *   'keep'    work here, FLEx unchanged → the local record: FLEx's text plus the work done here
+ *   'ask'     work here, FLEx changed → the user decides; the safe answer keeps the local work */
+export function reopenDecision(rec, baseRev, local = hasLocalWork(rec)) {
   if (!rec || !rec.flex) return 'new';
-  const local = (Number(rec.modified) || 0) > (Number(rec.flex.loadedAt) || 0) || !!rec.matchDraft || !!rec.flex.dirty;
-  const flexChanged = rec.flex.baseRev !== baseRev;
-  if (!flexChanged) return 'keep';
-  return local ? 'ask' : 'replace';
+  if (!local) return 'replace';
+  return rec.flex.baseRev === baseRev ? 'keep' : 'ask';
+}
+
+/* Which edges of a phrase's times are this app's estimates (segments.js `guess`) is not something FLEx
+ * holds — it stores the times only. A record read again from FLEx keeps them for every phrase whose
+ * times FLEx still has exactly as they were here, so re-opening never turns an estimate into a
+ * measurement. In place, on `fresh`. */
+export function keepTimeEstimates(was, fresh) {
+  const spans = (doc) => (Array.isArray(doc && doc.segments) ? doc.segments : []);
+  const byGuid = new Map();
+  ((was && was.paragraphs) || []).forEach((ln, i) => {
+    const g = segGuid(ln.segments && ln.segments[0]);
+    if (g && spans(was)[i]) byGuid.set(g, spans(was)[i]);
+  });
+  ((fresh && fresh.paragraphs) || []).forEach((ln, i) => {
+    const old = byGuid.get(segGuid(ln.segments && ln.segments[0]));
+    const now = spans(fresh)[i];
+    if (!old || !now || old.timePending || now.timePending) return;
+    if (Math.round(Number(old.start)) !== Number(now.start) || Math.round(Number(old.end)) !== Number(now.end)) return;
+    if (Array.isArray(old.guess)) now.guess = old.guess.slice(0, 2);
+    if (old.timeEstimated) now.timeEstimated = true;
+    if (old.estSource) now.estSource = old.estSource;
+  });
+  return fresh;
 }
 
 /* Which of a text's media links the Segmenter cuts: one that resolves on this machine, else the

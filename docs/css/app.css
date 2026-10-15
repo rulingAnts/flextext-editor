@@ -3853,6 +3853,11 @@ a.offsite-off, area.offsite-off {
 .flex-ws-row select{display:block;width:100%;margin-top:.2rem;font-weight:normal}
 .flex-ws-text-title{opacity:.75;margin:.2rem 0 .4rem}
 .flex-ws-pair{font-size:.85rem;opacity:.8}
+/* the Matcher strip's writing systems: FLEx's own, switched in place (plan §7.4) */
+.flex-ws-field{display:inline-flex;align-items:center;gap:.3rem;font-size:.85rem}
+.flex-ws-select{font-size:.85rem;padding:.1rem .3rem;border:1px solid var(--border,#d7dbe0);border-radius:6px;background:#fff;max-width:14em}
+.flex-ws-ro{font-size:.75rem;padding:.05rem .4rem;border-radius:999px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b}
+.flex-ws-unapproved{color:#92400e;opacity:1}
 /* § section marks in the Matcher (seg-word-split): they stand out until decided */
 .mg-section-banner{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:.4rem .6rem;margin:.3rem 0;font-size:.9rem}
 .mg-sec{display:inline-flex;align-items:center;gap:.15rem;margin:0 .25rem;padding:.1rem .3rem;border:1px dashed #f59e0b;border-radius:6px;background:#fffbeb;vertical-align:middle}

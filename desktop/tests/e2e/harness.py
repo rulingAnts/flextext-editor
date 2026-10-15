@@ -29,6 +29,7 @@ OLD_LINK = "C:\\Old Machine\\Recordings\\Session-01.wav"
 PARAS = ["aaa bbb ccc.", "ddd eee fff.", "ggg hhh."]
 STRUCT = ["aaa bbb ccc", "ddd eee fff", "ggg hhh"]
 WS_PARAS = ["aaa bbb ccc", "ddd eee fff"]
+WS2_PARAS = ["kkk lll mmm", "nnn ooo"]
 WS_NAMES = {"xx": "Example", "xx-x-ipa": "Example IPA", "en": "English", "id": "Indonesian"}
 
 
@@ -104,13 +105,17 @@ def start(tmp):
     b.save()
     b.close_project()
     # per-text writing systems: two vernacular (an IPA alternative for one word) and two analysis writing
-    # systems, translated and glossed in both — Indonesian more, so the text opens in it
-    MockLcm.create_project(str(projects), "ws-write", texts=[{"title": "Two languages", "paragraphs": WS_PARAS, "media": [in_lf]}],
+    # systems, translated and glossed in both — Indonesian more, so the text opens in it. "Glossed text" is
+    # glossed and translated in Indonesian, one word in English too: what an older build, which read FLEx's
+    # FIRST analysis writing system only, showed with no glosses and no translations at all.
+    MockLcm.create_project(str(projects), "ws-write", texts=[{"title": "Two languages", "paragraphs": WS_PARAS, "media": [in_lf]},
+                                                             {"title": "Glossed text", "paragraphs": WS2_PARAS, "media": [in_lf]}],
                            vern_wss=("xx", "xx-x-ipa"), anal_wss=("en", "id"), ws_names=WS_NAMES)
     (projects / "ws-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
     b = MockLcm(str(projects))
     b.open("ws-write", write=True)
-    t = b.read_text(b.list_texts()[0]["guid"])
+    by_title = {x["title"]: x["guid"] for x in b.list_texts()}
+    t = b.read_text(by_title["Two languages"])
     s0, s1 = t["paragraphs"][0]["segments"][0], t["paragraphs"][1]["segments"][0]
     h = b.begin_uow("fixture", "fixture")
     b.set_free_translation(s0["guid"], "en", "first in English")
@@ -118,6 +123,14 @@ def start(tmp):
     b.set_free_translation(s1["guid"], "id", "kedua")
     an = b.create_trivial_analysis(s0["analyses"][0]["wordformGuid"])
     b.set_analysis(s0["guid"], 0, b.create_gloss(an, {"en": "A-en", "id": "A-id"}))
+    t2 = b.read_text(by_title["Glossed text"])
+    for k, para in enumerate(t2["paragraphs"]):
+        seg = para["segments"][0]
+        b.set_free_translation(seg["guid"], "id", ["satu", "dua"][k])
+        for i, a in enumerate(seg["analyses"]):
+            form = a["form"].upper()[0]
+            glosses = {"id": form + "-id", **({"en": form + "-en"} if (k, i) == (0, 0) else {})}
+            b.set_analysis(seg["guid"], i, b.create_gloss(b.create_trivial_analysis(a["wordformGuid"]), glosses))
     b.commit(h)
     b.add_form_alternative("eee", "xx-x-ipa", "\u025b\u025b\u025b")
     b.save()

@@ -311,6 +311,7 @@ const aOpts = await page.locator('[data-flex-ws] [data-ws="anal"] option').allIn
 ok(vOpts.length === 2 && /Example \(xx\).*2 paragraphs.*this text's own/.test(vOpts[0]) && /Example IPA/.test(vOpts[1]), 'the vernacular list is FLEx\'s, with what this text uses: ' + JSON.stringify(vOpts));
 ok(aOpts.length === 2 && /English \(en\) — 1 translation, 1 gloss$/.test(aOpts[0]) && /Indonesian \(id\) — 2 translations, 1 gloss, this text's own$/.test(aOpts[1]), 'and the analysis list: ' + JSON.stringify(aOpts));
 ok(await page.locator('[data-flex-ws] [data-ws="anal"]').inputValue() === 'id', 'the text opens in the analysis writing system it uses most');
+ok(/5 words have no approved gloss in FLEx/.test(await page.locator('[data-flex-ws]').innerText()), 'and says how many words FLEx has no approved gloss for (its guesses are not glosses)');
 await shot('11-ws-dialog');
 await page.selectOption('[data-flex-ws] [data-ws="anal"]', 'en');
 await page.click('[data-flex-ws] [data-ok]');
@@ -320,8 +321,11 @@ await textRow('Two languages').locator('.flex-open-text').click();
 await waitMatcher();
 await waitAudio();
 ok(await page.evaluate(() => document.querySelector('#view-matcher').innerText.includes('first in English')), 'the Matcher shows the English free translation');
-ok(await page.locator('#mg-lang option[value="id"]').count() === 1, 'and offers the Indonesian one read-only in its language picker');
-ok((await page.locator('#flex-mg-strip').innerText()).includes('Example → English'), 'the strip names the writing systems');
+ok(await page.locator('#flex-ws-vern').inputValue() === 'xx' && await page.locator('#flex-ws-anal').inputValue() === 'en',
+   'the strip shows the text\'s writing systems, switchable in place');
+const stripOpts = await page.locator('#flex-ws-anal option').allInnerTexts();
+ok(JSON.stringify(stripOpts) === '["English","Indonesian","All languages"]', 'FLEx\'s analysis writing systems by name, and All: ' + JSON.stringify(stripOpts));
+ok(!(await page.locator('#mg-lang').count()), 'the Matcher\'s own picker steps aside for a FLEx text (one control, not two)');
 // Backspace at the start of "bbb" joins it to "aaa"; Space inside "fff" splits it
 const caretIn = (lineIdx, wordIdx, offset) => page.evaluate(([li, wi, off]) => {
   const el = document.querySelectorAll('#view-matcher .mg-line')[li].querySelectorAll('.mg-wstack .mg-w')[wi];
@@ -383,6 +387,73 @@ await page.click('[data-flex-ws] [data-ok]');
 await page.waitForFunction(() => /Save this text to FLEx first/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
 ok(/Example IPA → English/.test(await textRow('Two languages').innerText()), 'and the writing systems do not change under work that is not in FLEx');
 await shot('13-ws-refused');
+
+// ── 7. a record an older build made; switching writing systems inside the text ─────────────────────────
+// An older build read FLEx's FIRST analysis writing system only (English here) and kept no choice: its
+// record of "Glossed text" holds no glosses and no translations, and re-opening kept it because FLEx had
+// not changed (Seth, 2026-10-15). Built here the way that build stored it.
+const gt = await flexText('Glossed text');
+await page.evaluate(async ([guid, fetched]) => {
+  const db = await import('/flextext-editor/js/db.js');
+  const ops = await import('/flextext-editor/js/flex-ops.js');
+  const doc = fetched.doc;
+  for (const ln of doc.paragraphs) for (const seg of ln.segments) {
+    seg.postItemsXML = [];
+    for (const w of seg.words) w.preservedXML = [];
+  }
+  delete doc.flex.ws;
+  const now = Date.now() - 60000;
+  await db.putDoc({ id: ops.flexDocId('ws-write', guid), title: doc.title, created: now, modified: now, doc,
+    flex: { textGuid: guid, baseRev: fetched.baseRev, base: JSON.parse(JSON.stringify(doc)), project: 'ws-write', loadedAt: now, writable: true, linkOk: true } });
+  localStorage.setItem('flextext-mg-lang', 'en');   // this device last showed some other text in English
+}, [gt.guid, (await rpc('open_text', [gt.guid, { vern: 'xx', anal: 'en' }])).result]);
+await home();
+await openProject('ws-write', 'write');
+ok(/Example → English/.test(await textRow('Glossed text').innerText()), 'the older record says what it is in: Example → English');
+await textRow('Glossed text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+const mtxt = () => page.evaluate(() => document.querySelector('#view-matcher').innerText);
+ok(/satu/.test(await mtxt()) && /K-id/.test(await mtxt()) && /M-id/.test(await mtxt()),
+   'nothing was done here, so it is FLEx\'s text again, in the writing system it is glossed and translated in');
+ok(await page.locator('#flex-ws-anal').inputValue() === 'id', 'the strip says Indonesian');
+ok(!/K-en/.test(await mtxt()), 'the device\'s remembered English does not override the text\'s own');
+recs = await records();
+const gRec = await page.evaluate(async (id) => (await (await import('/flextext-editor/js/db.js')).getDoc(id)).flex.ws,
+  recs.find((r) => r.title === 'Glossed text').id);
+ok(JSON.stringify(gRec) === '{"vern":"xx","anal":"id"}', 'and the record now holds that choice');
+await shot('14-older-record');
+// switch to English right here: nothing done here, so FLEx's text is read again in it, in place
+await lines().nth(1).locator('.mg-pick').click();
+await page.selectOption('#flex-ws-anal', 'en');
+await page.waitForFunction(() => document.querySelector('#flex-ws-anal') && document.querySelector('#flex-ws-anal').value === 'en'
+  && /K-en/.test(document.querySelector('#view-matcher').innerText), null, T(10000));
+ok(!/satu/.test(await mtxt()), 'switched in place: English glosses, and no English translation (FLEx has none)');
+ok(/now shows Example → English/.test(await toasts()), 'the toast says what it shows now');
+ok(await page.evaluate(() => [...document.querySelectorAll('#view-matcher .mg-line')].findIndex((l) => l.classList.contains('mg-sel'))) === 1,
+   'the selected line is still selected');
+ok(await page.evaluate(() => !!document.querySelector('#view-matcher .mg-line .mg-g.mg-edit')), 'English glosses are the editable ones now');
+// All languages: a view, nothing read
+await page.selectOption('#flex-ws-anal', 'all');
+await page.waitForFunction(() => /L-id/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+ok(await page.evaluate(() => document.querySelectorAll('#view-matcher .mg-g-alt').length >= 5), 'All stacks Indonesian under English, read-only');
+// with work here, nothing is re-read: Indonesian is SHOWN read-only, and the words wait
+await page.selectOption('#flex-ws-anal', 'en');
+await caretIn(0, 1, 1);
+await page.keyboard.press(' ');
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line')[0].querySelectorAll('.mg-wstack .mg-w').length === 4, null, T(5000));
+await page.selectOption('#flex-ws-anal', 'id');
+await page.waitForFunction(() => !!document.querySelector('#flex-mg-strip .flex-ws-ro'), null, T(5000));
+ok(/satu/.test(await mtxt()) && await page.evaluate(() => !!document.querySelector('#view-matcher .mg-ft-alt')), 'with work here, Indonesian is shown read-only');
+ok(/shown read-only/.test(await toasts()), 'and says why: the work is not in FLEx yet');
+ok(await page.evaluate(() => document.querySelectorAll('#view-matcher .mg-line')[0].querySelectorAll('.mg-wstack .mg-w').length === 4), 'the work is untouched');
+await page.selectOption('#flex-ws-vern', 'xx-x-ipa');
+await page.waitForFunction(() => /Press Done, then Save to FLEx/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(5000));
+ok(await page.locator('#flex-ws-vern').inputValue() === 'xx', 'the words wait for a save: the vernacular stays');
+const gws = await page.evaluate(async (id) => (await (await import('/flextext-editor/js/db.js')).getDoc(id)).flex.ws,
+  recs.find((r) => r.title === 'Glossed text').id);
+ok(JSON.stringify(gws) === '{"vern":"xx","anal":"en"}', 'and the text\'s writing systems are unchanged');
+await shot('15-read-only-view');
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();

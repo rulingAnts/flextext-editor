@@ -11,8 +11,9 @@
  *     (the work Done committed here → diff → preview → confirm → job) and Fix FLEx's recording link…;
  *     Export bundle… works read-only. The project row carries Undo / Redo Save to FLEx (the SEPARATE
  *     history, D1) and Import .flextext into FLEx.
- *   - in the Matcher, for a FLEx text, a slim strip: what it is (read-only or not) and Copy line as
- *     FLEx Print view for the selected line.
+ *   - in the Matcher, for a FLEx text, a slim strip: what it is (read-only or not), the text's writing
+ *     systems — switched right there, from FLEx's own lists — and Copy line as FLEx Print view for the
+ *     selected line.
  *
  * THE RECORDING (§8.4, Seth 2026-10-14: "Most of the recordings found in FLEx text media fields will
  * point to an incorrect path"). Opening a text gets it a recording of ITS OWN in the media store, under
@@ -26,11 +27,12 @@
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
 import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, reopenDecision, recordingLink, pendingMediaFix } from './flex-ops.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, reopenDecision, hasLocalWork, keepTimeEstimates, recordingLink, pendingMediaFix } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
-let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, getCurrent, openRecord, selectedSegGuid, hideFromList, fetchMedia }
+let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, getCurrent, openRecord, reopenRecord, matcherEdited,
+                  //   selectedSegGuid, hideFromList, claimLangView, langView, setLangView, fetchMedia }
 // project.ws = FLEx's writing systems, { vern: [{ id, name, abbr, isDefault }], anal: [...] } (open_project)
 let project = null;   // { name, writable, ws, printViewConfig, texts: [...] } while a project is open in the shell
 
@@ -49,6 +51,9 @@ export function initFlexPanel(hooks) {
   document.addEventListener('flextext:matcher-closed', () => { if (project) renderTexts(); });   // Back: a draft, a recording now here
   // FLEx texts are listed here, under their project; the Segmenter's own list keeps the app's own texts
   if (H.hideFromList) H.hideFromList((d) => isFlexDocId(d.id));
+  // …and the Matcher shows a FLEx text in the writing systems chosen for IT (the strip's), never the
+  // language this device last picked for some other text
+  if (H.claimLangView) H.claimLangView((rec) => !!(rec && rec.flex));
   return true;
 }
 
@@ -221,9 +226,14 @@ async function openText(tx) {
 async function openTextNow(tx) {
   const id = flexDocId(project.name, tx.guid);
   const existing = await H.db.getDoc(id).catch(() => null);
+  const local = hasLocalWork(existing);
+  // Read in the writing systems chosen for the text. A record with work here is read in the ones that
+  // work is in; one with none, made by an older build before there was a choice, is read in the text's
+  // own (the shell's default) — the one it is glossed and translated in, which that build never read.
+  const ws = existing && existing.flex ? (existing.flex.ws || (local ? wsOf(existing) : null)) : null;
   let opened;
-  try { opened = await flex.openText(tx.guid, wsOf(existing)); } catch (e) { fail(e); return; }
-  const how = reopenDecision(existing, opened.baseRev);
+  try { opened = await flex.openText(tx.guid, ws); } catch (e) { fail(e); return; }
+  const how = reopenDecision(existing, opened.baseRev, local);
   let rec;
   if (how === 'ask') {
     // the destructive answer is the one Escape and a click outside never give
@@ -251,11 +261,13 @@ function fromFlex(existing, id, tx, opened) {
   const now = Date.now();
   const rec = existing ? { ...existing } : { id, created: now };
   delete rec.matchDraft;                   // a draft against the text being replaced does not carry over
+  if (existing && existing.doc) keepTimeEstimates(existing.doc, doc);   // FLEx holds times, not which were estimated
   rec.title = doc.title;
   rec.doc = doc;
   rec.modified = now;
+  // the record IS FLEx's text again: nothing of its own is pending (`dirty`), whatever it said before
   rec.flex = { ...((existing && existing.flex) || {}), textGuid: tx.guid, baseRev: opened.baseRev, base: clone(doc), project: project.name, loadedAt: now,
-    ws: opened.ws || (doc.flex && doc.flex.ws) || null };
+    ws: opened.ws || (doc.flex && doc.flex.ws) || null, dirty: false };
   Object.assign(rec, H.docStats(doc));
   return rec;
 }
@@ -364,7 +376,17 @@ function mediaCard(id, tx, fl, linkCount) {
  * the vernacular its paragraphs are in, the analysis one it uses most — until someone chooses.
  * Changing it re-reads the text from FLEx in the new writing systems, so it waits until the work done
  * here is in FLEx: work shown in one analysis writing system is never quietly re-shown in another. */
-const wsOf = (rec) => (rec && rec.flex && rec.flex.ws) || null;
+// A record an older build made has no choice stored: its doc is in the ones that build read (FLEx's
+// default vernacular and first analysis writing system) and says so itself.
+const wsOf = (rec) => {
+  if (!rec || !rec.flex) return null;
+  if (rec.flex.ws) return rec.flex.ws;
+  const d = rec.doc || {};
+  return d.vernLang && d.analLang ? { vern: d.vernLang, anal: d.analLang } : null;
+};
+// The doc carries every analysis writing system, the others read-only (to_engine_doc since the choice
+// existed); an older build's carries one.
+const layered = (rec) => !!(rec && rec.doc && rec.doc.flex && rec.doc.flex.ws);
 const wsList = (kind) => (project && project.ws && project.ws[kind]) || [];
 function wsName(id, kind) {
   const w = wsList(kind).find((x) => x.id === id);
@@ -379,8 +401,17 @@ async function chooseWs(tx) {
   const rec = await H.db.getDoc(id).catch(() => null);
   const cur = wsOf(rec) || info.default;
   const pick = await wsDialog(tx, info, cur);
-  if (!pick || (pick.vern === cur.vern && pick.anal === cur.anal)) return;
-  if (rec && rec.flex && (notInFlex(rec).save || rec.matchDraft)) { H.toast(T('flex.ws.busy'), 10000); return; }
+  if (!pick) return;
+  const same = pick.vern === cur.vern && pick.anal === cur.anal;
+  const older = !!(rec && rec.flex && !rec.flex.ws);   // an older build's record: nothing chosen yet
+  if (same && !older) return;
+  if (hasLocalWork(rec)) {
+    // an older record with work in it, kept as it is: what it is in becomes the choice (it re-opens in it
+    // once the work is in FLEx, rather than in the text's own)
+    if (same) { rec.flex.ws = { vern: pick.vern, anal: pick.anal }; await H.db.putDoc(rec); await renderTexts(); return; }
+    H.toast(T('flex.ws.busy'), 10000);
+    return;
+  }
   busy = true;
   try {
     const opened = await flex.openText(tx.guid, pick);
@@ -389,13 +420,15 @@ async function chooseWs(tx) {
     next.flex.linkOk = ((opened.doc.flex && opened.doc.flex.media) || []).some((m) => m.url);
     await H.db.putDoc(next);              // a raw write: a new view of FLEx's text is not an edit
     await renderTexts();
-    H.toast(T('flex.ws.changed', { p: wsPair(opened.ws) }), 6000);
+    wsChangedToast(opened);
   } catch (e) { fail(e); } finally { busy = false; }
 }
 /* → { vern, anal } or null. Each option says how much of this text is in it, and which is its own. */
 function wsDialog(tx, info, cur) {
   return new Promise((resolve) => {
     const u = info.usage || { vern: {}, anal: {} }, own = info.default || {};
+    // FLEx shows its guesses on words nobody approved; only approved glosses are FLEx's glosses (§7.4)
+    const unapproved = (u.words && u.words.unapproved) || 0;
     const verns = wsList('vern').slice();
     for (const w of Object.keys(u.vern || {})) if (!verns.some((x) => x.id === w)) verns.push({ id: w, name: w });   // a paragraph in one FLEx no longer lists
     const label = (w, kind) => {
@@ -418,6 +451,7 @@ function wsDialog(tx, info, cur) {
       <label class="flex-ws-row">${esc(T('flex.ws.vern'))}<select data-ws="vern">${opts(verns, 'vern')}</select></label>
       <label class="flex-ws-row">${esc(T('flex.ws.anal'))}<select data-ws="anal">${opts(wsList('anal'), 'anal')}</select></label>
       <p class="flex-media-note">${esc(T('flex.ws.note'))}</p>
+      ${unapproved ? `<p class="flex-media-note flex-ws-unapproved">${esc(T(unapproved === 1 ? 'flex.ws.unapproved1' : 'flex.ws.unapprovedN', { n: unapproved }))}</p>` : ''}
       <button class="primary-btn" data-ok>${esc(T('flex.ws.apply'))}</button>
       <button class="link-btn" data-cancel>${esc(T('share.cancel'))}</button>
     </div>`;
@@ -433,6 +467,14 @@ function wsDialog(tx, info, cur) {
 }
 
 /* ---- the Matcher strip -------------------------------------------------------------------------- */
+/* The text's writing systems, switched where the work is (Seth, 2026-10-15: "I'd like to be able to switch
+ * on the fly within the text I'm working on"): FLEx's own lists, on EVERY FLEx text. (The Matcher's own
+ * language picker appeared only on a text that happened to carry two analysis languages, and only knew the
+ * ones in it — "showing on some texts and not others" — so for a FLEx text this strip replaces it.)
+ * Choosing one re-reads the text from FLEx in it and opens it again in place: glosses and the free
+ * translation are then edited in the one shown. Work here that FLEx does not have yet would be lost by a
+ * re-read, so then nothing is read: another analysis writing system is SHOWN, read-only, as FLEx has it,
+ * and the words wait for a save. "All languages" stacks the others under the one edited — a view only. */
 function renderMatcherStrip() {
   const view = $('#view-matcher');
   const bar = view && $('.mg-bar', view);
@@ -440,15 +482,72 @@ function renderMatcherStrip() {
   if (old) old.remove();
   const cur = H.getCurrent();
   if (!bar || !cur || !cur.flex) return;
+  const ws = wsOf(cur) || {};
+  const shown = (H.langView && H.langView()) || 'primary';
+  const listed = (kind, id) => {
+    const list = wsList(kind).slice();
+    if (id && !list.some((w) => w.id === id)) list.push({ id, name: id });   // one FLEx no longer lists
+    return list;
+  };
+  const anals = listed('anal', ws.anal);
+  const pick = (kind, list, sel, extra = '') => `<select id="flex-ws-${kind}" class="flex-ws-select">${list.map((w) =>
+    `<option value="${esc(w.id)}"${w.id === sel ? ' selected' : ''}>${esc(w.name || w.id)}</option>`).join('')}${extra}</select>`;
+  const all = anals.length > 1 ? `<option value="all"${shown === 'all' ? ' selected' : ''}>${esc(T('mg.langAll'))}</option>` : '';
+  const other = shown !== 'primary' && shown !== 'all';   // another analysis writing system, shown read-only
   const row = document.createElement('div');
   row.id = 'flex-mg-strip';
   row.className = 'flex-mg-strip';
   row.innerHTML = `
     <span class="flex-badge">${esc(T('flex.badge'))}${cur.flex.writable ? '' : ' · ' + esc(T('flex.readOnlyTag'))}</span>
-    ${wsOf(cur) ? `<span class="flex-ws-pair" title="${esc(T('flex.ws.title'))}">${esc(wsPair(wsOf(cur)))}</span>` : ''}
+    <label class="flex-ws-field">${esc(T('flex.ws.words'))} ${pick('vern', listed('vern', ws.vern), ws.vern)}</label>
+    <label class="flex-ws-field">${esc(T('flex.ws.glosses'))} ${pick('anal', anals, other ? shown : ws.anal, all)}</label>
+    ${other ? `<span class="flex-ws-ro" title="${esc(T('flex.ws.viewOnly', { a: wsName(shown, 'anal'), e: wsName(ws.anal, 'anal') }))}">${esc(T('flex.readOnlyTag'))}</span>` : ''}
     <button id="flex-copy" class="link-btn">${esc(T('flex.copyLine'))}</button>`;
   bar.insertAdjacentElement('afterend', row);
   $('#flex-copy', row).addEventListener('click', copyLine);
+  $('#flex-ws-vern', row).addEventListener('change', (e) => switchWs('vern', e.target.value));
+  $('#flex-ws-anal', row).addEventListener('change', (e) => switchWs('anal', e.target.value));
+}
+async function switchWs(kind, value) {
+  const cur = H.getCurrent();
+  if (!cur || !cur.flex || !project || busy) { renderMatcherStrip(); return; }
+  const rec = await H.db.getDoc(cur.id).catch(() => null);
+  const ws = wsOf(rec);
+  if (!rec || !ws) { renderMatcherStrip(); return; }
+  if (kind === 'anal' && (value === 'all' || value === ws.anal)) { H.setLangView(value === 'all' ? 'all' : 'primary'); renderMatcherStrip(); return; }
+  if (kind === 'vern' && value === ws.vern) return;
+  if (H.matcherEdited() || hasLocalWork(rec)) {
+    if (kind === 'anal' && layered(rec)) {
+      H.setLangView(value);
+      renderMatcherStrip();
+      H.toast(T('flex.ws.viewOnly', { a: wsName(value, 'anal'), e: wsName(ws.anal, 'anal') }), 10000);
+    } else {
+      renderMatcherStrip();   // back to what is shown
+      H.toast(T('flex.ws.busyHere'), 10000);
+    }
+    return;
+  }
+  busy = true;
+  try {
+    const opened = await flex.openText(rec.flex.textGuid, { ...ws, [kind]: value });
+    // an edit made, or a text opened, while FLEx was being read wins: nothing is replaced under it
+    const again = await H.db.getDoc(rec.id).catch(() => null);
+    const still = H.getCurrent();
+    if (!again || !still || still.id !== rec.id || H.matcherEdited() || hasLocalWork(again)) { renderMatcherStrip(); return; }
+    const next = fromFlex(again, rec.id, { guid: rec.flex.textGuid }, opened);
+    next.flex.writable = project.writable;
+    next.flex.linkOk = ((opened.doc.flex && opened.doc.flex.media) || []).some((m) => m.url);
+    await H.db.putDoc(next);              // a raw write: a new view of FLEx's text is not an edit
+    await H.reopenRecord(rec.id);
+    wsChangedToast(opened);
+  } catch (e) { fail(e); renderMatcherStrip(); } finally { busy = false; }
+}
+// Words shown in a vernacular writing system the text is not written in are FLEx's alternatives for
+// them: they show, and the shell refuses to save a change to them (E_WS_WORDS) — so say so up front.
+function wsChangedToast(opened) {
+  const own = opened.wsDefault && opened.wsDefault.vern;
+  const note = own && opened.ws.vern !== own ? '\n' + T('flex.ws.vernNote', { v: wsName(opened.ws.vern, 'vern'), own: wsName(own, 'vern') }) : '';
+  H.toast(T('flex.ws.changed', { p: wsPair(opened.ws) }) + note, note ? 9000 : 5000);
 }
 
 /* ---- Save to FLEx, from a text row (§11) ------------------------------------------------------------

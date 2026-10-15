@@ -45,6 +45,7 @@ function segmenter(store, extra = {}) {
     const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, isPlaceholder, spreadUntimed, splitSpanAt, mergeSpanPair, dragSeam, edgeGuessed } = SEG;
     const { makeSegment, mergePhrases, readLegacyEstimates } = ft;
     const MIN_SEGMENT_MS = SEG.MIN_SEGMENT_MS;
+    let mgLangClaim = null, mgLangOwn = null;   // the FLEx shell's per-text language (app.js mgLangClaim)
     let MG = null, current = null, mgUndoStack = [], mgRedoStack = [], mgDraftTimer = 0;
     const clone = (x) => JSON.parse(JSON.stringify(x));
     const timers = [];

@@ -35,10 +35,14 @@ def segment_text(p, s):
 
 
 def text_ws_usage(t):
-    """What one text actually uses (plan §7.4): {vern: {ws: paragraphs}, anal: {ws: {ft, lt, gloss}}} —
-    paragraphs by their baseline's writing system; phrases with a free/literal translation and
-    occurrences with a gloss, by analysis writing system."""
+    """What one text actually uses (plan §7.4): {vern: {ws: paragraphs}, anal: {ws: {ft, lt, gloss}},
+    words: {approved, unapproved}} — paragraphs by their baseline's writing system; phrases with a
+    free/literal translation and occurrences with a gloss, by analysis writing system; and how many word
+    occurrences point at an approved gloss (a WfiGloss) and how many do not (a bare wordform, or an
+    analysis with no word gloss chosen) — FLEx shows its GUESSES on the latter, tinted, and a guess is
+    not FLEx's gloss, so the engine shows none there."""
     vern, anal = {}, {}
+    words = {"approved": 0, "unapproved": 0}
     for p in t["paragraphs"]:
         if p["segments"]:
             vern[p["ws"]] = vern.get(p["ws"], 0) + 1
@@ -48,10 +52,14 @@ def text_ws_usage(t):
                     if x:
                         anal.setdefault(w, {"ft": 0, "lt": 0, "gloss": 0})[key] += 1
             for a in s["analyses"]:
+                if a["kind"] == "gloss":
+                    words["approved"] += 1
+                elif a["kind"] in ("analysis", "wordform"):
+                    words["unapproved"] += 1
                 for w, x in (a.get("gloss") or {}).items():
                     if x:
                         anal.setdefault(w, {"ft": 0, "lt": 0, "gloss": 0})["gloss"] += 1
-    return {"vern": vern, "anal": anal}
+    return {"vern": vern, "anal": anal, "words": words}
 
 
 def default_ws(t):

@@ -10134,6 +10134,14 @@ function mgLineText(line) {
  * see plans/second-analysis-language.md. */
 const MG_LANG_KEY = 'flextext-mg-lang';
 let mgLangPref = (() => { try { return localStorage.getItem(MG_LANG_KEY) || 'primary'; } catch { return 'primary'; } })();
+/* ⚠ A TEXT WHOSE WRITING SYSTEMS ARE CHOSEN ELSEWHERE IS SHOWN IN THEM. The FLEx shell chooses a FLEx
+ * text's per text, from FLEx's own lists, and offers the choice in its own strip (flex-panel.js). This
+ * device's remembered pick must not override that: a device left on "en" by one text showed every FLEx
+ * text that carried any English in English, read-only, whatever was chosen for it — glosses and free
+ * translations the text had in its own language looked missing (Seth, 2026-10-15). For such a text the
+ * column's picker steps aside and the choice lives only while it is open: 'primary', 'all' or a code. */
+let mgLangClaim = null;   // (rec) → true for a text whose writing systems are chosen elsewhere
+let mgLangOwn = null;     // that text's choice while it is open; null for every other text
 function mgPrimaryLang() { return (current && current.doc && current.doc.analLang) || settings.analLang || 'en'; }
 function mgLangsPresent() {
   const prim = mgPrimaryLang();
@@ -10144,10 +10152,14 @@ function mgLangsPresent() {
 }
 function mgLangMode() {
   const langs = mgLangsPresent();
-  if (mgLangPref === 'all') return langs.length > 1 ? 'all' : 'primary';
-  return mgLangPref !== 'primary' && langs.includes(mgLangPref) ? mgLangPref : 'primary';
+  const pref = mgLangOwn || mgLangPref;
+  if (pref === 'all') return langs.length > 1 ? 'all' : 'primary';
+  // a chosen language is shown even where the text has nothing in it — empty IS what it has there
+  if (mgLangOwn) return pref;
+  return pref !== 'primary' && langs.includes(pref) ? pref : 'primary';
 }
 function mgLangPickerHtml() {
+  if (mgLangOwn) return '';   // chosen elsewhere (the FLEx shell's strip)
   const langs = mgLangsPresent();
   if (langs.length < 2) return '';
   const prim = langs[0], mode = mgLangMode();
@@ -11717,6 +11729,7 @@ async function mgGuess() {
 function mgClose() {
   mgStopTicker();
   MG = null;
+  mgLangOwn = null;
   player?.pause?.();
   player?.clearSpan?.();
   // ⚠ AND HIDE THE DOCK. It is a sibling of the views, not part of one, so `show('segmenter')` does
@@ -11756,6 +11769,7 @@ async function mgOpen(id) {
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
   current = rec;
+  mgLangOwn = mgLangClaim && mgLangClaim(rec) ? 'primary' : null;   // see mgLangClaim
   /* ⚠ ONE PHRASE PER LINE, AND THE ENGINE ALREADY KNOWS HOW. A FLExText commonly arrives with every
    * phrase inside ONE paragraph — Seth's "Rumah Jatuh di Muara Suhu" is 1 paragraph holding 60
    * phrases, and "Crocodile Woman" is 1 holding 77. mgLoad reads PARAGRAPHS, so such a text became a
@@ -12911,6 +12925,28 @@ if (SEGMENTER_MODE) {
       // A FLEx text opens in THIS app's Matcher, exactly as the Segmenter's own list opens a text
       // (Seth, 2026-10-15: "the Audio Segmenter app for audio segmenting/matching is what I want").
       openRecord: (id) => mgOpen(id),
+      // The open text was read again from FLEx (other writing systems): open it again where the user
+      // was — the same line selected, the rows scrolled as they were, the recording still loaded (mgOpen
+      // over the same text keeps the dock: loadedFor is still this text). Only ever with nothing edited
+      // here; the panel asks matcherEdited first.
+      reopenRecord: async (id) => {
+        const here = !!(MG && MG.docId === id);
+        const at = here && MG.selLine ? MG.lines.findIndex((l) => l.id === MG.selLine) : -1;
+        const rows = here ? $('#mg-rows') : null;
+        const y = rows ? rows.scrollTop : 0;
+        if (here) { player?.pause?.(); mgStopTicker(); }
+        await mgOpen(id);
+        if (!here || !MG || MG.docId !== id) return;
+        if (at >= 0 && MG.lines[at]) { MG.selLine = MG.lines[at].id; mgDraw(); }
+        const r2 = $('#mg-rows');
+        if (r2) r2.scrollTop = y;
+      },
+      // Work in the Matcher that is not even a draft yet (the draft autosave is debounced) — a re-read
+      // would lose it.
+      matcherEdited: () => !!(MG && (MG.edited || MG.resumed)),
+      claimLangView: (fn) => { mgLangClaim = fn; },
+      langView: () => mgLangOwn,
+      setLangView: (mode) => { if (!mgLangOwn) return; mgLangOwn = mode || 'primary'; if (MG) mgDraw(); },
       // the FLEx phrase under the Matcher's selected line, for "Copy line as FLEx Print view"
       selectedSegGuid: () => {
         const ln = MG && MG.selLine ? MG.lines.find((l) => l.id === MG.selLine) : null;

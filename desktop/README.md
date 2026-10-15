@@ -111,8 +111,10 @@ LINGTEX_TOOLS=/path/to/LingTeX-Tools node test/printview-lingtex.test.mjs   # SK
 object over the mock backend, the real local server, the staged engine: finding a recording (read-only),
 the Matcher's ✨ → Done → Save to FLEx, Fix link, Undo/Redo of both, a split with a Sentence break and a
 join across paragraphs saved to FLEx, Copy line, the per-text writing-systems selector (FLEx's lists, a
-save that keeps the other analysis writing system, a word edit refused in another vernacular view), and
-words joined with Backspace / split with Space saved to FLEx. It needs Node with Playwright and a Chromium
+save that keeps the other analysis writing system, a word edit refused in another vernacular view), a
+record an older build made (no glosses, no translations) read again from FLEx in the text's own writing
+systems, switching them inside the Matcher (in place; read-only when there is unsaved work), and words
+joined with Backspace / split with Space saved to FLEx. It needs Node with Playwright and a Chromium
 (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them. It is the first thing to run
 after touching `flex-panel.js`, `flex-ops.js`, `api.py`, `protocol.py` or the server's CSP: it found the
 CSP that loaded every recording and played none before any VM did, and with the protocol tests it found
@@ -226,6 +228,12 @@ In this order. The scripts refuse a folder without the copy marker.
    Space inside a word (splits it), Done, Save — check the Baseline and Interlinear tabs (V-1; the join
    recipe is mock-only until this run). If the project has two vernacular writing systems, choose the
    other one and confirm the words show its forms and a word edit is refused.
+   **Inside a text** (the strip under the Matcher's bar): switch *Glosses in* to the other analysis
+   writing system — the glosses and free translation change in place, editable; *All languages* stacks
+   both. Make an edit, then switch again: it shows read-only and says why. **Texts opened with an earlier
+   build** should now open with the glosses and translations they have in FLEx; if one still shows
+   blanks where FLEx shows glosses, check whether FLEx shows them tinted (guesses, not approved
+   glosses) — Writing systems… says how many words have no approved gloss.
 8. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
 
 ## Decisions still Seth's (plan §14, plus new ones from the build)

@@ -30,8 +30,17 @@ test('the picker appears only when the text carries more than the primary; the c
   assert.match(fn(APP, 'mgLangPickerHtml'), /opt\('primary', prim\) \+ langs\.slice\(1\)\.map\(\(l\) => opt\(l, l\)\)\.join\(''\) \+ opt\('all', t\('mg\.langAll'\)\)/, 'primary, each other code, All');
   assert.match(APP, /const MG_LANG_KEY = 'flextext-mg-lang';/);
   assert.match(APP, /langSel\.onchange = \(\) => \{ mgLangPref = langSel\.value; try \{ localStorage\.setItem\(MG_LANG_KEY, mgLangPref\); \}[^\n]*mgDraw\(\); \};/);
-  assert.match(fn(APP, 'mgLangMode'), /if \(mgLangPref === 'all'\) return langs\.length > 1 \? 'all' : 'primary';/, 'All on a one-language text is just the primary');
+  assert.match(fn(APP, 'mgLangMode'), /const pref = mgLangOwn \|\| mgLangPref;\n\s*if \(pref === 'all'\) return langs\.length > 1 \? 'all' : 'primary';/, 'All on a one-language text is just the primary');
   assert.match(APP, /<div class="mg-rowhead-text"><h3 data-i18n="mg\.text">Text<\/h3>\$\{mgLangPickerHtml\(\)\}<\/div>/, 'beside "Text", outside the h3 applyI18n rewrites');
+});
+
+test('a text whose writing systems are chosen elsewhere (the FLEx shell) is shown in them, never in the device\'s pick', () => {
+  // Seth, 2026-10-15: a device left on English by one text showed FLEx texts' glosses in English, read-only
+  assert.match(fn(APP, 'mgOpen'), /current = rec;\n\s*mgLangOwn = mgLangClaim && mgLangClaim\(rec\) \? 'primary' : null;/, 'decided at every open, from the record');
+  assert.match(fn(APP, 'mgClose'), /mgLangOwn = null;/, 'and forgotten at close');
+  assert.match(fn(APP, 'mgLangMode'), /if \(mgLangOwn\) return pref;/, 'its choice holds even where the text has nothing in that language');
+  assert.match(fn(APP, 'mgLangPickerHtml'), /^[^\n]*\n\s*if \(mgLangOwn\) return '';/, 'and the column\'s own picker steps aside for the owner\'s');
+  assert.doesNotMatch(fn(APP, 'mgLangMode'), /localStorage/, 'an owner\'s choice is never remembered for the device');
 });
 
 test('the primary row stays editable; every other language is read-only and tagged with its code', () => {

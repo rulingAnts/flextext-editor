@@ -850,6 +850,37 @@ instead of from device settings is only available on pywebview native version)"*
   every preview and check reads the text the same way. Changing it re-reads the text from FLEx; it is
   refused while work done here is not in FLEx (work shown in one analysis writing system is never
   quietly re-shown in another).
+- **Switched inside the text** (Seth, 2026-10-15: *"I'd like to be able to switch on the fly within the
+  text I'm working on"*): the Matcher strip carries **Words in [vernacular ▾]** and **Glosses in
+  [analysis ▾ / All languages]**, from FLEx's lists, on EVERY FLEx text. With nothing done here that FLEx
+  lacks (no Matcher edit, no draft, an empty diff), a choice re-reads the text in it and re-opens the
+  Matcher in place (same line selected, same scroll, the recording still loaded) — glosses and the
+  free translation are then edited in the one shown. With such work, nothing is re-read: another
+  analysis writing system is SHOWN read-only as FLEx has it (tagged *read-only*), and the words wait
+  for a save. *All languages* stacks the others under the one edited (a view only).
+- ⚠ **Three reasons a text showed no glosses or translations it has in FLEx** (Seth, 2026-10-15:
+  *"some load word glosses and free translations while others that DO have glosses and free
+  translations DON'T load them"*; *"writing system selector shows within the text for some but not
+  others"*):
+  1. **A record an older build made kept that build's reading.** Before the choice existed the doc was
+     FLEx's FIRST analysis writing system only (English), with no others carried; re-opening kept the
+     local record whenever FLEx's fingerprint was unchanged — so a text glossed and translated in
+     Indonesian opened bare, forever. Now a record with no work of its own is FLEx's text read again
+     on EVERY open (§8.4 `reopenDecision`), an older record in the text's own writing systems
+     (`wsOf` falls back to the doc's own `vernLang`/`analLang` only where its work must be read).
+  2. **The Matcher's language pick was the device's.** `mgLangPref` is remembered across texts, so a
+     device left on English by one text showed every FLEx text carrying any English in English,
+     read-only. A FLEx text is now CLAIMED (`claimLangView`): shown in its own writing systems, its
+     pick lives only while it is open, and the Matcher's own picker steps aside for the strip.
+  3. **That picker appeared only on a text carrying two analysis languages** — the strip is on every
+     FLEx text.
+  And one that is not a fault: **FLEx shows GUESSES** (tinted) on words nobody approved — an occurrence
+  pointing at a bare wordform, or at an analysis with no word gloss chosen. A guess is not FLEx's gloss
+  and is not read; Writing systems… says how many words have no approved gloss (`text_ws` `words`).
+- **Not fixed (recorded):** the base fingerprint covers analysis GUIDs, not a gloss's wording, so a gloss
+  corrected in FLEx under unsaved work here is not seen as a FLEx change; a save touching that
+  paragraph then rolls back at the in-UOW comparison (safe, and the message names the phrase). With no
+  work here, re-opening reads it (point 1).
 - **Words are written only from their own writing system:** a word edit made while the words show in
   another vernacular alternative than the paragraph is written in is refused before the preview
   (`E_WS_WORDS`, naming both). Times, glosses, translations and phrase structure save from any view.
@@ -935,10 +966,14 @@ app, and later (once we add write to FLEx capability), it should fix the media f
   next Save to FLEx carries a `media.relink` (or `media.attach` when the text had no link and the
   save writes times, D9), shown in the preview, through the full protocol; "Fix FLEx's recording
   link…" does it on its own. §8.2's rules still hold (never retarget a link whose file exists).
-- **Re-opening never discards local work** (`reopenDecision`): FLEx unchanged → the local record
-  opens as it is; FLEx changed and nothing done here → FLEx's version loads; both changed → the user
-  decides, and Escape keeps the work. "Local work" = a stamped edit since loading (`modified >
-  flex.loadedAt`), a Segmenter draft, or a save that was undone (`flex.dirty`, judged by the diff).
+- **Re-opening never discards local work** (`reopenDecision`): nothing done here → FLEx's text,
+  read again in the writing systems chosen for it, EVERY time (2026-10-15; it used to keep the local
+  record while FLEx's fingerprint was unchanged, which kept an older build's reading forever — §7.4);
+  work here and FLEx unchanged → the local record; both changed → the user decides, and Escape keeps the
+  work. "Local work" (`hasLocalWork`) = a Segmenter draft, a save that was undone (`flex.dirty`), or
+  anything the Save-to-FLEx diff would write — the diff, never timestamps (a Done that changed nothing
+  did nothing). Which time edges were this app's estimates is not in FLEx; a re-read keeps them where
+  FLEx holds the phrase's times exactly as they were (`keepTimeEstimates`).
 - A text with several media links: the Segmenter uses one (the one that resolves, else the first)
   and the card says so.
 - ⚠ The shell's CSP had no `blob:` in `connect-src`: the waveform player fetches the stored
@@ -1053,14 +1088,15 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
   link…** (writable, a relink pending), **Export bundle…**, **Open**.
 - **The Segmenter's own list leaves FLEx texts to that section** (`hideFromList`; a FLEx record's id
   starts `flex-`): it showed each text again, once per project copy, with no project to tell them apart.
-- **In the Matcher**, a strip under its bar: *FLEx text* (· read-only) and **Copy line as FLEx Print
-  view** for the selected line. Done commits here (its toast says Saved — to this app); Save to FLEx is
-  on the text's row, through the preview.
+- **In the Matcher**, a strip under its bar: *FLEx text* (· read-only), **Words in / Glosses in** — the
+  text's writing systems, switched in place (§7.4) — and **Copy line as FLEx Print view** for the
+  selected line. Done commits here (its toast says Saved — to this app); Save to FLEx is on the text's
+  row, through the preview.
 - **Undo / Redo** re-read the text and judge "not in FLEx" by the same diff (two saves undone and one
   redone leaves work FLEx does not have); an undone relink offers Fix link again.
 - The native dialog uses `webview.FileDialog.OPEN` (pywebview 6 deprecates `OPEN_DIALOG`).
-- **Writing systems… per text** (§7.4) on every text row; the row and the Matcher strip show the pair
-  (*Example → English*).
+- **Writing systems… per text** (§7.4) on every text row, the row showing the pair (*Example →
+  English*); the Matcher strip switches them inside the text.
 - ⚠ **Word keystrokes in the Matcher wrote the wrong word** (found by the end-to-end test, 2026-10-15;
   the lifted node tests run no DOM): a split, join, insert or delete redraws the line, Chromium blurs
   the removed box, and its blur commit wrote the box's OLD text into whatever word now sat at its index

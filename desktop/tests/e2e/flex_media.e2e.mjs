@@ -455,6 +455,84 @@ const gws = await page.evaluate(async (id) => (await (await import('/flextext-ed
 ok(JSON.stringify(gws) === '{"vern":"xx","anal":"en"}', 'and the text\'s writing systems are unchanged');
 await shot('15-read-only-view');
 
+// ── 8. Reset: this app's copy of a FLEx text, or of every text of the project (Seth, 2026-10-15: "I need
+// a way to clear my cached or stale version of a text from FLEx (or reset all)") ────────────────────────
+const recordOf = (project, title) => page.evaluate(async ([pj, ti]) => {
+  const db = await import('/flextext-editor/js/db.js');
+  const keys = [...await db.mediaKeys()];
+  for (const d of await db.listDocs()) {
+    if (!d.id.startsWith('flex-')) continue;
+    const r = await db.getDoc(d.id);
+    if (r.flex.project === pj && r.title === ti) return { id: r.id, draft: !!r.matchDraft, ws: r.flex.ws, recording: r.flex.recording || null, media: keys.includes(r.id) };
+  }
+  return null;
+}, [project, title]);
+await new Promise((r) => setTimeout(r, 700));   // the Matcher's draft autosave waits 400 ms after an edit (mgSaveDraft)
+await page.click('#mg-back');
+await waitHome();
+await page.waitForFunction(() => /matching in progress/.test((document.querySelector('#flex-texts') || {}).innerText || ''), null, T(10000));
+await textRow('Glossed text').locator('.flex-reset-text').click();
+await page.waitForSelector('[data-flex-reset]', T(5000));
+const rd = await page.locator('[data-flex-reset]').innerText();
+ok(/unfinished matching/.test(rd) && /FLEx itself is not changed/.test(rd), 'the dialog says what is lost, and that FLEx is not changed: ' + rd.replace(/\n+/g, ' | ').slice(0, 220));
+ok(await page.evaluate(() => !!document.activeElement && document.activeElement.hasAttribute('data-cancel')), 'Cancel is the default');
+await shot('16-reset-dialog');
+await page.keyboard.press('Escape');
+await page.waitForSelector('[data-flex-reset]', { state: 'detached', timeout: 5000 });
+ok((await recordOf('ws-write', 'Glossed text')).draft, 'Escape changes nothing');
+await textRow('Glossed text').locator('.flex-reset-text').click();
+await page.waitForSelector('[data-flex-reset]', T(5000));
+await page.click('[data-flex-reset] [data-ok]');
+await page.waitForFunction(() => !/matching in progress/.test((document.querySelector('#flex-texts') || {}).innerText || ''), null, T(10000));
+let g8 = await recordOf('ws-write', 'Glossed text');
+ok(g8 && !g8.draft && JSON.stringify(g8.ws) === '{"vern":"xx","anal":"id"}', 'reset: no draft, back in the text\'s own writing systems');
+ok(g8 && g8.media && g8.recording && g8.recording.source === 'flex', 'the recording stays (it was not asked to go)');
+ok(/this app's copy is FLEx's text again/.test(await toasts()), 'the toast says so');
+await textRow('Glossed text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+ok(!(await page.locator('[data-flex-media]').count()), 'opening it asks nothing: the recording was kept');
+ok(JSON.stringify(await wordsOf(0)) === '["kkk","lll","mmm"]', 'and it is FLEx\'s text: the unsaved word split is gone');
+await page.click('#mg-back');
+await waitHome();
+// Reset all, forgetting the recordings too: "Two languages" carries a word split FLEx refused (section 6)
+await page.click('#flex-reset-all');
+await page.waitForSelector('[data-flex-reset]', T(5000));
+const ra = await page.locator('[data-flex-reset]').innerText();
+ok(/copies of 2 texts/.test(ra) && /1 of them has work done here that is not in FLEx/.test(ra), 'Reset all counts the copies, and the ones with work: ' + ra.replace(/\n+/g, ' | ').slice(0, 200));
+await page.check('[data-flex-reset] [data-media]');
+await page.click('[data-flex-reset] [data-ok]');
+await page.waitForFunction(() => /2 texts reset from FLEx/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(15000));
+recs = await records();
+ok(!recs.some((r) => r.project === 'ws-write') && !(await recordOf('ws-write', 'Two languages')), 'every copy of this project\'s texts is gone, recordings too');
+ok(recs.some((r) => r.project === 'media-copy') && recs.some((r) => r.project === 'struct-write'), 'other projects\' copies are untouched');
+ok(!(await textRow('Two languages').locator('.flex-reset-text').count()), 'the rows have nothing to reset now');
+await textRow('Two languages').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+ok(JSON.stringify(await wordsOf(1)) === '["ddd","eee","f","ff"]' && await page.locator('#flex-ws-vern').inputValue() === 'xx',
+   'opened afresh: FLEx\'s words (the saved split, not the refused one), in the text\'s own vernacular');
+let t8 = await recordOf('ws-write', 'Two languages');
+ok(t8 && t8.media && t8.recording && t8.recording.source === 'flex', 'FLEx\'s own link resolves, so the recording is copied again without a question');
+await page.click('#mg-back');
+await waitHome();
+// A recording the user found for a link that points nowhere: forgetting it makes the shell forget its choice
+await home();
+await openProject('media-proj', 'read');
+ok(!(await page.locator('#flex-project-actions').isVisible()) && await page.locator('#flex-reset-all').isVisible(), 'Reset all works read-only (it changes nothing in FLEx)');
+await textRow('Missing link text').locator('.flex-reset-text').click();
+await page.waitForSelector('[data-flex-reset]', T(5000));
+await page.check('[data-flex-reset] [data-media]');
+await page.click('[data-flex-reset] [data-ok]');
+await page.waitForFunction(() => /gets its recording again/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
+ok(!(await recordOf('media-proj', 'Missing link text')), 'the copy and its recording are gone');
+await textRow('Missing link text').locator('.flex-open-text').click();
+await page.waitForSelector('[data-flex-media]', T(10000));
+ok((await page.locator('[data-flex-media] .flex-media-name').first().innerText()).includes('session-01.WAV'), 'the card asks again: the file chosen before is offered, not used unasked');
+await page.click('[data-flex-media] [data-cancel]');
+await page.waitForSelector('[data-flex-media]', { state: 'detached', timeout: 5000 });
+await shot('17-after-reset');
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

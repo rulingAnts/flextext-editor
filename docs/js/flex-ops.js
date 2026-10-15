@@ -398,6 +398,13 @@ export function flexDocId(projectName, textGuid) {
 /* A FLEx text's local record (flexDocId); the app's own records have GUID ids. */
 export const isFlexDocId = (id) => /^flex-/.test(String(id || ''));
 
+/* A local record of a text of THIS project (a reset of all its texts must not touch a copy's): the id
+ * ends in the project's hash, after the text guid. */
+export function isFlexDocOf(id, projectName) {
+  const tail = flexDocId(projectName, '').slice('flex-'.length);   // '-' + the project's hash
+  return isFlexDocId(id) && String(id).length > 'flex-'.length + tail.length && String(id).endsWith(tail);
+}
+
 /* Work on a FLEx text's local record that FLEx does not have: a Matcher draft in progress, a save to
  * FLEx that was undone (`flex.dirty`), or anything Save to FLEx would write — judged by that same diff,
  * never by timestamps (a Done that changed nothing has done nothing). A record the diff cannot read

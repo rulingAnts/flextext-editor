@@ -32,7 +32,7 @@ import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpa
          peaksDurationMs, guessedBoundaries,
          growArea, applyEnterKeyHint, initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut, attachEdgeHandles, makeBoundaryDrag, syncOverviewMarks, overviewMarks, splitPlace, splitCancel, splitPending, installSplitCancel, registerCaretScissors, syncCaretScissors, installKeyboardOverlayGuard,
          stripSplitAtPlayhead, segProgress, armLine, armedRow, timeStateClass, checkedLines, timeTipKey, retimeRow,
-         prepareDisplaySpans, needsMarks, attachKeep, lineHasOffsets, restyleRows, focusLine } from './segment-strips.js';
+         prepareDisplaySpans, needsMarks, attachKeep, lineHasOffsets, restyleRows, focusLine, forgetPeaks } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -12944,6 +12944,16 @@ if (SEGMENTER_MODE) {
       // Work in the Matcher that is not even a draft yet (the draft autosave is debounced) — a re-read
       // would lose it.
       matcherEdited: () => !!(MG && (MG.edited || MG.resumed)),
+      // The FLEx shell's reset, forgetting the recording too: the record and everything kept for its
+      // audio — the recording (db.deleteDoc takes it), the WAV working copy made from it, the waveform
+      // the dock holds and its peaks — so the next open gets a recording afresh and draws IT.
+      forgetRecord: async (id) => {
+        if (MG && MG.docId === id) mgClose();
+        await db.deleteDoc(id);
+        await db.deleteMedia('segwav:' + id).catch(() => {});
+        forgetPeaks(id);
+        if (player && player.loadedFor === id) { player.loadedFor = null; playerReadyFor = null; }
+      },
       claimLangView: (fn) => { mgLangClaim = fn; },
       langView: () => mgLangOwn,
       setLangView: (mode) => { if (!mgLangOwn) return; mgLangOwn = mode || 'primary'; if (MG) mgDraw(); },

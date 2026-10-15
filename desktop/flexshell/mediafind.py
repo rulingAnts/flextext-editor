@@ -211,6 +211,17 @@ class MediaMemory:
         with self._lock:
             return [f for f in self._data["folders"] if os.path.isdir(f)]
 
+    def forget(self, uri, project=None):
+        """Forget the file chosen for this link (the user reset a text and asked to choose again).
+        → whether one was remembered. The folders stay: they are where to look, not a choice."""
+        if not uri:
+            return False
+        with self._lock:
+            gone = self._data["links"].pop(link_key(uri, project), None) is not None
+            if gone:
+                self._save()
+        return gone
+
     def remember(self, uri, path, project=None):
         folder = os.path.dirname(os.path.abspath(path))
         with self._lock:

@@ -520,6 +520,14 @@ let peaksGen = 0;
  * under another's segments, which is the exact failure the Cut tab's doc-switch guards exist to
  * prevent. The loser checks this counter and returns without writing. */
 let peaksRun = 0;
+/* A recording forgotten for a text (the FLEx shell's reset): its peaks must not be drawn under the next
+ * recording that text gets — ensurePeaks trusts the cache by doc id, not by content. An unfinished
+ * run for it is overtaken too (peaksRun), so it cannot publish late. */
+export function forgetPeaks(docId) {
+  if (peaksCache.docId !== docId) return;
+  peaksRun++;
+  peaksCache = { docId: null, peaks: null, durationMs: 0 };
+}
 let rafId = 0;
 // Follow-playback state (v326): scroll only on a CHANGE of playing line, and stand off for 4s
 // after any user scroll so the view is never fought over (the PAT recipe).

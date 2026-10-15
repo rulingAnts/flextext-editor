@@ -159,6 +159,29 @@ def test_a_choice_is_offered_first_next_time_even_in_a_copy_of_the_project(env):
     assert ok(api.use_media(t2["guid"], t2["media"][0]["guid"], cands[0]["path"]))["path"] == env["present"]
 
 
+def test_forget_media_drops_the_remembered_choice_so_the_next_open_asks_again(env):
+    """A reset that forgets the recording (plan §8.4): the remembered file is no longer offered as
+    remembered, in this project or a copy, and nothing in FLEx or on disk changes."""
+    api, picker = env["api"], env["picker"]
+    ok(api.open_project("media-proj", "read"))
+    t = texts_by_title(api)["missing link"]
+    picker.answer = env["present"]
+    pick = ok(api.choose_media(t["guid"], t["media"][0]["guid"]))
+    ok(api.use_media(t["guid"], t["media"][0]["guid"], pick["path"]))
+    assert ok(api.find_media(t["guid"]))["links"][0]["candidates"][0]["remembered"] is True
+    assert ok(api.forget_media(t["guid"])) == {"forgot": 1}
+    cands = ok(api.find_media(t["guid"]))["links"][0]["candidates"]
+    assert not any(c["remembered"] for c in cands), "offered again only as something the search found"
+    assert os.path.isfile(env["present"]), "the file itself is untouched"
+    assert ok(api.forget_media(t["guid"])) == {"forgot": 0}, "nothing left to forget"
+    assert ok(api.forget_media(texts_by_title(api)["no link"]["guid"])) == {"forgot": 0}, "a text with no link: nothing remembered"
+    ok(api.close_project())
+    ok(api.open_project("media-copy", "read"))
+    t2 = texts_by_title(api)["missing link"]
+    assert not any(c["remembered"] for c in ok(api.find_media(t2["guid"]))["links"][0]["candidates"]), \
+        "a link from another machine is one recording whatever project carries it: the copy forgot it too"
+
+
 def test_a_file_uri_link_that_exists_is_served_without_asking(env):
     api = env["api"]
     ok(api.open_project("media-proj", "read"))

@@ -330,6 +330,24 @@ class Api:
         return mediafind.describe(path)
 
     @exposed
+    def forget_media(self, text_guid):
+        """Forget the recording chosen for this text (plan §8.4, a reset): the file remembered for each
+        of its links, and what this session adopted for it — so the next open finds it again, or asks.
+        The shell's own memory only: FLEx and the files themselves are untouched. A link outside this
+        machine is one recording whatever project carries it, so a copy of the project forgets it too."""
+        s = self._need_session()
+        media, _lf, _pd = self._text_media(s, text_guid)
+        forgot = 0
+        for m in media:
+            try:
+                forgot += 1 if self._memory.forget(m["uri"], s.name) else 0
+            except OSError:
+                pass   # a memory that cannot be written still offers the old choice; it asks before using it
+        with self._lock:
+            self._adopted.pop(text_guid, None)
+        return {"forgot": forgot}
+
+    @exposed
     def close_text(self, text_guid):
         s = self._need_session()
         return self._worker.run("close_text", lambda j: s.close_text(text_guid))

@@ -974,6 +974,17 @@ app, and later (once we add write to FLEx capability), it should fix the media f
   anything the Save-to-FLEx diff would write — the diff, never timestamps (a Done that changed nothing
   did nothing). Which time edges were this app's estimates is not in FLEx; a re-read keeps them where
   FLEx holds the phrase's times exactly as they were (`keepTimeEstimates`).
+- **Reset…** (a text row) and **Reset all texts…** (the project row, read-only too) — Seth, 2026-10-15:
+  *"I need a way to clear my cached or stale version of a text from FLEx (or reset all)"*. The text is
+  read fresh from FLEx in its own writing systems, as if never opened here; FLEx is not changed. The
+  dialog says first what is lost (a matching draft, changes not saved to FLEx; for all, how many texts
+  carry work), and Cancel is the default (focused, and Escape). The recording stays, with its pending
+  link fix, unless **Also forget the recording** is ticked: then the record goes whole (the recording,
+  the WAV made from it, the dock's waveform and its peaks — `forgetRecord`, `forgetPeaks`) and the
+  shell forgets the file it remembered for the link (`forget_media`; a link from another machine is one
+  recording in every copy of the project), so the next Open finds it again or asks. Reset all touches
+  only this project's records (`isFlexDocOf` — a disposable copy keeps its own); a record of a text no
+  longer in the project goes whole.
 - A text with several media links: the Segmenter uses one (the one that resolves, else the first)
   and the card says so.
 - ⚠ The shell's CSP had no `blob:` in `connect-src`: the waveform player fetches the stored
@@ -1085,7 +1096,8 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
   paragraphs · phrases · timed · the recording's state · *matching in progress* (a Matcher draft) ·
   *changes not in FLEx yet*. Actions: **Save to FLEx…** (writable, and the work committed here differs
   from FLEx — judged by the diff Save would make, never by timestamps), **Fix FLEx's recording
-  link…** (writable, a relink pending), **Export bundle…**, **Open**.
+  link…** (writable, a relink pending), **Writing systems…**, **Reset…** (§8.4), **Export bundle…**,
+  **Open**; beside Close project, **Reset all texts…**.
 - **The Segmenter's own list leaves FLEx texts to that section** (`hideFromList`; a FLEx record's id
   starts `flex-`): it showed each text again, once per project copy, with no project to tell them apart.
 - **In the Matcher**, a strip under its bar: *FLEx text* (· read-only), **Words in / Glosses in** — the

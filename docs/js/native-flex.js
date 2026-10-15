@@ -155,6 +155,7 @@ export const flex = {
   findMedia: (guid) => flexCall('find_media', guid),
   useMedia: (guid, uriGuid, path) => flexCall('use_media', guid, uriGuid, path),
   chooseMedia: (guid, uriGuid) => flexCall('choose_media', guid, uriGuid),
+  forgetMedia: (guid) => flexCall('forget_media', guid),
   importPreview: (path) => flexCall('import_preview', path),
   importFlextext: (token) => flexJob('import_flextext', token),
   printviewData: (segGuid) => flexCall('printview_data', segGuid),

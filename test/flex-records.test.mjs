@@ -5,7 +5,7 @@
  * Run: node test/flex-records.test.mjs */
 import { installMiniXmlDom } from './lib/mini-xml-dom.mjs';
 installMiniXmlDom();
-const { flexDocId, reopenDecision, hasLocalWork, keepTimeEstimates, recordingLink, pendingMediaFix } = await import('../docs/js/flex-ops.js');
+const { flexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, recordingLink, pendingMediaFix } = await import('../docs/js/flex-ops.js');
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 
@@ -17,6 +17,12 @@ ok(a.startsWith('flex-' + g + '-'), 'readable: the text guid is in it');
 ok(a === flexDocId('Sample Project', g), 'deterministic');
 ok(a !== flexDocId('Sample Project - copy', g), 'a disposable copy (same text guids) gets its own record');
 ok(/^[A-Za-z0-9-]+$/.test(flexDocId('odd:name/with\\stuff', 'g:1')), 'only safe characters, whatever the project is called');
+
+console.log('isFlexDocOf (Reset all: this project\'s records, never a copy\'s)');
+ok(isFlexDocOf(a, 'Sample Project'), 'a text of this project');
+ok(!isFlexDocOf(a, 'Sample Project - copy') && !isFlexDocOf(flexDocId('Sample Project - copy', g), 'Sample Project'), 'not a copy\'s, either way round');
+ok(!isFlexDocOf('0f8e2a52-6c1d-4f3b-9a57-2d6e4b1c9a10', 'Sample Project'), 'never the app\'s own records');
+ok(!isFlexDocOf(flexDocId('Sample Project', ''), 'Sample Project'), 'not an id with no text in it');
 
 console.log('reopenDecision + hasLocalWork');
 ok(reopenDecision(null, 'r1') === 'new' && reopenDecision({ id: 'x' }, 'r1') === 'new', 'no FLEx record yet → new');

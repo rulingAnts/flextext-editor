@@ -27,12 +27,12 @@
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
 import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, reopenDecision, hasLocalWork, keepTimeEstimates, recordingLink, pendingMediaFix } from './flex-ops.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, recordingLink, pendingMediaFix } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
 let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, getCurrent, openRecord, reopenRecord, matcherEdited,
-                  //   selectedSegGuid, hideFromList, claimLangView, langView, setLangView, fetchMedia }
+                  //   forgetRecord, selectedSegGuid, hideFromList, claimLangView, langView, setLangView, fetchMedia }
 // project.ws = FLEx's writing systems, { vern: [{ id, name, abbr, isDefault }], anal: [...] } (open_project)
 let project = null;   // { name, writable, ws, printViewConfig, texts: [...] } while a project is open in the shell
 
@@ -72,6 +72,7 @@ function renderHome() {
       <button id="flex-open-read" class="secondary-btn" disabled>${esc(T('flex.openRead'))}</button>
       <button id="flex-open-write" class="primary-btn" disabled>${esc(T('flex.openWrite'))}</button>
       <button id="flex-close" class="link-btn" hidden>${esc(T('flex.closeProject'))}</button>
+      <button id="flex-reset-all" class="link-btn" hidden>${esc(T('flex.resetAll'))}</button>
     </div>
     <p id="flex-reasons" class="flex-reasons" hidden></p>
     <div class="flex-row" id="flex-project-actions" hidden>
@@ -85,6 +86,7 @@ function renderHome() {
   $('#flex-open-read', box).addEventListener('click', () => openProject('read'));
   $('#flex-open-write', box).addEventListener('click', () => openProject('write'));
   $('#flex-close', box).addEventListener('click', closeProject);
+  $('#flex-reset-all', box).addEventListener('click', resetAll);
   $('#flex-undo', box).addEventListener('click', () => undoRedo('undo'));
   $('#flex-redo', box).addEventListener('click', () => undoRedo('redo'));
   $('#flex-import', box).addEventListener('click', importFlextext);
@@ -125,6 +127,7 @@ async function showOpenProject() {
   const sel = $('#flex-project');
   if (sel) { sel.value = project.name; sel.disabled = true; }
   $('#flex-close').hidden = false;
+  $('#flex-reset-all').hidden = false;   // read-only too: it changes nothing in FLEx
   $('#flex-open-read').disabled = $('#flex-open-write').disabled = true;
   $('#flex-reasons').hidden = true;
   $('#flex-project-actions').hidden = !project.writable;
@@ -136,6 +139,7 @@ async function closeProject() {
   project = null;
   flexHist.done = []; flexHist.undone = [];
   $('#flex-close').hidden = true;
+  $('#flex-reset-all').hidden = true;
   $('#flex-project').disabled = false;
   $('#flex-texts').hidden = true;
   $('#flex-project-actions').hidden = true;
@@ -183,6 +187,7 @@ async function renderTexts() {
         ${proj.writable && todo.save ? `<button class="primary-btn flex-save-text">${esc(T('flex.save'))}</button>` : ''}
         ${proj.writable && todo.relink ? `<button class="link-btn flex-fix-link">${esc(T('flex.relink'))}</button>` : ''}
         <button class="link-btn flex-ws-text">${esc(T('flex.ws.button'))}</button>
+        ${rec ? `<button class="link-btn flex-reset-text" title="${esc(T('flex.resetTip'))}">${esc(T('flex.reset'))}</button>` : ''}
         ${rec ? `<button class="link-btn flex-export-text">${esc(T('flex.export'))}</button>` : ''}
         <button class="secondary-btn flex-open-text">${esc(T('flex.openText'))}</button>
       </div>`;
@@ -195,6 +200,8 @@ async function renderTexts() {
     const ex = li.querySelector('.flex-export-text');
     if (ex) ex.addEventListener('click', () => exportBundle(tx));
     li.querySelector('.flex-ws-text').addEventListener('click', () => chooseWs(tx));
+    const rs = li.querySelector('.flex-reset-text');
+    if (rs) rs.addEventListener('click', () => resetText(tx));
     ul.appendChild(li);
   }
 }
@@ -464,6 +471,112 @@ function wsDialog(tx, info, cur) {
       vern: wrap.querySelector('[data-ws="vern"]').value, anal: wrap.querySelector('[data-ws="anal"]').value }));
     wrap.querySelector('[data-cancel]').addEventListener('click', () => done(null));
   });
+}
+
+/* ---- Reset: this app's copy of a FLEx text, or of every text of the project ---------------------------
+ * Seth, 2026-10-15: "I need a way to clear my cached or stale version of a text from FLEx (or reset all)".
+ * The text is read fresh from FLEx in its own writing systems, as if it had never been opened here; FLEx
+ * itself is not changed, so this works in a read-only session. What goes is said first — work here that
+ * FLEx does not have, a matching draft — and Cancel is the default (first, and Escape). The recording
+ * stays, with any link fix still waiting for a save, unless the user asks to forget it too: then this
+ * app's copy goes (with the WAV made from it and its waveform) and so does the file the shell remembered
+ * for FLEx's link, so the next Open finds the recording again, or asks. */
+function workLost(rec) {
+  if (!rec || !rec.flex) return [];
+  const out = [];
+  if (rec.matchDraft) out.push(T('flex.reset.whatDraft'));
+  if (rec.flex.dirty || notInFlex(rec).save) out.push(T('flex.reset.whatChanges'));
+  return out;
+}
+/* → { media } or null. `title` for one text; `count` and `working` (how many carry work) for all. */
+function resetDialog({ title = null, count = 1, lost = [], working = 0 }) {
+  return new Promise((resolve) => {
+    const one = title != null;
+    const warn = one ? (lost.length ? T('flex.reset.loseWork', { what: lost.join(', ') }) : '')
+      : (working ? T(working === 1 ? 'flex.reset.loseAll1' : 'flex.reset.loseAllN', { n: working }) : '');
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.flexReset = '1';
+    wrap.innerHTML = `<div class="modal-card flex-ws-card" role="dialog" aria-modal="true">
+      <h3>${esc(one ? T('flex.reset.title') : T(count === 1 ? 'flex.reset.titleAll1' : 'flex.reset.titleAllN', { n: count }))}</h3>
+      ${one ? '<p class="flex-ws-text-title"></p>' : ''}
+      <p>${esc(T(one ? 'flex.reset.body' : 'flex.reset.bodyAll'))}</p>
+      ${warn ? `<p class="flex-reset-lose">${esc(warn)}</p>` : ''}
+      <label class="flex-reset-media"><input type="checkbox" data-media> <span>${esc(T('flex.reset.media'))}</span></label>
+      <div class="flex-row">
+        <button class="secondary-btn" data-cancel>${esc(T('share.cancel'))}</button>
+        <button class="primary-btn" data-ok>${esc(T('flex.reset.ok'))}</button>
+      </div>
+    </div>`;
+    if (one) wrap.querySelector('.flex-ws-text-title').textContent = title;   // titles reach the UI only
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    wrap.querySelector('[data-ok]').addEventListener('click', () => done({ media: wrap.querySelector('[data-media]').checked }));
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(null));
+    wrap.querySelector('[data-cancel]').focus();
+  });
+}
+/* One text: forgetting the recording, the shell forgets its choice first (a failure there leaves
+ * everything as it was); else FLEx's text is read now and replaces the record, keeping only the
+ * recording's facts — the copy in the media store under this id is untouched. */
+async function resetOne(textGuid, rec, forgetRecording) {
+  if (forgetRecording) {
+    await flex.forgetMedia(textGuid);
+    await H.forgetRecord(rec.id);
+    return;
+  }
+  const opened = await flex.openText(textGuid);   // the text's own writing systems
+  const keep = { id: rec.id, created: rec.created, flex: { recording: (rec.flex && rec.flex.recording) || null, mediaFix: (rec.flex && rec.flex.mediaFix) || null } };
+  const next = fromFlex(keep, rec.id, { guid: textGuid }, opened);
+  next.flex.writable = project.writable;
+  next.flex.linkOk = ((opened.doc.flex && opened.doc.flex.media) || []).some((m) => m.url);
+  await H.db.putDoc(next);                // a raw write: FLEx's text as it is is not an edit
+}
+async function resetText(tx) {
+  if (busy || opening || !project) return;
+  const rec = await H.db.getDoc(flexDocId(project.name, tx.guid)).catch(() => null);
+  if (!rec || !rec.flex) return;
+  const pick = await resetDialog({ title: tx.title, lost: workLost(rec) });
+  if (!pick || !project) return;
+  busy = true;
+  try {
+    await resetOne(tx.guid, rec, pick.media);
+    H.toast(T(pick.media ? 'flex.reset.doneMedia' : 'flex.reset.done'), 7000);
+  } catch (e) { fail(e); } finally { busy = false; }
+  await renderTexts();
+}
+/* Every local record of THIS project's texts (isFlexDocOf — a copy of the project keeps its own). A
+ * record of a text no longer in the project has nothing to be read back from: it goes whole. */
+async function resetAll() {
+  if (busy || opening || !project) return;
+  const proj = project;
+  const docs = await H.db.listDocs().catch(() => []);
+  const recs = [];
+  for (const d of docs) {
+    if (!isFlexDocOf(d.id, proj.name)) continue;
+    const r = await H.db.getDoc(d.id).catch(() => null);
+    if (r && r.flex) recs.push(r);
+  }
+  if (!recs.length) { H.toast(T('flex.reset.nothing'), 6000); return; }
+  const pick = await resetDialog({ count: recs.length, working: recs.filter((r) => hasLocalWork(r)).length });
+  if (!pick || project !== proj) return;
+  busy = true;
+  const prog = progressModal(T('flex.reset.running'));
+  const live = new Set(proj.texts.map((tx) => tx.guid));
+  let n = 0;
+  try {
+    for (const r of recs) {
+      prog.set(T('flex.reset.progress', { i: n + 1, n: recs.length }));
+      const g = r.flex.textGuid;
+      if (!g || !live.has(g)) await H.forgetRecord(r.id);
+      else await resetOne(g, r, pick.media);
+      n++;
+    }
+  } catch (e) { fail(e); } finally { prog.close(); busy = false; }
+  await renderTexts();
+  if (n) H.toast(T(n === 1 ? 'flex.reset.doneAll1' : 'flex.reset.doneAllN', { n }), 7000);
 }
 
 /* ---- the Matcher strip -------------------------------------------------------------------------- */

@@ -315,6 +315,38 @@ def split_word(port, text_guid, para_guid, seg_guid, word_index, offset):
     return s2["analyses"][word_index]["guid"], s2["analyses"][word_index + 1]["guid"]
 
 
+def join_words(port, text_guid, para_guid, seg_guid, word_index):
+    """Delete the whitespace between word `word_index` and the next (indices into AnalysesRS; two
+    words parted only by whitespace) — split_word in reverse, ONE assignment. LCM's adjuster makes the
+    joined word one unanalysed WfiWordform and keeps every other analysis GUID; the invariant holds.
+    [mock] like the rest of §6.5 until the VM run (plan §15, V-1)."""
+    p = para_of(port, text_guid, para_guid)
+    require_not_fragile(port, p)
+    seg = next((s for s in p["segments"] if s["guid"] == seg_guid), None)
+    if seg is None:
+        raise FlexError("E_NOT_FOUND", "segment not in paragraph", {"seg": seg_guid})
+    toks = word_token_ends(p, seg)
+    if not (0 <= word_index < len(toks) - 1) or toks[word_index][3] or toks[word_index + 1][3]:
+        raise FlexError("E_SCOPE", "not two words", {"index": word_index})
+    a_end, b_start = toks[word_index][1], toks[word_index + 1][0]
+    old = p["contents"]
+    gap = old[a_end:b_start]
+    if not gap or gap.strip():
+        raise FlexError("E_SCOPE", "only words parted by a space are joined", {"index": word_index})
+    _assign(port, p, old[:a_end] + old[b_start:], (a_end, 0, b_start - a_end))
+    p2 = assert_invariant(port, text_guid, para_guid)
+    s2 = next((s for s in p2["segments"] if s["guid"] == seg_guid), None)
+    if s2 is None:
+        raise FlexError("E_INVARIANT", "a word join lost its phrase", {"seg": seg_guid})
+    before = [x["guid"] for x in seg["analyses"]]
+    after = [x["guid"] for x in s2["analyses"]]
+    if len(after) != len(before) - 1 or before[:word_index] != after[:word_index] or before[word_index + 2:] != after[word_index + 1:]:
+        raise FlexError("E_INVARIANT", "a word join changed more than those words' analyses", {"seg": seg_guid})
+    if s2["analyses"][word_index]["kind"] != "wordform":
+        raise FlexError("E_INVARIANT", "the joined word is not a bare wordform", {"seg": seg_guid})
+    return s2["analyses"][word_index]["guid"]
+
+
 def insert_word(port, text_guid, para_guid, seg_guid, at_index, text):
     """A new word before AnalysesRS[at_index] (or after the last). [verified] risks handled: the
     diff LCM computes is prefix/suffix minimal, so the expected diff is computed THE WAY LCM DOES

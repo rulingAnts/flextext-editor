@@ -584,15 +584,22 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); el\.textContent = was; el\.blur\(\); return; \}/.test(wire), 'Escape restores');
   ok(/e\.key === ' ' && at >= 0 && len > 0 && \(at === 0 \|\| at === len\)/.test(wire), 'Space adds a pair only at the START or END of a non-empty word');
   ok(/mgInsertWord\(ln\.id, wi, at === 0 \? 'before' : 'after'\)/.test(wire), 'before or after, by where the caret was');
-  ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); mgDeleteWord\(ln\.id, wi\); \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
-  ok(/el\.addEventListener\('blur', \(\) => mgCommitEdit\(el, ln, wi, field\)\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
+  ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); reshape\(\(\) => mgDeleteWord\(ln\.id, wi\)\); \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
+  ok(/el\.addEventListener\('blur', \(\) => \{ if \(!handled\) mgCommitEdit\(el, ln, wi, field\); \}\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
+  /* ⚠ Found by the shell's end-to-end test in Chromium (2026-10-15): a split, join, insert or delete
+   * redraws the line, the redraw removes the focused box, and Chromium blurs it — the commit then wrote
+   * the box's OLD text into whatever word now sat at its index ("fff" split gave "fff ff"). */
+  ok(/const reshape = \(fn\) => \{ handled = true; if \(!fn\(\)\) handled = false; \};/.test(wire),
+     'a keystroke that reshapes the line marks its box handled BEFORE the action (the redraw is what blurs it), and only if it reshaped');
+  ok(['mgInsertWord', 'mgSplitWord', 'mgJoinWord', 'mgDeleteWord'].every((f) => new RegExp('reshape\\(\\(\\) => ' + f + '\\(').test(wire)),
+     'every reshaping keystroke goes through it');
   const edit = fn(app, 'mgEditWord');
   ok(/if \(\(ph\.words\[k\]\[field\] \|\| ''\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write)');
   ok(/mgCapture\(\);/.test(edit) && !/mgDraw\(\)/.test(edit) && /mgSaveDraft\(\);/.test(edit),
      'a changed one captures for undo and autosaves WITHOUT redrawing — Tab keeps walking the line');
   ok(/if \(field === 'txt'\) ph\.baseline = baselineFromWords\(ph\.words\);/.test(edit), 'the phrase baseline follows the words');
   ok(/mgDraw\(\);\s*\n\s*mgFocusWord\(id, where === 'before' \? wi : wi \+ 1\);/.test(fn(app, 'mgInsertWord')), 'adding a pair redraws and puts the caret in the new word');
-  ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace');
+  ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return false;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace');
   ok(/if \(line\.phrases\.length > 1\) line\.phrases = \[mergePhrases\(line\.phrases\)\];/.test(fn(app, 'mgLinePhrase')), 'a legacy two-phrase line is merged before it is edited');
   ok(/\{ k: 'allowBlankLines', type: 'checkbox' \},\s*\n\s*\{ k: 'allowTextEdit', type: 'checkbox' \}/.test(read('docs/js/researcher-panel.js')),
      'the panel has BOTH switches (blank lines had a gate but no checkbox)');

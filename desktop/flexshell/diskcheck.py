@@ -24,9 +24,15 @@ DATE_ONLY_OK = ("Text", "StText", "LangProject")
 
 
 def _fields(el):
+    """{tag: value}: an attribute value, a string's text, the guids an objsur list names — and for a
+    multilingual field (AStr / AUni alternatives) {ws: text}, so an expectation can name ONE writing
+    system: a phrase's free translation in Indonesian is not its English one joined to it."""
     out = {}
     for ch in el:
-        if ch.get("val") is not None:
+        alts = [a for a in ch if a.tag in ("AStr", "AUni") and a.get("ws")]
+        if alts:
+            out[ch.tag] = {a.get("ws"): ("".join(r.text or "" for r in a.iter("Run")) if a.tag == "AStr" else (a.text or "")) for a in alts}
+        elif ch.get("val") is not None:
             out[ch.tag] = ch.get("val")
         else:
             runs = [r.text or "" for r in ch.iter("Run")]
@@ -110,7 +116,7 @@ def check(diff, allowed, rt_map=None):
             problems.append({"guid": guid, "cls": cls, "why": "outside every touched text"})
             continue
         for field, value in expect.get(guid, {}).items():
-            if n["fields"].get(field) != value:
+            if not _field_is(n["fields"].get(field), value):
                 problems.append({"guid": guid, "cls": cls, "why": "field %s is %r, expected %r" % (field, n["fields"].get(field), value)})
     for guid, n in diff["added"].items():
         cls = n["cls"]
@@ -120,7 +126,7 @@ def check(diff, allowed, rt_map=None):
         elif not explained_by_ownership(guid, n) and not (cls == "PunctuationForm" and (n["fields"].get("Form") or "").strip() in punct_ok):
             problems.append({"guid": guid, "cls": cls, "why": "new object outside every touched text"})
         for field, value in expect.get(guid, {}).items():
-            if n["fields"].get(field) != value:
+            if not _field_is(n["fields"].get(field), value):
                 problems.append({"guid": guid, "cls": cls, "why": "field %s is %r, expected %r" % (field, n["fields"].get(field), value)})
     for guid, o in diff["removed"].items():
         cls = o["cls"]
@@ -134,6 +140,13 @@ def check(diff, allowed, rt_map=None):
         if cls not in deltas and n != 0:
             problems.append({"guid": None, "cls": cls, "why": "count changed by %d, preview said 0" % n})
     return problems
+
+
+def _field_is(have, want):
+    """An expected {ws: text} names those writing systems only; anything else must be equal."""
+    if isinstance(want, dict):
+        return isinstance(have, dict) and all((have.get(w) or "") == (t or "") for w, t in want.items())
+    return have == want
 
 
 def files_after_save(fwdata_path, mtime_before):

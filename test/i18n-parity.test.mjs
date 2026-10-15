@@ -75,6 +75,7 @@ const SAME_ON_PURPOSE = {
   'panel.opt.fmt.wav16': 'format label',
   'panel.opt.fmt.webmpcm': 'format label',
   'task.checkOk': '"Audio OK" reads the same in both',
+  'flex.ws.pair': 'two writing-system names and an arrow, no words of its own',
 };
 const same = pairs.filter(([k, v]) => idMap.get(k) === v
   && v.trim().split(/\s+/).length >= 3

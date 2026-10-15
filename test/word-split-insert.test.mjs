@@ -11,7 +11,7 @@ import { installMiniXmlDom } from './lib/mini-xml-dom.mjs';
 import { liftAll } from './lib/lift.mjs';
 installMiniXmlDom();
 const FT = await import('../docs/js/flextext.js');
-const { makeSegment, makeWord, splitWordAt, insertWordAt, baselineFromWords } = FT;
+const { makeSegment, makeWord, splitWordAt, insertWordAt, joinWordsAt, baselineFromWords } = FT;
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -67,16 +67,16 @@ function matcher(lines) {
   const env = { FT, log, lines };
   return new Function('env', `
     const { FT, log, lines } = env;
-    const { makeSegment, makeWord, mergePhrases, baselineFromWords, splitWordAt, insertWordAt,
+    const { makeSegment, makeWord, mergePhrases, baselineFromWords, splitWordAt, insertWordAt, joinWordsAt,
             hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore } = FT;
     let MG = { docId: 'd', spans: [], lines, selSpan: null, selLine: null, pendingWordCut: null, edited: false, holdDraft: false };
     let mgUndoStack = [], mgRedoStack = [], player = null;
     const $ = () => null, t = (k, v) => k + (v ? JSON.stringify(v) : ''), toast = (m) => log.toasts.push(m);
-    const mgDraw = () => { log.drawn++; }, mgSaveDraft = () => { log.saved++; }, mgFocusWord = () => {};
+    const mgDraw = () => { log.drawn++; }, mgSaveDraft = () => { log.saved++; }, mgFocusWord = () => {}, mgFocusWordAt = (...a) => { log.focus = a; };
     ${liftAll(APP, ['MG_UNDO_MAX', 'mgSnap', 'mgCapture', 'mgApply', 'mgUndoOnce', 'mgRedoOnce', 'mgLinePhrase', 'mgRealIndex',
-                    'mgEditWord', 'mgInsertWord', 'mgDeleteWord', 'mgSplitWord', 'mgToggleParaBreak'])}
+                    'mgEditWord', 'mgInsertWord', 'mgDeleteWord', 'mgSplitWord', 'mgJoinWord', 'mgToggleParaBreak'])}
     return { get MG() { return MG; }, undo: mgUndoOnce, redo: mgRedoOnce, depth: () => mgUndoStack.length, redoDepth: () => mgRedoStack.length,
-             mgSplitWord, mgInsertWord, mgEditWord, mgDeleteWord, mgToggleParaBreak, log };
+             mgSplitWord, mgJoinWord, mgInsertWord, mgEditWord, mgDeleteWord, mgToggleParaBreak, log };
   `)(env);
 }
 const line = (id, words, extra = {}) => ({ id, guid: 'g' + id, phrases: [makeSegment(baselineFromWords(words), words, { free: 'ft ' + id })], ...extra });
@@ -140,6 +140,41 @@ console.log('\nthe Matcher: ¶ toggles a paragraph break — one item, text unto
   const flat = matcher([line('ln0', [W('aaa')]), line('ln1', [W('bbb')])]);
   flat.mgToggleParaBreak('ln1');
   ok(flat.depth() === 0 && flat.MG.lines.every((l) => l.paraOf == null), 'a flat text has no paragraphs to break: refused, no history');
+}
+
+console.log('\njoinWordsAt: two words become one, nothing else moves (Seth, 2026-10-15)');
+{
+  const s = seg();
+  const r = joinWordsAt(s, 0);
+  ok(r.ok && s.words.map((w) => w.txt).join('|') === 'aaabbbccc|,|ddd|.', 'word 0 and word 1 become one');
+  ok(!s.words[0].gls && r.removedGlosses.join() === 'A,BC', 'the joined word is unglossed, both glosses returned (FLEx leaves a bare wordform)');
+  ok(s.baseline === 'aaabbbccc, ddd.' && s.attrs.guid === 'g-1' && s.free === 'the line', 'the baseline follows; the phrase keeps its guid, times and translation');
+  ok(joinWordsAt(seg(), 1).reason === 'punctBetween', 'a comma between them: refused');
+  ok(joinWordsAt(seg(), 3).reason === 'punctBetween' && joinWordsAt(seg(), 4).reason === 'notAWord', 'the last word before a stop, and the stop itself: refused');
+  const t2 = seg(); t2.words.pop();
+  ok(joinWordsAt(t2, 3).reason === 'noNext', 'nothing after the last word: refused');
+}
+console.log('\nthe Matcher: Backspace at a word\'s start, Delete at its end — one item each');
+{
+  const m = matcher([line('ln0', [W('aaa', 'A'), W('bbb', 'B'), Object.assign(W(','), { punct: true }), W('ccc', 'C')])]);
+  const before = JSON.stringify(m.MG.lines);
+  m.mgJoinWord('ln0', 1, 'bbb', 'prev');
+  let ph = m.MG.lines[0].phrases[0];
+  ok(ph.words.map((w) => w.txt).join('|') === 'aaabbb|,|ccc' && ph.baseline === 'aaabbb, ccc', 'Backspace at the start of word 1 joins it to word 0');
+  ok(m.depth() === 1 && m.log.toasts.some((x) => x.startsWith('mg.joinWordGloss')), 'one undo item; the lost glosses are announced');
+  ok(JSON.stringify(m.log.focus) === JSON.stringify(['ln0', 0, 3]), 'the caret lands where the two met');
+  m.undo();
+  ok(JSON.stringify(m.MG.lines) === before, 'one Undo brings both words and their glosses back');
+  m.mgJoinWord('ln0', 0, 'aaax', 'next');
+  ph = m.MG.lines[0].phrases[0];
+  ok(ph.words[0].txt === 'aaaxbbb' && m.depth() === 1, 'Delete at the end of an EDITED word 0: the edit and the join are one item');
+  m.undo();
+  ok(m.MG.lines[0].phrases[0].words[0].txt === 'aaa', 'and one Undo takes back both');
+  const d = m.depth();
+  m.mgJoinWord('ln0', 2, 'ccc', 'prev');
+  ok(m.depth() === d && m.log.toasts.includes('mg.joinWordRefused') && m.MG.lines[0].phrases[0].words.length === 4, 'across the comma: refused, no history');
+  m.mgJoinWord('ln0', 2, 'ccc', 'next');
+  ok(m.depth() === d && m.MG.lines[0].phrases[0].words.length === 4, 'Delete after the last word: nothing to join, nothing changes');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : `\nPASSED\n`);

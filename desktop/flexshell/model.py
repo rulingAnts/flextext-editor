@@ -3,6 +3,7 @@ W1/W4/W6 compare (plan §5.3 C5). Pure functions over the plain dicts FlexPort r
 
 import hashlib
 import json
+from xml.sax.saxutils import escape as _xml_escape
 
 SECTION = "\u00A7"
 
@@ -33,13 +34,65 @@ def segment_text(p, s):
     return p["contents"][s["begin"]:s["end"]]
 
 
-def to_engine_doc(t, media_urls=None):
+def text_ws_usage(t):
+    """What one text actually uses (plan §7.4): {vern: {ws: paragraphs}, anal: {ws: {ft, lt, gloss}}} —
+    paragraphs by their baseline's writing system; phrases with a free/literal translation and
+    occurrences with a gloss, by analysis writing system."""
+    vern, anal = {}, {}
+    for p in t["paragraphs"]:
+        if p["segments"]:
+            vern[p["ws"]] = vern.get(p["ws"], 0) + 1
+        for s in p["segments"]:
+            for key, field in (("ft", "ft"), ("lt", "lt")):
+                for w, x in s[field].items():
+                    if x:
+                        anal.setdefault(w, {"ft": 0, "lt": 0, "gloss": 0})[key] += 1
+            for a in s["analyses"]:
+                for w, x in (a.get("gloss") or {}).items():
+                    if x:
+                        anal.setdefault(w, {"ft": 0, "lt": 0, "gloss": 0})["gloss"] += 1
+    return {"vern": vern, "anal": anal}
+
+
+def default_ws(t):
+    """The writing systems a text opens in when nobody chose: the vernacular most of its paragraphs
+    are in (FLEx's default vernacular for an empty text), and the current analysis writing system it
+    uses most — free translations and glosses together, what the Segmenter shows (literal
+    translations it never does); ties to the one FLEx lists first — else FLEx's first analysis one."""
+    u = text_ws_usage(t)
+    vern = max(u["vern"].items(), key=lambda kv: kv[1])[0] if u["vern"] else t["vernWs"]
+    order = list(t["analWss"] or ["en"])
+    used = {w: c["ft"] + c["gloss"] for w, c in u["anal"].items() if w in order and c["ft"] + c["gloss"]}
+    anal = max(used, key=lambda w: (used[w], -order.index(w))) if used else order[0]
+    return {"vern": vern, "anal": anal}
+
+
+def _gls_item(lang, text):
+    return '<item type="gls" lang="%s">%s</item>' % (_xml_escape(lang, {'"': "&quot;"}), _xml_escape(text))
+
+
+def word_form(a, vern):
+    """An occurrence's form as the engine shows it: in the text's chosen vernacular writing system
+    when the wordform has that alternative, else as its paragraph holds it. Punctuation has one form."""
+    if a["kind"] == "punct":
+        return a["form"]
+    return (a.get("forms") or {}).get(vern) or a["form"]
+
+
+def to_engine_doc(t, media_urls=None, ws=None):
     """The engine's doc: ONE PHRASE PER LINE (the engine's own flat model), `paraOf` = the FLEx
     paragraph GUID so the serializer and the ¶ control see the paragraph structure, phrase guid =
     segment guid, words from AnalysesRS with `flex` ride-alongs, a phrase-final § flagged
-    `boundaryMarker`, label segments `readOnly`, times in ms, media as the text's URIs."""
+    `boundaryMarker`, label segments `readOnly`, times in ms, media as the text's URIs.
+
+    `ws` = {vern, anal}, the text's writing systems (default_ws when None): words in `vern`; glosses and
+    the free translation in `anal` — the ONE analysis writing system the engine shows and edits — and
+    every other analysis writing system's glosses and translations as the read-only items the engine's
+    language picker already shows (`<item type="gls" lang=…>`, as a .flextext from FLEx carries them)."""
     media_urls = media_urls or {}
-    vern, anal = t["vernWs"], (t["analWss"] or ["en"])
+    ws = ws or default_ws(t)
+    vern, prim = ws["vern"], ws["anal"]
+    others = [w for w in (t["analWss"] or []) if w != prim]
     lines, spans = [], []
     for p in t["paragraphs"]:
         for s in p["segments"]:
@@ -47,13 +100,14 @@ def to_engine_doc(t, media_urls=None):
             words = []
             n_an = len(s["analyses"])
             for i, a in enumerate(s["analyses"]):
-                w = {"guid": a["guid"] + ":" + str(i), "txt": a["form"], "punct": a["kind"] == "punct", "phrase": False, "gls": "",
+                w = {"guid": a["guid"] + ":" + str(i), "txt": word_form(a, vern), "punct": a["kind"] == "punct", "phrase": False, "gls": "",
                      "preservedXML": [], "flex": {"analysisGuid": a["guid"], "analysisKind": a["kind"], "index": i}}
                 if a["kind"] == "gloss":
                     g = a.get("gloss", {})
-                    w["gls"] = g.get(anal[0], "")
-                    w["glsLang"] = anal[0]
+                    w["gls"] = g.get(prim, "")
+                    w["glsLang"] = prim
                     w["glosses"] = dict(g)
+                    w["preservedXML"] = [_gls_item(o, g[o]) for o in others if g.get(o)]
                 if a["kind"] == "punct" and a["form"].strip() == SECTION and all(x["kind"] == "punct" for x in s["analyses"][i:]):
                     w["boundaryMarker"] = True
                 words.append(w)
@@ -63,9 +117,9 @@ def to_engine_doc(t, media_urls=None):
                 attrs["end-time-offset"] = str(s["endTime"])
                 if s["mediaUri"]:
                     attrs["media-file"] = s["mediaUri"]
-            seg = {"attrs": attrs, "baseline": raw.strip(), "words": words, "free": s["ft"].get(anal[0], ""),
-                   "freeLang": anal[0] if s["ft"].get(anal[0]) else None, "frees": dict(s["ft"]), "lits": dict(s["lt"]),
-                   "preItemsXML": [], "postItemsXML": [], "txtLang": vern,
+            seg = {"attrs": attrs, "baseline": raw.strip(), "words": words, "free": s["ft"].get(prim, ""),
+                   "freeLang": prim if s["ft"].get(prim) else None, "frees": dict(s["ft"]), "lits": dict(s["lt"]),
+                   "preItemsXML": [], "postItemsXML": [_gls_item(o, s["ft"][o]) for o in others if s["ft"].get(o)], "txtLang": vern,
                    "flex": {"paraGuid": p["guid"], "segGuid": s["guid"], "notes": list(s["notes"])}}
             if s["isLabel"]:
                 seg["readOnly"] = True
@@ -74,9 +128,9 @@ def to_engine_doc(t, media_urls=None):
                 spans.append({"start": int(s["beginTime"]), "end": int(s["endTime"])})
             else:
                 spans.append({"start": 0, "end": 0, "timePending": True})
-    doc = {"title": t["title"], "vernLang": vern, "analLang": anal[0], "languages": [], "appAuthored": False,
+    doc = {"title": t["title"], "vernLang": vern, "analLang": prim, "languages": [], "appAuthored": False,
            "paragraphs": lines, "segments": spans, "timeEdges": True,
-           "flex": {"textGuid": t["guid"], "mediaContainer": t.get("mediaContainer"),
+           "flex": {"textGuid": t["guid"], "mediaContainer": t.get("mediaContainer"), "ws": {"vern": vern, "anal": prim},
                     "media": [{"uriGuid": m["guid"], "uri": m["uri"], "url": media_urls.get(m["guid"])} for m in t["media"]]}}
     return doc
 
@@ -146,8 +200,10 @@ def post_state_of(doc, para_guids=None):
     return out
 
 
-def read_model_post_state(t, para_guids=None):
-    """The same shape from a FlexPort read_text, for the W4.6 comparison."""
+def read_model_post_state(t, para_guids=None, ws=None):
+    """The same shape from a FlexPort read_text, for the W4.6 comparison — words as the engine shows
+    them in the text's vernacular writing system, glosses in its analysis writing system (`ws`)."""
+    ws = ws or {"vern": t["vernWs"], "anal": (t["analWss"] or ["en"])[0]}
     out = {}
     for p in t["paragraphs"]:
         if para_guids is not None and p["guid"] not in para_guids:
@@ -156,19 +212,25 @@ def read_model_post_state(t, para_guids=None):
             analyses = _drop_final_markers(s["analyses"], lambda a: a["kind"] == "punct", lambda a: a["form"])
             out.setdefault(p["guid"], []).append({
                 "segGuid": s["guid"],
-                "text": " ".join(a["form"] for a in analyses),
-                "words": [{"txt": a["form"], "punct": a["kind"] == "punct",
-                           "gls": (a.get("gloss") or {}).get((t["analWss"] or ["en"])[0], ""), "analysisGuid": a["guid"]} for a in analyses],
+                "text": " ".join(word_form(a, ws["vern"]) for a in analyses),
+                "words": [{"txt": word_form(a, ws["vern"]), "punct": a["kind"] == "punct",
+                           "gls": (a.get("gloss") or {}).get(ws["anal"], ""), "analysisGuid": a["guid"]} for a in analyses],
                 "ft": {k: v for k, v in s["ft"].items() if v}, "lt": {k: v for k, v in s["lt"].items() if v},
                 "begin": s["beginTime"], "end": s["endTime"],
             })
     return out
 
 
-def compare_post_state(intended, actual, loose_guids=()):
+def compare_post_state(intended, actual, loose_guids=(), primary=None, others=None):
     """→ [] when they agree, else human-readable mismatches. New segments/analyses (from a split, a
     bare wordform) have GUIDs the engine could not know: `loose_guids` names the paragraphs where
-    analysis GUIDs are compared only for words the engine marked as kept."""
+    analysis GUIDs are compared only for words the engine marked as kept.
+
+    With `primary` (the text's analysis writing system) the engine's free translation speaks for that
+    writing system only — it never shows or edits another — and `others` = {segGuid: {"ft": {ws: text},
+    "lt": {ws: text}}} gives what every OTHER translation must be on the phrases that had one before
+    and that no join reshaped (their values before the save, as this save's ft.set/lt.set leave them).
+    A phrase a split made, or a join's survivor, holds what LCM gives it there (plan §6.3)."""
     problems = []
     for pg, segs in intended.items():
         got = actual.get(pg)
@@ -183,10 +245,23 @@ def compare_post_state(intended, actual, loose_guids=()):
                 problems.append("paragraph %s phrase %d: segment guid %s ≠ %s" % (pg, i, want["segGuid"], have["segGuid"]))
             if [w["txt"] for w in want["words"]] != [w["txt"] for w in have["words"]]:
                 problems.append("paragraph %s phrase %d: words differ" % (pg, i))
-            if want["ft"] != have["ft"]:
-                problems.append("paragraph %s phrase %d: free translation differs" % (pg, i))
-            if want["lt"] != have["lt"]:
-                problems.append("paragraph %s phrase %d: literal translation differs" % (pg, i))
+            if primary is None:
+                if want["ft"] != have["ft"]:
+                    problems.append("paragraph %s phrase %d: free translation differs" % (pg, i))
+                if want["lt"] != have["lt"]:
+                    problems.append("paragraph %s phrase %d: literal translation differs" % (pg, i))
+            else:
+                if (want["ft"].get(primary) or "") != (have["ft"].get(primary) or ""):
+                    problems.append("paragraph %s phrase %d: free translation differs" % (pg, i))
+                exp = (others or {}).get(have["segGuid"])
+                if exp is not None:
+                    for field, label in (("ft", "free"), ("lt", "literal")):
+                        wss = set(exp[field]) | set(have[field])
+                        if field == "ft":
+                            wss.discard(primary)
+                        for w in sorted(wss):
+                            if (exp[field].get(w) or "") != (have[field].get(w) or ""):
+                                problems.append("paragraph %s phrase %d: %s translation in %s changed" % (pg, i, label, w))
             if (want["begin"], want["end"]) != (have["begin"], have["end"]):
                 problems.append("paragraph %s phrase %d: times %r ≠ %r" % (pg, i, (want["begin"], want["end"]), (have["begin"], have["end"])))
             for k, (ww, hw) in enumerate(zip(want["words"], have["words"])):

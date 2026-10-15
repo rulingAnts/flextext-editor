@@ -43,8 +43,8 @@ def test_length_changing_edit_is_located_exactly(tmp_path):
     write(b, objs)
     d = dc.diff_rt(a, b)
     assert set(d["changed"]) == {seg.guid, objs[0].guid}
-    assert d["changed"][seg.guid][1]["fields"]["FreeTranslation"] == "a much longer free translation than before, shifting every later byte"
-    allowed = {"classes": {"Segment"}, "touchedOwners": {objs[1].guid}, "expect": {seg.guid: {"FreeTranslation": "a much longer free translation than before, shifting every later byte"}}}
+    assert d["changed"][seg.guid][1]["fields"]["FreeTranslation"] == {"en": "a much longer free translation than before, shifting every later byte"}
+    allowed = {"classes": {"Segment"}, "touchedOwners": {objs[1].guid}, "expect": {seg.guid: {"FreeTranslation": {"en": "a much longer free translation than before, shifting every later byte"}}}}
     assert dc.check(d, allowed, dc.load_rt(b)) == []
 
 
@@ -164,7 +164,7 @@ def test_real_mock_save_pair_round_trips_through_the_validator(tmp_path):
     b.save()
     fw = b.fwdata_path()
     d = dc.diff_rt(fw[:-7] + ".bak", fw)
-    allowed = {"classes": {"Segment"}, "touchedOwners": {tg}, "expect": {seg["guid"]: {"FreeTranslation": "written by the test, long enough to change the file length"}}}
+    allowed = {"classes": {"Segment"}, "touchedOwners": {tg}, "expect": {seg["guid"]: {"FreeTranslation": {"en": "written by the test, long enough to change the file length"}}}}
     assert dc.check(d, allowed, dc.load_rt(fw)) == []
 
 
@@ -177,3 +177,20 @@ def test_a_new_section_form_nothing_references_is_explained_only_when_the_previe
     assert dc.check(added("§"), dict(allowed, newPunctForms={"§"})) == []
     assert [p["why"] for p in dc.check(added("§"), allowed)] == ["new object outside every touched text"]
     assert [p["why"] for p in dc.check(added(","), dict(allowed, newPunctForms={"§"}))] == ["new object outside every touched text"]
+
+
+def test_a_multilingual_field_is_expected_per_writing_system(tmp_path):
+    """A phrase translated in two analysis writing systems: an ft.set in one names that one only. The
+    old joined form ("English|Indonesian") failed the check and POISONED a save that had succeeded."""
+    a, b = str(tmp_path / "p.bak"), str(tmp_path / "p.fwdata")
+    objs = base_objects()
+    seg = objs[4]
+    seg["FreeTranslation"] = {"en": "kept", "id": "lama"}
+    write(a, objs)
+    seg["FreeTranslation"] = {"en": "kept", "id": "baru"}
+    write(b, objs)
+    d = dc.diff_rt(a, b)
+    allowed = {"classes": {"Segment"}, "touchedOwners": {objs[1].guid}}
+    rt = dc.load_rt(b)
+    assert dc.check(d, dict(allowed, expect={seg.guid: {"FreeTranslation": {"id": "baru"}}}), rt) == []
+    assert [p["why"][:24] for p in dc.check(d, dict(allowed, expect={seg.guid: {"FreeTranslation": {"id": "other"}}}), rt)] == ["field FreeTranslation is"]

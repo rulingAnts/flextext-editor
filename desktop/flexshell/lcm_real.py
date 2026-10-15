@@ -420,8 +420,12 @@ class RealLcm(FlexPort):
                         extra.extend([str(c) for c in ch.Characters if str(c) and not str(c).isspace()])
             except Exception:   # noqa: BLE001 — CharacterSets is SIL.WritingSystems territory; optional
                 pass
-            return {"id": str(ws.Id), "abbr": str(ws.Abbreviation or ""), "isDefault": default,
-                    "rtl": bool(ws.RightToLeftScript), "graphite": bool(getattr(ws, "IsGraphiteEnabled", False)),
+            try:   # WritingSystemDefinition.DisplayLabel — what FLEx's own lists show [source]
+                name = str(ws.DisplayLabel or "")
+            except Exception:   # noqa: BLE001 — a label is comfort, the id is the identity
+                name = ""
+            return {"id": str(ws.Id), "abbr": str(ws.Abbreviation or ""), "name": name or str(ws.Abbreviation or "") or str(ws.Id),
+                    "isDefault": default, "rtl": bool(ws.RightToLeftScript), "graphite": bool(getattr(ws, "IsGraphiteEnabled", False)),
                     "wordForming": extra}
         dv, da = wsc.DefaultVernacularWritingSystem, wsc.DefaultAnalysisWritingSystem
         vern = [one(w, w.Handle == dv.Handle) for w in wsc.CurrentVernacularWritingSystems]
@@ -441,32 +445,37 @@ class RealLcm(FlexPort):
             return []
         return [(u, str(u.MediaURI or "")) for u in cont.MediaURIsOC]
 
-    def _analysis_ref(self, obj):
+    def _analysis_ref(self, obj, ws_handle=None):
+        """`form` is the occurrence as its paragraph holds it (the paragraph's writing system; the
+        default vernacular when the wordform has nothing there); `forms` every vernacular alternative
+        the wordform has (IMultiUnicode), for a text shown in another vernacular writing system."""
         from SIL.LCModel import IWfiWordform, IWfiAnalysis   # type: ignore[import-not-found]
         obj = _cast(obj)
-        vern = self.cache.DefaultVernWs
+        vern = int(ws_handle) if ws_handle else int(self.cache.DefaultVernWs)
         g = str(obj.Guid)
         cn = str(obj.ClassName)
         if cn == "PunctuationForm":
             return {"guid": g, "kind": "punct", "form": self._tss_text(obj.Form)}
+
+        def wf_fields(wf):
+            form = self._tss_text(wf.Form.get_String(vern)) or self._tss_text(wf.Form.get_String(self.cache.DefaultVernWs))
+            return {"form": form, "forms": self._multi(wf.Form), "wordformGuid": str(wf.Guid)}
         if cn == "WfiWordform":
-            return {"guid": g, "kind": "wordform", "form": self._tss_text(obj.Form.get_String(vern)), "wordformGuid": g}
+            return {"guid": g, "kind": "wordform", **wf_fields(obj)}
         if cn == "WfiAnalysis":
-            wf = IWfiWordform(obj.Owner)
-            return {"guid": g, "kind": "analysis", "form": self._tss_text(wf.Form.get_String(vern)), "wordformGuid": str(wf.Guid), "analysisGuid": g}
+            return {"guid": g, "kind": "analysis", **wf_fields(IWfiWordform(obj.Owner)), "analysisGuid": g}
         if cn == "WfiGloss":
             an = IWfiAnalysis(obj.Owner)
-            wf = IWfiWordform(an.Owner)
-            return {"guid": g, "kind": "gloss", "form": self._tss_text(wf.Form.get_String(vern)), "wordformGuid": str(wf.Guid),
-                    "analysisGuid": str(an.Guid), "gloss": self._multi(obj.Form)}
+            return {"guid": g, "kind": "gloss", **wf_fields(IWfiWordform(an.Owner)), "analysisGuid": str(an.Guid),
+                    "gloss": self._multi(obj.Form)}
         return {"guid": g, "kind": cn, "form": ""}
 
-    def _seg_read(self, para, seg):
+    def _seg_read(self, para, seg, ws_handle=None):
         seg = _cast(seg)
         return {"guid": str(seg.Guid), "begin": int(seg.BeginOffset), "end": int(seg.EndOffset),
                 "ft": self._multi(seg.FreeTranslation), "lt": self._multi(seg.LiteralTranslation),
                 "notes": [self._best(_cast(n).Content) for n in seg.NotesOS],
-                "analyses": [self._analysis_ref(a) for a in seg.AnalysesRS],
+                "analyses": [self._analysis_ref(a, ws_handle) for a in seg.AnalysesRS],
                 "beginTime": str(seg.BeginTimeOffset) if seg.BeginTimeOffset else None,   # Unicode in the model
                 "endTime": str(seg.EndTimeOffset) if seg.EndTimeOffset else None,
                 "mediaUri": str(seg.MediaURIRA.Guid) if seg.MediaURIRA is not None else None,
@@ -495,8 +504,9 @@ class RealLcm(FlexPort):
         paras = []
         for p in self._paras(t):
             contents = p.Contents
-            paras.append({"guid": str(p.Guid), "contents": self._tss_text(contents), "ws": self._ws_id(self._run0_ws(contents)),
-                          "segments": [self._seg_read(p, s) for s in p.SegmentsOS], "style": str(p.StyleName or "") or None})
+            wsh = self._run0_ws(contents)
+            paras.append({"guid": str(p.Guid), "contents": self._tss_text(contents), "ws": self._ws_id(wsh),
+                          "segments": [self._seg_read(p, s, wsh) for s in p.SegmentsOS], "style": str(p.StyleName or "") or None})
         media = [{"guid": str(u.Guid), "uri": path} for u, path in self._media_uris(t)]
         cont = getattr(t, "MediaFilesOA", None)
         return {"guid": str(guid), "title": self._best(t.Name), "paragraphs": paras, "media": media,
@@ -530,11 +540,11 @@ class RealLcm(FlexPort):
         from SIL.LCModel import IPunctuationFormRepository   # type: ignore[import-not-found]
         return any(nfd(self._tss_text(p.Form)) == nfd(form) for p in self._repo(IPunctuationFormRepository).AllInstances())
 
-    def has_wordform(self, form):
+    def has_wordform(self, form, ws=None):
         self._t()
         from SIL.LCModel import IWfiWordformRepository   # type: ignore[import-not-found]
         repo = self._repo(IWfiWordformRepository)
-        tss = self._tss(form, self.cache.DefaultVernWs)
+        tss = self._tss(form, self._ws_handle(ws) if ws else self.cache.DefaultVernWs)
         # bool TryGetObject(ITsString, out IWfiWordform) [source]: the out parameter omitted → (ok, wf)
         r = repo.TryGetObject(tss)
         return bool(r[0] if isinstance(r, tuple) else r)

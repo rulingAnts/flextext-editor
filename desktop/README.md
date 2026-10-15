@@ -110,7 +110,9 @@ LINGTEX_TOOLS=/path/to/LingTeX-Tools node test/printview-lingtex.test.mjs   # SK
 `desktop/tests/test_e2e_media.py` drives the shell end to end in headless Chromium — the real bridge
 object over the mock backend, the real local server, the staged engine: finding a recording (read-only),
 the Matcher's ✨ → Done → Save to FLEx, Fix link, Undo/Redo of both, a split with a Sentence break and a
-join across paragraphs saved to FLEx, Copy line. It needs Node with Playwright and a Chromium
+join across paragraphs saved to FLEx, Copy line, the per-text writing-systems selector (FLEx's lists, a
+save that keeps the other analysis writing system, a word edit refused in another vernacular view), and
+words joined with Backspace / split with Space saved to FLEx. It needs Node with Playwright and a Chromium
 (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them. It is the first thing to run
 after touching `flex-panel.js`, `flex-ops.js`, `api.py`, `protocol.py` or the server's CSP: it found the
 CSP that loaded every recording and played none before any VM did, and with the protocol tests it found
@@ -216,7 +218,15 @@ In this order. The scripts refuse a folder without the copy marker.
    makes a new paragraph), Done, Save; ⤴ two lines FLEx parted with a `§`, Done, Save; look at both in
    FLEx's Baseline and Interlinear tabs. A join across a full stop should be refused before the
    preview. This is the first run of the four fixes in plan §5.4 on real LCM.
-7. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
+7. **Writing systems and words (plan §7.4, §6.5)** — on a copy whose texts are glossed or translated in
+   more than one analysis writing system: open Writing systems… on a text row and check the lists are
+   FLEx's (names, how much of the text is in each, the text's own marked); choose the other analysis
+   one, open the text, edit a gloss and a translation, Save, and check in FLEx that only that writing
+   system changed. Then in the Matcher: Backspace at the start of a word (joins it to the one before),
+   Space inside a word (splits it), Done, Save — check the Baseline and Interlinear tabs (V-1; the join
+   recipe is mock-only until this run). If the project has two vernacular writing systems, choose the
+   other one and confirm the words show its forms and a word edit is refused.
+8. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
 
 ## Decisions still Seth's (plan §14, plus new ones from the build)
 

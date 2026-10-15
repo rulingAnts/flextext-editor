@@ -1730,6 +1730,25 @@ export function splitWordAt(seg, k, offset) {
   seg.baseline = baselineFromWords(words);
   return { ok: true, words: [a, b], removedGloss: w.gls || '' };
 }
+/*   joinWordsAt(seg, k) — word k and the word after it become ONE word (the Matcher's Backspace at a
+ *     word's start, Delete at its end). FLEx's equivalent is deleting the space between them: the
+ *     joined word is one new, unanalysed wordform and every other analysis is kept. So the joined word
+ *     is unglossed — both glosses described words that no longer exist — and they are returned so a UI
+ *     can say so; Undo restores both. Only two words parted by nothing but a space: punctuation
+ *     between them is not a space to delete. Pure, node-tested; the caller captures undo. */
+export function joinWordsAt(seg, k) {
+  const words = (seg && seg.words) || [];
+  const a = words[k], b = words[k + 1];
+  if (!a || a.punct || a.phrase) return { ok: false, reason: 'notAWord' };
+  if (!b) return { ok: false, reason: 'noNext' };
+  if (b.punct) return { ok: false, reason: 'punctBetween' };
+  if (b.phrase) return { ok: false, reason: 'notAWord' };
+  const w = makeWord(String(a.txt || '') + String(b.txt || ''));
+  w.txtLang = a.txtLang || b.txtLang;
+  words.splice(k, 2, w);
+  seg.baseline = baselineFromWords(words);
+  return { ok: true, word: w, removedGlosses: [a.gls, b.gls].filter(Boolean) };
+}
 export function insertWordAt(seg, at, txt = '') {
   const words = (seg && seg.words) || [];
   const i = Math.max(0, Math.min(words.length, Number(at) | 0));

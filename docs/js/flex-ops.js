@@ -6,8 +6,8 @@
  * analysisGuid`) — and produces the typed ops the shell applies:
  *
  *   phrase.split, phrase.join, phrase.moveBoundary, para.split, para.join, phrase.toPara, para.toPhrase,
- *   word.split, word.insert, baseline.replace, gloss.set, ft.set, lt.set, times.set, media.attach,
- *   media.relink
+ *   word.split, word.join, word.insert, baseline.replace, gloss.set, ft.set, lt.set, times.set,
+ *   media.attach, media.relink
  *
  * Python never trusts the op list alone: preview_save also receives the full intended post-state of
  * every touched paragraph (postStateOf), and the protocol's last in-UOW check re-reads the text and
@@ -51,8 +51,15 @@ function groups(doc) {
 }
 
 /* Minimal single-word edit detection: `old` words → `now` words of the same phrase.
- * → { kind: 'split', index, offset } | { kind: 'insert', at, text } | null */
+ * → { kind: 'split', index, offset } | { kind: 'insert', at, text } | { kind: 'join', index } | null */
 function wordLevelEdit(oldForms, newForms) {
+  if (newForms.length === oldForms.length - 1) {
+    // join: two neighbours became their concatenation, everything else equal in order
+    for (let i = 0; i < newForms.length; i++) {
+      if (newForms[i] === oldForms[i] + oldForms[i + 1] && newForms.slice(0, i).every((f, k) => f === oldForms[k])
+          && newForms.slice(i + 1).every((f, k) => f === oldForms[i + 2 + k])) return { kind: 'join', index: i };
+    }
+  }
   if (newForms.length === oldForms.length + 1) {
     // insert: one new word, everything else equal in order
     for (let at = 0; at <= oldForms.length; at++) {
@@ -265,6 +272,7 @@ export function diffFlexDoc(base, cur, opts = {}) {
     if (!structural.has(sg) && oldForms.join('\u0001') !== newForms.join('\u0001')) {
       const we = wordLevelEdit(oldForms, newForms);
       if (we && we.kind === 'split') ops.push({ op: 'word.split', paraGuid: pg, segGuid: sg, index: analysisIndex(b.seg, we.index), offset: we.offset });
+      else if (we && we.kind === 'join') ops.push({ op: 'word.join', paraGuid: pg, segGuid: sg, index: analysisIndex(b.seg, we.index) });
       else if (we && we.kind === 'insert') ops.push({ op: 'word.insert', paraGuid: pg, segGuid: sg, at: we.at < oldForms.length ? analysisIndex(b.seg, we.at) : (b.seg.words || []).length, text: we.text });
       else ops.push({ op: 'baseline.replace', paraGuid: pg, text: baselineOfGroup(cur, pg, b.group, base) });
       touched.add(pg);
@@ -368,7 +376,7 @@ export function flexBlockers(cur, touched) {
 
 /* Human-readable kinds for the preview list (the UI translates each code). */
 export const OP_KINDS = ['phrase.split', 'phrase.join', 'phrase.moveBoundary', 'para.split', 'para.join', 'phrase.toPara', 'para.toPhrase',
-  'word.split', 'word.insert', 'baseline.replace', 'gloss.set', 'ft.set', 'lt.set', 'times.set', 'media.attach', 'media.relink'];
+  'word.split', 'word.join', 'word.insert', 'baseline.replace', 'gloss.set', 'ft.set', 'lt.set', 'times.set', 'media.attach', 'media.relink'];
 
 /* ---- local records of FLEx texts (plans/flex-desktop-segmenter.md §4.4, §8.4) -------------------- */
 

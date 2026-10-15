@@ -28,6 +28,8 @@ import stage_engine                                            # noqa: E402
 OLD_LINK = "C:\\Old Machine\\Recordings\\Session-01.wav"
 PARAS = ["aaa bbb ccc.", "ddd eee fff.", "ggg hhh."]
 STRUCT = ["aaa bbb ccc", "ddd eee fff", "ggg hhh"]
+WS_PARAS = ["aaa bbb ccc", "ddd eee fff"]
+WS_NAMES = {"xx": "Example", "xx-x-ipa": "Example IPA", "en": "English", "id": "Indonesian"}
 
 
 def free_port():
@@ -99,6 +101,25 @@ def start(tmp):
         for seg in para["segments"]:
             b.set_free_translation(seg["guid"], "en", "the free translation of line %d" % (i + 1))
     b.commit(h)
+    b.save()
+    b.close_project()
+    # per-text writing systems: two vernacular (an IPA alternative for one word) and two analysis writing
+    # systems, translated and glossed in both — Indonesian more, so the text opens in it
+    MockLcm.create_project(str(projects), "ws-write", texts=[{"title": "Two languages", "paragraphs": WS_PARAS, "media": [in_lf]}],
+                           vern_wss=("xx", "xx-x-ipa"), anal_wss=("en", "id"), ws_names=WS_NAMES)
+    (projects / "ws-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("ws-write", write=True)
+    t = b.read_text(b.list_texts()[0]["guid"])
+    s0, s1 = t["paragraphs"][0]["segments"][0], t["paragraphs"][1]["segments"][0]
+    h = b.begin_uow("fixture", "fixture")
+    b.set_free_translation(s0["guid"], "en", "first in English")
+    b.set_free_translation(s0["guid"], "id", "pertama")
+    b.set_free_translation(s1["guid"], "id", "kedua")
+    an = b.create_trivial_analysis(s0["analyses"][0]["wordformGuid"])
+    b.set_analysis(s0["guid"], 0, b.create_gloss(an, {"en": "A-en", "id": "A-id"}))
+    b.commit(h)
+    b.add_form_alternative("eee", "xx-x-ipa", "\u025b\u025b\u025b")
     b.save()
     b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))

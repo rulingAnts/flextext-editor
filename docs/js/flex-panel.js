@@ -31,6 +31,7 @@ import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
 let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, getCurrent, openRecord, selectedSegGuid, hideFromList, fetchMedia }
+// project.ws = FLEx's writing systems, { vern: [{ id, name, abbr, isDefault }], anal: [...] } (open_project)
 let project = null;   // { name, writable, ws, printViewConfig, texts: [...] } while a project is open in the shell
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -165,7 +166,7 @@ async function renderTexts() {
     const media = have.has(id) ? T('flex.media.inApp')
       : !tx.media.length ? T('flex.media.noLinkTag')
       : tx.media.some((m) => m.exists) ? '' : T('flex.mediaMissing');
-    const bits = [T('flex.textMeta', { p: tx.paras, s: tx.segs, t: tx.timedSegs }), media,
+    const bits = [T('flex.textMeta', { p: tx.paras, s: tx.segs, t: tx.timedSegs }), wsOf(rec) ? wsPair(wsOf(rec)) : '', media,
       rec && rec.matchDraft ? T('sg.inProgress') : '', todo.save || todo.relink ? T('flex.textUnsaved') : ''].filter(Boolean);
     const li = document.createElement('li');
     li.className = 'rec-item';
@@ -176,6 +177,7 @@ async function renderTexts() {
       <div class="rec-item-actions">
         ${proj.writable && todo.save ? `<button class="primary-btn flex-save-text">${esc(T('flex.save'))}</button>` : ''}
         ${proj.writable && todo.relink ? `<button class="link-btn flex-fix-link">${esc(T('flex.relink'))}</button>` : ''}
+        <button class="link-btn flex-ws-text">${esc(T('flex.ws.button'))}</button>
         ${rec ? `<button class="link-btn flex-export-text">${esc(T('flex.export'))}</button>` : ''}
         <button class="secondary-btn flex-open-text">${esc(T('flex.openText'))}</button>
       </div>`;
@@ -187,6 +189,7 @@ async function renderTexts() {
     if (fx) fx.addEventListener('click', () => fixLink(tx));
     const ex = li.querySelector('.flex-export-text');
     if (ex) ex.addEventListener('click', () => exportBundle(tx));
+    li.querySelector('.flex-ws-text').addEventListener('click', () => chooseWs(tx));
     ul.appendChild(li);
   }
 }
@@ -216,10 +219,10 @@ async function openText(tx) {
   try { await openTextNow(tx); } finally { opening = false; }
 }
 async function openTextNow(tx) {
-  let opened;
-  try { opened = await flex.openText(tx.guid); } catch (e) { fail(e); return; }
   const id = flexDocId(project.name, tx.guid);
   const existing = await H.db.getDoc(id).catch(() => null);
+  let opened;
+  try { opened = await flex.openText(tx.guid, wsOf(existing)); } catch (e) { fail(e); return; }
   const how = reopenDecision(existing, opened.baseRev);
   let rec;
   if (how === 'ask') {
@@ -251,7 +254,8 @@ function fromFlex(existing, id, tx, opened) {
   rec.title = doc.title;
   rec.doc = doc;
   rec.modified = now;
-  rec.flex = { ...((existing && existing.flex) || {}), textGuid: tx.guid, baseRev: opened.baseRev, base: clone(doc), project: project.name, loadedAt: now };
+  rec.flex = { ...((existing && existing.flex) || {}), textGuid: tx.guid, baseRev: opened.baseRev, base: clone(doc), project: project.name, loadedAt: now,
+    ws: opened.ws || (doc.flex && doc.flex.ws) || null };
   Object.assign(rec, H.docStats(doc));
   return rec;
 }
@@ -352,6 +356,82 @@ function mediaCard(id, tx, fl, linkCount) {
   });
 }
 
+/* ---- Writing systems, per text (plan §7.4) ---------------------------------------------------------
+ * FLEx's own lists (open_project's `ws`), never the device's language settings: in the shell a FLEx
+ * text is shown in a vernacular writing system of the project (the words) and ONE analysis writing
+ * system (glosses and the free translation the Matcher edits; the others ride along read-only, in its
+ * language picker). The choice lives on the text's record (`rec.flex.ws`); a text opens in its own —
+ * the vernacular its paragraphs are in, the analysis one it uses most — until someone chooses.
+ * Changing it re-reads the text from FLEx in the new writing systems, so it waits until the work done
+ * here is in FLEx: work shown in one analysis writing system is never quietly re-shown in another. */
+const wsOf = (rec) => (rec && rec.flex && rec.flex.ws) || null;
+const wsList = (kind) => (project && project.ws && project.ws[kind]) || [];
+function wsName(id, kind) {
+  const w = wsList(kind).find((x) => x.id === id);
+  return (w && w.name) || id || '';
+}
+const wsPair = (ws) => T('flex.ws.pair', { v: wsName(ws.vern, 'vern'), a: wsName(ws.anal, 'anal') });
+async function chooseWs(tx) {
+  if (busy || !project) return;
+  let info;
+  try { info = await flex.textWs(tx.guid); } catch (e) { fail(e); return; }
+  const id = flexDocId(project.name, tx.guid);
+  const rec = await H.db.getDoc(id).catch(() => null);
+  const cur = wsOf(rec) || info.default;
+  const pick = await wsDialog(tx, info, cur);
+  if (!pick || (pick.vern === cur.vern && pick.anal === cur.anal)) return;
+  if (rec && rec.flex && (notInFlex(rec).save || rec.matchDraft)) { H.toast(T('flex.ws.busy'), 10000); return; }
+  busy = true;
+  try {
+    const opened = await flex.openText(tx.guid, pick);
+    const next = fromFlex(rec, id, tx, opened);
+    next.flex.writable = project.writable;
+    next.flex.linkOk = ((opened.doc.flex && opened.doc.flex.media) || []).some((m) => m.url);
+    await H.db.putDoc(next);              // a raw write: a new view of FLEx's text is not an edit
+    await renderTexts();
+    H.toast(T('flex.ws.changed', { p: wsPair(opened.ws) }), 6000);
+  } catch (e) { fail(e); } finally { busy = false; }
+}
+/* → { vern, anal } or null. Each option says how much of this text is in it, and which is its own. */
+function wsDialog(tx, info, cur) {
+  return new Promise((resolve) => {
+    const u = info.usage || { vern: {}, anal: {} }, own = info.default || {};
+    const verns = wsList('vern').slice();
+    for (const w of Object.keys(u.vern || {})) if (!verns.some((x) => x.id === w)) verns.push({ id: w, name: w });   // a paragraph in one FLEx no longer lists
+    const label = (w, kind) => {
+      const bits = [];
+      const count = (n, one, many) => T(n === 1 ? one : many, { n });
+      if (kind === 'vern' && (u.vern || {})[w.id]) bits.push(count(u.vern[w.id], 'flex.ws.para1', 'flex.ws.paras'));
+      const c = kind === 'anal' && (u.anal || {})[w.id];
+      if (c && c.ft) bits.push(count(c.ft, 'flex.ws.ft1', 'flex.ws.ftN'));
+      if (c && c.gloss) bits.push(count(c.gloss, 'flex.ws.gl1', 'flex.ws.glN'));
+      if (own[kind] === w.id) bits.push(T('flex.ws.own'));
+      return (w.name && w.name !== w.id ? w.name + ' (' + w.id + ')' : w.id) + (bits.length ? ' — ' + bits.join(', ') : '');
+    };
+    const opts = (list, kind) => list.map((w) => `<option value="${esc(w.id)}"${w.id === cur[kind] ? ' selected' : ''}>${esc(label(w, kind))}</option>`).join('');
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.flexWs = '1';
+    wrap.innerHTML = `<div class="modal-card flex-ws-card" role="dialog" aria-modal="true">
+      <h3>${esc(T('flex.ws.title'))}</h3>
+      <p class="flex-ws-text-title"></p>
+      <label class="flex-ws-row">${esc(T('flex.ws.vern'))}<select data-ws="vern">${opts(verns, 'vern')}</select></label>
+      <label class="flex-ws-row">${esc(T('flex.ws.anal'))}<select data-ws="anal">${opts(wsList('anal'), 'anal')}</select></label>
+      <p class="flex-media-note">${esc(T('flex.ws.note'))}</p>
+      <button class="primary-btn" data-ok>${esc(T('flex.ws.apply'))}</button>
+      <button class="link-btn" data-cancel>${esc(T('share.cancel'))}</button>
+    </div>`;
+    wrap.querySelector('.flex-ws-text-title').textContent = tx.title;   // titles reach the UI only
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    wrap.querySelector('[data-ok]').addEventListener('click', () => done({
+      vern: wrap.querySelector('[data-ws="vern"]').value, anal: wrap.querySelector('[data-ws="anal"]').value }));
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(null));
+  });
+}
+
 /* ---- the Matcher strip -------------------------------------------------------------------------- */
 function renderMatcherStrip() {
   const view = $('#view-matcher');
@@ -365,6 +445,7 @@ function renderMatcherStrip() {
   row.className = 'flex-mg-strip';
   row.innerHTML = `
     <span class="flex-badge">${esc(T('flex.badge'))}${cur.flex.writable ? '' : ' · ' + esc(T('flex.readOnlyTag'))}</span>
+    ${wsOf(cur) ? `<span class="flex-ws-pair" title="${esc(T('flex.ws.title'))}">${esc(wsPair(wsOf(cur)))}</span>` : ''}
     <button id="flex-copy" class="link-btn">${esc(T('flex.copyLine'))}</button>`;
   bar.insertAdjacentElement('afterend', row);
   $('#flex-copy', row).addEventListener('click', copyLine);
@@ -385,7 +466,7 @@ async function saveTextNow(tx) {
   const rec = await H.db.getDoc(id).catch(() => null);
   if (!rec || !rec.flex) return;
   let opened;
-  try { opened = await flex.openText(tx.guid); } catch (e) { fail(e); return; }
+  try { opened = await flex.openText(tx.guid, wsOf(rec)); } catch (e) { fail(e); return; }
   if (opened.baseRev !== rec.flex.baseRev) { fail({ code: 'E_STALE_BASE' }); return; }
   const base = rec.flex.base;
   // a recording this app found for a link that points nowhere rides along, shown in the preview (§8.4)
@@ -426,7 +507,7 @@ async function saveTextNow(tx) {
  * attach adds one) — the doc and its base keep what they hold otherwise. */
 async function refreshMediaList(rec, textGuid) {
   try {
-    const re = await flex.openText(textGuid);
+    const re = await flex.openText(textGuid, wsOf(rec));
     const f = (re.doc && re.doc.flex) || {};
     for (const d of [rec.doc, rec.flex.base]) {
       if (d) d.flex = { ...(d.flex || {}), media: clone(f.media || []), mediaContainer: f.mediaContainer || null };
@@ -458,7 +539,7 @@ async function fixLinkNow(tx) {
   try {
     // A relink changes the path inside FLEx's media object, which no phrase fingerprint covers: the
     // base revision stays what it was, and work done here stays exactly as unsaved as it was.
-    await flex.openText(tx.guid);   // the shell's session must know the text for the preview
+    await flex.openText(tx.guid, wsOf(rec));   // the shell's session must know the text for the preview
     const preview = await flex.relinkPreview(tx.guid, fix.uriGuid, fix.path);
     if (!await showPreview(preview, [], [])) return;
     const prog = progressModal(T('flex.saving'));
@@ -499,7 +580,7 @@ async function undoRedo(which) {
     (which === 'undo' ? flexHist.undone : flexHist.done).push(item);
     const rec = await H.db.getDoc(item.id).catch(() => null);
     if (rec && rec.flex) {
-      const re = await flex.openText(item.textGuid);
+      const re = await flex.openText(item.textGuid, wsOf(rec));
       rec.flex.base = clone(re.doc);
       rec.flex.baseRev = re.baseRev;
       const f = re.doc.flex || {};
@@ -558,6 +639,7 @@ function describe(s) {
     case 'times.set': return T('flex.sum.times', { b: s.begin, e: s.end });
     case 'gloss.set': return T('flex.sum.gloss.' + s.outcome, { n: s.otherUses || 0 }) + (s.approves ? ' ' + T('flex.sum.approves') : '');
     case 'word.split': return T('flex.sum.wordSplit', { w: s.word, a: s.into[0], b: s.into[1] });
+    case 'word.join': return T('flex.sum.wordJoin', { a: s.words[0], b: s.words[1], w: s.into });
     case 'word.insert': return T('flex.sum.wordInsert', { w: s.word });
     case 'baseline.replace': return T('flex.sum.baseline', { b: s.before, a: s.after });
     case 'media.attach': return T('flex.sum.attach', { f: s.file });
@@ -627,7 +709,7 @@ async function importFlextext() {
 /* ---- errors: stable codes → translated messages; a poisoned session says exactly what happened ---- */
 function fail(e, afterWrite = false) {
   const code = (e && e.code) || 'E_INTERNAL';
-  let msg = T('flex.err.' + code);
+  let msg = T('flex.err.' + code, (e && e.detail) || undefined);
   if (msg === 'flex.err.' + code) msg = T('flex.err.E_INTERNAL');
   if (code === 'E_POISONED' && e.detail) {
     msg = T('flex.poisoned', { f: e.detail.failedFile || '', b: e.detail.backup || '' });

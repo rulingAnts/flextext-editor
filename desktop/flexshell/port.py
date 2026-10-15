@@ -18,7 +18,12 @@ read_text(guid)     → {guid, title, paragraphs: [ParaRead], media: [{guid, uri
                        analyses: [AnalysisRef], beginTime, endTime, mediaUri (guid|None),
                        speaker (guid|None), isLabel}
   AnalysisRef       = {guid, kind: 'wordform'|'analysis'|'gloss'|'punct', form, wordformGuid,
-                       analysisGuid (for analysis/gloss), gloss: {ws: text} (for gloss)}
+                       analysisGuid (for analysis/gloss), gloss: {ws: text} (for gloss),
+                       forms: {ws: text} (every vernacular alternative; not for punct)}
+                      `form` is the occurrence as its paragraph holds it: the wordform in the
+                      paragraph's writing system, else in the default vernacular
+writing_systems()   → {vern: [WsInfo], anal: [WsInfo]} — the CURRENT lists, in FLEx's order
+  WsInfo            = {id, abbr, name, isDefault, rtl, graphite, wordForming (vern only)}
 get_segments(text, ws) → [(ichMin, ichLim)] — the segment breaker's answer for a contents string
 get_diffs(old, new)    → (ich, cchInsert, cchDelete) — the diff LCM will compute for an assignment
 
@@ -125,7 +130,7 @@ class FlexPort(ABC):
     @abstractmethod
     def has_punct_form(self, form): ...
     @abstractmethod
-    def has_wordform(self, form): ...
+    def has_wordform(self, form, ws=None): ...
 
     # ---- UOW ----
     @abstractmethod

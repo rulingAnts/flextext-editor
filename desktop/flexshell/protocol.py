@@ -48,6 +48,7 @@ OP_CLASSES = {
     "para.split": {"StTxtPara", "StText", "Segment"}, "para.join": {"StTxtPara", "StText", "Segment", "PunctuationForm"},
     "phrase.toPara": {"StTxtPara", "StText", "Segment"}, "para.toPhrase": {"StTxtPara", "StText", "Segment", "PunctuationForm"},
     "word.split": {"StTxtPara", "Segment", "WfiWordform"}, "word.insert": {"StTxtPara", "Segment", "WfiWordform"},
+    "word.join": {"StTxtPara", "Segment", "WfiWordform"},
     "baseline.replace": {"StTxtPara", "Segment", "WfiWordform", "PunctuationForm"},
     # WfiWordform is CHANGED (never added) by a gloss write: a new trivial analysis is owned by the
     # wordform and FLEx sets wf.Checksum = 0 (plan §7.2 step 4), so the wordform's rt differs on disk
@@ -57,7 +58,9 @@ OP_CLASSES = {
                "PunctuationForm", "CmMediaContainer", "CmMediaURI"},
 }
 STRUCTURAL = ("para.toPhrase", "para.join", "phrase.toPara", "para.split", "phrase.join", "phrase.split",
-              "phrase.moveBoundary", "word.split", "word.insert", "baseline.replace")
+              "phrase.moveBoundary", "word.split", "word.join", "word.insert", "baseline.replace")
+# ops that write a paragraph's words: only from a view of the words in the paragraph's own writing system
+WORD_EDITS = ("word.split", "word.join", "word.insert", "baseline.replace")
 
 
 def op_order(op):
@@ -136,13 +139,35 @@ class Session:
             raise FlexError("E_NOT_FOUND", "no project is open", {})
 
     # ---- reads --------------------------------------------------------------------------------
-    def open_text(self, text_guid, media_urls=None):
+    def open_text(self, text_guid, media_urls=None, ws=None):
+        """The text in the engine's shape, in the writing systems chosen for it (`ws` = {vern, anal},
+        from FLEx's own lists; the text's own when None — model.default_ws). The choice is remembered
+        for this text: every later preview and check reads the text the same way."""
         self.guard()
         t = self.port.read_text(text_guid)
+        chosen = self._checked_ws(t, ws) if ws else model.default_ws(t)
         fp = model.fingerprint_text(t)
         rev = model.base_rev(t)
-        self.texts[text_guid] = {"fp": fp, "baseRev": rev, "read": t}
-        return {"doc": model.to_engine_doc(t, media_urls), "baseRev": rev}
+        self.texts[text_guid] = {"fp": fp, "baseRev": rev, "read": t, "ws": chosen}
+        return {"doc": model.to_engine_doc(t, media_urls, chosen), "baseRev": rev, "ws": chosen,
+                "wsDefault": model.default_ws(t), "wsUsage": model.text_ws_usage(t)}
+
+    def text_ws(self, text_guid):
+        """What a text uses and opens in, without opening it: {usage, default, current}."""
+        self.guard()
+        t = self.port.read_text(text_guid)
+        entry = self.texts.get(text_guid) or {}
+        return {"usage": model.text_ws_usage(t), "default": model.default_ws(t), "current": entry.get("ws")}
+
+    def _checked_ws(self, t, ws):
+        """Only FLEx's own writing systems: a current vernacular one (or one the text's paragraphs are
+        in), and a current analysis one."""
+        lists = self.port.writing_systems()
+        verns = {w["id"] for w in lists["vern"]} | {p["ws"] for p in t["paragraphs"]}
+        anals = {w["id"] for w in lists["anal"]}
+        if not isinstance(ws, dict) or ws.get("vern") not in verns or ws.get("anal") not in anals:
+            raise FlexError("E_SCOPE", "not a writing system of this project", {"ws": ws if isinstance(ws, dict) else None})
+        return {"vern": ws["vern"], "anal": ws["anal"]}
 
     def close_text(self, text_guid):
         self.texts.pop(text_guid, None)
@@ -159,6 +184,7 @@ class Session:
         if base_rev != entry["baseRev"] or model.base_rev(t) != entry["baseRev"]:
             raise FlexError("E_STALE_BASE", "the FLEx text changed since it was opened; reload and re-apply your edits", {})
         chosen = list(chosen_wss or t["analWss"] or ["en"])
+        text_ws = entry.get("ws") or model.default_ws(t)
         paras = {p["guid"]: p for p in t["paragraphs"]}
         segs = {s["guid"]: (p, s) for p in t["paragraphs"] for s in p["segments"]}
         summary, warnings, blockers = [], [], []
@@ -221,6 +247,11 @@ class Session:
                 raise FlexError("E_SCOPE", "that change is not made on a phrase this save creates; save the split first", {"op": kind})
             if kind in ("ft.set", "lt.set", "gloss.set") and op.get("ws") not in chosen:
                 raise FlexError("E_SCOPE", "writing system is not one of the chosen analysis WSs", {"ws": op.get("ws")})
+            # words edited in a view of another vernacular writing system than the paragraph is written in
+            # would be written into the paragraph as if they were its own text
+            if kind in WORD_EDITS and pg in paras and paras[pg]["ws"] != text_ws["vern"]:
+                raise FlexError("E_WS_WORDS", "the words are shown in %s; this paragraph is written in %s" % (text_ws["vern"], paras[pg]["ws"]),
+                                {"shown": text_ws["vern"], "para": paras[pg]["ws"]})
             if kind == "phrase.split":
                 deltas["Segment"] += 1
                 writes_section()
@@ -257,14 +288,27 @@ class Session:
                 for half in (form[:off], form[off:]):
                     if not any(is_word_forming(c) for c in half):
                         raise FlexError("E_EMPTY_PHRASE", "each half of a split word needs a letter", {})
-                    if not self.port.has_wordform(half):
+                    if not self.port.has_wordform(half, p["ws"]):
                         deltas["WfiWordform"] += 1
                 summary.append({"kind": kind, "word": form, "into": [form[:off], form[off:]]})
+            elif kind == "word.join":
+                p, s = segs[sg]
+                toks = S.word_token_ends(p, s)
+                i = op.get("index")
+                if not (isinstance(i, int) and 0 <= i < len(toks) - 1) or toks[i][3] or toks[i + 1][3]:
+                    raise FlexError("E_SCOPE", "not two words", {"index": i})
+                gap = p["contents"][toks[i][1]:toks[i + 1][0]]
+                if not gap or gap.strip():
+                    raise FlexError("E_SCOPE", "only words parted by a space are joined", {"index": i})
+                merged = toks[i][2] + toks[i + 1][2]
+                if not self.port.has_wordform(merged, p["ws"]):
+                    deltas["WfiWordform"] += 1
+                summary.append({"kind": kind, "words": [toks[i][2], toks[i + 1][2]], "into": merged})
             elif kind == "word.insert":
                 w = (op.get("text") or "").strip()
                 if not w or any(c.isspace() for c in w) or not any(is_word_forming(c) for c in w):
                     raise FlexError("E_SCOPE", "a word to insert must be one word with a letter", {})
-                if not self.port.has_wordform(w):
+                if not self.port.has_wordform(w, paras[pg]["ws"] if pg in paras else None):
                     deltas["WfiWordform"] += 1
                 summary.append({"kind": kind, "word": w})
             elif kind == "baseline.replace":
@@ -278,7 +322,7 @@ class Session:
                         if not self.port.has_punct_form(tk[2]) and tk[2] not in old_forms:
                             deltas["PunctuationForm"] += 1
                             old_forms.add(tk[2])
-                    elif tk[2] not in old_forms and not self.port.has_wordform(tk[2]):
+                    elif tk[2] not in old_forms and not self.port.has_wordform(tk[2], paras[pg]["ws"]):
                         deltas["WfiWordform"] += 1
                         old_forms.add(tk[2])
                 summary.append({"kind": kind, "before": old, "after": new})
@@ -325,7 +369,7 @@ class Session:
                             {"blockers": blockers, "warnings": warnings})
         token = secrets.token_hex(16)
         self.previews[token] = {
-            "text": text_guid, "baseRev": base_rev, "ops": ops, "post": post_state or {}, "chosen": chosen,
+            "text": text_guid, "baseRev": base_rev, "ops": ops, "post": post_state or {}, "chosen": chosen, "ws": text_ws,
             "touched": touched_paras, "deltas": {k: v for k, v in deltas.items() if v}, "classes": classes,
             "fp": dict(entry["fp"]), "expires": time.time() + PREVIEW_TTL, "n": len(summary),
             "summary": summary, "warnings": warnings,
@@ -417,7 +461,7 @@ class Session:
             self._apply_ops(text_guid, pv, alias, touched, new_owners)
             if progress:
                 progress("Checking…")
-            self._check_invariants(text_guid, pv, alias, touched, fp_before, counts_before)
+            self._check_invariants(text_guid, pv, alias, touched, fp_before, counts_before, t_before)
             self.port.commit(h)
         except Exception as e:   # noqa: BLE001 — anything → rollback
             err = e if isinstance(e, FlexError) else FlexError("E_INVARIANT", "the write failed: %s" % e, {"type": type(e).__name__})
@@ -484,7 +528,8 @@ class Session:
                     d["BeginTimeOffset"] = str(int(op["begin"]))
                     d["EndTimeOffset"] = str(int(op["end"]))
             if op.get("op") == "ft.set" and sg and op.get("value"):
-                exp.setdefault(sg, {})["FreeTranslation"] = nfd(op["value"])
+                # per writing system: the phrase's translations in the others are not this op's
+                exp.setdefault(sg, {}).setdefault("FreeTranslation", {})[op["ws"]] = nfd(op["value"])
         return exp
 
     def _apply_ops(self, text_guid, pv, alias, touched, new_owners):
@@ -514,6 +559,8 @@ class Session:
                 S.paragraph_to_phrase(port, text_guid, pg)
             elif kind == "word.split":
                 S.split_word(port, text_guid, pg, sg, op["index"], op["offset"])
+            elif kind == "word.join":
+                S.join_words(port, text_guid, pg, sg, op["index"])
             elif kind == "word.insert":
                 S.insert_word(port, text_guid, pg, sg, op["at"], op["text"])
             elif kind == "baseline.replace":
@@ -544,7 +591,7 @@ class Session:
                         if s["beginTime"] is not None and not s["mediaUri"]:
                             port.set_segment_media(s["guid"], uri)
 
-    def _check_invariants(self, text_guid, pv, alias, touched, fp_before, counts_before):
+    def _check_invariants(self, text_guid, pv, alias, touched, fp_before, counts_before, t_before=None):
         port = self.port
         t = port.read_text(text_guid)
         paras = {p["guid"]: p for p in t["paragraphs"]}
@@ -572,10 +619,29 @@ class Session:
             for pg, phrases in pv["post"].items():
                 real_pg = alias.get(pg, pg)
                 intended[real_pg] = [dict(ph, segGuid=alias.get(ph.get("segGuid"), ph.get("segGuid"))) for ph in phrases]
-            actual = model.read_model_post_state(t, set(intended))
-            problems = model.compare_post_state(intended, actual)
+            ws = pv.get("ws") or model.default_ws(t)
+            actual = model.read_model_post_state(t, set(intended), ws)
+            problems = model.compare_post_state(intended, actual, primary=ws["anal"], others=self._other_translations(pv, t_before, ws["anal"]))
             if problems:
                 raise FlexError("E_INVARIANT", "re-read differs from the intended result: " + "; ".join(problems[:5]), {"problems": problems})
+
+    @staticmethod
+    def _other_translations(pv, t_before, primary):
+        """What every translation the engine does not show must be after the save, per phrase that had
+        them before: unchanged, unless an ft.set/lt.set of this save sets it, and not for a join's
+        survivor (LCM joins every translation of the two with a space, plan §6.3)."""
+        if t_before is None:
+            return None
+        joined = {o.get("segGuid") for o in pv["ops"] if o.get("op") == "phrase.join"}
+        out = {}
+        for p in t_before["paragraphs"]:
+            for s in p["segments"]:
+                if s["guid"] not in joined:
+                    out[s["guid"]] = {"ft": {w: x for w, x in s["ft"].items() if x}, "lt": {w: x for w, x in s["lt"].items() if x}}
+        for o in pv["ops"]:
+            if o.get("op") in ("ft.set", "lt.set") and o.get("segGuid") in out and o.get("ws") != primary:
+                out[o["segGuid"]]["ft" if o["op"] == "ft.set" else "lt"][o["ws"]] = o.get("value") or ""
+        return out
 
     def _save_and_check(self, progress, allowed, expect_fields=None):
         """W7 + W8, shared by save and undo/redo. Poisons on failure."""

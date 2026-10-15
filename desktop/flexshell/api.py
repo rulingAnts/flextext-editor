@@ -112,7 +112,8 @@ class Api:
                 "fwVersion": info.get("fwVersion"), "lcmVersion": info.get("lcmVersion"), "modelVersion": info.get("modelVersion"),
                 "python": sys.version.split()[0], "copyOnly": self._copy_only,
                 "capabilities": {"offsiteAuth": False, "clipboard": sys.platform == "win32", "fileDialog": self._window is not None,
-                                 "write": True, "import": True, "export": True, "media": True, "mediaFinder": True}}
+                                 "write": True, "import": True, "export": True, "media": True, "mediaFinder": True,
+                                 "wsChoice": True, "wordJoin": True}}
 
     @exposed
     def list_projects(self):
@@ -201,7 +202,9 @@ class Api:
         return self._worker.run("list_texts", lambda j: (s.guard(), s.port.list_texts())[1])
 
     @exposed
-    def open_text(self, text_guid):
+    def open_text(self, text_guid, ws=None):
+        """The text in the engine's shape. `ws` = {vern, anal} chosen for this text from FLEx's own lists
+        (plan §7.4); omitted, the text's own (what it is written and translated in)."""
         s = self._need_session()
         media, lf = self._worker.run("media", lambda j: (s.guard(), (s.port.read_text(text_guid)["media"], s.port.linked_files_dir()))[1])
         urls = {}
@@ -209,7 +212,13 @@ class Api:
             here = mediafind.link_path(m["uri"], lf)
             if here and os.path.isfile(here):
                 urls[m["guid"]] = "/media/" + self._media.register(here)
-        return self._worker.run("open_text", lambda j: s.open_text(text_guid, urls))
+        return self._worker.run("open_text", lambda j: s.open_text(text_guid, urls, ws))
+
+    @exposed
+    def text_ws(self, text_guid):
+        """What one text uses, by writing system, and what it opens in — for choosing (plan §7.4)."""
+        s = self._need_session()
+        return self._worker.run("text_ws", lambda j: s.text_ws(text_guid))
 
     # ---- finding a recording whose FLEx link points nowhere here (plan §8.4) -------------------------
     # Pure filesystem; nothing here writes to FLEx, so it works in a read-only session. The engine

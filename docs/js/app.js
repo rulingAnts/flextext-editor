@@ -7,7 +7,7 @@ import {
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
   mergePhrases, baselineFromWords,
   // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
-  splitWordAt, insertWordAt, isBoundaryMarker, markBoundaryMarkers,
+  splitWordAt, insertWordAt, joinWordsAt, isBoundaryMarker, markBoundaryMarkers,
   hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
   normalizeBreakKind, applyNewLineBreak, applyBreakKindToOrigins, sectionBreakSites, resolveSectionBreak, replaceSectionBreaks,
 } from './flextext.js';
@@ -10747,6 +10747,14 @@ function mgWireEditable(el, ln, wi, field) {
   el.classList.add('mg-edit');
   el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
   let was = el.textContent;
+  /* ⚠ A KEYSTROKE THAT RESHAPED THE LINE HAS ALREADY COMMITTED THIS BOX. Its redraw removes the box,
+   * and Chromium fires `blur` on a focused element it removes — so the commit below ran AFTER the split,
+   * the join or the insert, with this box's old text and its OLD word index: Space inside "fff" gave
+   * "fff ff", Backspace joining "aaa bbb ccc" gave "aaabbb bbb", Backspace in an empty word blanked the
+   * word after it (found by the shell's end-to-end test, 2026-10-15; the lifted tests run no DOM). Set
+   * before the action, because the action is what blurs; cleared again when it was refused. */
+  let handled = false;
+  const reshape = (fn) => { handled = true; if (!fn()) handled = false; };
   el.addEventListener('focus', () => { was = el.textContent; });
   el.addEventListener('pointerdown', (e) => e.stopPropagation());   // not a row pick
   el.addEventListener('keydown', (e) => {
@@ -10758,19 +10766,23 @@ function mgWireEditable(el, ln, wi, field) {
     if (e.key === ' ' && at >= 0 && len > 0 && (at === 0 || at === len)) {
       e.preventDefault();
       mgCommitEdit(el, ln, wi, field);                  // keep what was typed so far
-      mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after');
+      reshape(() => mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after'));
       return;
     }
     /* Space INSIDE a word splits it in two (seg-word-split; plan flex-desktop-segmenter.md §6.5) —
      * one user action, ONE undo step, however the text had been edited before the space. */
     if (e.key === ' ' && at > 0 && at < len) {
       e.preventDefault();
-      mgSplitWord(ln.id, wi, el.textContent, at);
+      reshape(() => mgSplitWord(ln.id, wi, el.textContent, at));
       return;
     }
-    if (e.key === 'Backspace' && len === 0) { e.preventDefault(); mgDeleteWord(ln.id, wi); }
+    /* Backspace at a word's start joins it to the word before it; Delete at its end, to the word after
+     * it (Seth, 2026-10-15: "merge and split words … with backspace or space"). One action, one undo. */
+    if (e.key === 'Backspace' && at === 0 && len > 0 && wi > 0) { e.preventDefault(); reshape(() => mgJoinWord(ln.id, wi, el.textContent, 'prev')); return; }
+    if (e.key === 'Delete' && at === len && len > 0) { e.preventDefault(); reshape(() => mgJoinWord(ln.id, wi, el.textContent, 'next')); return; }
+    if (e.key === 'Backspace' && len === 0) { e.preventDefault(); reshape(() => mgDeleteWord(ln.id, wi)); }
   });
-  el.addEventListener('blur', () => mgCommitEdit(el, ln, wi, field));
+  el.addEventListener('blur', () => { if (!handled) mgCommitEdit(el, ln, wi, field); });
 }
 // Caret position within the editable, or -1 when the selection is not a collapsed caret inside it.
 function mgCaretOffset(el) {
@@ -10840,6 +10852,7 @@ function mgInsertWord(id, wi, where) {
   ph.baseline = baselineFromWords(ph.words);
   mgDraw();
   mgFocusWord(id, where === 'before' ? wi : wi + 1);
+  return true;
 }
 function mgDeleteWord(id, wi) {
   const line = MG && MG.lines.find((l) => l.id === id);
@@ -10848,12 +10861,13 @@ function mgDeleteWord(id, wi) {
   const k = mgRealIndex(ph.words, wi);
   if (k < 0) return;
   const w = ph.words[k];
-  if ((w.txt || '') || (w.gls || '')) return;     // only an EMPTY pair goes on Backspace
+  if ((w.txt || '') || (w.gls || '')) return false;     // only an EMPTY pair goes on Backspace
   mgCapture();
   ph.words.splice(k, 1);
   ph.baseline = baselineFromWords(ph.words);
   mgDraw();
   mgFocusWord(id, Math.max(0, wi - 1));
+  return true;
 }
 /* SPLIT A WORD WHERE THE CARET IS (seg-word-split). `text` is what the box holds at the keystroke
  * (the field may have been edited since focus); `at` is the caret offset in it. The edit and the
@@ -10869,7 +10883,7 @@ function mgSplitWord(id, wi, text, at) {
   const value = String(text || '').replace(/\s+/g, ' ').trim();
   const probe = { words: [{ ...ph.words[k], txt: value }] };
   const dry = splitWordAt(probe, 0, at);
-  if (!dry.ok) { toast(t('mg.splitWordRefused')); return; }
+  if (!dry.ok) { toast(t('mg.splitWordRefused')); return false; }
   mgCapture();
   ph.words[k].txt = value;
   const r = splitWordAt(ph, k, at);
@@ -10877,6 +10891,7 @@ function mgSplitWord(id, wi, text, at) {
   mgSaveDraft();
   mgDraw();
   mgFocusWord(id, wi + 1);
+  return true;
 }
 /* PARAGRAPH BREAK OR NOT, between this line and the one above (seg-word-split; plan §6.4). Shown only
  * for a text whose author distinguished paragraphs from phrases (`paraOf` on the lines — the same
@@ -10892,6 +10907,47 @@ function mgToggleParaBreak(id) {
   if (!done) { mgUndoStack.pop(); return; }   // nothing changed: no empty history item
   mgSaveDraft();
   mgDraw();
+}
+/* JOIN TWO WORDS (Seth, 2026-10-15). `wi` is the word whose box had the keystroke and `text` what it
+ * held then, so an edit made before the keystroke and the join are ONE captured action; `dir` 'prev'
+ * joins it to the word before (Backspace at its start), 'next' to the word after (Delete at its end).
+ * Only words parted by a space: punctuation between them is refused, as FLEx would have nothing to
+ * delete. The joined word is unglossed, as FLEx leaves it (flextext.js joinWordsAt), a lost gloss is
+ * said out loud, and the caret lands where the two met. */
+function mgJoinWord(id, wi, text, dir) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ph = mgLinePhrase(line);
+  const left = dir === 'prev' ? wi - 1 : wi;
+  const kA = mgRealIndex(ph.words, left), kB = mgRealIndex(ph.words, left + 1);
+  if (kA < 0 || kB < 0) return false;                  // no word on that side: nothing to join
+  if (kB !== kA + 1) { toast(t('mg.joinWordRefused')); return false; }   // punctuation between them
+  mgCapture();
+  ph.words[dir === 'prev' ? kB : kA].txt = String(text || '').replace(/\s+/g, ' ').trim();
+  const junction = String(ph.words[kA].txt || '').length;
+  const r = joinWordsAt(ph, kA);
+  if (!r.ok) { mgUndoStack.pop(); toast(t('mg.joinWordRefused')); return false; }   // a refused join leaves no history
+  if (r.removedGlosses.length) toast(t('mg.joinWordGloss', { g: r.removedGlosses.join('”, “') }));
+  mgSaveDraft();
+  mgDraw();
+  mgFocusWordAt(id, left, junction);
+  return true;
+}
+// After a redraw: the caret at `offset` (UTF-16 units, as the DOM counts) in the wi-th word of the line.
+function mgFocusWordAt(id, wi, offset) {
+  setTimeout(() => {
+    const rows = $('#mg-rows');
+    const row = rows && rows.querySelector(`.mg-line[data-ln="${CSS.escape(id)}"]`);
+    const el = row && row.querySelectorAll('.mg-wstack .mg-w')[wi];
+    if (!el) return;
+    el.focus();
+    try {
+      const r = document.createRange(), node = el.firstChild;
+      if (node && node.nodeType === 3) { r.setStart(node, Math.min(offset, node.length)); r.collapse(true); }
+      else { r.selectNodeContents(el); r.collapse(false); }
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    } catch { /* caret placement is comfort */ }
+  }, 0);
 }
 // After a redraw: put the caret at the end of the wi-th word of the line. A macrotask, not rAF —
 // rAF never fires in a background tab (segment-strips' own lesson).

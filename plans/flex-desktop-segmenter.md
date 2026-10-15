@@ -716,6 +716,13 @@ texts changed 0 paragraphs.
      the write, set `AnalysesRS` to the intended mapping, then verify.
 - **General baseline edit:** same pattern — minimal diff, restore analyses for unchanged tokens
   inside the diff span, verify.
+- **Join two words** (2026-10-15, **[mock]** until V-1; Seth: *"Ability to merge and split words
+  needed (with backspace or space)"*): delete the whitespace between word *i* and *i+1* (expect diff
+  `(ich, 0, cchSpace)`); the joined word is one unanalysed `WfiWordform`, every other analysis GUID
+  kept, the invariant unchanged (`segmentation.join_words`, op `word.join`). Refused when anything but
+  whitespace parts them (punctuation is not a space to delete). In the Matcher: **Backspace at a
+  word's start** joins it to the word before, **Delete at its end** to the word after; **Space inside
+  a word** splits it, as before. Both leave the new word(s) unglossed (D13), one Undo each.
 
 ### 6.6 Do not use flexicon's segment operations (**[verified]**)
 
@@ -818,6 +825,41 @@ NFD-normalise; `TsStringUtils.MakeString(text, ws)` (or `EmptyString(ws)`); skip
 `seg.FreeTranslation.set_String(ws, tss)` in the same UOW. If the old value had several runs or a
 named style, the preview warns that formatting will be replaced (**[verified]** such values exist:
 150 in the copy). `LiteralTranslation` likewise. The baseline, analyses and notes are untouched.
+
+### 7.4 Writing systems per text (2026-10-15)
+
+Seth: *"we need the writing systems selector for vernacular and analysis that we can choose for
+individual texts, pulled from the flex database (list-selection pulled from the flex database texts
+instead of from device settings is only available on pywebview native version)"*.
+
+- **The lists are FLEx's** (`writing_systems()`: the current vernacular and analysis writing systems,
+  with FLEx's display names), never the device's language settings. Each text row has **Writing
+  systems…**: one vernacular (the words) and one analysis (glosses and the free translation the Matcher
+  edits), each option saying how much of this text is in it (`text_ws`: paragraphs by baseline writing
+  system; translations and glosses by analysis writing system) and which is the text's own.
+- **A text opens in its own** until someone chooses (`model.default_ws`): the vernacular most of its
+  paragraphs are in; the current analysis writing system it uses most — free translations and glosses
+  together (literal translations never show here), ties to FLEx's order — else FLEx's first.
+- **The doc**: words in the chosen vernacular alternative where the wordform has one, else as the
+  paragraph holds it (`word_form`; the port now reads each occurrence in its paragraph's own writing
+  system — a text in a non-default vernacular used to show empty words); glosses and the free
+  translation in the chosen analysis writing system; every other analysis writing system's glosses
+  and translations as read-only `<item type="gls" lang=…>` items, which the Matcher's language picker
+  already shows. `doc.vernLang` / `doc.analLang` are the choice.
+- **The choice is the text's** (`rec.flex.ws`), and the shell's session remembers it per text, so
+  every preview and check reads the text the same way. Changing it re-reads the text from FLEx; it is
+  refused while work done here is not in FLEx (work shown in one analysis writing system is never
+  quietly re-shown in another).
+- **Words are written only from their own writing system:** a word edit made while the words show in
+  another vernacular alternative than the paragraph is written in is refused before the preview
+  (`E_WS_WORDS`, naming both). Times, glosses, translations and phrase structure save from any view.
+- **Fixed with it** (both stopped real saves on texts translated in two analysis writing systems):
+  the in-UOW comparison checked the engine's ONE free translation against FLEx's every one, so any
+  save touching such a phrase rolled back — it now compares the text's analysis writing system, and
+  requires every other translation unchanged except on a join's survivor (`compare_post_state`
+  `primary` / `others`); and the disk check expected a phrase's whole multilingual `FreeTranslation`
+  field to equal the one value written, so a successful save would have POISONED the session — it
+  now reads multilingual fields per writing system (`diskcheck._fields`).
 
 ---
 
@@ -1017,6 +1059,13 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
 - **Undo / Redo** re-read the text and judge "not in FLEx" by the same diff (two saves undone and one
   redone leaves work FLEx does not have); an undone relink offers Fix link again.
 - The native dialog uses `webview.FileDialog.OPEN` (pywebview 6 deprecates `OPEN_DIALOG`).
+- **Writing systems… per text** (§7.4) on every text row; the row and the Matcher strip show the pair
+  (*Example → English*).
+- ⚠ **Word keystrokes in the Matcher wrote the wrong word** (found by the end-to-end test, 2026-10-15;
+  the lifted node tests run no DOM): a split, join, insert or delete redraws the line, Chromium blurs
+  the removed box, and its blur commit wrote the box's OLD text into whatever word now sat at its index
+  — Space inside "fff" gave "fff ff", Backspace in an empty word blanked the next word. A reshaping
+  keystroke now marks its box handled before the action (`mgWireEditable`'s `reshape`).
 
 ---
 

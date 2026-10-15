@@ -683,3 +683,36 @@ def test_section_marks_replaced_in_the_engine_compare_clean_and_a_sentence_break
     assert [x["guid"] for x in t["paragraphs"][0]["segments"]] == [doc["paragraphs"][0]["segments"][0]["attrs"]["guid"], seg["attrs"]["guid"]]
     assert SECTION not in t["paragraphs"][0]["contents"], "the trailing § went with the paragraph split"
     assert t["paragraphs"][1]["segments"][0]["guid"] == doc["paragraphs"][2]["segments"][0]["attrs"]["guid"]
+
+
+def test_a_word_join_is_one_assignment_one_new_wordform_and_one_undo(world):
+    """Backspace at the start of a word in the Matcher: the space between two words goes, the joined
+    word is one unanalysed wordform, every other analysis GUID is kept."""
+    import copy
+    w, s, port = world, world["s"], world["port"]
+    doc = copy.deepcopy(w["doc"])
+    ln = doc["paragraphs"][3]                          # "hhh iii jjj"
+    seg = ln["segments"][0]
+    pg, sg = ln["paraOf"], seg["attrs"]["guid"]
+    kept = seg["words"][2]["flex"]["analysisGuid"]
+    seg["words"] = [{"txt": "hhhiii", "punct": False, "gls": "", "guid": "new"}] + seg["words"][2:]
+    before = model.fingerprint_text(port.read_text(w["tg"]))
+    pv = s.preview(w["tg"], w["rev"], [{"op": "word.join", "paraGuid": pg, "segGuid": sg, "index": 0}], engine_post(doc, {pg}))
+    assert pv["counts"] == {"WfiWordform": 1} and pv["summary"] == [{"kind": "word.join", "words": ["hhh", "iii"], "into": "hhhiii"}]
+    s.save(pv["previewToken"])
+    p = port.read_text(w["tg"])["paragraphs"][1]
+    assert p["contents"] == "hhhiii jjj"
+    an = p["segments"][0]["analyses"]
+    assert [a["form"] for a in an] == ["hhhiii", "jjj"] and an[0]["kind"] == "wordform" and an[1]["guid"] == kept
+    s.undo_save()
+    assert model.fingerprint_text(port.read_text(w["tg"])) == before
+
+
+def test_a_word_join_across_punctuation_or_past_the_last_word_is_refused(world):
+    w, s = world, world["s"]
+    ln0, ln3 = w["doc"]["paragraphs"][0], w["doc"]["paragraphs"][3]    # "aaa bbb ccc." | "hhh iii jjj"
+    for ln, i in ((ln0, 2), (ln3, 2), (ln3, -1)):
+        op = {"op": "word.join", "paraGuid": ln["paraOf"], "segGuid": ln["segments"][0]["attrs"]["guid"], "index": i}
+        with pytest.raises(FlexError) as ei:
+            s.preview(w["tg"], w["rev"], [op], {})
+        assert ei.value.code == "E_SCOPE"

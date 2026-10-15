@@ -226,17 +226,24 @@ class MockLcm(FlexPort):
 
     @classmethod
     def create_project(cls, projects_dir, name, texts=(), sharing=False, model_version=MODEL_VERSION,
-                       vern_ws="xx", anal_wss=("en",), media_files=()):
+                       vern_ws="xx", anal_wss=("en",), media_files=(), vern_wss=None, ws_names=None):
         """Write a fresh project folder. `texts` = [{"title": str, "paragraphs": [str, ...],
-        "media": [path, ...]}]. Segments and analyses are derived as FLEx's parser would."""
+        "media": [path, ...], "ws": vernacular ws of its baseline (default vern_ws)}]. Segments and
+        analyses are derived as FLEx's parser would. `vern_wss` = the project's current vernacular
+        writing systems (vern_ws, the default, first when omitted); `ws_names` = {id: display name}."""
         folder = cls.project_folder(projects_dir, name)
         os.makedirs(folder, exist_ok=True)
         m = cls(projects_dir)
         m._name = name
         m._write = True
         m._vern = vern_ws
+        m._verns = list(vern_wss or [vern_ws])
+        if vern_ws not in m._verns:
+            m._verns.insert(0, vern_ws)
         m._anal = list(anal_wss)
-        lp = Obj("LangProject", DateModified=_now(), VernWs=vern_ws, AnalWss=list(anal_wss))
+        m._ws_names = dict(ws_names or {})
+        lp = Obj("LangProject", DateModified=_now(), VernWs=vern_ws, AnalWss=list(anal_wss), VernWss=list(m._verns),
+                 WsNames=dict(m._ws_names))
         m.store[lp.guid] = lp
         m._lp = lp.guid
         # a few lexicon objects so the never-change counts are non-trivial
@@ -270,7 +277,7 @@ class MockLcm(FlexPort):
         for path in spec.get("media", ()):
             self._attach_media(text.guid, path)
         for ptxt in spec.get("paragraphs", ()):
-            para = Obj("StTxtPara", owner=st.guid, Contents=nfd(ptxt), Ws=self._vern, Segments=[], StyleName=None)
+            para = Obj("StTxtPara", owner=st.guid, Contents=nfd(ptxt), Ws=spec.get("ws") or self._vern, Segments=[], StyleName=None)
             self.store[para.guid] = para
             st["Paragraphs"].append(para.guid)
             self._reparse(para.guid, fresh=True)
@@ -305,12 +312,12 @@ class MockLcm(FlexPort):
                     st["DateModified"] = _now()
                     self._dirty.add(st.guid)
 
-    def _find_or_create_wordform(self, form):
-        form = nfd(form)
+    def _find_or_create_wordform(self, form, ws=None):
+        form, ws = nfd(form), ws or self._vern
         for o in self.store.values():
-            if o.cls == "WfiWordform" and o["Form"].get(self._vern) == form:
+            if o.cls == "WfiWordform" and o["Form"].get(ws) == form:
                 return o.guid
-        wf = Obj("WfiWordform", owner=self._lp, Form={self._vern: form}, Checksum=0)
+        wf = Obj("WfiWordform", owner=self._lp, Form={ws: form}, Checksum=0)
         self.store[wf.guid] = wf
         self._mark(wf.guid)
         return wf.guid
@@ -325,22 +332,23 @@ class MockLcm(FlexPort):
         self._mark(pf.guid)
         return pf.guid
 
-    def _analysis_form(self, aguid):
+    def _analysis_form(self, aguid, ws=None):
+        ws = ws or self._vern
         o = self.store.get(aguid)
         if o is None:
             return None
         if o.cls == "PunctuationForm":
             return o["Form"]
         if o.cls == "WfiWordform":
-            return o["Form"].get(self._vern)
+            return o["Form"].get(ws)
         if o.cls == "WfiAnalysis":
-            return self.store[o.owner]["Form"].get(self._vern)
+            return self.store[o.owner]["Form"].get(ws)
         if o.cls == "WfiGloss":
-            return self.store[self.store[o.owner].owner]["Form"].get(self._vern)
+            return self.store[self.store[o.owner].owner]["Form"].get(ws)
         return None
 
-    def _bare(self, tok):
-        return self._find_or_create_punct(tok[2]) if tok[3] else self._find_or_create_wordform(tok[2])
+    def _bare(self, tok, ws=None):
+        return self._find_or_create_punct(tok[2]) if tok[3] else self._find_or_create_wordform(tok[2], ws)
 
     def _new_segment(self, para_guid, begin, end):
         seg = Obj("Segment", owner=para_guid, BeginOffset=begin, EndOffset=end, FreeTranslation={},
@@ -381,10 +389,10 @@ class MockLcm(FlexPort):
             prev = list(seg["Analyses"])
             new_an = []
             for k, tok in enumerate(toks):
-                if k < len(prev) and self._analysis_form(prev[k]) == nfd(tok[2]):
+                if k < len(prev) and self._analysis_form(prev[k], para["Ws"]) == nfd(tok[2]):
                     new_an.append(prev[k])
                 else:
-                    new_an.append(self._bare(tok))
+                    new_an.append(self._bare(tok, para["Ws"]))
             if new_an != seg["Analyses"]:
                 seg["Analyses"] = new_an
                 self._mark(seg.guid)
@@ -488,11 +496,11 @@ class MockLcm(FlexPort):
             for tok in toks:
                 tb, te = b + tok[0], b + tok[1]
                 if te <= ich:
-                    an.append(carried(tb, te, tok[2]) or self._bare(tok))
+                    an.append(carried(tb, te, tok[2]) or self._bare(tok, para["Ws"]))
                 elif tb >= ich + ins:
-                    an.append(carried(tb - delta, te - delta, tok[2]) or self._bare(tok))
+                    an.append(carried(tb - delta, te - delta, tok[2]) or self._bare(tok, para["Ws"]))
                 else:
-                    an.append(self._bare(tok))   # inside the diff span: bare [verified]
+                    an.append(self._bare(tok, para["Ws"]))   # inside the diff span: bare [verified]
             if an != seg["Analyses"]:
                 seg["Analyses"] = an
                 self._mark(seg.guid)
@@ -895,6 +903,9 @@ class MockLcm(FlexPort):
                 self._lp = o.guid
                 self._vern = o.get("VernWs", "xx")
                 self._anal = list(o["AnalWss"]) if isinstance(o["AnalWss"], list) else [o["AnalWss"]]
+                vw = o.get("VernWss") or [self._vern]
+                self._verns = list(vw) if isinstance(vw, list) else [vw]
+                self._ws_names = dict(o.get("WsNames") or {})
         if not hasattr(self, "_lp"):
             raise RuntimeError("no LangProject in " + path)
 
@@ -907,9 +918,11 @@ class MockLcm(FlexPort):
         return out
 
     def writing_systems(self):
-        return {"vern": [{"id": self._vern, "abbr": self._vern, "isDefault": True, "rtl": False, "graphite": False,
-                          "wordForming": list(self.extra_word_chars)}],
-                "anal": [{"id": a, "abbr": a, "isDefault": i == 0, "rtl": False, "graphite": False} for i, a in enumerate(self._anal)]}
+        names = getattr(self, "_ws_names", {})
+        return {"vern": [{"id": v, "abbr": v, "name": names.get(v, v), "isDefault": v == self._vern, "rtl": False, "graphite": False,
+                          "wordForming": list(self.extra_word_chars)} for v in getattr(self, "_verns", [self._vern])],
+                "anal": [{"id": a, "abbr": a, "name": names.get(a, a), "isDefault": i == 0, "rtl": False, "graphite": False}
+                         for i, a in enumerate(self._anal)]}
 
     def _texts(self):
         return [o for o in self.store.values() if o.cls == "Text"]
@@ -935,22 +948,27 @@ class MockLcm(FlexPort):
         txt = para["Contents"][seg["BeginOffset"]:seg["EndOffset"]]
         return txt == LINE_SEP
 
-    def _analysis_ref(self, aguid):
+    def _analysis_ref(self, aguid, ws=None):
+        """`form` is the occurrence as the paragraph holds it (its ws; the default vernacular when the
+        wordform has none there); `forms` every vernacular alternative the wordform has."""
+        ws = ws or self._vern
         o = self.store.get(aguid)
         if o is None:
             return {"guid": aguid, "kind": "missing", "form": ""}
         if o.cls == "PunctuationForm":
             return {"guid": aguid, "kind": "punct", "form": nfc(o["Form"])}
+
+        def wf_fields(wf):
+            forms = {w: nfc(t) for w, t in wf["Form"].items() if t}
+            return {"form": forms.get(ws) or forms.get(self._vern, ""), "forms": forms, "wordformGuid": wf.guid}
         if o.cls == "WfiWordform":
-            return {"guid": aguid, "kind": "wordform", "form": nfc(o["Form"].get(self._vern, "")), "wordformGuid": aguid}
+            return {"guid": aguid, "kind": "wordform", **wf_fields(o)}
         if o.cls == "WfiAnalysis":
-            wf = self.store[o.owner]
-            return {"guid": aguid, "kind": "analysis", "form": nfc(wf["Form"].get(self._vern, "")), "wordformGuid": wf.guid, "analysisGuid": aguid}
+            return {"guid": aguid, "kind": "analysis", **wf_fields(self.store[o.owner]), "analysisGuid": aguid}
         if o.cls == "WfiGloss":
             an = self.store[o.owner]
-            wf = self.store[an.owner]
-            return {"guid": aguid, "kind": "gloss", "form": nfc(wf["Form"].get(self._vern, "")), "wordformGuid": wf.guid,
-                    "analysisGuid": an.guid, "gloss": {ws: nfc(t) for ws, t in o["Form"].items()}}
+            return {"guid": aguid, "kind": "gloss", **wf_fields(self.store[an.owner]),
+                    "analysisGuid": an.guid, "gloss": {w: nfc(t) for w, t in o["Form"].items()}}
         return {"guid": aguid, "kind": o.cls, "form": ""}
 
     def read_text(self, guid):
@@ -968,7 +986,7 @@ class MockLcm(FlexPort):
                              "ft": {ws: nfc(x) for ws, x in s["FreeTranslation"].items()},
                              "lt": {ws: nfc(x) for ws, x in s["LiteralTranslation"].items()},
                              "notes": [nfc(x) for x in s["Notes"]],
-                             "analyses": [self._analysis_ref(a) for a in s["Analyses"]],
+                             "analyses": [self._analysis_ref(a, p["Ws"]) for a in s["Analyses"]],
                              "beginTime": s["BeginTimeOffset"], "endTime": s["EndTimeOffset"],
                              "mediaUri": s["MediaURI"], "speaker": s["Speaker"], "isLabel": self._is_label(s)})
             paras.append({"guid": pg, "contents": nfc(p["Contents"]), "ws": p["Ws"], "segments": segs, "style": p.get("StyleName")})
@@ -982,8 +1000,20 @@ class MockLcm(FlexPort):
     def has_punct_form(self, form):
         return any(o.cls == "PunctuationForm" and o["Form"] == nfd(form) for o in self.store.values())
 
-    def has_wordform(self, form):
-        return any(o.cls == "WfiWordform" and o["Form"].get(self._vern) == nfd(form) for o in self.store.values())
+    def has_wordform(self, form, ws=None):
+        ws = ws or self._vern
+        return any(o.cls == "WfiWordform" and o["Form"].get(ws) == nfd(form) for o in self.store.values())
+
+    def add_form_alternative(self, form, ws, alt, form_ws=None):
+        """Test fixture only: give the wordform `form` (in `form_ws`, default the default vernacular)
+        an alternative in another vernacular writing system, as FLEx's Words area does."""
+        form_ws = form_ws or self._vern
+        for o in self.store.values():
+            if o.cls == "WfiWordform" and o["Form"].get(form_ws) == nfd(form):
+                o["Form"][ws] = nfd(alt)
+                self._mark(o.guid)
+                return o.guid
+        raise KeyError(form)
 
     def get_segments(self, text, ws):
         return segment_breaker(nfd(text), self.extra_word_chars)

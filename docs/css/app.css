@@ -3848,6 +3848,11 @@ a.offsite-off, area.offsite-off {
 .flex-media-cands li button{grid-row:1 / span 2;grid-column:2}
 .flex-media-note{opacity:.75;font-size:.85rem}
 .flex-media-more{color:#92400e;font-size:.9rem}
+.flex-ws-card{text-align:left;width:min(44rem,94vw);max-width:min(44rem,94vw)}
+.flex-ws-row{display:block;margin:.5rem 0;font-weight:600}
+.flex-ws-row select{display:block;width:100%;margin-top:.2rem;font-weight:normal}
+.flex-ws-text-title{opacity:.75;margin:.2rem 0 .4rem}
+.flex-ws-pair{font-size:.85rem;opacity:.8}
 /* § section marks in the Matcher (seg-word-split): they stand out until decided */
 .mg-section-banner{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:.4rem .6rem;margin:.3rem 0;font-size:.9rem}
 .mg-sec{display:inline-flex;align-items:center;gap:.15rem;margin:0 .25rem;padding:.1rem .3rem;border:1px dashed #f59e0b;border-radius:6px;background:#fffbeb;vertical-align:middle}

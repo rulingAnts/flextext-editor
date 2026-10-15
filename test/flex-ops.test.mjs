@@ -200,6 +200,21 @@ console.log('\nword split, word insert, general baseline edit');
   ok(r.ops[0].text === 'aaa bbbb . ccc ddd §', 'a multi-phrase paragraph: phrases joined, the existing § kept, no § after real punctuation');
   ok(baselineOfGroup({ paragraphs: [line('Q', 'q1', [W('aa')]), line('Q', 'q2', [W('bb')])] }, 'Q') === 'aa § bb', 'a group without markers gets § between its phrases, as FLEx\'s importer writes');
 }
+console.log('\nword join: two neighbours become their concatenation (Backspace / Delete in the Matcher)');
+{
+  const b = base(), c = clone(b);
+  const ws = c.paragraphs[2].segments[0].words;   // eee fff ggg
+  c.paragraphs[2].segments[0].words = [{ guid: 'w-new', txt: 'eeefff', punct: false, gls: '' }, ws[2]];
+  const r = diffFlexDoc(b, c);
+  ok(kinds(r) === 'word.join' && r.ops[0].segGuid === 's3' && r.ops[0].paraGuid === 'P2' && r.ops[0].index === 0, 'eee fff → eeefff is word.join at analysis index 0');
+  const c2 = clone(b);
+  c2.paragraphs[0].segments[0].words = [{ guid: 'w-x', txt: 'aaabbb', punct: false, gls: '' }, c2.paragraphs[0].segments[0].words[2]];
+  const r2 = diffFlexDoc(b, c2);
+  ok(kinds(r2) === 'word.join' && r2.ops[0].index === 0, 'before a stop: aaa bbb . → aaabbb . is word.join too');
+  const c3 = clone(b);
+  c3.paragraphs[2].segments[0].words = [{ guid: 'w-y', txt: 'eeexfff', punct: false, gls: '' }, ws[2]];
+  ok(diffFlexDoc(b, c3).ops[0].op === 'baseline.replace', 'a join that also changed letters is not a word.join');
+}
 console.log('\nunsupported shapes are reported, never guessed');
 {
   const b = base(), c = clone(b);

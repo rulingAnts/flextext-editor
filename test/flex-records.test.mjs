@@ -26,6 +26,7 @@ ok(reopenDecision(rec(200, 100, 'r1'), 'r1') === 'keep', 'local work, FLEx uncha
 ok(reopenDecision(rec(100, 100, 'r1'), 'r2') === 'replace', 'nothing here, FLEx changed → load FLEx');
 ok(reopenDecision(rec(200, 100, 'r1'), 'r2') === 'ask', 'both changed → ask');
 ok(reopenDecision(rec(100, 100, 'r1', { matchDraft: { spans: [] } }), 'r2') === 'ask', 'a Segmenter draft is local work too');
+ok(reopenDecision({ id: 'x', modified: 100, flex: { loadedAt: 100, baseRev: 'r1', dirty: true } }, 'r2') === 'ask', 'an undone save to FLEx is local work too');
 ok(reopenDecision({ id: 'x', modified: 5, flex: { baseRev: 'r1' } }, 'r2') === 'ask', 'no loadedAt (older record) → treated as local work: the safe side');
 
 console.log('recordingLink');
@@ -40,6 +41,7 @@ ok(Object.keys(pendingMediaFix(null)).length === 0 && Object.keys(pendingMediaFi
 ok(JSON.stringify(pendingMediaFix({ mediaFix: { uriGuid: 'u1', path: 'D:\\r\\a.wav' } })) === JSON.stringify({ relink: { uriGuid: 'u1', path: 'D:\\r\\a.wav' } }), 'a link that points nowhere → relink');
 ok(JSON.stringify(pendingMediaFix({ mediaFix: { uriGuid: null, path: 'D:\\r\\a.wav' } })) === JSON.stringify({ media: 'D:\\r\\a.wav' }), 'no link → attach (diffFlexDoc adds it only with times)');
 ok(Object.keys(pendingMediaFix({ linkOk: true, mediaFix: { uriGuid: 'u1', path: 'p' } })).length === 0, 'FLEx\'s link resolves again → nothing to fix');
+ok(Object.keys(pendingMediaFix({ linkOk: true, mediaFix: { uriGuid: null, path: 'p' } })).length === 0, 'a link attached in FLEx since (or a redone attach) → nothing to attach');
 
 if (fail) { console.error(`\n${fail} FAILED`); process.exit(1); }
 console.log('\nall ok');

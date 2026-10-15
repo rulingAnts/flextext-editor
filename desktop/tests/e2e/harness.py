@@ -27,6 +27,7 @@ import stage_engine                                            # noqa: E402
 
 OLD_LINK = "C:\\Old Machine\\Recordings\\Session-01.wav"
 PARAS = ["aaa bbb ccc.", "ddd eee fff.", "ggg hhh."]
+STRUCT = ["aaa bbb ccc", "ddd eee fff", "ggg hhh"]
 
 
 def free_port():
@@ -35,15 +36,16 @@ def free_port():
         return s.getsockname()[1]
 
 
-def wav(path, seconds=3.0, rate=8000):
-    """A short tone with two pauses, so the Cut tab has something to show."""
+def wav(path, seconds=5.0, rate=8000):
+    """Three 1.2 s bursts of tone with 0.6 s pauses between them: what the Segmenter's cut-by-pauses
+    needs to find three lines (segments.js GUESS_MIN_GAP_MS 350, GUESS_MIN_LINE_MS 900)."""
     import math
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     frames = bytearray()
     for i in range(int(seconds * rate)):
         t = i / rate
-        on = (t % 1.0) < 0.7
+        on = (t % 1.8) < 1.2
         v = int(8000 * math.sin(2 * math.pi * 220 * t)) if on else 0
         frames += int(v).to_bytes(2, "little", signed=True)
     with wave.open(str(path), "wb") as w:
@@ -52,6 +54,15 @@ def wav(path, seconds=3.0, rate=8000):
         w.setframerate(rate)
         w.writeframes(bytes(frames))
     return str(path)
+
+
+class Clipboard:
+    def __init__(self):
+        self.text = None
+
+    def __call__(self, text):
+        self.text = text
+        return True
 
 
 class Picker:
@@ -76,9 +87,24 @@ def start(tmp):
     (projects / "media-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
     in_lf = wav(projects / "media-proj" / "LinkedFiles" / "AudioVisual" / "session-01.WAV")
     elsewhere = wav(tmp / "Elsewhere" / "another-name.wav")
+    # the Matcher's ✂ and ⤴ on a FLEx text: phrases with free translations and no stops (so FLEx can join
+    # them), and a link that resolves; a marked disposable copy, so writes are allowed
+    MockLcm.create_project(str(projects), "struct-write", texts=[{"title": "Struct text", "paragraphs": STRUCT, "media": [in_lf]}])
+    (projects / "struct-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("struct-write", write=True)
+    doc = b.read_text(b.list_texts()[0]["guid"])
+    h = b.begin_uow("fixture", "fixture")
+    for i, para in enumerate(doc["paragraphs"]):
+        for seg in para["segments"]:
+            b.set_free_translation(seg["guid"], "en", "the free translation of line %d" % (i + 1))
+    b.commit(h)
+    b.save()
+    b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
-    api = Api(MockBackendFactory(str(projects)), engine_root=engine, pick_file_fn=picker,
+    clip = Clipboard()
+    api = Api(MockBackendFactory(str(projects)), engine_root=engine, pick_file_fn=picker, copy_text_fn=clip,
               state_dir=str(tmp / "state"), export_dir=str(tmp / "exports"))
     port = free_port()
     shell = srv.start(engine, port=port, connect_origins=api._connect_origins(), media=api._media)
@@ -97,6 +123,8 @@ def start(tmp):
                 out = {"ok": True}
             elif method == "__pickCalls":
                 out = {"ok": True, "result": picker.calls}
+            elif method == "__clipboard":
+                out = {"ok": True, "result": clip.text}
             elif method.startswith("_") or not callable(getattr(api, method, None)):
                 out = {"ok": False, "error": {"code": "E_INTERNAL", "message": "no such method " + method}}
             else:

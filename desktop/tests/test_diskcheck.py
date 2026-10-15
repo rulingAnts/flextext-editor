@@ -166,3 +166,14 @@ def test_real_mock_save_pair_round_trips_through_the_validator(tmp_path):
     d = dc.diff_rt(fw[:-7] + ".bak", fw)
     allowed = {"classes": {"Segment"}, "touchedOwners": {tg}, "expect": {seg["guid"]: {"FreeTranslation": "written by the test, long enough to change the file length"}}}
     assert dc.check(d, allowed, dc.load_rt(fw)) == []
+
+
+def test_a_new_section_form_nothing_references_is_explained_only_when_the_preview_allowed_it():
+    """A paragraph join writes a § only for the phrase join to delete it: FLEx's new § PunctuationForm is
+    then referenced by no segment. That one form, and only when the preview counted it, is explained."""
+    def added(form):
+        return {"added": {"pf": {"cls": "PunctuationForm", "owner": None, "fields": {"Form": form}, "hash": "h"}}, "removed": {}, "changed": {}}
+    allowed = {"classes": {"PunctuationForm"}, "touchedOwners": {"text"}, "countDeltas": {"PunctuationForm": 1}}
+    assert dc.check(added("§"), dict(allowed, newPunctForms={"§"})) == []
+    assert [p["why"] for p in dc.check(added("§"), allowed)] == ["new object outside every touched text"]
+    assert [p["why"] for p in dc.check(added(","), dict(allowed, newPunctForms={"§"}))] == ["new object outside every touched text"]

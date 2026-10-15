@@ -11,10 +11,11 @@ code relies on is labelled in comments as the plan labels it — **[verified]** 
 
 A Windows-only **pywebview** (Edge WebView2) shell around the Audio Segmenter. It serves the *same
 engine* as the web app from `http://127.0.0.1:8017/` and adds the FLEx features that only make
-sense beside a local FieldWorks: open a FLEx text, edit it in the Segmenter, **Save to FLEx**
-(preview → verified backup → one atomic unit of work → disk read-back), relink a missing
-recording, import a `.flextext` with FLEx's own importer, export a text as an editor bundle, copy a
-line as FLEx's Print view. Everything outside FLEx is identical to the web app.
+sense beside a local FieldWorks: open a FLEx text in the Segmenter's **Matcher** (cut the recording,
+match it to the lines, split or join lines), **Save to FLEx** from the text's row (preview → verified
+backup → one atomic unit of work → disk read-back), find a recording whose link points nowhere and fix
+the link, import a `.flextext` with FLEx's own importer, export a text as an editor bundle, copy a
+line as FLEx's Print view. Everything outside FLEx is identical to the web app (plan §11.1).
 
 ## Layout
 
@@ -106,12 +107,14 @@ LINGTEX_TOOLS=/path/to/LingTeX-Tools node test/printview-lingtex.test.mjs   # SK
 ./check-native-containment.sh               # the containment rules + the whole engine suite
 ```
 
-`desktop/tests/test_e2e_media.py` drives the find-the-recording flow end to end in headless Chromium
-— the real bridge object over the mock backend, the real local server, the staged engine, from opening
-a read-only project to a Save to FLEx that fixes the link on a disposable copy. It needs Node with
-Playwright and a Chromium (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them.
-It is the first thing to run after touching `flex-panel.js`, `api.py` or the server's CSP: it found
-the CSP that loaded every recording and played none before any VM did.
+`desktop/tests/test_e2e_media.py` drives the shell end to end in headless Chromium — the real bridge
+object over the mock backend, the real local server, the staged engine: finding a recording (read-only),
+the Matcher's ✨ → Done → Save to FLEx, Fix link, Undo/Redo of both, a split with a Sentence break and a
+join across paragraphs saved to FLEx, Copy line. It needs Node with Playwright and a Chromium
+(`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them. It is the first thing to run
+after touching `flex-panel.js`, `flex-ops.js`, `api.py`, `protocol.py` or the server's CSP: it found the
+CSP that loaded every recording and played none before any VM did, and with the protocol tests it found
+four save paths that rolled back or poisoned on texts FLEx itself wrote (plan §5.4, 2026-10-15).
 
 ## Write safety, in one paragraph
 
@@ -128,7 +131,7 @@ changed `rt` in the allowed classes, under a touched text, with the intended val
 unexplained. Any failure after the commit **poisons**: the cache is disposed WITHOUT saving (never
 flexicon's `CloseProject()`, which saves), the suspect `.fwdata` is renamed `.fwdata.failed-<ts>`
 (never deleted), and the user is offered `.bak` or FLEx ▸ File ▸ Restore. Undo Save to FLEx / Redo
-Save to FLEx are the shell's own buttons; the editor's Ctrl+Z never writes to FLEx.
+Save to FLEx are the shell's own buttons; the Segmenter's own Undo never writes to FLEx.
 
 ## Copy-only builds
 
@@ -207,7 +210,13 @@ In this order. The scripts refuse a folder without the copy marker.
    recording link…", confirm, and in FLEx check that the text's media plays (this is also V-11: the
    path form FLEx expects). Report what the links in the field actually look like (URI, absolute,
    relative) — only the forms, never the paths.
-6. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
+6. **The Matcher on real data (plan §11.1)** — a marked disposable copy opened for writing: open a text
+   (it opens in the Matcher), ✨ or cut by hand, Done, then on the text's row Save to FLEx…, confirm, and
+   check the times in FLEx. Then ✂ a line at a pause (with the device's break kind as it is — Sentence
+   makes a new paragraph), Done, Save; ⤴ two lines FLEx parted with a `§`, Done, Save; look at both in
+   FLEx's Baseline and Interlinear tabs. A join across a full stop should be refused before the
+   preview. This is the first run of the four fixes in plan §5.4 on real LCM.
+7. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
 
 ## Decisions still Seth's (plan §14, plus new ones from the build)
 

@@ -143,6 +143,17 @@ console.log('\nthe Matcher, lifted: split, insert and the padding at Done honour
   m = matcher([line('ln0', [W('aaa'), W('bbb'), W('ccc')]), line('ln1', [W('ddd')])], 'sentence');
   m.mgSplitLine('ln0', 1, 0);
   ok(m.MG.lines.length === 3 && m.MG.lines.every((l) => l.paraOf == null), 'sentence (the default): a split on a flat text makes paragraphs, as before');
+  {
+    // the first half IS the phrase that was split (FLEx keeps a split segment's GUID and notes); the second is new
+    const seg = makeSegment('aaa bbb ccc', [W('aaa'), W('bbb'), W('ccc')],
+      { attrs: { guid: 'S1', 'begin-time-offset': '0', 'end-time-offset': '900' }, postItemsXML: ['<item type="note" lang="en">n</item>'] });
+    m = matcher([{ id: 'ln0', guid: 'gln0', phrases: [seg], paraOf: 'P1' }], 'clause');
+    m.mgSplitLine('ln0', 1, 0);
+    const [a, b] = m.MG.lines.map((l) => l.phrases[0]);
+    ok(a.attrs.guid === 'S1' && b.attrs.guid && b.attrs.guid !== 'S1', 'a split: the first half keeps the phrase\'s guid, the second gets its own');
+    ok(!('begin-time-offset' in a.attrs) && !('end-time-offset' in a.attrs), 'and not its time offsets (half an extent is not an extent)');
+    ok(a.postItemsXML.length === 1 && !b.postItemsXML.length, 'its notes stay on the first half, as FLEx keeps them');
+  }
   m = matcher([line('ln0', [W('aaa')], 'P1'), line('ln1', [W('bbb')], 'P1')], 'clause');
   m.mgInsertLine(0);
   ok(groups(m.MG.lines) === 'P1,P1,P1', 'a blank line inserted as a clause joins the paragraph');

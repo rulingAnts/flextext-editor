@@ -489,7 +489,7 @@ console.log('\ntext ⤴ joins PHRASES into one — two phrases in a paragraph is
   const split = fn(app, 'mgSplitLine');
   ok(/if \(flat\[k\]\.punct\) continue;/.test(split),
      'a split maps the VISIBLE word index onto the unfiltered word list (the pane hides punctuation)');
-  ok(/mk\(flat\.slice\(0, at\), left, 'a'\), mk\(flat\.slice\(at\), right, 'b'\)/.test(split),
+  ok(/mk\(flat\.slice\(0, at\), left, 'a'[,)][\s\S]*mk\(flat\.slice\(at\), right, 'b'[,)]/.test(split),
      'and the halves get distinct ids by construction, not by comparing free translations');
   ok(split.indexOf('mgCapture()') > split.indexOf("toast(t('mg.badSplit'))"),
      'a refused split leaves no undo step behind');

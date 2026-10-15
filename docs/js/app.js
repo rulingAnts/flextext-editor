@@ -1017,8 +1017,6 @@ function enterEditor(tab) {
   updateShareButton();
   applyCutTabVisibility();
   switchTab(landingTab(tab), /* landing */ true);
-  // the FLEx shell's panel (flex-panel.js) adds its row to the editor header; nothing listens in a browser
-  document.dispatchEvent(new CustomEvent('flextext:editor-entered'));
 }
 
 /* Is this doc still UNCUT — i.e. has nobody done segmentation work on it yet? True for the seeds
@@ -10015,11 +10013,15 @@ function renderSegmenterView() {
   document.dispatchEvent(new CustomEvent('flextext:home-rendered'));
 }
 
+// The FLEx shell's own records (flex-panel.js): it lists them in its section, under their project, so
+// this list does not show them a second time without one. Null everywhere else.
+let sgListHide = null;
 async function sgRenderList() {
   const ul = $('#sg-list');
   if (!ul) return;
   // One list read and one media-key read for the whole library, not a getMedia per row.
-  const [docs, have] = await Promise.all([db.listDocs(), db.mediaKeys().catch(() => new Set())]);
+  const [all, have] = await Promise.all([db.listDocs(), db.mediaKeys().catch(() => new Set())]);
+  const docs = sgListHide ? all.filter((d) => !sgListHide(d)) : all;
   const empty = $('#sg-empty');
   if (empty) empty.hidden = docs.length > 0;
   ul.innerHTML = '';
@@ -10067,6 +10069,9 @@ async function sgRenderList() {
     ul.appendChild(li);
   }
   syncArrivalTicker();   // paints the arriving rows now, and keeps them moving while any is
+  // the FLEx shell's panel refreshes its text rows (what is in the app, what is not yet in FLEx); nothing
+  // listens in a browser, and the tests that lift this have no document
+  if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('flextext:list-rendered'));
 }
 
 async function sgOpen(id) {
@@ -10648,13 +10653,26 @@ function mgSplitLine(id, wordIdx, ftCharIdx) {
   // ⚠ The suffix is EXPLICIT. It used to come from which half a free translation matched, so with
   // no free translation both halves were '…a' — two lines, one id, and a map that could only ever
   // reach the first of them.
-  const mk = (words, free, sfx) => ({
+  const mk = (words, free, sfx, opts) => ({
     id: line.id + sfx,
     guid: newGuid(),
     paraOf: line.paraOf,
-    phrases: [makeSegment(baselineFromWords(words), words, { free })],
+    phrases: [makeSegment(baselineFromWords(words), words, { free, ...opts })],
   });
-  MG.lines.splice(i, 1, mk(flat.slice(0, at), left, 'a'), mk(flat.slice(at), right, 'b'));
+  /* THE FIRST HALF IS THE PHRASE THAT WAS SPLIT, the second a new one — as FLEx itself splits a segment
+   * (the first keeps its GUID, notes and other items; plans/flex-desktop-segmenter.md §6). Two fresh
+   * phrases told a FLEx-bound save that a phrase had vanished, and joining the halves back could not
+   * bring its GUID back. Its time offsets do not ride: half an extent is not an extent. */
+  const ph0 = line.phrases[0] || {};
+  const attrs = { ...(ph0.attrs || {}) };
+  delete attrs['begin-time-offset'];
+  delete attrs['end-time-offset'];
+  const keep = { attrs, freeLang: ph0.freeLang ?? null, preItemsXML: ph0.preItemsXML || [], postItemsXML: ph0.postItemsXML || [] };
+  const a = mk(flat.slice(0, at), left, 'a', attrs.guid ? keep : {});
+  const b = mk(flat.slice(at), right, 'b', { freeLang: ph0.freeLang ?? null });
+  if (ph0.txtLang) { a.phrases[0].txtLang = ph0.txtLang; b.phrases[0].txtLang = ph0.txtLang; }
+  if (attrs.guid && ph0.flex) a.phrases[0].flex = { ...ph0.flex };
+  MG.lines.splice(i, 1, a, b);
   applyNewLineBreak(MG.lines, i + 1, breakKindSetting());   // the new boundary is a Sentence or a Clause break (Seth, 2026-10-14)
   mgDraw();
 }
@@ -11660,6 +11678,9 @@ function mgClose() {
   // update flush — and re-queued for upload as "changed" when nothing changed.
   current = null;
   show('segmenter');
+  // the FLEx shell's panel re-reads its text rows (a draft, a recording now in the app); nothing listens in a
+  // browser, and the tests that lift mgClose have no document
+  if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('flextext:matcher-closed'));
 }
 
 /* Throw the unfinished work away and begin from the committed document. The ONLY path that
@@ -11758,6 +11779,9 @@ async function mgOpen(id) {
   show('matcher');
   mgDraw();
   mgPrepareAudio(id);   // not awaited — see the comment on it
+  // the FLEx shell's panel adds its strip under the bar for a FLEx text; nothing listens in a browser,
+  // and the tests that lift mgOpen have no document
+  if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('flextext:matcher-entered'));
 }
 
 function setupSegmenterMode() {
@@ -12820,17 +12844,24 @@ enforceTyping(document);
 /* THE FLEx DESKTOP SHELL (desktop/, plans/flex-desktop-segmenter.md). In a browser whenFlexReady()
  * resolves false after a short wait and nothing below runs — the FLEx UI module is never even fetched,
  * which is why it needs no SHELL entry. In the shell it adds the project section to the Segmenter's home
- * and the FLEx row to the editor. Only the Segmenter wears it (the shell IS the Segmenter). */
+ * and a FLEx strip to the Matcher; a FLEx text opens in the Matcher like any text of this app. Only the
+ * Segmenter wears it (the shell IS the Segmenter). */
 if (SEGMENTER_MODE) {
   whenFlexReady().then((ready) => {
     if (!ready || !isFlexShell()) return;
     return import('./flex-panel.js').then((m) => m.initFlexPanel({
       db, t, toast, confirmDialog, docStats,
       getCurrent: () => current,
-      openRecord: (id) => sgOpen(id),
-      persist: () => persist(),
-      flush: () => { try { commitFieldUndo(); } catch { /* no field focused */ } return Promise.resolve(); },
-      activeLine: () => { const p = activeLineOnLeave(activeTab); return p && Number.isInteger(p.i) ? p.i : 0; },
+      // A FLEx text opens in THIS app's Matcher, exactly as the Segmenter's own list opens a text
+      // (Seth, 2026-10-15: "the Audio Segmenter app for audio segmenting/matching is what I want").
+      openRecord: (id) => mgOpen(id),
+      // the FLEx phrase under the Matcher's selected line, for "Copy line as FLEx Print view"
+      selectedSegGuid: () => {
+        const ln = MG && MG.selLine ? MG.lines.find((l) => l.id === MG.selLine) : null;
+        const seg = ln && ln.phrases && ln.phrases[0];
+        return (seg && seg.attrs && seg.attrs.guid) || null;
+      },
+      hideFromList: (fn) => { sgListHide = fn; sgRenderList(); },
       fetchMedia: async (docId, url, name) => {
         const res = await fetch(url);
         if (!res.ok) throw new Error('media ' + res.status);

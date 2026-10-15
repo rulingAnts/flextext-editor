@@ -15,7 +15,7 @@
  *
  * Format-module rule: imports nothing but format modules, no DOM, no i18n. Node-testable. */
 
-import { isBoundaryMarker, flexPhraseWarnings } from './flextext.js';
+import { isBoundaryMarker, flexPhraseWarnings, FLEX_EOS } from './flextext.js';
 
 const SECTION = '§';
 
@@ -31,6 +31,12 @@ const timesOf = (seg, span) => {
   return null;
 };
 const sameTimes = (a, b) => (!a && !b) || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
+// The phrase ends at real end-of-sentence punctuation (not FLEx's § marker): FLEx does not join across it.
+const endsAtStop = (seg) => {
+  const toks = (seg.words || []).filter((w) => String(w.txt || '').trim());
+  const last = toks[toks.length - 1];
+  return !!last && !!last.punct && !isBoundaryMarker(last) && FLEX_EOS.test(last.txt);
+};
 
 /* One FLEx-paragraph group: consecutive lines sharing a paraOf. */
 function groups(doc) {
@@ -108,62 +114,139 @@ export function diffFlexDoc(base, cur, opts = {}) {
   const curIndexOf = new Map();
   cur.paragraphs.forEach((line, i) => { const s = line.segments[0]; if (s) curIndexOf.set(segGuid(s), i); });
 
+  /* ---- phrase structure, in document order (plan §6). FLEx makes phrases from the baseline's
+   * punctuation and §: a split inserts a § (the first half keeps the segment's GUID, the second is new),
+   * a join removes one, and two sentences parted by a real stop are not FLEx's to join without changing
+   * the text. The Matcher's ✂ and ⤴ make exactly these shapes; anything else is refused, never guessed. */
+  const baseOrder = base.paragraphs.map((line) => line.segments[0]).filter(Boolean);
+  const groupOf = (seg) => baseLines.get(segGuid(seg)).group;
+  const structural = new Set();   // phrases a split or a join reshapes: their words travel with the op
+  const joined = new Set();
+  const crossed = new Set();      // paragraph groups a join merges into the paragraph before them
+  const newPhrases = new Map();   // guid of a phrase a split makes → its base paragraph group key
+  // JOINS: base phrases gone from cur whose words now end the nearest surviving phrase before them
+  for (let k = 0; k < baseOrder.length; k++) {
+    const s = baseOrder[k];
+    if (!curIndexOf.has(segGuid(s))) continue;
+    const run = [];
+    for (let j = k + 1; j < baseOrder.length && !curIndexOf.has(segGuid(baseOrder[j])); j++) run.push(baseOrder[j]);
+    if (!run.length) continue;
+    const now = cur.paragraphs[curIndexOf.get(segGuid(s))].segments[0];
+    if (lexForms(now).join('\u0001') !== [s, ...run].flatMap(lexForms).join('\u0001')) {
+      run.forEach((v) => unsupported.push({ why: 'phraseRemoved', segGuid: segGuid(v), paraGuid: groupOf(v).key }));
+      continue;
+    }
+    const pg = groupOf(s).key;
+    const these = [], merged = [];
+    let left = s, g = groupOf(s), why = null;
+    for (const v of run) {
+      if (endsAtStop(left)) { why = 'joinAtStop'; break; }
+      const gv = groupOf(v);
+      if (gv !== g) {
+        // across a paragraph break: FLEx joins the paragraphs, then the phrases — only when v opens its
+        // paragraph and the rest of that paragraph is in the survivor's paragraph now (or joined too)
+        const opens = base.paragraphs[gv.lines[0]].segments[0] === v;
+        const rest = gv.lines.map((li) => base.paragraphs[li].segments[0]).filter((x) => x !== v);
+        const moved = rest.every((x) => (curIndexOf.has(segGuid(x)) ? paraOf(cur.paragraphs[curIndexOf.get(segGuid(x))]) === pg : run.includes(x)));
+        if (!opens || !moved) { why = 'joinAcrossParagraphs'; break; }
+        these.push({ op: 'para.toPhrase', paraGuid: pg });
+        merged.push(gv.key);
+        g = gv;
+      }
+      these.push({ op: 'phrase.join', paraGuid: pg, segGuid: segGuid(s), endTime: null });
+      left = v;
+    }
+    if (why) { unsupported.push({ why, segGuid: segGuid(run[0]), paraGuid: groupOf(run[0]).key }); continue; }
+    ops.push(...these);
+    merged.forEach((key) => { crossed.add(key); touched.add(key); });
+    touched.add(pg);
+    structural.add(segGuid(s));
+    joined.add(segGuid(s));
+  }
+
   // ---- paragraph boundaries: for each adjacent pair of cur lines whose phrases both exist in base
+  // (a boundary a join above already crossed is not crossed twice)
   for (let i = 1; i < cur.paragraphs.length; i++) {
     const a = cur.paragraphs[i - 1], b = cur.paragraphs[i];
     const ga = baseLines.get(segGuid(a.segments[0])), gb = baseLines.get(segGuid(b.segments[0]));
     if (!ga || !gb) continue;
     const wasBreak = ga.group !== gb.group;
     const isBreak = paraOf(a) !== paraOf(b);
-    if (wasBreak && !isBreak) { ops.push({ op: 'para.toPhrase', paraGuid: ga.group.key }); touched.add(ga.group.key); touched.add(gb.group.key); }
-    else if (!wasBreak && isBreak) { ops.push({ op: 'phrase.toPara', paraGuid: ga.group.key, segGuid: segGuid(ga.seg), newPara: paraOf(b) }); touched.add(ga.group.key); }
+    if (wasBreak && !isBreak) {
+      if (!crossed.has(gb.group.key)) { ops.push({ op: 'para.toPhrase', paraGuid: ga.group.key }); touched.add(ga.group.key); touched.add(gb.group.key); }
+    } else if (!wasBreak && isBreak) { ops.push({ op: 'phrase.toPara', paraGuid: ga.group.key, segGuid: segGuid(ga.seg), newPara: paraOf(b) }); touched.add(ga.group.key); }
   }
 
-  // ---- phrase structure within each base paragraph group
-  for (const g of baseGroups) {
-    const pg = g.key;
-    const baseSegs = g.lines.map((li) => base.paragraphs[li].segments[0]);
-    const curSegsHere = cur.paragraphs.filter((ln) => paraOf(ln) === pg || (ln.flex && ln.flex.paraGuid === pg)).map((ln) => ln.segments[0]);
-    const curGuids = curSegsHere.map(segGuid);
-    const baseGuids = baseSegs.map(segGuid);
-    // JOIN: a base phrase vanished and its words now sit at the end of the previous surviving phrase
-    for (let k = 0; k < baseSegs.length; k++) {
-      if (curGuids.includes(baseGuids[k])) continue;
-      const prev = baseSegs[k - 1];
-      const target = prev && curSegsHere.find((s) => segGuid(s) === segGuid(prev));
-      if (target) {
-        const expect = baseText(prev) + ' ' + baseText(baseSegs[k]);
-        if (baseText(target).startsWith(baseText(prev)) && (baseText(target) === expect || true)) {
-          const span = (cur.segments || [])[curIndexOf.get(segGuid(target))];
-          const t = timesOf(target, span);
-          ops.push({ op: 'phrase.join', paraGuid: pg, segGuid: segGuid(prev), endTime: t ? t[1] : null });
-          touched.add(pg);
-          continue;
-        }
-      }
-      unsupported.push({ why: 'phraseRemoved', segGuid: baseGuids[k], paraGuid: pg });
+  const examined = new Set();     // every phrase base never had that follows a base phrase
+  // SPLITS: a base phrase followed in cur by phrases base never had, whose words continue it. Each new
+  // phrase is a split of the one before it, all inside the base paragraph (so the splits run first); a
+  // new phrase that opens a paragraph of its own (a Sentence break) then moves to it (afterSplit).
+  for (let i = 0; i < cur.paragraphs.length; i++) {
+    const s = cur.paragraphs[i].segments[0];
+    if (!s || !baseLines.has(segGuid(s))) continue;
+    const pieces = [s];
+    for (let j = i + 1; j < cur.paragraphs.length; j++) {
+      const n = cur.paragraphs[j].segments[0];
+      if (!n || baseLines.has(segGuid(n))) break;
+      pieces.push(n);
     }
-    // SPLIT: a cur phrase with a guid base never had, inside this paragraph, right after a base phrase
-    curSegsHere.forEach((s, i) => {
-      if (baseGuids.includes(segGuid(s))) return;
-      const prev = curSegsHere[i - 1];
-      const bprev = prev && baseLines.get(segGuid(prev));
-      if (!bprev) { unsupported.push({ why: 'newPhraseWithoutSource', segGuid: segGuid(s), paraGuid: pg }); return; }
-      const baseForms = lexForms(bprev.seg);
-      const left = lexForms(prev), right = lexForms(s);
-      if (left.concat(right).join('\u0001') !== baseForms.join('\u0001')) {
-        // a split AND a word edit in one save: refuse rather than guess (R9-style conservatism)
-        unsupported.push({ why: 'splitWithTextChange', segGuid: segGuid(s), paraGuid: pg });
-        return;
+    if (pieces.length === 1) continue;
+    pieces.slice(1).forEach((p) => examined.add(segGuid(p)));
+    const b = baseLines.get(segGuid(s));
+    const pg = b.group.key;
+    if (joined.has(segGuid(s))) { unsupported.push({ why: 'splitAndJoin', segGuid: segGuid(s), paraGuid: pg }); continue; }
+    if (pieces.flatMap(lexForms).join('\u0001') !== lexForms(b.seg).join('\u0001')) {
+      // the phrase itself unchanged: the lines after it were ADDED (+, or Done's padding for leftover
+      // audio); otherwise a split whose words were also edited
+      const added = lexForms(s).join('\u0001') === lexForms(b.seg).join('\u0001');
+      unsupported.push({ why: added ? 'addedLine' : 'splitWithTextChange', segGuid: segGuid(pieces[1]), paraGuid: pg });
+      continue;
+    }
+    // a piece with no word is a line added with nothing in it (FLEx makes no phrase without a letter, D4)
+    const empty = pieces.find((p) => !lexForms(p).length);
+    if (empty) { unsupported.push({ why: 'addedLine', segGuid: segGuid(empty), paraGuid: pg }); continue; }
+    const idx = pieces.map((p) => curIndexOf.get(segGuid(p)));
+    const times = pieces.map((p, t) => timesOf(p, (cur.segments || [])[idx[t]]));
+    const allTimed = times.every(Boolean);
+    const toParas = [];
+    let para = pg;
+    for (let t = 0; t + 1 < pieces.length; t++) {
+      const rest = { words: pieces.slice(t).flatMap((p) => p.words || []) };   // the FLEx segment being split, as it is then
+      ops.push({ op: 'phrase.split', paraGuid: pg, segGuid: segGuid(pieces[t]), afterWordIndex: analysisIndex(rest, lexForms(pieces[t]).length - 1),
+                 newPhrase: segGuid(pieces[t + 1]), times: allTimed ? [times[t], times[t + 1]] : null });
+      newPhrases.set(segGuid(pieces[t + 1]), pg);
+      const pa = paraOf(cur.paragraphs[idx[t]]), pb = paraOf(cur.paragraphs[idx[t + 1]]);
+      if (pb !== pa && pb != null) {
+        toParas.push({ op: 'phrase.toPara', paraGuid: para, segGuid: segGuid(pieces[t]), newPara: pb, afterSplit: true });
+        touched.add(pb);
+        para = pb;
       }
-      const spanL = (cur.segments || [])[curIndexOf.get(segGuid(prev))], spanR = (cur.segments || [])[curIndexOf.get(segGuid(s))];
-      const tl = timesOf(prev, spanL), tr = timesOf(s, spanR);
-      ops.push({ op: 'phrase.split', paraGuid: pg, segGuid: segGuid(prev), afterWordIndex: analysisIndex(bprev.seg, left.length - 1),
-                 newPhrase: segGuid(s), times: tl && tr ? [tl, tr] : null });
-      touched.add(pg);
-    });
+    }
+    ops.push(...toParas);
+    if (!allTimed) {
+      pieces.forEach((p, t) => ops.push({ op: 'times.set', paraGuid: pg, segGuid: segGuid(p), begin: times[t] ? times[t][0] : null, end: times[t] ? times[t][1] : null }));
+    }
+    pieces.forEach((p) => structural.add(segGuid(p)));
+    touched.add(pg);
   }
-  const structural = new Set(ops.filter((o) => o.op === 'phrase.split' || o.op === 'phrase.join').flatMap((o) => [o.segGuid, o.newPhrase]));
+  // Phrases base never had before its first phrase (a line added at the very top): nothing to split from.
+  cur.paragraphs.forEach((line) => {
+    const seg = line.segments[0];
+    if (!seg || baseLines.has(segGuid(seg)) || examined.has(segGuid(seg))) return;
+    unsupported.push({ why: lexForms(seg).length ? 'newPhraseWithoutSource' : 'addedLine', segGuid: segGuid(seg), paraGuid: paraOf(line) });
+  });
+
+  // A reshaped phrase carries its words' glosses as they were; a gloss edited in the same save is
+  // refused, never dropped (save the reshaping first, then gloss).
+  const baseGls = new Map();
+  base.paragraphs.forEach((ln) => ln.segments.forEach((sg) => (sg.words || []).forEach((w) => { if (w.guid) baseGls.set(w.guid, w.gls || ''); })));
+  cur.paragraphs.forEach((line) => {
+    const seg = line.segments[0];
+    if (!seg || !(structural.has(segGuid(seg)) || newPhrases.has(segGuid(seg)))) return;
+    if ((seg.words || []).some((w) => w.guid && baseGls.has(w.guid) && baseGls.get(w.guid) !== (w.gls || ''))) {
+      unsupported.push({ why: 'structureWithGlossChange', segGuid: segGuid(seg), paraGuid: paraOf(line) });
+    }
+  });
 
   // ---- per surviving phrase: words, glosses, FT, times
   cur.paragraphs.forEach((line, li) => {
@@ -171,7 +254,12 @@ export function diffFlexDoc(base, cur, opts = {}) {
     if (!seg) return;
     const sg = segGuid(seg);
     const b = baseLines.get(sg);
-    if (!b) return;
+    if (!b) {
+      // a phrase a split made: FLEx gives it no free translation, so the one here is set after the split
+      const npg = newPhrases.get(sg);
+      if (npg != null && (seg.free || '')) { ops.push({ op: 'ft.set', paraGuid: npg, segGuid: sg, ws: seg.freeLang || ws, value: seg.free }); touched.add(npg); }
+      return;
+    }
     const pg = b.group.key;
     const oldForms = lexForms(b.seg), newForms = lexForms(seg);
     if (!structural.has(sg) && oldForms.join('\u0001') !== newForms.join('\u0001')) {
@@ -197,7 +285,11 @@ export function diffFlexDoc(base, cur, opts = {}) {
     }
     if ((seg.free || '') !== (b.seg.free || '')) { ops.push({ op: 'ft.set', paraGuid: pg, segGuid: sg, ws: seg.freeLang || ws, value: seg.free || '' }); touched.add(pg); }
     const tNow = timesOf(seg, (cur.segments || [])[li]), tWas = timesOf(b.seg, b.span);
-    if (!sameTimes(tNow, tWas) && !structural.has(sg)) {
+    // a join survivor's times are set outright: FLEx's join keeps the first phrase's start, the last one's end
+    if (joined.has(sg) && (tNow || tWas)) {
+      ops.push({ op: 'times.set', paraGuid: pg, segGuid: sg, begin: tNow ? tNow[0] : null, end: tNow ? tNow[1] : null });
+      touched.add(pg);
+    } else if (!sameTimes(tNow, tWas) && !structural.has(sg)) {
       ops.push({ op: 'times.set', paraGuid: pg, segGuid: sg, begin: tNow ? tNow[0] : null, end: tNow ? tNow[1] : null });
       touched.add(pg);
     }
@@ -295,9 +387,13 @@ export function flexDocId(projectName, textGuid) {
   return 'flex-' + String(textGuid || '').replace(/[^A-Za-z0-9-]/g, '') + '-' + h.toString(36);
 }
 
+/* A FLEx text's local record (flexDocId); the app's own records have GUID ids. */
+export const isFlexDocId = (id) => /^flex-/.test(String(id || ''));
+
 /* What re-opening a FLEx text does with its local record — never discard local work silently.
- * Local work = a stamped edit since the record was loaded from FLEx (persist() stamps `modified`;
- * opening and the engine's quiet writes do not), or a Segmenter draft in progress.
+ * Local work = a stamped edit since the record was loaded from FLEx (persist() and the Matcher's Done
+ * stamp `modified`; opening and the engine's quiet writes do not), a Segmenter draft in progress, or a
+ * save to FLEx that was undone (`flex.dirty`: the work is here and no longer in FLEx).
  *   'new'     no local record yet
  *   'keep'    FLEx unchanged → open the local record (with or without local work, it is FLEx's text
  *             plus whatever was done here)
@@ -305,7 +401,7 @@ export function flexDocId(projectName, textGuid) {
  *   'ask'     both changed → the user decides; the safe answer keeps the local work */
 export function reopenDecision(rec, baseRev) {
   if (!rec || !rec.flex) return 'new';
-  const local = (Number(rec.modified) || 0) > (Number(rec.flex.loadedAt) || 0) || !!rec.matchDraft;
+  const local = (Number(rec.modified) || 0) > (Number(rec.flex.loadedAt) || 0) || !!rec.matchDraft || !!rec.flex.dirty;
   const flexChanged = rec.flex.baseRev !== baseRev;
   if (!flexChanged) return 'keep';
   return local ? 'ask' : 'replace';
@@ -320,9 +416,10 @@ export function recordingLink(media) {
 
 /* What a Save to FLEx carries for a recording this app found itself (§8.2): a RELINK of the link
  * that points nowhere, or an ATTACH when the text has no link (diffFlexDoc adds it only when the
- * save also writes times, D9). Nothing once FLEx's own link resolves again. */
+ * save also writes times, D9). Nothing once FLEx has a link that resolves — fixed here, fixed in FLEx,
+ * or attached there since. */
 export function pendingMediaFix(flexState) {
   const f = flexState && flexState.mediaFix;
-  if (!f || !f.path || (flexState.linkOk && f.uriGuid)) return {};
+  if (!f || !f.path || flexState.linkOk) return {};
   return f.uriGuid ? { relink: { uriGuid: f.uriGuid, path: f.path } } : { media: f.path };
 }

@@ -557,12 +557,27 @@ Expected disk-diff classes per op (from the verified runs; plus `LangProject`/`S
 | FT / LT edit | `Segment` |
 | times | `Segment` |
 | § split / join / move | `StTxtPara`, `Segment` (+/−), `PunctuationForm` (+ on first use) |
-| paragraph split / join / convert | `StTxtPara` (+/−), `StText`, `Segment` |
+| paragraph split / join / convert | `StTxtPara` (+/−), `StText`, `Segment`; `PunctuationForm` (+ on first use, when a join appends `§`) |
 | word split / insert | `StTxtPara`, `Segment`, `WfiWordform` (+) |
 | gloss set | `Segment`, `WfiGloss` (+ or edited single-use), `WfiAnalysis` (gains a gloss; + new trivial analysis; its evaluations change on approval — exact objects **[unverified]**, V-12), `WfiMorphBundle` (+ only with a new trivial analysis) |
 | relink | `CmMediaURI` |
 | media attach | `Text`, `CmMediaContainer` (+), `CmMediaURI` (+), `Segment` |
 | import | the new `Text` subtree, `WfiWordform`/`WfiAnalysis`/`WfiGloss`/`PunctuationForm` (+) |
+
+**Found by the tests, 2026-10-15** (each would have stopped real saves; none had a test before):
+
+- The engine's intended post-state carries FLEx's phrase-final `§` words; the re-read drops them. As
+  sent, every save touching a paragraph whose phrases end in `§` — every text FLEx's importer wrote —
+  compared "words differ" and rolled back. `model.normalize_post_state` makes the engine's side
+  marker-agnostic too, at preview, so the comparison and the blocker checks see the same thing.
+- A paragraph join removes the paragraph merged into the one before it. It was not counted as
+  touched, so "an untouched paragraph changed" rolled every paragraph join back. The preview marks it.
+- FLEx makes the `§` `PunctuationForm` once, the first time a save writes a `§`; the preview counted
+  one per split and none for a paragraph join. Now once per save, from whichever op writes the first.
+- A paragraph join followed by the phrase join deletes the `§` it wrote, so the new form is referenced
+  by nothing: the disk check called it "new object outside every touched text" and would have
+  POISONED a save that had succeeded. Exactly that form, and only when the preview counted it
+  (`newPunctForms`), is now explained.
 
 ### 5.5 Undo / redo of a save
 
@@ -727,6 +742,25 @@ the adjuster merge segments in between. Ship only after VM test V-14.
 - Tokenise with the FLEx WS's word-forming set.
 - Label segments are read-only.
 
+**The Matcher's ✂ and ⤴ on a FLEx text (2026-10-15)** — the shell opens FLEx texts in the Matcher
+(§11), so its text-side verbs are what reach FLEx. `flex-ops.js` reads them in document order:
+
+- **✂ a line**: the first half IS the phrase that was split (its guid, notes and items; not its time
+  offsets — `mgSplitLine`), the second is new, as §6.3 step 4. → `phrase.split` per new piece, all in
+  the base paragraph; when the device's break kind is Sentence (the default), `phrase.toPara` after the
+  piece, marked `afterSplit` so the shell runs it after every split; each new piece's free translation
+  as `ft.set` on the guid the engine gave it. The shell accepts ops naming a phrase or paragraph that
+  the same save creates, and nothing else it does not know. Times ride on the split when every piece
+  has one, else each piece's are set (or cleared) outright.
+- **⤴ a line into the one above**: `phrase.join` across a `§`; across a paragraph break,
+  `para.toPhrase` first — only when the joined line opens its paragraph and the rest of that
+  paragraph now sits in the survivor's (else refused: join the paragraphs first with ¶). The
+  survivor's times are set outright.
+- **Refused up front**, each with its own reason in the preview, never guessed and never left to a
+  rollback: a join across a real stop (`joinAtStop` — FLEx keeps two sentences apart, §6.3), a line
+  added here (`addedLine` — the + row, or Done's padding for leftover audio), a split and a join of the
+  same phrase, a gloss edit on a reshaped phrase, a phrase whose words are nowhere (`phraseRemoved`).
+
 ---
 
 ## 7. Glosses and free translations
@@ -862,7 +896,7 @@ app, and later (once we add write to FLEx capability), it should fix the media f
 - **Re-opening never discards local work** (`reopenDecision`): FLEx unchanged → the local record
   opens as it is; FLEx changed and nothing done here → FLEx's version loads; both changed → the user
   decides, and Escape keeps the work. "Local work" = a stamped edit since loading (`modified >
-  flex.loadedAt`) or a Segmenter draft.
+  flex.loadedAt`), a Segmenter draft, or a save that was undone (`flex.dirty`, judged by the diff).
 - A text with several media links: the Segmenter uses one (the one that resolves, else the first)
   and the card says so.
 - ⚠ The shell's CSP had no `blob:` in `connect-src`: the waveform player fetches the stored
@@ -962,6 +996,27 @@ segment, captured by Seth on a disposable copy, byte-compared — scratch only, 
 4. **Failure** → nothing was written (rollback) — said plainly, with the reason; or, for a
    poisoned session, *"FLEx reported a problem saving. The project is closed without saving; your
    last good file is preserved as …; your edits are still here in the editor."*
+
+### 11.1 In the shell: the Audio Segmenter, with a FLEx section (2026-10-15)
+
+Seth: *"This is NOT our audio segmenter app. Specifically the Audio Segmenter app for audio
+segmenting/matching is what I want loading in this … app."* A FLEx text opens in the Segmenter's own
+**Matcher** (`mgOpen`), exactly as its list opens a text — never the editor's tabs.
+
+- **Home**: the FLEx section above the Segmenter's list — project picker, Open read-only / Open for
+  writing, and on the project row Undo / Redo Save to FLEx and Import .flextext. One row per text:
+  paragraphs · phrases · timed · the recording's state · *matching in progress* (a Matcher draft) ·
+  *changes not in FLEx yet*. Actions: **Save to FLEx…** (writable, and the work committed here differs
+  from FLEx — judged by the diff Save would make, never by timestamps), **Fix FLEx's recording
+  link…** (writable, a relink pending), **Export bundle…**, **Open**.
+- **The Segmenter's own list leaves FLEx texts to that section** (`hideFromList`; a FLEx record's id
+  starts `flex-`): it showed each text again, once per project copy, with no project to tell them apart.
+- **In the Matcher**, a strip under its bar: *FLEx text* (· read-only) and **Copy line as FLEx Print
+  view** for the selected line. Done commits here (its toast says Saved — to this app); Save to FLEx is
+  on the text's row, through the preview.
+- **Undo / Redo** re-read the text and judge "not in FLEx" by the same diff (two saves undone and one
+  redone leaves work FLEx does not have); an undone relink offers Fix link again.
+- The native dialog uses `webview.FileDialog.OPEN` (pywebview 6 deprecates `OPEN_DIALOG`).
 
 ---
 

@@ -198,3 +198,37 @@ def test_the_export_bundle_carries_the_recording_the_app_uses(env):
     assert st["state"] == "done", st
     names = zipfile.ZipFile(st["result"]["zipPath"]).namelist()
     assert "session-01.WAV" in names and "MISSING-AUDIO.txt" not in names, names
+
+
+def test_the_native_dialog_uses_filedialog_open_not_the_deprecated_constant(env, monkeypatch):
+    """pywebview 6 warns on every use of OPEN_DIALOG (seen on the VM, 2026-10-15): FileDialog.OPEN."""
+    import sys
+    import types
+    fake = types.ModuleType("webview")
+
+    class FileDialog:
+        OPEN = 10
+
+    fake.FileDialog = FileDialog
+
+    def deprecated(name):
+        raise AssertionError("deprecated pywebview constant used: " + name)
+    fake.__getattr__ = deprecated
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    seen = {}
+
+    class Window:
+        def create_file_dialog(self, dialog_type, directory="", allow_multiple=False, file_types=()):
+            seen.update(kind=dialog_type, directory=directory, types=file_types)
+            return (env["present"],)
+    api = Api(MockBackendFactory(str(env["projects"])), engine_root=str(env["tmp"] / "engine"), state_dir=str(env["tmp"] / "state2"))
+    try:
+        api._set_window(Window())
+        ok(api.open_project("media-proj", "read"))
+        t = texts_by_title(api)["missing link"]
+        r = ok(api.choose_media(t["guid"], t["media"][0]["guid"]))
+        assert r["path"] == env["present"]
+        assert seen["kind"] == 10 and seen["types"][0].startswith("Audio files (")
+        assert seen["directory"].endswith(os.path.join("LinkedFiles", "AudioVisual"))
+    finally:
+        api._worker.stop()

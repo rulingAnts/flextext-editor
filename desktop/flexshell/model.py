@@ -97,6 +97,27 @@ def _drop_final_markers(words, is_punct, form):
     return out + list(reversed(tail))
 
 
+def normalize_post_state(post):
+    """The engine's intended post-state, made marker-agnostic exactly as read_model_post_state is: the
+    engine sends every word of a phrase, FLEx's phrase-final § included, and the re-read drops that run
+    — so without this, ANY save touching a paragraph whose phrases end in § (every text FLEx's importer
+    wrote) compared "words differ" and rolled back. A § with words after it is text and stays."""
+    out = {}
+    for pg, phrases in (post or {}).items():
+        rows = []
+        for ph in phrases or []:
+            ph = dict(ph)
+            words = ph.get("words")
+            if isinstance(words, list):
+                kept = _drop_final_markers(words, lambda w: bool(w.get("punct")), lambda w: w.get("txt") or "")
+                if len(kept) != len(words):
+                    ph["words"] = kept
+                    ph["text"] = " ".join(w.get("txt") or "" for w in kept)
+            rows.append(ph)
+        out[pg] = rows
+    return out
+
+
 def post_state_of(doc, para_guids=None):
     """What the engine says a touched paragraph should look like after the save — compared by
     W4.6 against a re-read of LCM. Per FLEx paragraph: ordered phrases with text, words (form,

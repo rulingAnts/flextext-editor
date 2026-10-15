@@ -411,7 +411,10 @@ class Api:
             raise FlexError("E_INTERNAL", "no window to open a dialog from", {})
         import webview
         types = (mediafind.DIALOG_FILTER,) if kind == "media" else ("FLEx interlinear text (*.flextext)",)
-        r = self._window.create_file_dialog(webview.OPEN_DIALOG, directory=start_dir or "", allow_multiple=False, file_types=types)
+        # FileDialog.OPEN (pywebview 5+); OPEN_DIALOG is deprecated and warns on every call (VM, 2026-10-15)
+        fd = getattr(webview, "FileDialog", None)
+        kind_open = fd.OPEN if fd is not None else webview.OPEN_DIALOG
+        r = self._window.create_file_dialog(kind_open, directory=start_dir or "", allow_multiple=False, file_types=types)
         return r[0] if r else None
 
     @exposed

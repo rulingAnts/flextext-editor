@@ -70,18 +70,99 @@ console.log('\na phrase split: the new phrase has an engine guid; the op names i
   ok(post.P2.length === 2 && post.P2[1].segGuid === 'eng-new-1' && post.P2[0].words[0].analysisGuid === 'an7', 'post-state: two phrases, kept words keep their analysis guid');
   ok(post.P2[1].words.map((w) => w.analysisGuid).join() === 'an8,an9', 'moved words keep theirs too (the shell checks they survive)');
 }
-console.log('\na phrase join: the vanished phrase\'s words now end the previous one');
+console.log('\na phrase join: the vanished phrase\'s words now end the previous one — across FLEx\'s §, never a real stop');
+{
+  // s2 ends with FLEx's § and s3 opens P2 alone: the Matcher's ⤴ on line 3. FLEx joins the paragraphs, then the phrases.
+  const b = base(), c = clone(b);
+  const [, l2, l3] = c.paragraphs;
+  l2.segments[0].words = [...l2.segments[0].words.filter((w) => !w.boundaryMarker), ...l3.segments[0].words];
+  l2.segments[0].free = 'third';
+  c.paragraphs.splice(2, 1);
+  c.segments = [{ start: 0, end: 1000 }, { start: 1000, end: 3000 }];
+  const r = diffFlexDoc(b, c, { media: '/x/rec.wav' });
+  ok(r.unsupported.length === 0, 'nothing refused: ' + JSON.stringify(r.unsupported));
+  const structOps = r.ops.filter((o) => o.op === 'para.toPhrase' || o.op === 'phrase.join').map((o) => o.op + ':' + (o.segGuid || o.paraGuid)).join(',');
+  ok(structOps === 'para.toPhrase:P1,phrase.join:s2', 'para.toPhrase on P1 (P2 comes in), then phrase.join on s2 — once each: ' + structOps);
+  ok(!r.ops.some((o) => o.op === 'baseline.replace'), 'the joined text is not ALSO a baseline edit');
+  const tm = r.ops.find((o) => o.op === 'times.set' && o.segGuid === 's2');
+  ok(tm && tm.begin === 1000 && tm.end === 3000, 'the survivor\'s times are set outright, from the live span');
+  ok(r.touched.has('P1') && r.touched.has('P2'), 'both paragraphs are in the post-state');
+  // the same ⤴ across s1's full stop: FLEx keeps two sentences apart; refused before the shell would
+  const c2 = clone(b);
+  const [m1, m2] = c2.paragraphs;
+  m1.segments[0].words = [...m1.segments[0].words, ...m2.segments[0].words.filter((w) => !w.boundaryMarker)];
+  c2.paragraphs.splice(1, 1);
+  c2.segments = [{ start: 0, end: 2000 }, { start: 0, end: 0, timePending: true }];
+  const r2 = diffFlexDoc(b, c2);
+  ok(r2.unsupported.some((u) => u.why === 'joinAtStop') && !r2.ops.some((o) => o.op === 'phrase.join'), 'a join across a real stop is refused (joinAtStop), no op');
+}
+console.log('\nthe Matcher\'s split: first half keeps the guid, the new one gets its translation; a Sentence break moves it');
 {
   const b = base(), c = clone(b);
-  const [l1, l2] = c.paragraphs;
-  l1.segments[0].words = [...l1.segments[0].words, ...l2.segments[0].words.filter((w) => !w.boundaryMarker)];
-  l1.segments[0].free = 'first. ';
-  c.paragraphs.splice(1, 1);
-  c.segments = [{ start: 0, end: 2000 }, { start: 0, end: 0, timePending: true }];
-  const r = diffFlexDoc(b, c);
-  const j = r.ops.find((o) => o.op === 'phrase.join');
-  ok(j && j.segGuid === 's1' && j.paraGuid === 'P1' && j.endTime === 2000, 'phrase.join on s1 with the new end time');
-  ok(!r.ops.some((o) => o.op === 'baseline.replace'), 'the joined text is not ALSO a baseline edit');
+  const l3 = c.paragraphs[2];
+  const words = l3.segments[0].words;
+  l3.segments[0].words = words.slice(0, 1); l3.segments[0].free = 'thi';
+  const n1 = { guid: 'ln-n1', paraOf: 'P2-new', segments: [{ attrs: { guid: 'eng-n1' }, baseline: 'fff', words: words.slice(1, 2), free: 'r', freeLang: 'en' }] };
+  const n2 = { guid: 'ln-n2', paraOf: 'P2-new', segments: [{ attrs: { guid: 'eng-n2' }, baseline: 'ggg', words: words.slice(2), free: 'd', freeLang: 'en' }] };
+  c.paragraphs.push(n1, n2);
+  c.segments = [{ start: 0, end: 1000 }, { start: 1000, end: 2000 }, { start: 2000, end: 2400 }, { start: 2400, end: 2700 }, { start: 2700, end: 3000 }];
+  const r = diffFlexDoc(b, c, { media: '/x/rec.wav' });
+  ok(r.unsupported.length === 0, 'nothing refused: ' + JSON.stringify(r.unsupported));
+  const seq = r.ops.filter((o) => /^phrase\./.test(o.op)).map((o) => o.op + ':' + o.segGuid + (o.newPhrase ? '>' + o.newPhrase : '') + (o.newPara ? '>' + o.newPara : '')).join(',');
+  ok(seq === 'phrase.split:s3>eng-n1,phrase.split:eng-n1>eng-n2,phrase.toPara:s3>P2-new', 'two splits in the base paragraph, then the new paragraph after s3: ' + seq);
+  const splits = r.ops.filter((o) => o.op === 'phrase.split');
+  ok(splits.every((o) => o.paraGuid === 'P2') && splits[0].afterWordIndex === 0 && splits[1].afterWordIndex === 0, 'each split is in P2, after the first word of the segment it splits');
+  ok(JSON.stringify(splits.map((o) => o.times)) === '[[[2000,2400],[2400,2700]],[[2400,2700],[2700,3000]]]', 'all three pieces timed: the splits carry the times');
+  const tp = r.ops.find((o) => o.op === 'phrase.toPara');
+  ok(tp.afterSplit === true && tp.paraGuid === 'P2', 'the paragraph move is marked to run after the splits');
+  const fts = r.ops.filter((o) => o.op === 'ft.set').map((o) => o.segGuid + '=' + o.value).sort().join(',');
+  ok(fts === 'eng-n1=r,eng-n2=d,s3=thi', 'free translations: the first half\'s changes, each new phrase gets its own: ' + fts);
+  ok(r.touched.has('P2') && r.touched.has('P2-new'), 'the new paragraph is in the post-state');
+  // a piece without audio: the splits carry no times, each piece's times are set (or cleared) outright
+  const c2 = clone(c);
+  c2.segments[4] = { start: 0, end: 0, timePending: true };
+  const r2 = diffFlexDoc(b, c2, { media: '/x/rec.wav' });
+  ok(r2.ops.filter((o) => o.op === 'phrase.split').every((o) => o.times === null), 'one piece untimed: no times on the splits');
+  const ts = r2.ops.filter((o) => o.op === 'times.set').map((o) => o.segGuid + '=' + o.begin + '-' + o.end).join(',');
+  ok(ts === 's3=2000-2400,eng-n1=2400-2700,eng-n2=null-null', 'every piece\'s times set outright: ' + ts);
+}
+console.log('\nadded lines, reshaping with gloss edits, split and join together: refused with their own reasons');
+{
+  const b = base();
+  const blank = (id, pg) => ({ guid: 'ln-' + id, paraOf: pg, segments: [{ attrs: { guid: id }, baseline: '', words: [], free: '' }] });
+  const c = clone(b);
+  c.paragraphs.splice(3, 0, blank('eng-b1', 'P2'));   // Done padded leftover audio with a blank line after s3
+  let r = diffFlexDoc(b, c);
+  ok(r.unsupported.map((u) => u.why).join() === 'addedLine', 'a blank line after a phrase is an added line: ' + JSON.stringify(r.unsupported));
+  const c2 = clone(b);
+  c2.paragraphs.unshift(blank('eng-top', 'P0'));
+  c2.segments.unshift({ start: 0, end: 0, timePending: true });
+  r = diffFlexDoc(b, c2);
+  ok(r.unsupported.map((u) => u.why).join() === 'addedLine', 'so is one added at the very top: ' + JSON.stringify(r.unsupported));
+  const c3 = clone(b);
+  const l3 = c3.paragraphs[2], words = l3.segments[0].words;
+  l3.segments[0].words = words.slice(0, 1);
+  c3.paragraphs.push({ guid: 'ln-n', paraOf: 'P2', segments: [{ attrs: { guid: 'eng-n' }, baseline: 'fff ggg', words: words.slice(1).map((w, i) => (i ? w : { ...w, gls: 'F' })), free: '' }] });
+  r = diffFlexDoc(b, c3);
+  ok(r.unsupported.some((u) => u.why === 'structureWithGlossChange'), 'a gloss edited on a split phrase is refused, not dropped');
+  // P2 = [s3]; P3 = [s4, s5]: joining s4 into s3 while s5 stays in P3 cannot be one FLEx paragraph join
+  const b4 = base();
+  b4.paragraphs.push(line('P3', 's4', [W('hhh')]), line('P3', 's5', [W('iii')]));
+  b4.segments.push({ start: 0, end: 0, timePending: true }, { start: 0, end: 0, timePending: true });
+  const c4 = clone(b4);
+  c4.paragraphs[2].segments[0].words = [...c4.paragraphs[2].segments[0].words, ...c4.paragraphs[3].segments[0].words];
+  c4.paragraphs.splice(3, 1);
+  c4.segments.splice(3, 1);
+  r = diffFlexDoc(b4, c4);
+  ok(r.unsupported.some((u) => u.why === 'joinAcrossParagraphs') && !r.ops.some((o) => o.op === 'para.toPhrase'), 'joining into another paragraph whose other lines stay put is refused (join the paragraphs first)');
+  // s2+s3 joined and the result split elsewhere: one change at a time
+  const c5 = clone(b);
+  const [, k2, k3] = c5.paragraphs;
+  const all = [...k2.segments[0].words.filter((w) => !w.boundaryMarker), ...k3.segments[0].words];
+  k2.segments[0].words = all.slice(0, 3);
+  c5.paragraphs.splice(2, 1, { guid: 'ln-x', paraOf: 'P1', segments: [{ attrs: { guid: 'eng-x' }, baseline: '', words: all.slice(3), free: '' }] });
+  r = diffFlexDoc(b, c5);
+  ok(r.unsupported.length > 0 && !r.ops.some((o) => o.op === 'phrase.split'), 'a join and a split of the same phrases is refused, not half-applied: ' + JSON.stringify(r.unsupported.map((u) => u.why)));
 }
 console.log('\nparagraph boundaries');
 {
@@ -130,7 +211,7 @@ console.log('\nunsupported shapes are reported, never guessed');
   const c2 = clone(b);
   c2.paragraphs.splice(1, 1);   // s2 simply gone, its words nowhere
   const r2 = diffFlexDoc(b, c2);
-  ok(r2.ops.some((o) => o.op === 'phrase.join'), 'a vanished phrase is read as a join with the previous one (the shell verifies the words)');
+  ok(r2.unsupported.some((u) => u.why === 'phraseRemoved' && u.segGuid === 's2') && !r2.ops.some((o) => o.op === 'phrase.join'), 'a phrase whose words are nowhere is refused as removed, not sent as a join for the shell to roll back');
 }
 console.log('\nblockers: a phrase with no letters');
 {

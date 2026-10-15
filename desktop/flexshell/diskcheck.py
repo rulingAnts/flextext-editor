@@ -12,7 +12,7 @@ Runtime on a 25 MB file: 1–1.7 s [verified].
 `Rt` = {cls, owner, fields: {tag: text-or-None}, raw: canonical bytes hash}
 `check(diff, allowed)` → list of unexplained changes, where `allowed` is the preview's expectation:
   {classes: set, touchedOwners: set(guids), referencedFrom: set(guids), expect: {guid: {field: value}},
-   countDeltas: {cls: n}}
+   countDeltas: {cls: n}, newPunctForms: set(forms)}
 """
 
 import hashlib
@@ -87,6 +87,9 @@ def check(diff, allowed, rt_map=None):
     referenced = set(allowed.get("referencedFrom", ()))
     expect = allowed.get("expect", {})
     deltas = dict(allowed.get("countDeltas", {}))
+    # a PunctuationForm of one of these forms may be new with nothing referencing it: FLEx makes the § form
+    # the first time a § is written, and a paragraph join writes one only for the phrase join to delete it
+    punct_ok = set(allowed.get("newPunctForms", ()))
     rt_map = rt_map or {}
     seen_deltas = {}
 
@@ -114,7 +117,7 @@ def check(diff, allowed, rt_map=None):
         seen_deltas[cls] = seen_deltas.get(cls, 0) + 1
         if cls not in classes:
             problems.append({"guid": guid, "cls": cls, "why": "unexpected new object of this class"})
-        elif not explained_by_ownership(guid, n):
+        elif not explained_by_ownership(guid, n) and not (cls == "PunctuationForm" and (n["fields"].get("Form") or "").strip() in punct_ok):
             problems.append({"guid": guid, "cls": cls, "why": "new object outside every touched text"})
         for field, value in expect.get(guid, {}).items():
             if n["fields"].get(field) != value:

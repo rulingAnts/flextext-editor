@@ -45,8 +45,8 @@ OP_CLASSES = {
     "ft.set": {"Segment"}, "lt.set": {"Segment"}, "times.set": {"Segment"},
     "phrase.split": {"StTxtPara", "Segment", "PunctuationForm"}, "phrase.join": {"StTxtPara", "Segment"},
     "phrase.moveBoundary": {"StTxtPara", "Segment"},
-    "para.split": {"StTxtPara", "StText", "Segment"}, "para.join": {"StTxtPara", "StText", "Segment"},
-    "phrase.toPara": {"StTxtPara", "StText", "Segment"}, "para.toPhrase": {"StTxtPara", "StText", "Segment"},
+    "para.split": {"StTxtPara", "StText", "Segment"}, "para.join": {"StTxtPara", "StText", "Segment", "PunctuationForm"},
+    "phrase.toPara": {"StTxtPara", "StText", "Segment"}, "para.toPhrase": {"StTxtPara", "StText", "Segment", "PunctuationForm"},
     "word.split": {"StTxtPara", "Segment", "WfiWordform"}, "word.insert": {"StTxtPara", "Segment", "WfiWordform"},
     "baseline.replace": {"StTxtPara", "Segment", "WfiWordform", "PunctuationForm"},
     # WfiWordform is CHANGED (never added) by a gloss write: a new trivial analysis is owned by the
@@ -58,6 +58,16 @@ OP_CLASSES = {
 }
 STRUCTURAL = ("para.toPhrase", "para.join", "phrase.toPara", "para.split", "phrase.join", "phrase.split",
               "phrase.moveBoundary", "word.split", "word.insert", "baseline.replace")
+
+
+def op_order(op):
+    """Where an op runs: structure first, by kind (merges before splits), then content. A phrase.toPara
+    marked afterSplit moves a phrase a split of this same save made (a Sentence break in the Matcher),
+    so it runs after every phrase.split and before the kinds that follow them."""
+    kind = op.get("op")
+    if kind == "phrase.toPara" and op.get("afterSplit"):
+        return STRUCTURAL.index("phrase.split") + 0.5
+    return STRUCTURAL.index(kind) if kind in STRUCTURAL else len(STRUCTURAL)
 
 
 class _LogCapture(logging.Handler):
@@ -158,6 +168,20 @@ class Session:
         allowed_ops = set(OP_CLASSES) - {"import"}
         if not isinstance(ops, list):
             raise FlexError("E_SCOPE", "ops must be a list", {})
+        # phrases and paragraphs this save itself makes (engine guids, aliased to LCM's when applied):
+        # later ops may name them, and nothing else that is not in the text
+        new_phrases = {op.get("newPhrase") for op in ops if isinstance(op, dict) and op.get("op") == "phrase.split" and op.get("newPhrase")}
+        new_paras = {op.get("newPara") for op in ops if isinstance(op, dict) and op.get("op") in ("phrase.toPara", "para.split") and op.get("newPara")}
+        # FLEx makes the § PunctuationForm ONCE, the first time any op of this save writes a § (a split,
+        # or a paragraph join after a paragraph with no stop) — never once per op
+        section = {"new": not self.port.has_punct_form(SECTION), "counted": False}
+
+        def writes_section():
+            if section["new"] and not section["counted"]:
+                deltas["PunctuationForm"] += 1
+                section["counted"] = True
+        order = [p["guid"] for p in t["paragraphs"]]
+        merged_end = {}                     # paragraph → index of the last paragraph a join merged into it
         for op in ops:
             kind = op.get("op")
             if kind not in allowed_ops:
@@ -186,19 +210,20 @@ class Session:
                 continue
             if pg not in paras:
                 # a paragraph created earlier in this save (an alias) is allowed for later ops
-                if not op.get("_alias"):
+                if not op.get("_alias") and pg not in new_paras:
                     raise FlexError("E_SCOPE", "paragraph not in this text", {"para": pg})
             if pg in paras:
                 touched_paras.add(pg)
                 S.require_not_fragile(self.port, paras[pg])
-            if sg is not None and sg not in segs and not op.get("newPhrase"):
+            if sg is not None and sg not in segs and sg not in new_phrases:
                 raise FlexError("E_SCOPE", "phrase not in this text", {"seg": sg})
+            if sg in new_phrases and sg not in segs and kind not in ("phrase.split", "phrase.toPara", "ft.set", "times.set"):
+                raise FlexError("E_SCOPE", "that change is not made on a phrase this save creates; save the split first", {"op": kind})
             if kind in ("ft.set", "lt.set", "gloss.set") and op.get("ws") not in chosen:
                 raise FlexError("E_SCOPE", "writing system is not one of the chosen analysis WSs", {"ws": op.get("ws")})
             if kind == "phrase.split":
                 deltas["Segment"] += 1
-                if not self.port.has_punct_form(SECTION):
-                    deltas["PunctuationForm"] += 1
+                writes_section()
                 summary.append({"kind": kind, "seg": sg})
             elif kind == "phrase.join":
                 deltas["Segment"] -= 1
@@ -208,6 +233,17 @@ class Session:
                 summary.append({"kind": kind, "para": pg})
             elif kind in ("para.join", "para.toPhrase"):
                 deltas["StTxtPara"] -= 1
+                if pg in paras:             # paragraph_to_phrase appends "§ " when the paragraph it extends has no stop
+                    end = merged_end.get(pg, order.index(pg))
+                    last = t["paragraphs"][end]
+                    if last["segments"] and not S._ends_with_eos(last["contents"]):
+                        writes_section()
+                    merged_end[pg] = end + 1
+                    # the paragraph merged into it is touched too: it is gone afterwards, and a vanished
+                    # "untouched" paragraph is exactly what the invariant check refuses
+                    if end + 1 < len(order):
+                        touched_paras.add(order[end + 1])
+                        S.require_not_fragile(self.port, t["paragraphs"][end + 1])
                 summary.append({"kind": kind, "para": pg})
             elif kind == "word.split":
                 p, s = segs[sg]
@@ -257,8 +293,7 @@ class Session:
                 summary.append({"kind": kind, "seg": sg, "index": op["index"], "outcome": plan["outcome"],
                                 "otherUses": plan.get("otherUses", 0), "approves": plan.get("analysisGuid") is not None and not (plan.get("analysisGuid") and self.port.is_approved(plan["analysisGuid"]))})
             elif kind in ("ft.set", "lt.set"):
-                p, s = segs[sg]
-                cur = (s["ft"] if kind == "ft.set" else s["lt"]).get(op["ws"], "")
+                cur = ((segs[sg][1]["ft"] if kind == "ft.set" else segs[sg][1]["lt"]).get(op["ws"], "")) if sg in segs else ""
                 if cur != (op.get("value") or ""):
                     summary.append({"kind": kind, "seg": sg, "ws": op["ws"], "before": cur, "after": op.get("value", "")})
             elif kind == "times.set":
@@ -268,7 +303,11 @@ class Session:
                                      "note": "FLEx keeps and exports times only with a media link (plan §8.1)"})
             elif kind == "phrase.moveBoundary":
                 summary.append({"kind": kind, "seg": sg})
-        # post-state checks: empty phrases and internal EOS, per touched paragraph
+        # post-state checks: empty phrases and internal EOS, per touched paragraph — on the marker-agnostic
+        # form, which is also what the in-UOW comparison uses (model.normalize_post_state)
+        if not isinstance(post_state, (dict, type(None))):
+            raise FlexError("E_SCOPE", "post_state must be an object", {})
+        post_state = model.normalize_post_state(post_state)
         for pg, phrases in (post_state or {}).items():
             for ph in phrases:
                 txt = ph.get("text") or ""
@@ -403,7 +442,8 @@ class Session:
             raise self.poisoned
         fp_after = model.fingerprint_text(self.port.read_text(text_guid))
         allowed = {"classes": set(pv["classes"]), "touchedOwners": {text_guid} | new_owners, "countDeltas": dict(pv["deltas"]),
-                   "referencedFrom": self._referenced_from(text_guid)}
+                   "referencedFrom": self._referenced_from(text_guid),
+                   "newPunctForms": {SECTION} if pv["deltas"].get("PunctuationForm", 0) > 0 else set()}
         disk = self._save_and_check(progress, allowed, expect_fields=self._expected_fields(pv, alias))
         entry = self.texts[text_guid]
         entry["fp"] = fp_after
@@ -449,7 +489,7 @@ class Session:
 
     def _apply_ops(self, text_guid, pv, alias, touched, new_owners):
         port = self.port
-        ops = sorted(pv["ops"], key=lambda o: STRUCTURAL.index(o["op"]) if o["op"] in STRUCTURAL else len(STRUCTURAL))
+        ops = sorted(pv["ops"], key=op_order)
         chosen = pv["chosen"]
         attached_uri = None
         for op in ops:

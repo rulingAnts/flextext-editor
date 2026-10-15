@@ -1,12 +1,18 @@
 /* flex-panel.js — the FLEx features' UI, loaded ONLY inside the desktop shell (plans/flex-desktop-segmenter.md
- * §1, §3, §4.4, §11). app.js imports this module dynamically after native-flex.js's whenFlexReady()
+ * §1, §3, §4.4, §8.4, §11). app.js imports this module dynamically after native-flex.js's whenFlexReady()
  * answered true, so a browser never loads it and no SHELL list has to carry it.
  *
- * What it adds to the Audio Segmenter: a FLEx section on the home view (choose a project, open it read-
- * only or for writing, open one of its texts as a local record whose `flex` field keeps the FROZEN base
- * doc and baseRev), and on an open FLEx-bound text the FLEx row: Save to FLEx… (diff → preview → confirm
- * → job with progress), Undo / Redo Save to FLEx (the SEPARATE history, D1), Copy this line as FLEx Print
- * view, Export bundle, Fix FLEx's recording link, Import .flextext into FLEx.
+ * THE SHELL IS THE AUDIO SEGMENTER (Seth, 2026-10-15: "the Audio Segmenter app for audio segmenting/
+ * matching is what I want loading in this … app"). A FLEx text opens in the Segmenter's own
+ * Matcher, exactly as the Segmenter's list opens a text; nothing here replaces any of its screens. What
+ * this module adds:
+ *   - on the home view, a FLEx section: choose a project, open it read-only or for writing, its texts.
+ *     Each text row opens the text and, when the project is open for writing, carries Save to FLEx…
+ *     (the work Done committed here → diff → preview → confirm → job) and Fix FLEx's recording link…;
+ *     Export bundle… works read-only. The project row carries Undo / Redo Save to FLEx (the SEPARATE
+ *     history, D1) and Import .flextext into FLEx.
+ *   - in the Matcher, for a FLEx text, a slim strip: what it is (read-only or not) and Copy line as
+ *     FLEx Print view for the selected line.
  *
  * THE RECORDING (§8.4, Seth 2026-10-14: "Most of the recordings found in FLEx text media fields will
  * point to an incorrect path"). Opening a text gets it a recording of ITS OWN in the media store, under
@@ -14,18 +20,18 @@
  * (no question); else the find-the-recording card — files of that name the shell found, or the native
  * dialog. Nothing is written to FLEx then: `rec.flex.mediaFix` remembers the fix, and the next Save to
  * FLEx (or "Fix FLEx's recording link…") carries it, through the preview, when the project is open for
- * writing. A read-only project is enough to cut.
+ * writing. A read-only project is enough to match.
  *
- * Two histories, never interleaved (§4.4): the editor's Ctrl+Z ring is untouched by anything here, and
+ * Two histories, never interleaved (§4.4): the Matcher's own undo is untouched by anything here, and
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
-import { flex, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, reopenDecision, recordingLink, pendingMediaFix } from './flex-ops.js';
+import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, reopenDecision, recordingLink, pendingMediaFix } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
-let H = null;      // hooks from app.js: { db, getCurrent, setCurrent, openRecord, t, toast, confirmDialog, refreshList, docStats }
-let project = null;   // { name, writable, ws, printViewConfig, texts: [...] }
+let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, getCurrent, openRecord, selectedSegGuid, hideFromList, fetchMedia }
+let project = null;   // { name, writable, ws, printViewConfig, texts: [...] } while a project is open in the shell
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -37,7 +43,11 @@ export function initFlexPanel(hooks) {
   document.documentElement.classList.add('flex-shell');
   renderHome();
   document.addEventListener('flextext:home-rendered', renderHome);
-  document.addEventListener('flextext:editor-entered', renderEditorRow);
+  document.addEventListener('flextext:list-rendered', () => { if (project) renderTexts(); });   // after Done, a delete…
+  document.addEventListener('flextext:matcher-entered', renderMatcherStrip);
+  document.addEventListener('flextext:matcher-closed', () => { if (project) renderTexts(); });   // Back: a draft, a recording now here
+  // FLEx texts are listed here, under their project; the Segmenter's own list keeps the app's own texts
+  if (H.hideFromList) H.hideFromList((d) => isFlexDocId(d.id));
   return true;
 }
 
@@ -58,17 +68,21 @@ function renderHome() {
       <button id="flex-close" class="link-btn" hidden>${esc(T('flex.closeProject'))}</button>
     </div>
     <p id="flex-reasons" class="flex-reasons" hidden></p>
-    <ul id="flex-texts" class="doc-list" hidden></ul>
     <div class="flex-row" id="flex-project-actions" hidden>
-      <button id="flex-import" class="secondary-btn">${esc(T('flex.import'))}</button>
-    </div>`;
+      <button id="flex-undo" class="secondary-btn" title="${esc(T('flex.undoTip'))}" disabled>${esc(T('flex.undo'))}</button>
+      <button id="flex-redo" class="secondary-btn" disabled>${esc(T('flex.redo'))}</button>
+      <button id="flex-import" class="link-btn">${esc(T('flex.import'))}</button>
+    </div>
+    <ul id="flex-texts" class="doc-list" hidden></ul>`;
   view.insertBefore(box, view.firstChild);
-  loadProjects();
   $('#flex-project', box).addEventListener('change', onProjectPick);
   $('#flex-open-read', box).addEventListener('click', () => openProject('read'));
   $('#flex-open-write', box).addEventListener('click', () => openProject('write'));
   $('#flex-close', box).addEventListener('click', closeProject);
+  $('#flex-undo', box).addEventListener('click', () => undoRedo('undo'));
+  $('#flex-redo', box).addEventListener('click', () => undoRedo('redo'));
   $('#flex-import', box).addEventListener('click', importFlextext);
+  loadProjects().then(() => { if (project) showOpenProject(); });   // the view was rebuilt while one was open
 }
 
 let projects = [];
@@ -98,42 +112,96 @@ async function openProject(mode) {
     const r = await flex.openProject(name, mode);
     project = { name, writable: r.writable, ws: r.ws, printViewConfig: r.printViewConfig, texts: await flex.listTexts() };
   } catch (e) { fail(e); return; }
+  flexHist.done = []; flexHist.undone = [];
+  await showOpenProject();
+}
+async function showOpenProject() {
+  const sel = $('#flex-project');
+  if (sel) { sel.value = project.name; sel.disabled = true; }
   $('#flex-close').hidden = false;
-  $('#flex-open-read').disabled = $('#flex-open-write').disabled = $('#flex-project').disabled = true;
+  $('#flex-open-read').disabled = $('#flex-open-write').disabled = true;
+  $('#flex-reasons').hidden = true;
   $('#flex-project-actions').hidden = !project.writable;
+  updateHistoryButtons();
   await renderTexts();
 }
 async function closeProject() {
   try { await flex.closeProject(); } catch (e) { fail(e); }
   project = null;
+  flexHist.done = []; flexHist.undone = [];
   $('#flex-close').hidden = true;
   $('#flex-project').disabled = false;
   $('#flex-texts').hidden = true;
   $('#flex-project-actions').hidden = true;
   onProjectPick();
 }
+
+/* The text rows: what FLEx's link does here, whether the app has its own recording, whether the work
+ * done here is in FLEx yet — and the actions that fit. One read of the library for the whole list; a
+ * full record read only for the texts that have one. */
+let renderSeq = 0;
 async function renderTexts() {
   const ul = $('#flex-texts');
   if (!ul || !project) return;
-  // which texts already have a recording in this app: one read for the whole list
-  const have = H.db.mediaKeys ? await H.db.mediaKeys().catch(() => new Set()) : new Set();
+  const seq = ++renderSeq;
+  const proj = project;
+  const [have, docs] = await Promise.all([
+    H.db.mediaKeys ? H.db.mediaKeys().catch(() => new Set()) : Promise.resolve(new Set()),
+    H.db.listDocs().catch(() => []),
+  ]);
+  const local = new Set(docs.map((d) => d.id));
+  const recs = {};
+  for (const tx of proj.texts) {
+    const id = flexDocId(proj.name, tx.guid);
+    if (local.has(id)) recs[tx.guid] = await H.db.getDoc(id).catch(() => null);
+  }
+  if (seq !== renderSeq || project !== proj) return;   // a newer render, or the project closed meanwhile
   ul.hidden = false;
   ul.innerHTML = '';
-  for (const tx of project.texts) {
+  for (const tx of proj.texts) {
+    const rec = recs[tx.guid];
+    const id = flexDocId(proj.name, tx.guid);
+    const todo = rec && rec.flex ? notInFlex(rec) : { save: false, relink: false };
+    const media = have.has(id) ? T('flex.media.inApp')
+      : !tx.media.length ? T('flex.media.noLinkTag')
+      : tx.media.some((m) => m.exists) ? '' : T('flex.mediaMissing');
+    const bits = [T('flex.textMeta', { p: tx.paras, s: tx.segs, t: tx.timedSegs }), media,
+      rec && rec.matchDraft ? T('sg.inProgress') : '', todo.save || todo.relink ? T('flex.textUnsaved') : ''].filter(Boolean);
     const li = document.createElement('li');
     li.className = 'rec-item';
     li.dataset.textGuid = tx.guid;
-    const status = have.has(flexDocId(project.name, tx.guid)) ? T('flex.media.inApp')
-      : !tx.media.length ? T('flex.media.noLinkTag')
-      : tx.media.some((m) => m.exists) ? '' : T('flex.mediaMissing');
     // the Segmenter list's own row structure (sgRenderList), so the app's styles apply
     li.innerHTML = `<div class="rec-item-main"><span class="doc-name"></span>
-        <span class="doc-meta">${esc(T('flex.textMeta', { p: tx.paras, s: tx.segs, t: tx.timedSegs }))}${status ? ' · ' + esc(status) : ''}</span></div>
-      <div class="rec-item-actions"><button class="secondary-btn flex-open-text">${esc(T('flex.openText'))}</button></div>`;
+        <span class="doc-meta">${esc(bits.join(' · '))}</span></div>
+      <div class="rec-item-actions">
+        ${proj.writable && todo.save ? `<button class="primary-btn flex-save-text">${esc(T('flex.save'))}</button>` : ''}
+        ${proj.writable && todo.relink ? `<button class="link-btn flex-fix-link">${esc(T('flex.relink'))}</button>` : ''}
+        ${rec ? `<button class="link-btn flex-export-text">${esc(T('flex.export'))}</button>` : ''}
+        <button class="secondary-btn flex-open-text">${esc(T('flex.openText'))}</button>
+      </div>`;
     li.querySelector('.doc-name').textContent = tx.title;   // titles reach the UI only, never a log
     li.querySelector('.flex-open-text').addEventListener('click', () => openText(tx));
+    const sv = li.querySelector('.flex-save-text');
+    if (sv) sv.addEventListener('click', () => saveTextToFlex(tx));
+    const fx = li.querySelector('.flex-fix-link');
+    if (fx) fx.addEventListener('click', () => fixLink(tx));
+    const ex = li.querySelector('.flex-export-text');
+    if (ex) ex.addEventListener('click', () => exportBundle(tx));
     ul.appendChild(li);
   }
+}
+/* What FLEx does not have yet of the work COMMITTED here (the Matcher's Done): text or time changes →
+ * Save to FLEx…; a recording link that points nowhere → Fix FLEx's recording link…. Judged by the diff
+ * Save to FLEx would make, never by timestamps: a Done that changed nothing has nothing to save, and two
+ * saves undone and one redone still do. A draft still in the Matcher is not committed, so it is not here
+ * (the row says it is in progress); an attach rides only with times (D9), so alone it is not either. */
+function notInFlex(rec) {
+  let save;
+  try {
+    const d = diffFlexDoc(rec.flex.base, rec.doc, { ws: rec.doc.analLang });
+    save = d.ops.length > 0 || d.unsupported.length > 0;
+  } catch { save = true; }   // cannot tell: say the work may not be in FLEx
+  return { save, relink: !!pendingMediaFix(rec.flex).relink };
 }
 
 /* A FLEx text becomes a local record, id flexDocId(project, text) — never with a colon, or the media
@@ -284,51 +352,45 @@ function mediaCard(id, tx, fl, linkCount) {
   });
 }
 
-/* ---- the editor row -------------------------------------------------------------------------- */
-function renderEditorRow() {
-  const cur = H.getCurrent();
-  const host = $('#topbar-editor');
-  const old = $('#flex-row');
+/* ---- the Matcher strip -------------------------------------------------------------------------- */
+function renderMatcherStrip() {
+  const view = $('#view-matcher');
+  const bar = view && $('.mg-bar', view);
+  const old = $('#flex-mg-strip');
   if (old) old.remove();
-  if (!cur || !cur.flex || !host) return;
+  const cur = H.getCurrent();
+  if (!bar || !cur || !cur.flex) return;
   const row = document.createElement('div');
-  row.id = 'flex-row';
-  row.className = 'flex-editor-row';
+  row.id = 'flex-mg-strip';
+  row.className = 'flex-mg-strip';
   row.innerHTML = `
     <span class="flex-badge">${esc(T('flex.badge'))}${cur.flex.writable ? '' : ' · ' + esc(T('flex.readOnlyTag'))}</span>
-    <button id="flex-save" class="primary-btn" ${cur.flex.writable ? '' : 'hidden'}>${esc(T('flex.save'))}</button>
-    <button id="flex-undo" class="secondary-btn" title="${esc(T('flex.undoTip'))}" disabled ${cur.flex.writable ? '' : 'hidden'}>${esc(T('flex.undo'))}</button>
-    <button id="flex-redo" class="secondary-btn" disabled ${cur.flex.writable ? '' : 'hidden'}>${esc(T('flex.redo'))}</button>
-    <button id="flex-copy" class="link-btn">${esc(T('flex.copyLine'))}</button>
-    <button id="flex-export" class="link-btn">${esc(T('flex.export'))}</button>
-    <button id="flex-relink" class="link-btn" hidden>${esc(T('flex.relink'))}</button>`;
-  host.appendChild(row);
-  $('#flex-save', row).addEventListener('click', saveToFlex);
-  $('#flex-undo', row).addEventListener('click', () => undoRedo('undo'));
-  $('#flex-redo', row).addEventListener('click', () => undoRedo('redo'));
+    <button id="flex-copy" class="link-btn">${esc(T('flex.copyLine'))}</button>`;
+  bar.insertAdjacentElement('afterend', row);
   $('#flex-copy', row).addEventListener('click', copyLine);
-  $('#flex-export', row).addEventListener('click', exportBundle);
-  $('#flex-relink', row).addEventListener('click', relink);
-  const links = (cur.doc.flex && cur.doc.flex.media) || [];
-  if (links.length && cur.flex.writable && !cur.flex.linkOk) $('#flex-relink', row).hidden = false;
-  updateHistoryButtons();
-}
-const flexHistory = { undo: 0, redo: 0 };
-function updateHistoryButtons() {
-  const u = $('#flex-undo'), r = $('#flex-redo');
-  if (u) u.disabled = !flexHistory.undo;
-  if (r) r.disabled = !flexHistory.redo;
 }
 
-/* ---- Save to FLEx (§11) ------------------------------------------------------------------------ */
-async function saveToFlex() {
-  const cur = H.getCurrent();
-  if (!cur || !cur.flex) return;
-  if (H.flush) await H.flush();   // commit any focused field / pending persist first
-  const base = cur.flex.base;
+/* ---- Save to FLEx, from a text row (§11) ------------------------------------------------------------
+ * The Matcher's Done commits the work to the local record and returns here; Save to FLEx then diffs
+ * that record against the FLEx base it was loaded from. The shell must know the text (open_text), and
+ * FLEx must still be at that base — else the protocol refuses with E_STALE_BASE anyway. */
+let busy = false;
+async function saveTextToFlex(tx) {
+  if (busy || !project || !project.writable) return;
+  busy = true;
+  try { await saveTextNow(tx); } finally { busy = false; }
+}
+async function saveTextNow(tx) {
+  const id = flexDocId(project.name, tx.guid);
+  const rec = await H.db.getDoc(id).catch(() => null);
+  if (!rec || !rec.flex) return;
+  let opened;
+  try { opened = await flex.openText(tx.guid); } catch (e) { fail(e); return; }
+  if (opened.baseRev !== rec.flex.baseRev) { fail({ code: 'E_STALE_BASE' }); return; }
+  const base = rec.flex.base;
   // a recording this app found for a link that points nowhere rides along, shown in the preview (§8.4)
-  const diff = diffFlexDoc(base, cur.doc, { ws: cur.doc.analLang, ...pendingMediaFix(cur.flex) });
-  const blockers = flexBlockers(cur.doc, diff.touched).filter((b) => b.blocking);
+  const diff = diffFlexDoc(base, rec.doc, { ws: rec.doc.analLang, ...pendingMediaFix(rec.flex) });
+  const blockers = flexBlockers(rec.doc, diff.touched).filter((b) => b.blocking);
   if (!diff.ops.length && !diff.unsupported.length) { H.toast(T('flex.nothingToSave')); return; }
   if (diff.unsupported.length) {
     const why = [...new Set(diff.unsupported.map((u) => T('flex.unsupported.' + u.why)))].join('\n');
@@ -337,35 +399,129 @@ async function saveToFlex() {
   }
   let preview;
   try {
-    preview = await flex.previewSave(cur.flex.textGuid, cur.flex.baseRev, diff.ops, postStateOf(cur.doc, diff.touched, base));
+    preview = await flex.previewSave(tx.guid, rec.flex.baseRev, diff.ops, postStateOf(rec.doc, diff.touched, base));
   } catch (e) { fail(e); return; }
-  const ok = await showPreview(preview, blockers, flexBlockers(cur.doc, diff.touched).filter((b) => !b.blocking));
-  if (!ok) return;
+  if (!await showPreview(preview, blockers, flexBlockers(rec.doc, diff.touched).filter((b) => !b.blocking))) return;
   const prog = progressModal(T('flex.saving'));
   try {
     const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
     prog.close();
     // the base is now what we wrote; new phrases take LCM's guids so later diffs key right
-    applyAliases(cur.doc, r.alias || {});
-    cur.flex.base = clone(cur.doc);
-    cur.flex.baseRev = r.newBaseRev;
-    if (diff.ops.some((o) => o.op === 'media.relink' || o.op === 'media.attach')) { cur.flex.mediaFix = null; cur.flex.linkOk = true; }
-    flexHistory.undo++; flexHistory.redo = 0;
+    applyAliases(rec.doc, r.alias || {});
+    if (diff.ops.some((o) => o.op === 'media.relink' || o.op === 'media.attach')) { rec.flex.mediaFix = null; rec.flex.linkOk = true; }
+    await refreshMediaList(rec, tx.guid);
+    markInFlex(rec, r.newBaseRev);
+    await H.db.putDoc(rec);
+    flexHist.done.push({ textGuid: tx.guid, id }); flexHist.undone = [];
     updateHistoryButtons();
-    await persistInSync(cur);
+    project.texts = await flex.listTexts().catch(() => project.texts);
+    await renderTexts();
     H.toast(T('flex.saved', { n: r.saved, b: (r.backup && r.backup.path || '').split(/[\\/]/).pop() }), 7000);
   } catch (e) {
     prog.close();
     fail(e, true);
   }
 }
-/* After a write to FLEx the local record IS FLEx's text again: persist (which stamps an edit), then
- * mark it loaded at that stamp so a later re-open does not mistake the save for local work. */
-async function persistInSync(cur) {
-  if (H.persist) await H.persist();
-  cur.flex.loadedAt = Number(cur.modified) || Date.now();
-  await H.db.putDoc(cur);
+/* FLEx's media list for the text as it is now (a relink changes the path inside a media object, an
+ * attach adds one) — the doc and its base keep what they hold otherwise. */
+async function refreshMediaList(rec, textGuid) {
+  try {
+    const re = await flex.openText(textGuid);
+    const f = (re.doc && re.doc.flex) || {};
+    for (const d of [rec.doc, rec.flex.base]) {
+      if (d) d.flex = { ...(d.flex || {}), media: clone(f.media || []), mediaContainer: f.mediaContainer || null };
+    }
+    rec.flex.linkOk = (f.media || []).some((m) => m.url);
+  } catch { /* the save itself succeeded; the list refreshes on the next open */ }
 }
+/* After a write to FLEx the local record IS FLEx's text again: base = the doc, and no work pending. */
+function markInFlex(rec, baseRev) {
+  const now = Date.now();
+  rec.flex.base = clone(rec.doc);
+  rec.flex.baseRev = baseRev;
+  rec.flex.dirty = false;
+  rec.modified = now;
+  rec.flex.loadedAt = now;
+}
+
+/* ---- Fix FLEx's recording link, from a text row: the file this app already uses ---------------- */
+async function fixLink(tx) {
+  if (busy || !project || !project.writable) return;
+  busy = true;
+  try { await fixLinkNow(tx); } finally { busy = false; }
+}
+async function fixLinkNow(tx) {
+  const id = flexDocId(project.name, tx.guid);
+  const rec = await H.db.getDoc(id).catch(() => null);
+  const fix = rec && rec.flex && pendingMediaFix(rec.flex).relink;
+  if (!fix) return;
+  try {
+    // A relink changes the path inside FLEx's media object, which no phrase fingerprint covers: the
+    // base revision stays what it was, and work done here stays exactly as unsaved as it was.
+    await flex.openText(tx.guid);   // the shell's session must know the text for the preview
+    const preview = await flex.relinkPreview(tx.guid, fix.uriGuid, fix.path);
+    if (!await showPreview(preview, [], [])) return;
+    const prog = progressModal(T('flex.saving'));
+    try {
+      const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
+      prog.close();
+      rec.flex.mediaFix = null;
+      rec.flex.linkOk = true;
+      await refreshMediaList(rec, tx.guid);
+      await H.db.putDoc(rec);
+      flexHist.done.push({ textGuid: tx.guid, id }); flexHist.undone = [];
+      updateHistoryButtons();
+      project.texts = await flex.listTexts().catch(() => project.texts);
+      await renderTexts();
+      H.toast(T('flex.relinked'));
+    } catch (e) { prog.close(); fail(e, true); }
+  } catch (e) { fail(e); }
+}
+
+/* ---- Undo / Redo Save to FLEx (§4.4): FLEx goes back; the work done here stays, unsaved -------------- */
+const flexHist = { done: [], undone: [] };   // [{ textGuid, id }] — FLEx's own history for this project session
+function updateHistoryButtons() {
+  const u = $('#flex-undo'), r = $('#flex-redo');
+  if (u) u.disabled = !flexHist.done.length;
+  if (r) r.disabled = !flexHist.undone.length;
+}
+async function undoRedo(which) {
+  if (busy || !project) return;
+  const from = which === 'undo' ? flexHist.done : flexHist.undone;
+  const item = from[from.length - 1];
+  if (!item) return;
+  busy = true;
+  const prog = progressModal(T(which === 'undo' ? 'flex.undoing' : 'flex.redoing'));
+  try {
+    const r = await flexJobWithProgress(which === 'undo' ? 'undo_flex' : 'redo_flex', undefined, prog.set);
+    prog.close();
+    from.pop();
+    (which === 'undo' ? flexHist.undone : flexHist.done).push(item);
+    const rec = await H.db.getDoc(item.id).catch(() => null);
+    if (rec && rec.flex) {
+      const re = await flex.openText(item.textGuid);
+      rec.flex.base = clone(re.doc);
+      rec.flex.baseRev = re.baseRev;
+      const f = re.doc.flex || {};
+      rec.doc.flex = { ...(rec.doc.flex || {}), media: clone(f.media || []), mediaContainer: f.mediaContainer || null };
+      rec.flex.linkOk = (f.media || []).some((m) => m.url);
+      // an undone relink or attach: FLEx's link points nowhere again, so the fix is pending again
+      const rc = rec.flex.recording;
+      if (rec.flex.linkOk) rec.flex.mediaFix = null;
+      else if (rc && rc.path && rc.source !== 'flex') rec.flex.mediaFix = { uriGuid: rc.uriGuid || null, path: rc.path };
+      // Is the work done here in FLEx now? The diff, not which button was pressed: two saves undone and
+      // one redone leaves work FLEx does not have. (`dirty` keeps a re-open from replacing it.)
+      rec.flex.dirty = notInFlex(rec).save;
+      await H.db.putDoc(rec);
+    }
+    updateHistoryButtons();
+    project.texts = await flex.listTexts().catch(() => project.texts);
+    await renderTexts();
+    H.toast(T(which === 'undo' ? 'flex.undone' : 'flex.redone', { l: r.label }), 6000);
+  } catch (e) { prog.close(); fail(e, true); }
+  finally { busy = false; }
+}
+
 function applyAliases(doc, alias) {
   for (const ln of doc.paragraphs) {
     for (const seg of ln.segments) {
@@ -417,11 +573,7 @@ function progressModal(title) {
   return { set: (m) => { const p = wrap.querySelector('.flex-progress'); if (p) p.textContent = m || '…'; }, close: () => wrap.remove() };
 }
 async function flexJobWithProgress(method, arg, onProgress) {
-  const start = await flex[{ save_to_flex: 'saveToFlex', undo_flex: 'undoFlex', redo_flex: 'redoFlex', import_flextext: 'importFlextext', export_editor_bundle: 'exportEditorBundle' }[method]].__raw
-    ? null : null;
-  // flex.* helpers poll to completion themselves; progress is read by polling job_status alongside
-  const { flexCall } = await import('./native-flex.js');
-  const r = await flexCall(method, arg);
+  const r = arg === undefined ? await flexCall(method) : await flexCall(method, arg);
   if (!r || !r.jobId) return r;
   for (;;) {
     const st = await flexCall('job_status', r.jobId);
@@ -432,81 +584,26 @@ async function flexJobWithProgress(method, arg, onProgress) {
   }
 }
 
-/* ---- Undo / Redo Save to FLEx (§4.4): FLEx goes back; the editor's edits stay as unsaved --------- */
-async function undoRedo(which) {
-  const cur = H.getCurrent();
-  if (!cur || !cur.flex) return;
-  const prog = progressModal(T(which === 'undo' ? 'flex.undoing' : 'flex.redoing'));
-  try {
-    const r = await flexJobWithProgress(which === 'undo' ? 'undo_flex' : 'redo_flex', undefined, prog.set);
-    prog.close();
-    const reopened = await flex.openText(cur.flex.textGuid);
-    cur.flex.base = clone(reopened.doc);
-    cur.flex.baseRev = reopened.baseRev;
-    cur.flex.linkOk = ((reopened.doc.flex && reopened.doc.flex.media) || []).some((m) => m.url);
-    if (which === 'undo') { flexHistory.undo--; flexHistory.redo++; } else { flexHistory.undo++; flexHistory.redo--; }
-    updateHistoryButtons();
-    await persistInSync(cur);
-    H.toast(T(which === 'undo' ? 'flex.undone' : 'flex.redone', { l: r.label }), 6000);
-  } catch (e) { prog.close(); fail(e, true); }
-}
-
-/* ---- Copy this line as FLEx Print view (§10) ------------------------------------------------------ */
+/* ---- Copy this line as FLEx Print view (§10): the Matcher's selected line --------------------------- */
 async function copyLine() {
-  const cur = H.getCurrent();
-  const li = H.activeLine ? H.activeLine() : 0;
-  const line = cur && cur.doc.paragraphs[li];
-  const seg = line && line.segments[0];
-  if (!seg || !seg.flex || !seg.flex.segGuid) { H.toast(T('flex.copyNoLine')); return; }
+  const segGuid = H.selectedSegGuid ? H.selectedSegGuid() : null;
+  if (!segGuid) { H.toast(T('flex.copyNoLine')); return; }
   try {
-    const data = await flex.printviewData(seg.flex.segGuid);
+    const data = await flex.printviewData(segGuid);
     const tsv = printViewTsv(data, { lines: project && project.printViewConfig ? project.printViewConfig.lines : undefined });
     await flex.copyText(tsv);
     H.toast(T('flex.copied'));
   } catch (e) { fail(e); }
 }
 
-/* ---- Export / relink / import --------------------------------------------------------------------- */
-async function exportBundle() {
-  const cur = H.getCurrent();
-  if (!cur || !cur.flex) return;
+/* ---- Export / import ----------------------------------------------------------------------------- */
+async function exportBundle(tx) {
   const prog = progressModal(T('flex.exporting'));
   try {
-    const r = await flexJobWithProgress('export_editor_bundle', cur.flex.textGuid, prog.set);
+    const r = await flexJobWithProgress('export_editor_bundle', tx.guid, prog.set);
     prog.close();
     H.toast(T('flex.exported', { p: r.zipPath }), 9000);
   } catch (e) { prog.close(); fail(e); }
-}
-async function relink() {
-  const cur = H.getCurrent();
-  if (!cur || !cur.flex) return;
-  const link = recordingLink(cur.doc.flex && cur.doc.flex.media);
-  if (!link) return;
-  try {
-    // the file this app already uses for this link; the dialog only when it has none
-    const fix = pendingMediaFix(cur.flex).relink;
-    let path = fix && fix.uriGuid === link.uriGuid ? fix.path : null;
-    if (!path) {
-      const p = await flex.chooseMedia(cur.flex.textGuid, link.uriGuid);
-      if (!p || !p.path) return;
-      path = p.path;
-    }
-    const preview = await flex.relinkPreview(cur.flex.textGuid, link.uriGuid, path);
-    if (!await showPreview(preview, [], [])) return;
-    const prog = progressModal(T('flex.saving'));
-    try {
-      const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
-      prog.close();
-      cur.flex.baseRev = r.newBaseRev;
-      cur.flex.mediaFix = null;
-      cur.flex.linkOk = true;
-      flexHistory.undo++; updateHistoryButtons();
-      await H.db.putDoc(cur);
-      const btn = $('#flex-relink');
-      if (btn) btn.hidden = true;
-      H.toast(T('flex.relinked'));
-    } catch (e) { prog.close(); fail(e, true); }
-  } catch (e) { fail(e); }
 }
 async function importFlextext() {
   if (!project || !project.writable) return;

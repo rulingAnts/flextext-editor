@@ -402,6 +402,122 @@ def test_phrase_split_through_the_protocol_with_alias_for_the_new_phrase(world):
     assert r["disk"]["changed"] == {"Segment": 2, "StTxtPara": 1}, r["disk"]["changed"]
 
 
+def engine_post(doc, touched):
+    """The intended post-state in the shape the ENGINE sends it (flex-ops.js postStateOf): every word of
+    a phrase, FLEx's phrase-final § included, keyed by the engine's phrase guid. Not model.post_state_of,
+    which drops the markers itself — a test built on it could never see the shell mishandle them."""
+    out = {}
+    for ln in doc["paragraphs"]:
+        pg = ln.get("paraOf")
+        if pg not in touched:
+            continue
+        seg = ln["segments"][0]
+        a = seg.get("attrs") or {}
+        out.setdefault(pg, []).append({
+            "segGuid": a.get("guid"), "text": " ".join(w["txt"] for w in seg["words"]),
+            "words": [{"txt": w["txt"], "punct": bool(w.get("punct")), "gls": w.get("gls", ""), "analysisGuid": None} for w in seg["words"]],
+            "ft": {seg.get("freeLang") or "en": seg["free"]} if seg.get("free") else {}, "lt": {},
+            "begin": a.get("begin-time-offset"), "end": a.get("end-time-offset")})
+    return out
+
+
+def test_a_save_touching_phrases_that_end_in_a_section_mark_compares_clean(world):
+    """FLEx's importer ends every phrase without a stop in §, and the engine sends those words in its
+    post-state. Compared against a re-read that drops them, every such save rolled back ("words differ")."""
+    import copy
+    w, s, port = world, world["s"], world["port"]
+    doc = copy.deepcopy(w["doc"])
+    ln = doc["paragraphs"][1]                          # "ddd eee §"
+    seg = ln["segments"][0]
+    assert seg["words"][-1]["txt"] == SECTION
+    seg["attrs"]["begin-time-offset"], seg["attrs"]["end-time-offset"] = "100", "200"
+    ops = [{"op": "times.set", "paraGuid": ln["paraOf"], "segGuid": seg["attrs"]["guid"], "begin": 100, "end": 200}]
+    pv = s.preview(w["tg"], w["rev"], ops, engine_post(doc, {ln["paraOf"]}))
+    r = s.save(pv["previewToken"])
+    assert r["saved"] == 1
+    assert port.read_text(w["tg"])["paragraphs"][0]["segments"][1]["beginTime"] == "100"
+
+
+def test_the_matchers_split_twice_with_a_sentence_break_and_new_translations(world):
+    """✂ twice on "hhh iii jjj" with the device's break kind Sentence: two splits in the paragraph, then
+    the new paragraph after the first piece (afterSplit — sent FIRST here, run after the splits); each new
+    phrase gets its free translation by the guid the engine gave it. One save, one undo."""
+    import copy
+    w, s, port = world, world["s"], world["port"]
+    doc = copy.deepcopy(w["doc"])
+    ln = doc["paragraphs"][3]
+    seg, pg = ln["segments"][0], ln["paraOf"]
+    words = seg["words"]
+    seg["words"] = words[:1]
+    seg["attrs"]["begin-time-offset"], seg["attrs"]["end-time-offset"] = "0", "500"
+    pieces = [("eng-n1", words[1:2], "the second", ("500", "800")), ("eng-n2", words[2:], "the third", ("800", "1000"))]
+    for g, ws, ft, (b, e) in pieces:
+        doc["paragraphs"].append({"guid": "ln-" + g, "paraOf": "eng-np", "segments": [
+            {"attrs": {"guid": g, "begin-time-offset": b, "end-time-offset": e}, "words": ws, "free": ft, "freeLang": "en", "baseline": ""}]})
+    ops = [
+        {"op": "phrase.toPara", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "newPara": "eng-np", "afterSplit": True},
+        {"op": "phrase.split", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "afterWordIndex": 0, "newPhrase": "eng-n1", "times": [[0, 500], [500, 800]]},
+        {"op": "phrase.split", "paraGuid": pg, "segGuid": "eng-n1", "afterWordIndex": 0, "newPhrase": "eng-n2", "times": [[500, 800], [800, 1000]]},
+        {"op": "ft.set", "paraGuid": pg, "segGuid": "eng-n1", "ws": "en", "value": "the second"},
+        {"op": "ft.set", "paraGuid": pg, "segGuid": "eng-n2", "ws": "en", "value": "the third"},
+    ]
+    before = model.fingerprint_text(port.read_text(w["tg"]))
+    pv = s.preview(w["tg"], w["rev"], ops, engine_post(doc, {pg, "eng-np"}))
+    assert pv["counts"] == {"Segment": 2, "StTxtPara": 1}, pv["counts"]   # this project already has its § form
+    r = s.save(pv["previewToken"])
+    t = port.read_text(w["tg"])
+    assert [len(p["segments"]) for p in t["paragraphs"]] == [3, 1, 2]
+    p1, np_ = t["paragraphs"][1], t["paragraphs"][2]
+    assert p1["contents"] == "hhh" and p1["segments"][0]["guid"] == seg["attrs"]["guid"], "the first piece keeps the phrase; its trailing § went with the paragraph split"
+    assert [x["guid"] for x in np_["segments"]] == [r["alias"]["eng-n1"], r["alias"]["eng-n2"]] and np_["guid"] == r["alias"]["eng-np"]
+    assert [x["ft"].get("en") for x in np_["segments"]] == ["the second", "the third"]
+    assert [(x["beginTime"], x["endTime"]) for x in p1["segments"] + np_["segments"]] == [("0", "500"), ("500", "800"), ("800", "1000")]
+    s.undo_save()
+    assert model.fingerprint_text(port.read_text(w["tg"])) == before, "ONE undo takes the whole reshaping back"
+
+
+def test_a_join_across_a_paragraph_break_and_the_section_form_counted_once(tmp_path):
+    """⤴ on a line that opens its own paragraph: FLEx joins the paragraphs (appending "§ ", which makes the
+    project's first § PunctuationForm), then the phrases (deleting it). The form is counted once."""
+    projects = tmp_path / "Projects"
+    projects.mkdir()
+    MockLcm.create_project(str(projects), "copy-j", texts=[{"title": "join", "paragraphs": ["aaa bbb", "ccc ddd"]}])
+    (projects / "copy-j" / "flextext-disposable-copy.txt").write_text("x")
+    port = MockLcm(str(projects))
+    s = Session(port, "copy-j", write=True, copy_only=True, marker_ok=True)
+    tg = port.list_texts()[0]["guid"]
+    o = s.open_text(tg)
+    import copy
+    doc = copy.deepcopy(o["doc"])
+    l0, l1 = doc["paragraphs"]
+    assert not port.has_punct_form(SECTION)
+    l0["segments"][0]["words"] = l0["segments"][0]["words"] + l1["segments"][0]["words"]
+    l0["segments"][0]["attrs"]["begin-time-offset"], l0["segments"][0]["attrs"]["end-time-offset"] = None, None
+    doc["paragraphs"] = [l0]
+    p0, p1 = l0["paraOf"], l1["paraOf"]
+    s0 = l0["segments"][0]["attrs"]["guid"]
+    ops = [{"op": "para.toPhrase", "paraGuid": p0}, {"op": "phrase.join", "paraGuid": p0, "segGuid": s0, "endTime": None}]
+    pv = s.preview(tg, o["baseRev"], ops, engine_post(doc, {p0, p1}))
+    assert pv["counts"] == {"StTxtPara": -1, "Segment": -1, "PunctuationForm": 1}, pv["counts"]
+    s.save(pv["previewToken"])
+    t = port.read_text(tg)
+    assert len(t["paragraphs"]) == 1 and t["paragraphs"][0]["contents"] == "aaa bbb ccc ddd"
+    assert [x["guid"] for x in t["paragraphs"][0]["segments"]] == [s0]
+
+
+def test_ops_naming_a_phrase_no_one_made_are_refused(world):
+    w, s = world, world["s"]
+    pg = w["doc"]["paragraphs"][3]["paraOf"]
+    with pytest.raises(FlexError) as ei:
+        s.preview(w["tg"], w["rev"], [{"op": "ft.set", "paraGuid": pg, "segGuid": "nobody-made-this", "ws": "en", "value": "x"}], {})
+    assert ei.value.code == "E_SCOPE"
+    seg = w["doc"]["paragraphs"][3]["segments"][0]["attrs"]["guid"]
+    split = {"op": "phrase.split", "paraGuid": pg, "segGuid": seg, "afterWordIndex": 0, "newPhrase": "eng-n1", "times": None}
+    with pytest.raises(FlexError) as ei:     # a gloss on a phrase this save makes: save the split first
+        s.preview(w["tg"], w["rev"], [split, {"op": "gloss.set", "paraGuid": pg, "segGuid": "eng-n1", "index": 0, "ws": "en", "value": "g"}], {})
+    assert ei.value.code == "E_SCOPE"
+
+
 def test_media_attach_then_times_survive_and_relink_rules(world, tmp_path):
     w, s, port = world, world["s"], world["port"]
     rec = tmp_path / "rec.wav"

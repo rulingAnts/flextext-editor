@@ -1375,6 +1375,14 @@ copy, before writing: the confirmation says so).
 
 ---
 
+### 12.4 Later: loading the live engine instead of a bundled one
+
+Bundling the engine is right while this is built (Seth, 2026-10-16), and not the long-term design. What
+keeps the move cheap — the origin is the user's data, media URLs made in one place, the page marker's
+three callers, contract additions as capabilities rather than bumps, the offline module list — is in
+**`plans/flex-shell-live-path.md`**, with the three ways to make the move (recommendation: keep the
+origin and mirror the live Segmenter, so no check-out has to move).
+
 ## 13. Testing strategy
 
 ### 13.1 Cloud / CI (Linux, no FLEx): the mock LCM layer
@@ -1495,7 +1503,9 @@ copy, before writing: the confirmation says so).
   if either is skipped, memory and disk can disagree silently (**verified** failure mode).
 - **R3** The mock can drift from LCM; contract tests on the VM are the guard.
 - **R4** Engine pinned per shell build: sync-protocol or data-format changes on the web need a
-  shell rebuild; old shells must refuse a newer contract rather than misbehave.
+  shell rebuild; old shells must refuse a newer contract rather than misbehave. The way out is to stop
+  pinning — `plans/flex-shell-live-path.md`; until then, contract ADDITIONS go through
+  `hello().capabilities`, never a bump (§3.4 there).
 - **R5** FLEx's importer does not preserve analysis identity (new glosses on import).
 - **R6** Backup folder may be cloud-synced (D3).
 - **R7** Two Windows shells (Electron for capture, pywebview for FLEx) until merged.

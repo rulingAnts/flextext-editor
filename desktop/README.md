@@ -45,6 +45,9 @@ desktop/
   requirements.lock     pinned versions — ⚠ hashes are placeholders until the first Windows build
 ```
 
+The engine is BUNDLED into the shell for now; the long-term shell loads the live one and is the bridge
+to FLEx. What keeps that move cheap, and how it would be made: `plans/flex-shell-live-path.md`.
+
 Engine side (`docs/js/`): `native-flex.js` is the only engine file that may touch
 `window.pywebview` (enforced by `check-native-containment.sh` rule 1c); `flex-ops.js` diffs the
 FLEx base doc against the current doc into typed ops keyed by GUID; `printview-tsv.js` rebuilds

@@ -27,7 +27,7 @@
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
 import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, recordingLink, pendingMediaFix } from './flex-ops.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, recordingLink, pendingMediaFix } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
@@ -263,9 +263,26 @@ async function openTextSteps(tx, pause, resume) {
   let opened;
   try { opened = await flex.openText(tx.guid, ws); } catch (e) { pause(); fail(e); return; }
   const how = reopenDecision(existing, opened.baseRev, local);
-  let rec;
-  if (how === 'ask') {
-    // the destructive answer is the one Escape and a click outside never give
+  let rec, after = '';
+  if (how === 'ask' && !existing.matchDraft) {
+    /* FLEx changed the text and there is work here (§4.5): FLEx's changes come in under the work — the
+     * checkout moves to FLEx's text as it is now, the work rides on it — unless the two changed the same
+     * thing, which Save to FLEx… then shows. Nothing is lost either way, nothing is asked here. */
+    const m = mergeFlexDocs(existing.flex.base, existing.doc, opened.doc);
+    if (!m.conflicts.length) {
+      keepTimeEstimates(existing.doc, m.doc);
+      rec = { ...existing, doc: m.doc, title: m.doc.title,
+        flex: { ...existing.flex, base: clone(opened.doc), baseRev: opened.baseRev, loadedAt: Date.now() } };
+      Object.assign(rec, H.docStats(m.doc));
+      after = T(m.theirs === 1 ? 'flex.merge.openKept1' : 'flex.merge.openKeptN', { n: m.theirs });
+    } else {
+      rec = existing;
+      after = T(m.conflicts.length === 1 ? 'flex.merge.openConflicts1' : 'flex.merge.openConflictsN', { n: m.conflicts.length });
+    }
+  } else if (how === 'ask') {
+    // ⚠ NOT UNDER A MATCHER DRAFT: the draft holds the Matcher's own copy of the lines, and its Done would
+    // write them back over FLEx's merged changes. So the old question: the destructive answer is the one
+    // Escape and a click outside never give.
     pause();
     const load = await H.confirmDialog(T('flex.reopen.conflict'), { ok: T('flex.reopen.loadFlex'), cancel: T('flex.reopen.keep'), cancelFirst: true });
     resume();
@@ -288,6 +305,7 @@ async function openTextSteps(tx, pause, resume) {
   }
   await H.db.putDoc(rec);                  // a raw write: opening is not an edit
   await H.openRecord(id);
+  if (after) { pause(); H.toast(after, 9000); }
 }
 function fromFlex(existing, id, tx, opened) {
   const doc = opened.doc;
@@ -710,18 +728,43 @@ async function saveTextNow(tx) {
   const id = flexDocId(project.name, tx.guid);
   const rec = await H.db.getDoc(id).catch(() => null);
   if (!rec || !rec.flex) return;
-  const done = working(T('flex.preparingSave'));   // down before the preview (or any message) shows
-  try { await saveSteps(tx, id, rec, done); } finally { done(); }
+  let done = working(T('flex.preparingSave'));   // down before the preview (or any message) shows
+  const spin = { stop: () => done(), again: () => { done = working(T('flex.preparingSave')); } };
+  try { await saveSteps(tx, id, rec, spin); } finally { done(); }
 }
-async function saveSteps(tx, id, rec, done) {
+async function saveSteps(tx, id, rec, spin) {
+  const done = () => spin.stop();
   let opened;
   try { opened = await flex.openText(tx.guid, wsOf(rec)); } catch (e) { done(); fail(e); return; }
-  if (opened.baseRev !== rec.flex.baseRev) { done(); fail({ code: 'E_STALE_BASE' }); return; }
-  const base = rec.flex.base;
+  /* CHECK-IN (§4.5). With FLEx as it was at the check-out, the work is diffed against that. When FLEx has
+   * changed the text since, the work goes onto FLEx's text as it is NOW (mergeFlexDocs) and the diff is
+   * against THAT — so only the changes made here are written, and FLEx's own stay as they are. Where both
+   * changed the same thing the user says which to keep, first. */
+  let base = rec.flex.base, work = rec.doc, baseRev = rec.flex.baseRev, merged = null;
+  if (opened.baseRev !== rec.flex.baseRev) {
+    merged = mergeFlexDocs(rec.flex.base, rec.doc, opened.doc);
+    if (merged.conflicts.length) {
+      done();
+      const how = await mergeDialog(merged.conflicts);
+      if (!how) return;
+      if (how === 'mine') merged = mergeFlexDocs(rec.flex.base, rec.doc, opened.doc, { prefer: 'mine' });
+      spin.again();
+    }
+    base = opened.doc; work = merged.doc; baseRev = opened.baseRev;
+  }
   // a recording this app found for a link that points nowhere rides along, shown in the preview (§8.4)
-  const diff = diffFlexDoc(base, rec.doc, { ws: rec.doc.analLang, ...pendingMediaFix(rec.flex) });
-  const blockers = flexBlockers(rec.doc, diff.touched).filter((b) => b.blocking);
-  if (!diff.ops.length && !diff.unsupported.length) { done(); H.toast(T('flex.nothingToSave')); return; }
+  const diff = diffFlexDoc(base, work, { ws: work.analLang, ...pendingMediaFix(rec.flex) });
+  const blockers = flexBlockers(work, diff.touched).filter((b) => b.blocking);
+  if (!diff.ops.length && !diff.unsupported.length) {
+    done();
+    if (!merged) { H.toast(T('flex.nothingToSave')); return; }
+    // nothing of ours is left to write (kept FLEx's for all of it): this app's copy is FLEx's text again
+    adoptFlex(rec, opened, work);
+    await H.db.putDoc(rec);
+    await renderTexts();
+    H.toast(T('flex.merge.nothingLeft'), 7000);
+    return;
+  }
   if (diff.unsupported.length) {
     done();
     const why = [...new Set(diff.unsupported.map((u) => T('flex.unsupported.' + u.why)))].join('\n');
@@ -730,19 +773,27 @@ async function saveSteps(tx, id, rec, done) {
   }
   let preview;
   try {
-    preview = await flex.previewSave(tx.guid, rec.flex.baseRev, diff.ops, postStateOf(rec.doc, diff.touched, base));
+    preview = await flex.previewSave(tx.guid, baseRev, diff.ops, postStateOf(work, diff.touched, base));
   } catch (e) { done(); fail(e); return; }
   done();
-  if (!await showPreview(preview, blockers, flexBlockers(rec.doc, diff.touched).filter((b) => !b.blocking))) return;
+  const kept = merged && merged.theirs ? T(merged.theirs === 1 ? 'flex.merge.kept1' : 'flex.merge.keptN', { n: merged.theirs }) : '';
+  if (!await showPreview(preview, blockers, flexBlockers(work, diff.touched).filter((b) => !b.blocking), kept)) return;
   const prog = progressModal(T('flex.saving'));
   try {
     const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
     prog.close();
-    // the base is now what we wrote; new phrases take LCM's guids so later diffs key right
-    applyAliases(rec.doc, r.alias || {});
     if (diff.ops.some((o) => o.op === 'media.relink' || o.op === 'media.attach')) { rec.flex.mediaFix = null; rec.flex.linkOk = true; }
-    await refreshMediaList(rec, tx.guid);
-    markInFlex(rec, r.newBaseRev);
+    if (merged) {
+      // FLEx now holds its changes and ours together: this app's copy is FLEx's text, read just now
+      applyAliases(work, r.alias || {});
+      try { adoptFlex(rec, await flex.openText(tx.guid, wsOf(rec)), work); }
+      catch { applyAliases(rec.doc, r.alias || {}); markInFlex(rec, r.newBaseRev); rec.flex.dirty = true; }   // re-read on the next open
+    } else {
+      // the base is now what we wrote; new phrases take LCM's guids so later diffs key right
+      applyAliases(rec.doc, r.alias || {});
+      await refreshMediaList(rec, tx.guid);
+      markInFlex(rec, r.newBaseRev);
+    }
     await H.db.putDoc(rec);
     flexHist.done.push({ textGuid: tx.guid, id }); flexHist.undone = [];
     updateHistoryButtons();
@@ -765,6 +816,23 @@ async function refreshMediaList(rec, textGuid) {
     }
     rec.flex.linkOk = (f.media || []).some((m) => m.url);
   } catch { /* the save itself succeeded; the list refreshes on the next open */ }
+}
+/* After a merged check-in, FLEx holds the text this app should show — its changes and ours: the record
+ * takes it as just read, keeping what FLEx does not hold (the draft, the recording, which time edges were
+ * estimates — from `estimatesFrom`, the text as written). */
+function adoptFlex(rec, opened, estimatesFrom) {
+  const doc = opened.doc;
+  keepTimeEstimates(estimatesFrom || rec.doc, doc);
+  const now = Date.now();
+  rec.doc = doc;
+  rec.title = doc.title;
+  rec.modified = now;
+  rec.flex.base = clone(doc);
+  rec.flex.baseRev = opened.baseRev;
+  rec.flex.loadedAt = now;
+  rec.flex.dirty = false;
+  rec.flex.linkOk = ((doc.flex && doc.flex.media) || []).some((m) => m.url);
+  Object.assign(rec, H.docStats(doc));
 }
 /* After a write to FLEx the local record IS FLEx's text again: base = the doc, and no work pending. */
 function markInFlex(rec, baseRev) {
@@ -865,7 +933,42 @@ function applyAliases(doc, alias) {
     if (ln.paraOf && alias[ln.paraOf]) ln.paraOf = alias[ln.paraOf];
   }
 }
-function showPreview(preview, blockers, warnings) {
+/* Where the work here and FLEx changed the same thing (§4.5) → 'flex' (keep FLEx's for these and save
+ * the rest), 'mine' (use mine for these — offered only when every one of them can take it), or null
+ * (Cancel: nothing written, nothing changed here). Cancel is the default. */
+function mergeDialog(conflicts) {
+  return new Promise((resolve) => {
+    const canMine = conflicts.every((c) => c.forceable);
+    const lines = (c) => (c.lines && c.lines.length > 1 ? c.lines[0] + '–' + c.lines[c.lines.length - 1] : String(c.line || (c.lines && c.lines[0]) || '?'));
+    const say = (c) => T('flex.merge.c.' + c.kind + (c.lines && c.lines.length > 1 ? 'N' : ''), { l: lines(c), w: c.word || '' });
+    const shown = conflicts.slice(0, 15).map((c) => '<li>' + esc(say(c)) + '</li>').join('')
+      + (conflicts.length > 15 ? '<li>' + esc(T('flex.merge.more', { n: conflicts.length - 15 })) + '</li>' : '');
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.flexMerge = '1';
+    wrap.innerHTML = `<div class="modal-card flex-ws-card" role="dialog" aria-modal="true">
+      <h3>${esc(T('flex.merge.title'))}</h3>
+      <p>${esc(T('flex.merge.intro'))}</p>
+      <ul class="flex-merge-list">${shown}</ul>
+      <p class="flex-media-note">${esc(T(canMine ? 'flex.merge.choose' : 'flex.merge.chooseFlexOnly'))}</p>
+      <div class="flex-row">
+        <button class="secondary-btn" data-cancel>${esc(T('share.cancel'))}</button>
+        <button class="primary-btn" data-flex>${esc(T('flex.merge.keepFlex'))}</button>
+        ${canMine ? `<button class="secondary-btn" data-mine>${esc(T('flex.merge.keepMine'))}</button>` : ''}
+      </div>
+    </div>`;
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    wrap.querySelector('[data-flex]').addEventListener('click', () => done('flex'));
+    const m = wrap.querySelector('[data-mine]');
+    if (m) m.addEventListener('click', () => done('mine'));
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(null));
+    wrap.querySelector('[data-cancel]').focus();
+  });
+}
+function showPreview(preview, blockers, warnings, kept = '') {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal';
@@ -876,6 +979,7 @@ function showPreview(preview, blockers, warnings) {
       <ul class="flex-summary">${items || '<li>' + esc(T('flex.nothingToSave')) + '</li>'}</ul>
       ${blockers.length ? '<p class="flex-blockers">' + blockers.map((b) => esc(T('flex.warn.' + b.code, { c: b.char || '' }))).join('<br>') + '</p>' : ''}
       ${warn.length ? '<p class="flex-warnings">' + warn.map(esc).join('<br>') + '</p>' : ''}
+      ${kept ? '<p class="flex-merge-kept">' + esc(kept) + '</p>' : ''}
       <p class="flex-backup">${esc(T('flex.backupNote', { d: preview.backupDir || '' }))}</p>
       <button class="primary-btn" data-ok ${blockers.length ? 'disabled' : ''}>${esc(T('flex.confirm'))}</button>
       <button class="link-btn" data-cancel>${esc(T('share.cancel'))}</button>

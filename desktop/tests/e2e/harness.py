@@ -79,6 +79,29 @@ class Picker:
         return self.answer
 
 
+def flex_edit(projects, project, title, edits):
+    """FLEx changes a text while the shell has let go of it (the check-in merge, plan §4.5): free
+    translations and word glosses, through the mock backend as FLEx would make them."""
+    b = MockLcm(projects)
+    b.open(project, write=True)
+    try:
+        guid = next(t["guid"] for t in b.list_texts() if t["title"] == title)
+        segs = [s for p in b.read_text(guid)["paragraphs"] for s in p["segments"]]
+        h = b.begin_uow("FLEx", "FLEx")
+        for e in edits:
+            s = segs[e["line"]]
+            if e["kind"] == "ft":
+                b.set_free_translation(s["guid"], e["ws"], e["value"])
+            elif e["kind"] == "gloss":
+                a = s["analyses"][e["word"]]
+                b.set_analysis(s["guid"], e["word"], b.create_gloss(b.create_trivial_analysis(a["wordformGuid"]), {e["ws"]: e["value"]}))
+        b.commit(h)
+        b.save()
+    finally:
+        b.close_project()
+    return True
+
+
 def start(tmp):
     tmp = pathlib.Path(tmp)
     projects = tmp / "Projects"
@@ -102,6 +125,18 @@ def start(tmp):
     for i, para in enumerate(doc["paragraphs"]):
         for seg in para["segments"]:
             b.set_free_translation(seg["guid"], "en", "the free translation of line %d" % (i + 1))
+    b.commit(h)
+    b.save()
+    b.close_project()
+    # the check-in merge: FLEx changes the text between the check-out and the check-in
+    MockLcm.create_project(str(projects), "merge-write", texts=[{"title": "Merge text", "paragraphs": STRUCT, "media": [in_lf]}])
+    (projects / "merge-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("merge-write", write=True)
+    doc = b.read_text(b.list_texts()[0]["guid"])
+    h = b.begin_uow("fixture", "fixture")
+    for i, para in enumerate(doc["paragraphs"]):
+        b.set_free_translation(para["segments"][0]["guid"], "en", "line %d" % (i + 1))
     b.commit(h)
     b.save()
     b.close_project()
@@ -161,6 +196,8 @@ def start(tmp):
                 out = {"ok": True, "result": picker.calls}
             elif method == "__clipboard":
                 out = {"ok": True, "result": clip.text}
+            elif method == "__flexEdit":                 # FLEx edits a text while the shell has let go of it
+                out = {"ok": True, "result": flex_edit(str(projects), *args)}
             elif method == "__slow":                     # the test makes one shell method slow (or fast again)
                 slow[args[0]] = float(args[1]) / 1000.0
                 out = {"ok": True}

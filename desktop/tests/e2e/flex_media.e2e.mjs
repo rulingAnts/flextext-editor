@@ -558,6 +558,102 @@ await rpc('__slow', ['open_text', 0]);
 await page.click('#mg-back');
 await waitHome();
 
+// ── 10. check-out / check-in with a merge (Seth, 2026-10-16: "a check-out and check-in with the original
+// (before changes) version saved for comparison and diff/merge … change JUST what we change") ─────────────
+// work done here, as the Matcher's Done leaves it: a line's free translation changed in the record
+const editHere = (project, title, line, free) => page.evaluate(async ([pj, ti, li, fr]) => {
+  const db = await import('/flextext-editor/js/db.js');
+  for (const d of await db.listDocs()) {
+    if (!d.id.startsWith('flex-')) continue;
+    const r = await db.getDoc(d.id);
+    if (r.flex.project !== pj || r.title !== ti) continue;
+    const seg = r.doc.paragraphs[li].segments[0];
+    seg.free = fr;
+    seg.freeLang = 'en';
+    r.modified = Date.now();
+    await db.putDoc(r);
+    return true;
+  }
+  return false;
+}, [project, title, line, free]);
+const flexDoc = async (title) => (await rpc('open_text', [(await flexText(title)).guid])).result.doc;
+const reopenProject = async (edits) => {
+  await page.click('#flex-close');
+  await page.waitForFunction(() => document.querySelector('#flex-texts').hidden, null, T(10000));
+  await rpc('__flexEdit', ['merge-write', 'Merge text', edits]);
+  await openProject('merge-write', 'write');
+};
+await home();
+await openProject('merge-write', 'write');
+await textRow('Merge text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+await page.click('#mg-guess');
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-wave').length === 3, null, T(10000));
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+// FLEx changes the text meanwhile: a translation and a gloss, while the shell has let go of it
+await reopenProject([{ kind: 'ft', line: 2, ws: 'en', value: 'line three, as FLEx has it' }, { kind: 'gloss', line: 0, word: 1, ws: 'en', value: 'G-FLEx' }]);
+await textRow('Merge text').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+const pv10 = await page.locator('.flex-preview').innerText();
+ok(/FLEx changed 2 lines of this text since it was opened here; those changes stay/.test(pv10), 'the preview says FLEx\'s own changes stay: ' + pv10.replace(/\n+/g, ' | ').slice(0, 260));
+ok((pv10.match(/Times:/g) || []).length === 3 && !/translation|Gloss/i.test(pv10.split('FLEx changed')[0]), 'and writes only the times done here');
+await shot('19-merge-preview');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+let md = await flexDoc('Merge text');
+ok(md.paragraphs[2].segments[0].free === 'line three, as FLEx has it' && md.paragraphs[0].segments[0].words[1].gls === 'G-FLEx', 'FLEx keeps its translation and its gloss');
+ok((await flexText('Merge text')).timedSegs === 3, 'and has the three times done here');
+recs = await records();
+const m10 = recs.find((r) => r.project === 'merge-write');
+ok(m10 && !m10.dirty && m10.timed === 3, 'this app\'s copy is FLEx\'s text again, times and all');
+// the same translation changed on both sides → asked; "use mine"
+await editHere('merge-write', 'Merge text', 0, 'line one, here');
+await reopenProject([{ kind: 'ft', line: 0, ws: 'en', value: 'line one, in FLEx' }]);
+await textRow('Merge text').locator('.flex-save-text').click();
+await page.waitForSelector('[data-flex-merge]', T(10000));
+const mdl = await page.locator('[data-flex-merge]').innerText();
+ok(/Line 1: its free translation/.test(mdl) && await page.locator('[data-flex-merge] [data-mine]').count() === 1, 'both changed line 1\'s translation: the dialog names it and offers mine: ' + mdl.replace(/\n+/g, ' | ').slice(0, 200));
+ok(await page.evaluate(() => document.activeElement && document.activeElement.hasAttribute('data-cancel')), 'Cancel is the default');
+await shot('20-merge-conflict');
+await page.click('[data-flex-merge] [data-mine]');
+await page.waitForSelector('.flex-preview', T(10000));
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+md = await flexDoc('Merge text');
+ok(md.paragraphs[0].segments[0].free === 'line one, here', '"use mine": the translation done here is in FLEx');
+// both changed the same translation again → "keep FLEx's": nothing of ours left, the copy is FLEx's again
+await editHere('merge-write', 'Merge text', 1, 'line two, here');
+await reopenProject([{ kind: 'ft', line: 1, ws: 'en', value: 'line two, in FLEx' }]);
+await textRow('Merge text').locator('.flex-save-text').click();
+await page.waitForSelector('[data-flex-merge]', T(10000));
+await page.click('[data-flex-merge] [data-flex]');
+await page.waitForFunction(() => /Nothing of yours was left to write/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
+md = await flexDoc('Merge text');
+ok(md.paragraphs[1].segments[0].free === 'line two, in FLEx', '"keep FLEx\'s": FLEx\'s translation stays');
+ok(!(await textRow('Merge text').locator('.flex-save-text').count()), 'and nothing is left to save');
+// work here, FLEx changed elsewhere: re-opening brings FLEx's change in under the work, asking nothing
+await editHere('merge-write', 'Merge text', 2, 'line three, here');
+await reopenProject([{ kind: 'gloss', line: 1, word: 0, ws: 'en', value: 'D-FLEx' }]);
+await textRow('Merge text').locator('.flex-open-text').click();
+await waitMatcher();
+ok(!(await page.locator('.modal [data-ok]').count()), 'no question on opening');
+await page.waitForFunction(() => /FLEx changed 1 line of this text since it was opened here\. That change is in, with your work/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
+const mtx = await page.evaluate(() => document.querySelector('#view-matcher').innerText);
+ok(/D-FLEx/.test(mtx) && /line three, here/.test(mtx), 'the Matcher shows FLEx\'s new gloss and the translation done here');
+await page.click('#mg-back');
+await waitHome();
+await textRow('Merge text').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+const pv10b = await page.locator('.flex-preview').innerText();
+ok(!/FLEx changed/.test(pv10b) && /line three, here/.test(pv10b), 'the save after it writes the translation only (FLEx\'s change came in at the open)');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+md = await flexDoc('Merge text');
+ok(md.paragraphs[2].segments[0].free === 'line three, here' && md.paragraphs[1].segments[0].words[0].gls === 'D-FLEx', 'FLEx has both');
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

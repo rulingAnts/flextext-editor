@@ -114,8 +114,10 @@ join across paragraphs saved to FLEx, Copy line, the per-text writing-systems se
 save that keeps the other analysis writing system, a word edit refused in another vernacular view), a
 record an older build made (no glosses, no translations) read again from FLEx in the text's own writing
 systems, switching them inside the Matcher (in place; read-only when there is unsaved work), words
-joined with Backspace / split with Space saved to FLEx, and Reset… / Reset all texts… (a draft and unsaved
-changes named first; the recording kept, or forgotten with the shell's remembered choice). It needs Node with Playwright and a Chromium
+joined with Backspace / split with Space saved to FLEx, Reset… / Reset all texts… (a draft and unsaved
+changes named first; the recording kept, or forgotten with the shell's remembered choice), the loading
+spinner on a slowed shell, and check-in with a merge (FLEx edits the text between the check-out and the
+check-in: only the work done here is written, FLEx's changes stay, a conflict is asked about first). It needs Node with Playwright and a Chromium
 (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them. It is the first thing to run
 after touching `flex-panel.js`, `flex-ops.js`, `api.py`, `protocol.py` or the server's CSP: it found the
 CSP that loaded every recording and played none before any VM did, and with the protocol tests it found
@@ -237,7 +239,12 @@ In this order. The scripts refuse a folder without the copy marker.
    glosses) — Writing systems… says how many words have no approved gloss.
    **Reset…** on a row (or **Reset all texts…** beside Close project) clears this app's copy and
    reads the text fresh from FLEx; tick *Also forget the recording* to be asked for it again.
-8. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
+8. **Check-in with a merge (plan §4.5)** — on the copy: open a text here, cut it (✨), Done. Close the
+   project in the shell, open the copy in FLEx, change a free translation and a word gloss in that text,
+   close FLEx. Open the copy for writing and Save to FLEx…: the preview lists only the times and says how
+   many lines FLEx changed; after the save, FLEx should show its own changes AND the times. Then change
+   the same translation here and in FLEx: Save to FLEx… names that line and asks which to keep.
+9. Only after all of that and Seth's explicit go: the release stamp lifts the copy-only flag.
 
 ## Decisions still Seth's (plan §14, plus new ones from the build)
 

@@ -407,6 +407,46 @@ release path **before** the shell depends on them:
 - Why separate: an editor Ctrl+Z must never silently rewrite a FLEx database.
   (Decision D1, §14.)
 
+### 4.5 Check-out and check-in, with a merge (2026-10-16)
+
+Seth: *"Eventually we'll want it to be reading and writing to the database directly, live, on the fly
+(but with undo/write safety). But for now a check-out and check-in with the original (before changes)
+version saved for comparison and diff/merge. We don't want to use flextext format import/export because
+that round-trip isn't reliable. We want to just compare before and after our edits and change JUST what
+we change."*
+
+- **Check-out** = opening a text: FLEx's text is read (never through a .flextext) and kept as
+  `rec.flex.base`, the original; the work done here is `rec.doc`. A record with no work of its own is
+  checked out afresh on every open (§8.4).
+- **Check-in** = Save to FLEx…: the diff of the original against the work (§4.2) — typed ops keyed by
+  GUIDs, the one transaction of §5, the post-state compared before commit. Only what changed here is
+  written; nothing else of FLEx's text is rewritten.
+- **When FLEx changed the text since the check-out** (it used to refuse, E_STALE_BASE): the work goes onto
+  FLEx's text as it is NOW — `mergeFlexDocs(original, work, flexNow)` — and the diff is against that, so
+  the save still writes just the changes made here and FLEx's own stay. Cell by cell, by GUID: a
+  phrase's times and free translation (they belong to the FLEx segment, so they survive FLEx rewording
+  its words, as long as FLEx kept the segment between the same neighbours); each word's gloss (only
+  while FLEx kept the phrase's words); and the shape — a paragraph reshaped here (split, join, word
+  edits) goes in only if FLEx still has it as checked out, its phrases, words, and the times and
+  translation of each phrase reshaped (a split's halves share what was one translation). Changed on one
+  side → that side; on both to the same value → that; to different values → a **conflict**, listed by
+  line before anything is written: *Keep FLEx's, save the rest* (the default after Cancel) or *Use mine
+  for these* (offered only when every conflict can take it — never a reshaping over FLEx's changed
+  words). The preview then says how many lines FLEx changed, and that they stay. After the save the
+  local copy is FLEx's text read again (its changes and ours), with this app's own estimate marks kept.
+- **Re-opening** a text with work here that FLEx has changed brings FLEx's changes in under the work
+  (the checkout moves to FLEx's text now) when nothing conflicts, and asks nothing; with conflicts it
+  keeps the work as it is and says Save to FLEx… will show them. ⚠ **Not under a Matcher draft**: the
+  draft holds the Matcher's own copy of the lines, and its Done would write them back over FLEx's
+  merged changes — then the old question (keep mine / load FLEx's) stands.
+- Pure and node-tested (`test/flex-merge.test.mjs`): with FLEx unchanged the merge writes exactly what a
+  plain save writes, and with nothing done here it writes nothing, for every kind of change; the
+  end-to-end test edits the mock project between check-out and check-in (`__flexEdit`, the shell having
+  let go of it, as FLEx would) and checks FLEx afterwards holds both sides.
+- **Still to come** (Seth's "eventually"): reading and writing live, on the fly, with undo and the same
+  write safety — which needs FLEx's own shared-project mode (two programs on one project) rather than
+  the exclusive lock this shell takes today (§5, §14).
+
 ---
 
 ## 5. Write protocol (as verified)

@@ -456,6 +456,251 @@ export function keepTimeEstimates(was, fresh) {
   return fresh;
 }
 
+/* ---- check-in with a merge (plans/flex-desktop-segmenter.md §4.5) ---------------------------------------
+ * Seth, 2026-10-16: "for now a check-out and check-in with the original (before changes) version saved for
+ * comparison and diff/merge … We don't want to use flextext format import/export because that round-trip
+ * isn't reliable. We want to just compare before and after our edits and change JUST what we change."
+ *
+ * mergeFlexDocs(base, ours, theirs, { prefer }) → { doc, conflicts, theirs }
+ *   base   — the text as it was checked out (rec.flex.base)
+ *   ours   — the work done here since (rec.doc)
+ *   theirs — the text in FLEx now, read in the same writing systems
+ * `doc` is THEIRS with our changes on it, so diffFlexDoc(theirs, doc) is exactly our changes: a save
+ * writes those and FLEx keeps everything else it has, its own changes since the check-out included.
+ * Compared cell by cell, keyed by GUIDs, never by position alone:
+ *   - a phrase's times and its free translation (the analysis writing system edited here), which belong
+ *     to the FLEx segment — so they still apply after FLEx reworded its words, as long as FLEx kept the
+ *     segment where it was (the same phrases either side of it);
+ *   - each word's gloss, which belongs to a word at a place — only while FLEx kept the phrase's words;
+ *   - the shape: which phrases a paragraph holds and their words. A paragraph reshaped here (a split, a
+ *     join, a word split or joined) goes in as reshaped here only if FLEx still has it exactly as checked
+ *     out — its phrases and words, and the times and free translation of every phrase reshaped here (a
+ *     split's halves share what was one translation: FLEx's new one cannot be laid on one half). FLEx's
+ *     glosses, and its changes to the phrases not reshaped, are taken across. Else the reshaping is a
+ *     conflict, and the paragraph stays as FLEx has it.
+ * A cell changed on one side takes that side; on both to the same value, that value; to different values
+ * it is a CONFLICT, and FLEx's value stays — unless `prefer: 'mine'`, which takes ours for a conflict that
+ * can take it (`forceable`). Everything this app does not edit (other writing systems, literal
+ * translations, notes, paragraphs FLEx added) is FLEx's. `theirs` counts the phrases FLEx changed, for
+ * the preview. Pure: nothing here writes anything. */
+export function mergeFlexDocs(base, ours, theirs, opts = {}) {
+  const mine = opts.prefer === 'mine';
+  const cl = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
+  const conflicts = [];
+  const at = (doc) => {
+    const m = new Map();
+    (doc.paragraphs || []).forEach((ln, li) => {
+      const seg = ln.segments && ln.segments[0];
+      const g = segGuid(seg);
+      if (g) m.set(g, { li, ln, seg, span: (doc.segments || [])[li], pg: paraOf(ln) });
+    });
+    return m;
+  };
+  const B = at(base), O = at(ours), T = at(theirs);
+  const formsOf = (seg) => lexForms(seg).join('\u0001');
+  const groupsOf = (doc) => groups(doc).map((g) => ({ key: g.key, segs: g.lines.map((li) => segGuid(doc.paragraphs[li].segments[0])) }));
+  const bG = groupsOf(base), oG = groupsOf(ours), tG = groupsOf(theirs);
+  const byKey = (gs) => { const m = new Map(); gs.forEach((g) => { if (g.key != null) m.set(g.key, m.has(g.key) ? null : g); }); return m; };
+  const bK = byKey(bG), oK = byKey(oG), tK = byKey(tG);
+  const sameList = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]);
+  // a paragraph as checked out: the same phrases in the same order, each with the same words
+  const kept = (bg, g, I) => !!g && sameList(bg.segs, g.segs) && bg.segs.every((s) => I.has(s) && formsOf(I.get(s).seg) === formsOf(B.get(s).seg));
+  // FLEx kept this segment where it was: the same paragraph, the same phrases either side of it
+  const sameSpot = (s) => {
+    const b = B.get(s), t = T.get(s);
+    if (!b || !t || b.pg !== t.pg) return false;
+    const bs = bK.get(b.pg), ts = tK.get(t.pg);
+    if (!bs || !ts) return false;
+    const i = bs.segs.indexOf(s), j = ts.segs.indexOf(s);
+    return bs.segs[i - 1] === ts.segs[j - 1] && bs.segs[i + 1] === ts.segs[j + 1];
+  };
+  const lineNo = (s) => (O.has(s) ? O.get(s).li + 1 : null);
+  const tm = (I, s) => { const x = I.get(s); return x ? timesOf(x.seg, x.span) : null; };
+  const fr = (I, s) => { const x = I.get(s); return x ? (x.seg.free || '') : ''; };
+  const conflict = (c) => conflicts.push(c);
+
+  // ---- the paragraphs reshaped here, gathered into regions that must go in whole
+  const reshaped = new Set();
+  bG.forEach((bg) => { if (bg.key != null && !kept(bg, oK.get(bg.key), O)) reshaped.add(bg.key); });
+  oG.forEach((g) => { if (g.key != null && !bK.has(g.key)) reshaped.add(g.key); });   // a Sentence break made here
+  const up = new Map();
+  const find = (k) => { let r = k; while (up.has(r) && up.get(r) !== r) r = up.get(r); return r; };
+  const join = (a, b) => {
+    for (const k of [a, b]) if (!up.has(k)) up.set(k, k);
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) up.set(ra, rb);
+  };
+  reshaped.forEach((k) => { if (!up.has(k)) up.set(k, k); });
+  // a line now in another paragraph than the one its phrase came from (a new phrase: from the one before)
+  let origin = null;
+  (ours.paragraphs || []).forEach((ln) => {
+    const s = segGuid(ln.segments[0]);
+    if (s && B.has(s)) origin = B.get(s).pg;
+    const k = paraOf(ln);
+    if (origin != null && k != null && k !== origin) join(k, origin);
+  });
+  // a phrase joined into the one before it here: its paragraph goes with the survivor's
+  const order = (base.paragraphs || []).map((ln) => segGuid(ln.segments[0])).filter(Boolean);
+  order.forEach((s, i) => {
+    if (O.has(s)) return;
+    for (let j = i - 1; j >= 0; j--) {
+      if (O.has(order[j])) { if (B.get(s).pg !== B.get(order[j]).pg) join(B.get(s).pg, B.get(order[j]).pg); break; }
+    }
+  });
+  const regions = new Map();
+  reshaped.forEach((k) => {
+    const r = find(k);
+    if (!regions.has(r)) regions.set(r, { keys: new Set(), bad: null });
+    regions.get(r).keys.add(k);
+  });
+  for (const reg of regions.values()) {
+    for (const k of reg.keys) if (!up.has(k)) up.set(k, k);
+    const inBase = bG.filter((g) => reg.keys.has(g.key));
+    for (const bg of inBase) {
+      if (!tK.get(bg.key)) { reg.bad = 'gone'; break; }
+      if (!kept(bg, tK.get(bg.key), T)) { reg.bad = 'structure'; break; }
+      // a phrase reshaped here (gone into another, or its words changed) whose times or translation FLEx changed
+      if (bg.segs.some((s) => (!O.has(s) || formsOf(O.get(s).seg) !== formsOf(B.get(s).seg))
+          && (fr(T, s) !== fr(B, s) || !sameTimes(tm(T, s), tm(B, s))))) { reg.bad = 'structure'; break; }
+    }
+    if (!reg.bad) {
+      // …and FLEx still has them side by side, in the same order
+      const pos = inBase.map((bg) => tG.indexOf(tK.get(bg.key)));
+      if (pos.some((p, i) => i > 0 && p !== pos[i - 1] + 1)) reg.bad = 'structure';
+    }
+    if (reg.bad) {
+      const lines = (ours.paragraphs || []).map((ln, li) => (reg.keys.has(paraOf(ln)) ? li + 1 : null)).filter(Boolean);
+      conflict({ kind: reg.bad, line: lines[0] || null, lines, paraGuid: inBase.length ? inBase[0].key : null, forceable: false });
+    }
+  }
+  const regionOf = (k) => (reshaped.has(k) ? regions.get(find(k)) : null);
+
+  // ---- cells
+  const setTimes = (ln, holder, from) => {
+    const a = ln.segments[0].attrs = ln.segments[0].attrs || {};
+    const fa = from.seg.attrs || {};
+    for (const k of ['begin-time-offset', 'end-time-offset']) { if (fa[k] != null) a[k] = fa[k]; else delete a[k]; }
+    holder.span = cl(from.span);
+  };
+  const setFree = (seg, from) => { seg.free = from.free || ''; seg.freeLang = from.free ? (from.freeLang || null) : null; };
+  const takeGloss = (w, from) => {   // FLEx's gloss onto a word kept here: its analysis comes with it
+    w.gls = from.gls || '';
+    w.glsLang = from.glsLang;
+    w.glosses = cl(from.glosses);
+    w.preservedXML = cl(from.preservedXML || []);
+    w.flex = { ...(w.flex || {}), analysisGuid: from.flex && from.flex.analysisGuid, analysisKind: from.flex && from.flex.analysisKind };
+    if (from.guid) w.guid = from.guid;
+  };
+  let theirsChanged = 0;
+  const theirsTouched = (s) => {
+    const b = B.get(s), t = T.get(s);
+    if (!b || !t) return true;
+    if (formsOf(b.seg) !== formsOf(t.seg) || fr(B, s) !== fr(T, s) || !sameTimes(tm(B, s), tm(T, s))) return true;
+    const bw = wordsOf(b.seg), tw = wordsOf(t.seg);
+    return bw.some((w, i) => (w.gls || '') !== ((tw[i] || {}).gls || ''));
+  };
+  T.forEach((_, s) => { if (theirsTouched(s)) theirsChanged++; });
+  B.forEach((_, s) => { if (!T.has(s)) theirsChanged++; });
+
+  /* One cell, three ways → the side whose value it takes: 'o' (here) or 't' (FLEx). `oc`/`tc`: changed
+   * here / in FLEx since the check-out; `same`: both now hold the same value; `can`: ours can be laid on
+   * FLEx's text at all (else changing it here is a conflict nobody can force). */
+  const side = (oc, tc, same, can, c) => {
+    if (!oc) return 't';
+    if (!can) { conflict({ ...c, forceable: false }); return 't'; }
+    if (!tc || same) return 'o';
+    conflict({ ...c, forceable: true });
+    return mine ? 'o' : 't';
+  };
+
+  // ---- a paragraph not reshaped here: FLEx's lines, with the cells changed here laid over them
+  const overlayTheirs = (ln, holder, s) => {
+    const b = B.get(s), o = O.get(s), t = T.get(s);
+    if (!b || !o) return;
+    const spot = sameSpot(s);
+    const c = { segGuid: s, paraGuid: t.pg, line: lineNo(s) };
+    const tb = tm(B, s), to = tm(O, s), tt = tm(T, s);
+    if (side(!sameTimes(to, tb), !sameTimes(tt, tb), sameTimes(tt, to), spot, { ...c, kind: 'times' }) === 'o') setTimes(ln, holder, o);
+    if (side(fr(O, s) !== fr(B, s), fr(T, s) !== fr(B, s), fr(T, s) === fr(O, s), spot, { ...c, kind: 'free' }) === 'o') setFree(ln.segments[0], o.seg);
+    const bw = wordsOf(b.seg), ow = wordsOf(o.seg), mw = wordsOf(ln.segments[0]);
+    const wordsKept = formsOf(t.seg) === formsOf(b.seg);
+    ow.forEach((w, i) => {
+      if (w.punct || !bw[i]) return;
+      const gb = bw[i].gls || '', go = w.gls || '', gt = wordsKept && mw[i] ? (mw[i].gls || '') : null;
+      if (side(go !== gb, gt !== gb, gt === go, wordsKept, { ...c, kind: 'gloss', word: i + 1 }) === 'o') {
+        mw[i].gls = go;
+        mw[i].glsLang = w.glsLang || mw[i].glsLang;
+      }
+    });
+  };
+  // ---- a paragraph reshaped here: OUR lines, with FLEx's changes to the cells we left alone taken over
+  const bWord = new Map();   // a base word's guid → its phrase and place
+  B.forEach((x, s) => wordsOf(x.seg).forEach((w, i) => { if (w.guid) bWord.set(w.guid, { s, i, w }); }));
+  const overlayOurs = (ln, holder, s) => {
+    const seg = ln.segments[0];
+    const b = B.get(s), t = T.get(s);
+    if (b && t) {
+      // the region passed only if FLEx left the times and translation of every phrase reshaped here alone,
+      // so a cell here is either one FLEx did not change or one of a phrase not reshaped here
+      const c = { segGuid: s, paraGuid: t.pg, line: lineNo(s) };
+      const tb = tm(B, s), to = timesOf(seg, holder.span), tt = tm(T, s);
+      if (side(!sameTimes(to, tb), !sameTimes(tt, tb), sameTimes(tt, to), true, { ...c, kind: 'times' }) === 't') setTimes(ln, holder, t);
+      if (side((seg.free || '') !== fr(B, s), fr(T, s) !== fr(B, s), fr(T, s) === (seg.free || ''), true, { ...c, kind: 'free' }) === 't') setFree(seg, t.seg);
+      // what this app never edits is FLEx's: its other writing systems, literal translations, notes
+      seg.postItemsXML = cl(t.seg.postItemsXML || []);
+      seg.frees = cl(t.seg.frees);
+      seg.lits = cl(t.seg.lits);
+      if (t.seg.flex) seg.flex = { ...(seg.flex || {}), notes: cl(t.seg.flex.notes) };
+    }
+    wordsOf(seg).forEach((w, i) => {
+      const from = w.guid && bWord.get(w.guid);
+      if (!from || w.punct) return;
+      const tw = T.has(from.s) ? wordsOf(T.get(from.s).seg)[from.i] : null;
+      if (!tw) return;
+      const gb = from.w.gls || '', gt = tw.gls || '', go = w.gls || '';
+      const c = { segGuid: segGuid(seg), paraGuid: paraOf(ln), line: lineNo(segGuid(seg)), kind: 'gloss', word: i + 1 };
+      if (side(go !== gb, gt !== gb, gt === go, true, c) === 't') takeGloss(w, tw);
+      else w.preservedXML = cl(tw.preservedXML || []);   // the word's other writing systems are FLEx's
+    });
+  };
+
+  // ---- the merged text, in FLEx's paragraph order
+  const out = [], spans = [];
+  const emitted = new Set();
+  for (const tg of tG) {
+    const reg = regionOf(tg.key);
+    if (reg && !reg.bad) {
+      if (emitted.has(reg)) continue;
+      emitted.add(reg);
+      (ours.paragraphs || []).forEach((oln, li) => {
+        if (!reg.keys.has(paraOf(oln))) return;
+        const ln = cl(oln), holder = { span: cl((ours.segments || [])[li]) };
+        overlayOurs(ln, holder, segGuid(ln.segments[0]));
+        out.push(ln); spans.push(holder.span);
+      });
+      continue;
+    }
+    for (const s of tg.segs) {   // FLEx's paragraph (a reshaping that conflicted leaves it as FLEx has it)
+      const t = T.get(s);
+      const ln = cl(t.ln), holder = { span: cl(t.span) };
+      if (!reg) overlayTheirs(ln, holder, s);
+      out.push(ln); spans.push(holder.span);
+    }
+  }
+  // work here on phrases FLEx no longer has
+  O.forEach((o, s) => {
+    const b = B.get(s);
+    if (!b || T.has(s) || regionOf(b.pg)) return;
+    const changed = !sameTimes(tm(O, s), tm(B, s)) || fr(O, s) !== fr(B, s)
+      || wordsOf(o.seg).some((w, i) => (w.gls || '') !== ((wordsOf(b.seg)[i] || {}).gls || ''));
+    if (changed) conflict({ kind: 'gone', segGuid: s, paraGuid: b.pg, line: lineNo(s), forceable: false });
+  });
+  const doc = cl({ ...theirs, paragraphs: [], segments: [] });
+  doc.paragraphs = out;
+  doc.segments = spans;
+  return { doc, conflicts, theirs: theirsChanged };
+}
+
 /* Which of a text's media links the Segmenter cuts: one that resolves on this machine, else the
  * first. (A FLEx text normally carries one; several is possible and the Segmenter uses one.) */
 export function recordingLink(media) {

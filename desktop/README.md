@@ -113,7 +113,9 @@ the Matcher's ✨ → Done → Save to FLEx, Fix link, Undo/Redo of both, a spli
 join across paragraphs saved to FLEx, Copy line, the per-text writing-systems selector (FLEx's lists, a
 save that keeps the other analysis writing system, a word edit refused in another vernacular view), a
 record an older build made (no glosses, no translations) read again from FLEx in the text's own writing
-systems, switching them inside the Matcher (in place; read-only when there is unsaved work), words
+systems, switching them inside the Matcher (in place, nothing read; every analysis writing system
+editable — English typed, Indonesian typed after switching, one save, FLEx read back to check both and a
+third language the app never shows left exactly as it was, one Undo taking all of it back), words
 joined with Backspace / split with Space saved to FLEx, Reset… / Reset all texts… (a draft and unsaved
 changes named first; the recording kept, or forgotten with the shell's remembered choice), the loading
 spinner on a slowed shell, check-in with a merge (FLEx edits the text between the check-out and the
@@ -238,7 +240,13 @@ marked, WITHOUT its Send/Receive repository — never Send/Receive from a copy m
    other one and confirm the words show its forms and a word edit is refused.
    **Inside a text** (the strip under the Matcher's bar): switch *Glosses in* to the other analysis
    writing system — the glosses and free translation change in place, editable; *All languages* stacks
-   both. Make an edit, then switch again: it shows read-only and says why. **Texts opened with an earlier
+   every one, each editable. **Every language at once (plan §7.2, §7.4):** edit a gloss and a free
+   translation in English, switch to Indonesian WITHOUT saving (nothing is asked, nothing is read-only),
+   edit the SAME word's gloss and another line's translation in Indonesian, check *All languages* shows
+   both, Done, Save to FLEx…: the preview names the languages; in FLEx's Interlinear tab check both
+   languages changed — and that a word whose gloss is shared with another occurrence changed only here,
+   and that any third analysis language (or a non-current one) on those glosses and translations is
+   exactly as it was. One *Undo Save to FLEx* takes it all back. **Texts opened with an earlier
    build** should now open with the glosses and translations they have in FLEx; if one still shows
    blanks where FLEx shows glosses, check whether FLEx shows them tinted (guesses, not approved
    glosses) — Writing systems… says how many words have no approved gloss.

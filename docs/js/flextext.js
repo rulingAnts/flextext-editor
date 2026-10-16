@@ -269,12 +269,42 @@ export function mergePhrases(segs) {
       attrs,
       free: parts.map((s) => (s.free || '').trim()).filter(Boolean).join(' '),
       freeLang: parts.map((s) => s.freeLang).find((l) => l) ?? null,
-      preItemsXML: parts.flatMap((s) => s.preItemsXML || []),
-      postItemsXML: parts.flatMap((s) => s.postItemsXML || []),
+      // a translation in one language is ONE item, the phrases' texts joined as FLEx joins them (LCM
+      // joins every free and literal translation of two segments with a space); notes and anything
+      // else ride along from both, as before
+      preItemsXML: foldLangItems(parts.map((s) => s.preItemsXML || [])),
+      postItemsXML: foldLangItems(parts.map((s) => s.postItemsXML || [])),
     });
   const txtLang = parts.map((s) => s.txtLang).find((l) => l);
   if (txtLang) seg.txtLang = txtLang;
+  // a FLEx text's ride-alongs: the first phrase's identity, and its translations by language, joined
+  if (first.flex) seg.flex = { ...first.flex };
+  for (const key of ['frees', 'lits']) {
+    if (!parts.some((s) => s[key] && typeof s[key] === 'object')) continue;
+    const m = {};
+    for (const s of parts) for (const [l, v] of Object.entries(s[key] || {})) { const t = String(v || '').trim(); if (t) m[l] = m[l] ? m[l] + ' ' + t : t; }
+    seg[key] = m;
+  }
   return seg;
+}
+/* The phrases' item lists as one: a top-level <item type="gls"|"lit" lang=…> (a free or literal
+ * translation in another language) whose language an earlier item already holds is joined into it with
+ * a space; everything else is kept in order. */
+function foldLangItems(lists) {
+  const out = [];
+  const at = new Map();
+  for (const list of lists) {
+    for (const xml of list) {
+      const it = langItemOf(xml);
+      if (!it) { out.push(xml); continue; }
+      const k = it.type + '\u0001' + it.lang;
+      if (!at.has(k)) { at.set(k, out.length); out.push(xml); continue; }
+      const prev = langItemOf(out[at.get(k)]);
+      const joined = [prev.text.trim(), it.text.trim()].filter(Boolean).join(' ');
+      out[at.get(k)] = langItemXml(it.type, it.lang, joined);
+    }
+  }
+  return out;
 }
 
 export function makeDoc(settings, title = '') {
@@ -2104,15 +2134,26 @@ function unescXml(s) {
   return String(s ?? '').replace(/&(lt|gt|amp|quot|apos|#(\d+)|#x([0-9a-fA-F]+));/g,
     (m, n, d, h) => XML_ENT[n] ?? (d ? String.fromCodePoint(+d) : String.fromCodePoint(parseInt(h, 16))));
 }
-function glsOfItemXml(xml) {
+function itemOfXml(xml) {
   const s = String(xml || '');
   if (!/^\s*<item\b/.test(s)) return null;                       // <morphemes>, notes, anything else
   const m = s.match(/^\s*<item\b([^>]*?)(\/>|>([\s\S]*?)<\/item>)/);
   if (!m) return null;
   const attrs = {};
   m[1].replace(/([\w:-]+)="([^"]*)"/g, (_, k, v) => { attrs[k] = unescXml(v); return ''; });
-  if (attrs.type !== 'gls') return null;
-  return { lang: attrs.lang || '', text: unescXml(m[3] || '') };
+  return { type: attrs.type || '', lang: attrs.lang || '', text: unescXml(m[3] || '') };
+}
+function glsOfItemXml(xml) {
+  const it = itemOfXml(xml);
+  return it && it.type === 'gls' ? { lang: it.lang, text: it.text } : null;
+}
+// A translation item (free: gls, literal: lit) in a language, or null.
+function langItemOf(xml) {
+  const it = itemOfXml(xml);
+  return it && (it.type === 'gls' || it.type === 'lit') && it.lang ? it : null;
+}
+function langItemXml(type, lang, text) {
+  return `<item type="${esc(type)}" lang="${esc(lang)}">${esc(text)}</item>`;
 }
 /* [{ lang, text }] — the editable gloss first (lang '' when the word was typed in this app, which
  * means the document's analysis language), then each preserved language once. */
@@ -2140,13 +2181,20 @@ export function phraseFrees(seg) {
  * Exactly one row comes back for 'primary' and for a code (empty text when the text has none),
  * every language for 'all' with the primary first. `primary: true` marks the one row a device may
  * edit — the others are shown as they are. */
-export function analysisRows(entries, mode, primary) {
+export function analysisRows(entries, mode, primary, langs = null) {
   const prim = primary || 'en';
   const list = (entries || []).map((e) => ({ lang: e.lang || prim, text: e.text || '' }));
   const primRow = { lang: prim, text: (list.find((e) => e.lang === prim) || {}).text || '', primary: true };
   if (mode === 'all') {
     const out = [primRow];
     for (const e of list) if (e.lang !== prim && !out.some((o) => o.lang === e.lang)) out.push({ ...e, primary: false });
+    // `langs`: every language to show, in order, an empty row where this word or line has none (a FLEx
+    // text's analysis writing systems: each one can be typed into)
+    if (Array.isArray(langs)) {
+      for (const l of langs) if (!out.some((o) => o.lang === l)) out.push({ lang: l, text: '', primary: false });
+      const rank = (l) => (l === prim ? -1 : langs.indexOf(l) < 0 ? langs.length : langs.indexOf(l));
+      out.sort((a, b) => rank(a.lang) - rank(b.lang));
+    }
     return out;
   }
   if (mode && mode !== 'primary' && mode !== prim) {
@@ -2169,6 +2217,51 @@ export function analysisLangs(doc, primary = '') {
     }
   }
   return { gloss, free };
+}
+/* SET one word's gloss / one phrase's free translation IN ONE LANGUAGE, every other language left exactly
+ * as it is (Seth, 2026-10-16: "ONLY change what we changed and leave everything else preserved. I don't
+ * want it erasing data in other writing systems or languages when I edit ONE of them"). The editable slot
+ * (`gls`/`glsLang`, `free`/`freeLang`) holds its own language — the document's analysis language when it
+ * names none (`primary`); every other language is its top-level <item type="gls" lang=…> string, changed
+ * where it stands, added after the others, removed when emptied. A FLEx text's ride-along map of the same
+ * values (`w.glosses`, `seg.frees`) is kept in step. → true when anything changed. Pure. */
+export function setGlossIn(w, lang, text, primary = '') {
+  return setInLang(w, lang, text, primary, 'gls', 'glsLang', ['preservedXML'], 'glosses');
+}
+export function setFreeIn(seg, lang, text, primary = '') {
+  return setInLang(seg, lang, text, primary, 'free', 'freeLang', ['preItemsXML', 'postItemsXML'], 'frees');
+}
+function setInLang(o, lang, text, primary, slot, slotLang, lists, ride) {
+  if (!o || !lang) return false;
+  const value = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const prim = primary || 'en';
+  const was = slot === 'gls' ? glossIn(o, lang, prim) : freeIn(o, lang, prim);
+  if (was === value) return false;
+  const inSlot = (o[slotLang] || prim) === lang && ((o[slot] || '') !== '' || !!o[slotLang] || !hasItemIn(o, lists, lang));
+  if (inSlot) {
+    o[slot] = value;
+    for (const k of lists) if (Array.isArray(o[k])) o[k] = o[k].filter((x) => { const g = glsOfItemXml(x); return !(g && g.lang === lang); });
+  } else {
+    let done = false;
+    for (const k of lists) {
+      if (!Array.isArray(o[k])) continue;
+      const i = o[k].findIndex((x) => { const g = glsOfItemXml(x); return g && g.lang === lang; });
+      if (i < 0) continue;
+      if (value) o[k][i] = langItemXml('gls', lang, value); else o[k].splice(i, 1);
+      done = true;
+      break;
+    }
+    if (!done && value) {
+      const k = lists[lists.length - 1];
+      o[k] = Array.isArray(o[k]) ? o[k] : [];
+      o[k].push(langItemXml('gls', lang, value));
+    }
+  }
+  if (o[ride] && typeof o[ride] === 'object') { if (value) o[ride][lang] = value; else delete o[ride][lang]; }
+  return true;
+}
+function hasItemIn(o, lists, lang) {
+  return lists.some((k) => (o[k] || []).some((x) => { const g = glsOfItemXml(x); return g && g.lang === lang; }));
 }
 /* The text of one word's gloss / one phrase's free translation in a given language, '' if none. */
 export function glossIn(w, lang, primary = '') {

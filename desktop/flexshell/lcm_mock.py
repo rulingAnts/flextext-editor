@@ -1031,8 +1031,11 @@ class MockLcm(FlexPort):
         return any(o.cls == "PunctuationForm" and o["Form"] == nfd(form) for o in self.store.values())
 
     def has_wordform(self, form, ws=None):
+        return self.find_wordform(form, ws) is not None
+
+    def find_wordform(self, form, ws=None):
         ws = ws or self._vern
-        return any(o.cls == "WfiWordform" and o["Form"].get(ws) == nfd(form) for o in self.store.values())
+        return next((o.guid for o in self.store.values() if o.cls == "WfiWordform" and o["Form"].get(ws) == nfd(form)), None)
 
     def add_form_alternative(self, form, ws, alt, form_ws=None):
         """Test fixture only: give the wordform `form` (in `form_ws`, default the default vernacular)

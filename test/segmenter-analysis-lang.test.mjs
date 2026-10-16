@@ -36,21 +36,28 @@ test('the picker appears only when the text carries more than the primary; the c
 
 test('a text whose writing systems are chosen elsewhere (the FLEx shell) is shown in them, never in the device\'s pick', () => {
   // Seth, 2026-10-15: a device left on English by one text showed FLEx texts' glosses in English, read-only
-  assert.match(fn(APP, 'mgOpen'), /current = rec;\n\s*mgLangOwn = mgLangClaim && mgLangClaim\(rec\) \? 'primary' : null;/, 'decided at every open, from the record');
+  assert.match(fn(APP, 'mgOpen'), /current = rec;\n\s*const claimed = mgLangClaim && mgLangClaim\(rec\);[^\n]*\n\s*mgLangOwn = claimed \? \(typeof claimed === 'string' \? claimed : 'primary'\) : null;/,
+    'decided at every open, from the record — in the view the owner keeps for it (a code, \'all\' or the primary)');
   assert.match(fn(APP, 'mgClose'), /mgLangOwn = null;/, 'and forgotten at close');
   assert.match(fn(APP, 'mgLangMode'), /if \(mgLangOwn\) return pref;/, 'its choice holds even where the text has nothing in that language');
   assert.match(fn(APP, 'mgLangPickerHtml'), /^[^\n]*\n\s*if \(mgLangOwn\) return '';/, 'and the column\'s own picker steps aside for the owner\'s');
   assert.doesNotMatch(fn(APP, 'mgLangMode'), /localStorage/, 'an owner\'s choice is never remembered for the device');
 });
 
-test('the primary row stays editable; every other language is read-only and tagged with its code', () => {
+test('the primary row stays editable; every other language is read-only and tagged with its code — on a FLEx text each is editable in its own', () => {
   const stack = fn(APP, 'mgWordStack');
-  assert.match(stack, /const rows = analysisRows\(w\.src \? glossesOfWord\(w\.src\) : \[\{ lang: '', text: w\.gls \}\], mgLangMode\(\), mgPrimaryLang\(\)\);/);
-  assert.match(stack, /if \(editable\) \{ mgWireEditable\(we, ln, wi, 'txt'\); if \(rows\[0\]\.primary\) mgWireEditable\(ge, ln, wi, 'gls'\); \}/, 'the vernacular word is always editable; the gloss only when it is the primary');
-  assert.match(stack, /for \(const r of rows\.slice\(1\)\) stack\.appendChild\(mgAltRow\('span', 'mg-g mg-g-alt', r\)\);/);
-  assert.match(APP, /const frows = analysisRows\(mgLineFrees\(ln\), mgLangMode\(\), mgPrimaryLang\(\)\);/);
-  assert.match(APP, /if \(editable && frows\[0\]\.primary\) mgWireEditable\(ftbox, ln, -1, 'free'\);/);
-  assert.doesNotMatch(fn(APP, 'mgAltRow'), /mgWireEditable|contentEditable/, 'an alt row is never wired for editing');
+  assert.match(stack, /const rows = analysisRows\(w\.src \? glossesOfWord\(w\.src\) : \[\{ lang: '', text: w\.gls \}\], mgLangMode\(\), mgPrimaryLang\(\), mgRowLangs\(\)\);/);
+  assert.match(stack, /mgWireEditable\(we, ln, wi, 'txt'\);\n\s*if \(rows\[0\]\.primary \|\| every\) mgWireEditable\(ge, ln, wi, 'gls', every \? rows\[0\]\.lang : null\);/,
+    'the vernacular word is always editable; the gloss when it is the primary — or, on a FLEx text, in whichever language it shows');
+  assert.match(stack, /if \(every\) alts\.forEach\(\(el, k\) => mgWireEditable\(el, ln, wi, 'gls', rows\[k \+ 1\]\.lang\)\);/, 'every other language\'s row too, on a FLEx text');
+  assert.match(stack, /const el = mgAltRow\('span', 'mg-g mg-g-alt', r\); stack\.appendChild\(el\);/);
+  assert.match(APP, /function mgEveryLangEditable\(\) \{ return !!mgLangOwn; \}/, 'every language editable exactly where the shell owns the view (a FLEx text)');
+  assert.match(APP, /const frows = analysisRows\(mgLineFrees\(ln\), mgLangMode\(\), mgPrimaryLang\(\), mgRowLangs\(\)\);/);
+  assert.match(APP, /if \(editable && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', every \? frows\[0\]\.lang : null\);/);
+  assert.match(APP, /if \(editable && every\) mgWireEditable\(el, ln, -1, 'free', r\.lang\);/);
+  assert.doesNotMatch(fn(APP, 'mgAltRow'), /mgWireEditable|contentEditable/, 'an alt row is never wired for editing by itself — only where its language is editable');
+  assert.match(fn(APP, 'mgEditWord'), /if \(inLang\) setGlossIn\(ph\.words\[k\], lang, value, mgPrimaryLang\(\)\);/, 'a gloss typed in one language is set in that language only');
+  assert.match(fn(APP, 'mgEditFree'), /if \(lang\) setFreeIn\(ph, lang, value, mgPrimaryLang\(\)\);/, 'and a free translation');
   assert.match(fn(APP, 'mgLineText'), /src: w/, 'the doc\'s own word rides along so its other languages can be read');
   assert.match(CSS, /\.mg-g-alt::before,\.mg-ft-alt::before\{content:attr\(data-lang\)/);
   for (const k of ['mg.langPick', 'mg.langAll', 'mg.langAlt', 'panel.rel.new.mgLangPick']) {

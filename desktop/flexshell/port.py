@@ -27,6 +27,8 @@ read_text(guid)     → {guid, title, paragraphs: [ParaRead], media: [{guid, uri
 writing_systems()   → {vern: [WsInfo], anal: [WsInfo]} — the CURRENT lists, in FLEx's order
   WsInfo            = {id, abbr, name, isDefault, rtl, graphite, wordForming (vern only)}
 get_segments(text, ws) → [(ichMin, ichLim)] — the segment breaker's answer for a contents string
+has_wordform(form, ws) → bool;  find_wordform(form, ws) → guid|None — the project's wordform with
+                      that form in `ws` (the default vernacular when None)
 get_diffs(old, new)    → (ich, cchInsert, cchDelete) — the diff LCM will compute for an assignment
 
 Units of work
@@ -133,6 +135,8 @@ class FlexPort(ABC):
     def has_punct_form(self, form): ...
     @abstractmethod
     def has_wordform(self, form, ws=None): ...
+    @abstractmethod
+    def find_wordform(self, form, ws=None): ...
 
     # ---- UOW ----
     @abstractmethod

@@ -31,6 +31,7 @@ PARAS = ["aaa bbb ccc.", "ddd eee fff.", "ggg hhh."]
 STRUCT = ["aaa bbb ccc", "ddd eee fff", "ggg hhh"]
 WS_PARAS = ["aaa bbb ccc", "ddd eee fff"]
 WS2_PARAS = ["kkk lll mmm", "nnn ooo"]
+WS3_PARAS = ["kkk lll kkk", "nnn ooo"]
 WS_NAMES = {"xx": "Example", "xx-x-ipa": "Example IPA", "en": "English", "id": "Indonesian"}
 
 
@@ -100,6 +101,20 @@ def flex_edit(projects, project, title, edits):
     finally:
         b.close_project()
     return True
+
+
+def flex_read(projects, project, title):
+    """What FLEx holds for a text, read straight from its file — every writing system of every gloss and
+    translation, the ones the app never shows included: [{ft, lt, words: [{form, kind, gloss}]}] per phrase."""
+    b = MockLcm(projects)
+    b.open(project, write=False)
+    try:
+        guid = next(t["guid"] for t in b.list_texts() if t["title"] == title)
+        return [{"ft": s["ft"], "lt": s["lt"], "words": [{"form": a.get("form"), "kind": a["kind"], "gloss": a.get("gloss") or {}}
+                                                          for a in s["analyses"]]}
+                for p in b.read_text(guid)["paragraphs"] for s in p["segments"]]
+    finally:
+        b.close_without_save()
 
 
 def start(tmp):
@@ -178,6 +193,28 @@ def start(tmp):
     b.add_form_alternative("eee", "xx-x-ipa", "\u025b\u025b\u025b")
     b.save()
     b.close_project()
+    # every analysis writing system kept and editable (2026-10-16): English and Indonesian are the project's
+    # current ones; French is on some glosses and translations but NOT current — the app never shows it, and
+    # a save must leave it exactly as it is. "kkk" twice in line 1, sharing one gloss.
+    MockLcm.create_project(str(projects), "ws-all", texts=[{"title": "Every language", "paragraphs": WS3_PARAS, "media": [in_lf]}],
+                           anal_wss=("en", "id"), ws_names=WS_NAMES)
+    (projects / "ws-all" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("ws-all", write=True)
+    t = b.read_text(b.list_texts()[0]["guid"])
+    s0, s1 = t["paragraphs"][0]["segments"][0], t["paragraphs"][1]["segments"][0]
+    h = b.begin_uow("fixture", "fixture")
+    b.set_free_translation(s0["guid"], "en", "one")
+    b.set_free_translation(s0["guid"], "id", "satu")
+    b.set_free_translation(s0["guid"], "fr", "un")
+    b.set_free_translation(s1["guid"], "en", "two")
+    shared = b.create_gloss(b.create_trivial_analysis(s0["analyses"][0]["wordformGuid"]), {"en": "K-en", "id": "K-id", "fr": "K-fr"})
+    b.set_analysis(s0["guid"], 0, shared)
+    b.set_analysis(s0["guid"], 2, shared)
+    b.set_analysis(s0["guid"], 1, b.create_gloss(b.create_trivial_analysis(s0["analyses"][1]["wordformGuid"]), {"en": "L-en", "id": "L-id"}))
+    b.commit(h)
+    b.save()
+    b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
     clip = Clipboard()
@@ -212,6 +249,8 @@ def start(tmp):
                 out = {"ok": True}
             elif method == "__flexEdit":                 # FLEx edits a text while the shell has let go of it
                 out = {"ok": True, "result": flex_edit(str(projects), *args)}
+            elif method == "__flexRead":                 # what FLEx's file holds, every writing system
+                out = {"ok": True, "result": flex_read(str(projects), *args)}
             elif method == "__slow":                     # the test makes one shell method slow (or fast again)
                 slow[args[0]] = float(args[1]) / 1000.0
                 out = {"ok": True}

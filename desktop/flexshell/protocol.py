@@ -35,7 +35,7 @@ from . import mediafind
 from . import diskcheck, glosses, model, segmentation as S
 from .errors import FlexError, POISONING
 from .lcm_mock import EOS_CHARS, SECTION, is_word_forming, tokenize
-from .port import COUNTED_CLASSES, NEVER_CHANGE, UNDO_SUCCESS, nfd
+from .port import COUNTED_CLASSES, NEVER_CHANGE, UNDO_SUCCESS, nfc, nfd
 
 PREVIEW_TTL = 600.0
 BACKUP_COMMENT = "FlexText Segmenter before save"
@@ -66,11 +66,30 @@ WORD_EDITS = ("word.split", "word.join", "word.insert", "baseline.replace")
 def op_order(op):
     """Where an op runs: structure first, by kind (merges before splits), then content. A phrase.toPara
     marked afterSplit moves a phrase a split of this same save made (a Sentence break in the Matcher),
-    so it runs after every phrase.split and before the kinds that follow them."""
+    so it runs after every phrase.split and before the kinds that follow them.
+
+    A word's gloss runs BEFORE everything, on the text as it was checked out, where the op's (segGuid,
+    index) were taken: every structural recipe keeps the analyses of the words it does not remake
+    (segmentation.py), so the gloss travels with its word into whatever phrase or paragraph the save
+    puts it in. The gloss of a word the save itself makes (`newWord`: a split's halves, an added or a
+    joined word, a respelled one) runs LAST, once that word exists, at its place in the new phrase."""
     kind = op.get("op")
+    if kind == "gloss.set":
+        return len(STRUCTURAL) + 1 if op.get("newWord") else -1
     if kind == "phrase.toPara" and op.get("afterSplit"):
         return STRUCTURAL.index("phrase.split") + 0.5
     return STRUCTURAL.index(kind) if kind in STRUCTURAL else len(STRUCTURAL)
+
+
+def gloss_changes(op):
+    """A gloss.set op's {ws: text}: `forms` (every writing system edited for that word), or the older
+    single `ws` + `value`."""
+    forms = op.get("forms")
+    if isinstance(forms, dict):
+        return dict(forms)
+    if op.get("ws") is not None:
+        return {op["ws"]: op.get("value", "")}
+    return {}
 
 
 class _LogCapture(logging.Handler):
@@ -201,6 +220,17 @@ class Session:
         # FLEx makes the § PunctuationForm ONCE, the first time any op of this save writes a § (a split,
         # or a paragraph join after a paragraph with no stop) — never once per op
         section = {"new": not self.port.has_punct_form(SECTION), "counted": False}
+        # wordforms the save's word ops create, counted ONCE however many ops make the same form (FLEx
+        # makes one), and handed to the gloss planner: a new word's gloss lands on that wordform
+        made_forms = set()
+
+        def new_wordform(form, ws):
+            key = (nfc(form), ws)
+            if key in made_forms or self.port.has_wordform(form, ws):
+                return
+            made_forms.add(key)
+            deltas["WfiWordform"] += 1
+        glossed, gloss_ops = set(), []
 
         def writes_section():
             if section["new"] and not section["counted"]:
@@ -245,8 +275,11 @@ class Session:
                 raise FlexError("E_SCOPE", "phrase not in this text", {"seg": sg})
             if sg in new_phrases and sg not in segs and kind not in ("phrase.split", "phrase.toPara", "ft.set", "times.set"):
                 raise FlexError("E_SCOPE", "that change is not made on a phrase this save creates; save the split first", {"op": kind})
-            if kind in ("ft.set", "lt.set", "gloss.set") and op.get("ws") not in chosen:
+            if kind in ("ft.set", "lt.set") and op.get("ws") not in chosen:
                 raise FlexError("E_SCOPE", "writing system is not one of the chosen analysis WSs", {"ws": op.get("ws")})
+            if kind == "gloss.set" and any(w not in chosen for w in gloss_changes(op)):
+                raise FlexError("E_SCOPE", "writing system is not one of the chosen analysis WSs",
+                                {"ws": next(w for w in gloss_changes(op) if w not in chosen)})
             # words edited in a view of another vernacular writing system than the paragraph is written in
             # would be written into the paragraph as if they were its own text
             if kind in WORD_EDITS and pg in paras and paras[pg]["ws"] != text_ws["vern"]:
@@ -288,8 +321,7 @@ class Session:
                 for half in (form[:off], form[off:]):
                     if not any(is_word_forming(c) for c in half):
                         raise FlexError("E_EMPTY_PHRASE", "each half of a split word needs a letter", {})
-                    if not self.port.has_wordform(half, p["ws"]):
-                        deltas["WfiWordform"] += 1
+                    new_wordform(half, p["ws"])
                 summary.append({"kind": kind, "word": form, "into": [form[:off], form[off:]]})
             elif kind == "word.join":
                 p, s = segs[sg]
@@ -301,15 +333,13 @@ class Session:
                 if not gap or gap.strip():
                     raise FlexError("E_SCOPE", "only words parted by a space are joined", {"index": i})
                 merged = toks[i][2] + toks[i + 1][2]
-                if not self.port.has_wordform(merged, p["ws"]):
-                    deltas["WfiWordform"] += 1
+                new_wordform(merged, p["ws"])
                 summary.append({"kind": kind, "words": [toks[i][2], toks[i + 1][2]], "into": merged})
             elif kind == "word.insert":
                 w = (op.get("text") or "").strip()
                 if not w or any(c.isspace() for c in w) or not any(is_word_forming(c) for c in w):
                     raise FlexError("E_SCOPE", "a word to insert must be one word with a letter", {})
-                if not self.port.has_wordform(w, paras[pg]["ws"] if pg in paras else None):
-                    deltas["WfiWordform"] += 1
+                new_wordform(w, paras[pg]["ws"] if pg in paras else None)
                 summary.append({"kind": kind, "word": w})
             elif kind == "baseline.replace":
                 new = nfd(op.get("text") or "")
@@ -322,20 +352,21 @@ class Session:
                         if not self.port.has_punct_form(tk[2]) and tk[2] not in old_forms:
                             deltas["PunctuationForm"] += 1
                             old_forms.add(tk[2])
-                    elif tk[2] not in old_forms and not self.port.has_wordform(tk[2], paras[pg]["ws"]):
-                        deltas["WfiWordform"] += 1
+                    elif tk[2] not in old_forms:
+                        new_wordform(tk[2], paras[pg]["ws"])
                         old_forms.add(tk[2])
                 summary.append({"kind": kind, "before": old, "after": new})
             elif kind == "gloss.set":
-                p, s = segs[sg]
-                plan = glosses.plan_gloss(self.port, s, op["index"], chosen, op["ws"], op.get("value", ""))
-                if plan.get("newAnalysis"):
-                    deltas["WfiAnalysis"] += 1
-                    deltas["WfiMorphBundle"] += 1
-                if plan["outcome"] == "newGloss":
-                    deltas["WfiGloss"] += 1
-                summary.append({"kind": kind, "seg": sg, "index": op["index"], "outcome": plan["outcome"],
-                                "otherUses": plan.get("otherUses", 0), "approves": plan.get("analysisGuid") is not None and not (plan.get("analysisGuid") and self.port.is_approved(plan["analysisGuid"]))})
+                # planned below, in the order the save runs them (glosses.Planner)
+                if sg not in segs or not isinstance(op.get("index"), int):
+                    raise FlexError("E_SCOPE", "no such word", {"seg": sg, "index": op.get("index")})
+                if op.get("newWord") and not (isinstance(op.get("form"), str) and op["form"].strip()):
+                    raise FlexError("E_SCOPE", "the gloss of a word this save makes names that word", {"seg": sg})
+                key = (sg, op["index"], bool(op.get("newWord")))
+                if key in glossed:
+                    raise FlexError("E_SCOPE", "one gloss change per word", {"seg": sg, "index": op["index"]})
+                glossed.add(key)
+                gloss_ops.append(op)
             elif kind in ("ft.set", "lt.set"):
                 cur = ((segs[sg][1]["ft"] if kind == "ft.set" else segs[sg][1]["lt"]).get(op["ws"], "")) if sg in segs else ""
                 if cur != (op.get("value") or ""):
@@ -347,6 +378,25 @@ class Session:
                                      "note": "FLEx keeps and exports times only with a media link (plan §8.1)"})
             elif kind == "phrase.moveBoundary":
                 summary.append({"kind": kind, "seg": sg})
+        # the glosses, each planned on what the ones before it leave — one Planner for the whole save
+        planner = glosses.Planner(self.port, made_forms)
+        for op in sorted(gloss_ops, key=op_order):
+            p, s = segs[op["segGuid"]]
+            if op.get("newWord"):
+                plan = planner.plan(None, op["index"], gloss_changes(op), chosen, new_word=op["form"], ws=p["ws"])
+            else:
+                plan = planner.plan(s, op["index"], gloss_changes(op), chosen)
+            if plan["outcome"] == "unchanged":
+                continue
+            if plan.get("newAnalysis"):
+                deltas["WfiAnalysis"] += 1
+                deltas["WfiMorphBundle"] += 1
+            if plan["outcome"] == "newGloss":
+                deltas["WfiGloss"] += 1
+            a = plan.get("analysisGuid")
+            summary.append({"kind": "gloss.set", "seg": op["segGuid"], "index": op["index"], "outcome": plan["outcome"],
+                            "ws": plan["changed"], "newWord": bool(op.get("newWord")), "otherUses": plan.get("otherUses", 0),
+                            "approves": plan["outcome"] != "unglossed" and bool(a) and (str(a).startswith("planned-") or not self.port.is_approved(a))})
         # post-state checks: empty phrases and internal EOS, per touched paragraph — on the marker-agnostic
         # form, which is also what the in-UOW comparison uses (model.normalize_post_state)
         if not isinstance(post_state, (dict, type(None))):
@@ -578,7 +628,8 @@ class Session:
                     if t["media"] and not next(s for p in t["paragraphs"] for s in p["segments"] if s["guid"] == sg)["mediaUri"]:
                         port.set_segment_media(sg, t["media"][0]["guid"])   # times always ride with a media link (§8.1)
             elif kind == "gloss.set":
-                glosses.set_gloss(port, text_guid, pg, sg, op["index"], chosen, op["ws"], op.get("value", ""))
+                glosses.set_gloss(port, text_guid, pg, sg, op["index"], gloss_changes(op), chosen,
+                                  new_word=op["form"] if op.get("newWord") else None)
             elif kind == "media.relink":
                 port.set_media_uri(op["uriGuid"], op["path"])
             elif kind == "media.attach":
@@ -621,15 +672,26 @@ class Session:
                 intended[real_pg] = [dict(ph, segGuid=alias.get(ph.get("segGuid"), ph.get("segGuid"))) for ph in phrases]
             ws = pv.get("ws") or model.default_ws(t)
             actual = model.read_model_post_state(t, set(intended), ws)
-            problems = model.compare_post_state(intended, actual, primary=ws["anal"], others=self._other_translations(pv, t_before, ws["anal"]))
+            visible = self._visible(pv, ws)
+            problems = model.compare_post_state(intended, actual, primary=ws["anal"], visible=visible,
+                                                others=self._other_translations(pv, t_before, visible))
             if problems:
                 raise FlexError("E_INVARIANT", "re-read differs from the intended result: " + "; ".join(problems[:5]), {"problems": problems})
 
     @staticmethod
-    def _other_translations(pv, t_before, primary):
-        """What every translation the engine does not show must be after the save, per phrase that had
-        them before: unchanged, unless an ft.set/lt.set of this save sets it, and not for a join's
-        survivor (LCM joins every translation of the two with a space, plan §6.3)."""
+    def _visible(pv, ws):
+        """The analysis writing systems the engine speaks for: every one it carries (to_engine_doc puts
+        each current one in the doc, editable since 2026-10-16) — when its post-state says so by carrying
+        per-word `glosses`; an older engine's spoke for the text's one analysis writing system only."""
+        speaks_all = any(isinstance(w.get("glosses"), dict) for phrases in (pv.get("post") or {}).values()
+                         for ph in phrases for w in (ph.get("words") or []))
+        return set(pv.get("chosen") or []) | {ws["anal"]} if speaks_all else {ws["anal"]}
+
+    @staticmethod
+    def _other_translations(pv, t_before, visible):
+        """What every translation the engine does not speak for must be after the save, per phrase
+        that had them before: unchanged, unless an ft.set/lt.set of this save sets it, and not for a
+        join's survivor (LCM joins every translation of the two with a space, plan §6.3)."""
         if t_before is None:
             return None
         joined = {o.get("segGuid") for o in pv["ops"] if o.get("op") == "phrase.join"}
@@ -639,7 +701,7 @@ class Session:
                 if s["guid"] not in joined:
                     out[s["guid"]] = {"ft": {w: x for w, x in s["ft"].items() if x}, "lt": {w: x for w, x in s["lt"].items() if x}}
         for o in pv["ops"]:
-            if o.get("op") in ("ft.set", "lt.set") and o.get("segGuid") in out and o.get("ws") != primary:
+            if o.get("op") in ("ft.set", "lt.set") and o.get("segGuid") in out and (o["op"] == "lt.set" or o.get("ws") not in visible):
                 out[o["segGuid"]]["ft" if o["op"] == "ft.set" else "lt"][o["ws"]] = o.get("value") or ""
         return out
 

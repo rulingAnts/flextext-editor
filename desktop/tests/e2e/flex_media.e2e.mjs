@@ -423,37 +423,37 @@ const gRec = await page.evaluate(async (id) => (await (await import('/flextext-e
   recs.find((r) => r.title === 'Glossed text').id);
 ok(JSON.stringify(gRec) === '{"vern":"xx","anal":"id"}', 'and the record now holds that choice');
 await shot('14-older-record');
-// switch to English right here: nothing done here, so FLEx's text is read again in it, in place
+// switch to English right here: every analysis writing system is in the record, so it is a view — nothing read
 await lines().nth(1).locator('.mg-pick').click();
 await page.selectOption('#flex-ws-anal', 'en');
 await page.waitForFunction(() => document.querySelector('#flex-ws-anal') && document.querySelector('#flex-ws-anal').value === 'en'
   && /K-en/.test(document.querySelector('#view-matcher').innerText), null, T(10000));
 ok(!/satu/.test(await mtxt()), 'switched in place: English glosses, and no English translation (FLEx has none)');
-ok(/now shows Example → English/.test(await toasts()), 'the toast says what it shows now');
 ok(await page.evaluate(() => [...document.querySelectorAll('#view-matcher .mg-line')].findIndex((l) => l.classList.contains('mg-sel'))) === 1,
    'the selected line is still selected');
-ok(await page.evaluate(() => !!document.querySelector('#view-matcher .mg-line .mg-g.mg-edit')), 'English glosses are the editable ones now');
-// All languages: a view, nothing read
+ok(await page.evaluate(() => !!document.querySelector('#view-matcher .mg-line .mg-g.mg-edit[data-edit-lang="en"]')), 'English glosses are editable');
+// All languages: a view, nothing read — and every language's row is editable in its own language
 await page.selectOption('#flex-ws-anal', 'all');
-await page.waitForFunction(() => /L-id/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
-ok(await page.evaluate(() => document.querySelectorAll('#view-matcher .mg-g-alt').length >= 5), 'All stacks Indonesian under English, read-only');
-// with work here, nothing is re-read: Indonesian is SHOWN read-only, and the words wait
+await page.waitForFunction(() => /L-id/.test(document.querySelector('#view-matcher').innerText) && /K-en/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+ok(await page.evaluate(() => document.querySelectorAll('#view-matcher .mg-g-alt.mg-edit[data-edit-lang]').length >= 5), 'All stacks the other language under the first, each row editable');
+// with work here, nothing is re-read, and Indonesian is still editable: the work and every language are in the record
 await page.selectOption('#flex-ws-anal', 'en');
 await caretIn(0, 1, 1);
 await page.keyboard.press(' ');
 await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line')[0].querySelectorAll('.mg-wstack .mg-w').length === 4, null, T(5000));
 await page.selectOption('#flex-ws-anal', 'id');
-await page.waitForFunction(() => !!document.querySelector('#flex-mg-strip .flex-ws-ro'), null, T(5000));
-ok(/satu/.test(await mtxt()) && await page.evaluate(() => !!document.querySelector('#view-matcher .mg-ft-alt')), 'with work here, Indonesian is shown read-only');
-ok(/shown read-only/.test(await toasts()), 'and says why: the work is not in FLEx yet');
+await page.waitForFunction(() => /satu/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+ok(await page.evaluate(() => !!document.querySelector('#view-matcher .mg-ft.mg-edit[data-edit-lang="id"]') && !!document.querySelector('#view-matcher .mg-g.mg-edit[data-edit-lang="id"]')),
+   'with work here, Indonesian is shown — and editable');
+ok(!/read-only/.test(await toasts()), 'nothing says read-only');
 ok(await page.evaluate(() => document.querySelectorAll('#view-matcher .mg-line')[0].querySelectorAll('.mg-wstack .mg-w').length === 4), 'the work is untouched');
 await page.selectOption('#flex-ws-vern', 'xx-x-ipa');
 await page.waitForFunction(() => /Press Done, then Save to FLEx/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(5000));
-ok(await page.locator('#flex-ws-vern').inputValue() === 'xx', 'the words wait for a save: the vernacular stays');
+ok(await page.locator('#flex-ws-vern').inputValue() === 'xx', 'the words wait for a save: the vernacular stays (its words are spelled in one)');
 const gws = await page.evaluate(async (id) => (await (await import('/flextext-editor/js/db.js')).getDoc(id)).flex.ws,
   recs.find((r) => r.title === 'Glossed text').id);
-ok(JSON.stringify(gws) === '{"vern":"xx","anal":"en"}', 'and the text\'s writing systems are unchanged');
-await shot('15-read-only-view');
+ok(JSON.stringify(gws) === '{"vern":"xx","anal":"id"}', 'the vernacular is unchanged; the analysis writing system shown is remembered');
+await shot('15-every-language-view');
 
 // ── 8. Reset: this app's copy of a FLEx text, or of every text of the project (Seth, 2026-10-15: "I need
 // a way to clear my cached or stale version of a text from FLEx (or reset all)") ────────────────────────
@@ -751,6 +751,68 @@ await rpc('__lock', ['merge-write', false]);
 await page.evaluate(() => window.dispatchEvent(new Event('focus')));
 await page.waitForFunction(() => !document.querySelector('#flex-open-write').disabled, null, T(5000));
 ok(true, '…and again when FLEx has let go');
+
+// ── 14. every analysis writing system kept and editable (Seth, 2026-10-16: "I want our app to cache and be able
+// to edit (if the user wants) ALL writing systems (like they can switch from English to indonesian mid-way and
+// their English changes will be saved)"; "If it edits a GUID object (a word), it should ONLY change what we
+// changed and leave everything else preserved") ────────────────────────────────────────────────────────────
+await home();
+await openProject('ws-all', 'write');
+const before14 = (await rpc('__flexRead', ['ws-all', 'Every language'])).result;
+await textRow('Every language').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+ok(await page.locator('#flex-ws-anal').inputValue() === 'en', 'opens in English, the analysis writing system it uses most');
+const gloss14 = (li, wi, lang) => page.locator('#view-matcher .mg-line').nth(li).locator('.mg-wstack').nth(wi).locator(`.mg-g.mg-edit[data-edit-lang="${lang}"]`);
+const free14 = (li, lang) => page.locator('#view-matcher .mg-line').nth(li).locator(`.mg-ft.mg-edit[data-edit-lang="${lang}"]`);
+const type14 = async (loc, text) => { await loc.click(); await loc.fill(text); await loc.press('Enter'); };
+// English: the first "kkk" (its gloss shared with the second) and line 1's translation
+await type14(gloss14(0, 0, 'en'), 'K-en2');
+await type14(free14(0, 'en'), 'one!');
+// …then Indonesian, mid-way: a view, nothing read, and the English typed stays
+await page.selectOption('#flex-ws-anal', 'id');
+await page.waitForFunction(() => /K-id/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+ok(!/read-only|Save this text to FLEx first|Press Done/.test(await toasts()), 'switching with work pending asks for nothing and says nothing is read-only');
+await type14(gloss14(0, 0, 'id'), 'K-id2');                // the SAME word, in Indonesian
+await type14(free14(1, 'id'), 'dua');                      // a line with no Indonesian yet
+await type14(gloss14(1, 0, 'id'), 'N-id');                 // a word FLEx has no gloss for
+await page.selectOption('#flex-ws-anal', 'all');
+await page.waitForFunction(() => /K-en2/.test(document.querySelector('#view-matcher').innerText) && /K-id2/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+ok(/one!/.test(await mtxt()) && /dua/.test(await mtxt()) && /N-id/.test(await mtxt()), 'All shows the English typed before the switch and the Indonesian typed after');
+ok(await page.evaluate(() => document.querySelectorAll('#view-matcher .mg-g.mg-edit[data-edit-lang="id"]').length) === 5, 'every word has an editable Indonesian row, typed into or not');
+await shot('24-every-language');
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+await textRow('Every language').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+const pv14 = await page.locator('.flex-preview').innerText();
+ok(/new gloss; the other 1 use\(s\) keep the old one — in English, Indonesian/.test(pv14), 'the preview: ONE new gloss for the shared word, naming both languages: ' + pv14.replace(/\n+/g, ' | ').slice(0, 400));
+ok(/Free translation in English: “one” → “one!”/.test(pv14) && /Free translation in Indonesian: “—” → “dua”/.test(pv14), 'each translation by its language');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after14 = (await rpc('__flexRead', ['ws-all', 'Every language'])).result;
+const C = (m) => JSON.stringify(Object.fromEntries(Object.entries(m || {}).sort()));   // a map, its keys in order
+const gl = (L, w) => C(after14[L].words[w].gloss);
+ok(gl(0, 0) === C({ en: 'K-en2', id: 'K-id2', fr: 'K-fr' }), 'the word: English and Indonesian as typed, French (never shown here) kept: ' + gl(0, 0));
+ok(gl(0, 2) === C({ en: 'K-en', id: 'K-id', fr: 'K-fr' }), 'the other "kkk" keeps the gloss it shared, every language: ' + gl(0, 2));
+ok(gl(0, 1) === C(before14[0].words[1].gloss), 'a word nobody touched is exactly as it was: ' + gl(0, 1));
+ok(gl(1, 0) === C({ id: 'N-id' }) && after14[1].words[0].kind === 'gloss', 'the unglossed word gets an Indonesian gloss only');
+ok(C(after14[0].ft) === C({ en: 'one!', id: 'satu', fr: 'un' }), 'line 1\'s translations: English as typed, Indonesian and French kept: ' + C(after14[0].ft));
+ok(C(after14[1].ft) === C({ en: 'two', id: 'dua' }), 'line 2: Indonesian added, English kept: ' + C(after14[1].ft));
+// one Save to FLEx is one FLEx history item: Undo takes every language back at once
+await page.click('#flex-undo');
+await rowHas('.flex-save-text');
+ok(JSON.stringify((await rpc('__flexRead', ['ws-all', 'Every language'])).result) === JSON.stringify(before14), 'one Undo: FLEx holds exactly what it held before, in every language');
+await page.click('#flex-redo');
+await rowLacks('.flex-save-text');
+ok(C((await rpc('__flexRead', ['ws-all', 'Every language'])).result[0].words[0].gloss) === C({ en: 'K-en2', id: 'K-id2', fr: 'K-fr' }), 'and one Redo puts it all back');
+await textRow('Every language').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+ok(await page.locator('#flex-ws-anal').inputValue() === 'all', 'the text re-opens in the view it was left in');
+await page.click('#mg-back');
+await waitHome();
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();

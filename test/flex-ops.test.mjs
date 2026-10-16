@@ -45,7 +45,7 @@ console.log('\nfree translation, gloss and times, keyed by segment guid');
   const ft = r.ops.find((o) => o.op === 'ft.set');
   ok(ft.segGuid === 's1' && ft.paraGuid === 'P1' && ft.ws === 'en' && ft.value === 'first, edited.', 'ft.set carries seg, para, ws, value');
   const gl = r.ops.find((o) => o.op === 'gloss.set');
-  ok(gl.segGuid === 's1' && gl.index === 1 && gl.value === 'B', 'gloss.set by the analysis index (punctuation counted)');
+  ok(gl.segGuid === 's1' && gl.index === 1 && JSON.stringify(gl.forms) === '{"en":"B"}', 'gloss.set by the analysis index (punctuation counted), naming the writing system it changes');
   const tm = r.ops.find((o) => o.op === 'times.set');
   ok(tm.segGuid === 's3' && tm.begin === 2000 && tm.end === 3000, 'times.set from the live span');
   ok([...r.touched].sort().join() === 'P1,P2', 'both FLEx paragraphs touched');
@@ -144,7 +144,11 @@ console.log('\nadded lines, reshaping with gloss edits, split and join together:
   l3.segments[0].words = words.slice(0, 1);
   c3.paragraphs.push({ guid: 'ln-n', paraOf: 'P2', segments: [{ attrs: { guid: 'eng-n' }, baseline: 'fff ggg', words: words.slice(1).map((w, i) => (i ? w : { ...w, gls: 'F' })), free: '' }] });
   r = diffFlexDoc(b, c3);
-  ok(r.unsupported.some((u) => u.why === 'structureWithGlossChange'), 'a gloss edited on a split phrase is refused, not dropped');
+  // a gloss edited on a word a split moved into a new phrase: set where FLEx holds the word NOW — the shell
+  // sets glosses first, on the text as checked out, and the split keeps the word's analysis
+  const g3 = r.ops.find((o) => o.op === 'gloss.set');
+  ok(!r.unsupported.length && g3 && g3.segGuid === 's3' && g3.index === 1 && JSON.stringify(g3.forms) === '{"en":"F"}' && !g3.newWord,
+     'a gloss edited on a split phrase is saved with the split, at the word\'s place in the checked-out text: ' + JSON.stringify(g3));
   // P2 = [s3]; P3 = [s4, s5]: joining s4 into s3 while s5 stays in P3 cannot be one FLEx paragraph join
   const b4 = base();
   b4.paragraphs.push(line('P3', 's4', [W('hhh')]), line('P3', 's5', [W('iii')]));

@@ -577,7 +577,7 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
      'a blank line gets one empty pair, so there is somewhere to type');
   // v704: …and only when the row shown IS this device's language (another language's free translation is read-only).
-  ok(/if \(editable && frows\[0\]\.primary\) mgWireEditable\(ftbox, ln, -1, 'free'\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
+  ok(/if \(editable && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', every \? frows\[0\]\.lang : null\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
   const wire = fn(app, 'mgWireEditable');
   ok(/el\.contentEditable = 'plaintext-only'/.test(wire) && /el\.contentEditable = 'true'/.test(wire), 'plaintext where the browser has it, plain elsewhere');
   ok(/if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); el\.blur\(\); return; \}/.test(wire), 'Enter commits');
@@ -585,7 +585,7 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(/e\.key === ' ' && at >= 0 && len > 0 && \(at === 0 \|\| at === len\)/.test(wire), 'Space adds a pair only at the START or END of a non-empty word');
   ok(/mgInsertWord\(ln\.id, wi, at === 0 \? 'before' : 'after'\)/.test(wire), 'before or after, by where the caret was');
   ok(/if \(e\.key === 'Backspace' && len === 0\) \{ e\.preventDefault\(\); reshape\(\(\) => mgDeleteWord\(ln\.id, wi\)\); \}/.test(wire), 'Backspace in an EMPTY word removes the pair');
-  ok(/el\.addEventListener\('blur', \(\) => \{ if \(!handled\) mgCommitEdit\(el, ln, wi, field\); \}\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
+  ok(/el\.addEventListener\('blur', \(\) => \{ if \(!handled\) mgCommitEdit\(el, ln, wi, field, lang\); \}\)/.test(wire), 'and blur commits, so a tap elsewhere never loses a word');
   /* ⚠ Found by the shell's end-to-end test in Chromium (2026-10-15): a split, join, insert or delete
    * redraws the line, the redraw removes the focused box, and Chromium blurs it — the commit then wrote
    * the box's OLD text into whatever word now sat at its index ("fff" split gave "fff ff"). */
@@ -594,7 +594,7 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(['mgInsertWord', 'mgSplitWord', 'mgJoinWord', 'mgDeleteWord'].every((f) => new RegExp('reshape\\(\\(\\) => ' + f + '\\(').test(wire)),
      'every reshaping keystroke goes through it');
   const edit = fn(app, 'mgEditWord');
-  ok(/if \(\(ph\.words\[k\]\[field\] \|\| ''\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write)');
+  ok(/if \(\(inLang \? glossIn\(ph\.words\[k\], lang, mgPrimaryLang\(\)\) : \(ph\.words\[k\]\[field\] \|\| ''\)\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write) — in whichever language it is');
   ok(/mgCapture\(\);/.test(edit) && !/mgDraw\(\)/.test(edit) && /mgSaveDraft\(\);/.test(edit),
      'a changed one captures for undo and autosaves WITHOUT redrawing — Tab keeps walking the line');
   ok(/if \(field === 'txt'\) ph\.baseline = baselineFromWords\(ph\.words\);/.test(edit), 'the phrase baseline follows the words');

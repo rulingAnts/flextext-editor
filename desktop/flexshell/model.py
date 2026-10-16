@@ -3,7 +3,10 @@ W1/W4/W6 compare (plan §5.3 C5). Pure functions over the plain dicts FlexPort r
 
 import hashlib
 import json
+import re
+import unicodedata
 from xml.sax.saxutils import escape as _xml_escape
+from xml.sax.saxutils import unescape as _xml_unescape
 
 SECTION = "\u00A7"
 
@@ -94,9 +97,10 @@ def to_engine_doc(t, media_urls=None, ws=None):
     `boundaryMarker`, label segments `readOnly`, times in ms, media as the text's URIs.
 
     `ws` = {vern, anal}, the text's writing systems (default_ws when None): words in `vern`; glosses and
-    the free translation in `anal` — the ONE analysis writing system the engine shows and edits — and
-    every other analysis writing system's glosses and translations as the read-only items the engine's
-    language picker already shows (`<item type="gls" lang=…>`, as a .flextext from FLEx carries them)."""
+    the free translation in `anal` in the engine's editable slot (`gls`, `free`), and every other current
+    analysis writing system's as the items a .flextext from FLEx carries (`<item type="gls" lang=…>`) —
+    every one of them shown and editable in the Matcher (2026-10-16), compared per writing system by
+    the diff, and written back only where it changed (glosses.py)."""
     media_urls = media_urls or {}
     ws = ws or default_ws(t)
     vern, prim = ws["vern"], ws["anal"]
@@ -108,8 +112,10 @@ def to_engine_doc(t, media_urls=None, ws=None):
             words = []
             n_an = len(s["analyses"])
             for i, a in enumerate(s["analyses"]):
+                # `flex.seg` + `flex.index` name the occurrence as read — unique in the text, and carried by
+                # the word wherever an edit moves it (the engine keys a word's gloss by them, flex-ops.js)
                 w = {"guid": a["guid"] + ":" + str(i), "txt": word_form(a, vern), "punct": a["kind"] == "punct", "phrase": False, "gls": "",
-                     "preservedXML": [], "flex": {"analysisGuid": a["guid"], "analysisKind": a["kind"], "index": i}}
+                     "preservedXML": [], "flex": {"analysisGuid": a["guid"], "analysisKind": a["kind"], "index": i, "seg": s["guid"]}}
                 if a["kind"] == "gloss":
                     g = a.get("gloss", {})
                     w["gls"] = g.get(prim, "")
@@ -139,6 +145,9 @@ def to_engine_doc(t, media_urls=None, ws=None):
     doc = {"title": t["title"], "vernLang": vern, "analLang": prim, "languages": [], "appAuthored": False,
            "paragraphs": lines, "segments": spans, "timeEdges": True,
            "flex": {"textGuid": t["guid"], "mediaContainer": t.get("mediaContainer"), "ws": {"vern": vern, "anal": prim},
+                    # every current analysis writing system, in FLEx's order: each is shown and editable,
+                    # whether or not this text has anything in it yet
+                    "anals": list(t["analWss"] or []),
                     "media": [{"uriGuid": m["guid"], "uri": m["uri"], "url": media_urls.get(m["guid"])} for m in t["media"]]}}
     return doc
 
@@ -180,29 +189,67 @@ def normalize_post_state(post):
     return out
 
 
+_GLS_ITEM = re.compile(r'^\s*<item\b([^>]*?)(?:/>|>([\s\S]*?)</item>)')
+
+
+def _gls_items(xmls):
+    """{lang: text} of the top-level <item type="gls"> strings an engine doc carries (flextext.js
+    wordGlosses / phraseFrees read the same ones)."""
+    out = {}
+    for x in xmls or []:
+        m = _GLS_ITEM.match(x or "")
+        if not m:
+            continue
+        attrs = dict(re.findall(r'([\w:-]+)="([^"]*)"', m.group(1)))
+        if attrs.get("type") != "gls":
+            continue
+        lang = _xml_unescape(attrs.get("lang", ""), {"&quot;": '"', "&apos;": "'"})
+        out.setdefault(lang, _xml_unescape(m.group(2) or "", {"&quot;": '"', "&apos;": "'"}))
+    return out
+
+
+def word_gloss_map(w, prim):
+    """Every gloss an engine word carries, {ws: text} with the empties dropped: the editable one
+    (`gls` in `glsLang`, the doc's analysis language when unset) and every other language's item."""
+    out = {}
+    if w.get("gls") or w.get("glsLang"):
+        out[w.get("glsLang") or prim] = w.get("gls") or ""
+    for lang, text in _gls_items(w.get("preservedXML")).items():
+        out.setdefault(lang or prim, text)
+    return {k: unicodedata.normalize("NFC", v) for k, v in out.items() if v}
+
+
+def phrase_free_map(seg, prim):
+    out = {}
+    if seg.get("free") or seg.get("freeLang"):
+        out[seg.get("freeLang") or prim] = seg.get("free") or ""
+    for lang, text in _gls_items(list(seg.get("preItemsXML") or []) + list(seg.get("postItemsXML") or [])).items():
+        out.setdefault(lang or prim, text)
+    return {k: unicodedata.normalize("NFC", v) for k, v in out.items() if v}
+
+
 def post_state_of(doc, para_guids=None):
     """What the engine says a touched paragraph should look like after the save — compared by
     W4.6 against a re-read of LCM. Per FLEx paragraph: ordered phrases with text, words (form,
-    punct), FT per WS, times, and the analysis GUIDs the engine means to keep."""
+    punct, the gloss in every writing system), FT per WS, times, and the analysis GUIDs the engine
+    means to keep. (The engine's own is flex-ops.js postStateOf; this one serves the shell's tests.)"""
     out = {}
+    prim = doc.get("analLang") or "en"
     for ln in doc["paragraphs"]:
         pg = ln.get("paraOf") or (ln.get("flex") or {}).get("paraGuid")
         if para_guids is not None and pg not in para_guids:
             continue
         for seg in ln["segments"]:
             fx = seg.get("flex") or {}
-            frees = dict(seg.get("frees") or {})
-            if seg.get("free") is not None and (seg.get("freeLang") or doc.get("analLang")):
-                frees[seg.get("freeLang") or doc.get("analLang")] = seg.get("free") or ""
-            frees = {k: v for k, v in frees.items() if v}
             a = seg.get("attrs") or {}
             words = _drop_final_markers(seg["words"], lambda w: bool(w.get("punct")), lambda w: w.get("txt") or "")
             out.setdefault(pg, []).append({
                 "segGuid": fx.get("segGuid"),
                 "text": " ".join(w["txt"] for w in words) if words else (seg.get("baseline") or ""),
                 "words": [{"txt": w["txt"], "punct": bool(w.get("punct")), "gls": w.get("gls", ""),
+                           "glosses": {} if w.get("punct") else word_gloss_map(w, prim),
                            "analysisGuid": (w.get("flex") or {}).get("analysisGuid")} for w in words],
-                "ft": frees, "lt": {k: v for k, v in (seg.get("lits") or {}).items() if v},
+                "ft": phrase_free_map(seg, prim), "lt": {k: v for k, v in (seg.get("lits") or {}).items() if v},
                 "begin": a.get("begin-time-offset"), "end": a.get("end-time-offset"),
             })
     return out
@@ -222,23 +269,35 @@ def read_model_post_state(t, para_guids=None, ws=None):
                 "segGuid": s["guid"],
                 "text": " ".join(word_form(a, ws["vern"]) for a in analyses),
                 "words": [{"txt": word_form(a, ws["vern"]), "punct": a["kind"] == "punct",
-                           "gls": (a.get("gloss") or {}).get(ws["anal"], ""), "analysisGuid": a["guid"]} for a in analyses],
+                           "gls": (a.get("gloss") or {}).get(ws["anal"], ""),
+                           "glosses": {k: unicodedata.normalize("NFC", v) for k, v in (a.get("gloss") or {}).items() if v},
+                           "analysisGuid": a["guid"]} for a in analyses],
                 "ft": {k: v for k, v in s["ft"].items() if v}, "lt": {k: v for k, v in s["lt"].items() if v},
                 "begin": s["beginTime"], "end": s["endTime"],
             })
     return out
 
 
-def compare_post_state(intended, actual, loose_guids=(), primary=None, others=None):
+def _nfc(s):
+    return unicodedata.normalize("NFC", s or "")
+
+
+def compare_post_state(intended, actual, loose_guids=(), primary=None, others=None, visible=None):
     """→ [] when they agree, else human-readable mismatches. New segments/analyses (from a split, a
     bare wordform) have GUIDs the engine could not know: `loose_guids` names the paragraphs where
     analysis GUIDs are compared only for words the engine marked as kept.
 
-    With `primary` (the text's analysis writing system) the engine's free translation speaks for that
-    writing system only — it never shows or edits another — and `others` = {segGuid: {"ft": {ws: text},
-    "lt": {ws: text}}} gives what every OTHER translation must be on the phrases that had one before
-    and that no join reshaped (their values before the save, as this save's ft.set/lt.set leave them).
-    A phrase a split made, or a join's survivor, holds what LCM gives it there (plan §6.3)."""
+    `visible` = the analysis writing systems the engine shows and edits (FLEx's current ones for the
+    text): the engine's free translations and word glosses speak for every one of them — in each, the
+    re-read must hold exactly what the engine sends (nothing there = nothing in FLEx). With only
+    `primary`, the engine speaks for that one writing system (an older engine's post-state). `others` =
+    {segGuid: {"ft": {ws: text}, "lt": {ws: text}}} gives what every translation the engine does NOT
+    speak for must be, on the phrases that had one before and that no join reshaped (their values
+    before the save, as this save's ft.set/lt.set leave them). A phrase a split made, or a join's
+    survivor, holds what LCM gives it there (plan §6.3)."""
+    if visible is None and primary is not None:
+        visible = {primary}
+    visible = set(visible) if visible is not None else None
     problems = []
     for pg, segs in intended.items():
         got = actual.get(pg)
@@ -253,20 +312,21 @@ def compare_post_state(intended, actual, loose_guids=(), primary=None, others=No
                 problems.append("paragraph %s phrase %d: segment guid %s ≠ %s" % (pg, i, want["segGuid"], have["segGuid"]))
             if [w["txt"] for w in want["words"]] != [w["txt"] for w in have["words"]]:
                 problems.append("paragraph %s phrase %d: words differ" % (pg, i))
-            if primary is None:
+            if visible is None:
                 if want["ft"] != have["ft"]:
                     problems.append("paragraph %s phrase %d: free translation differs" % (pg, i))
                 if want["lt"] != have["lt"]:
                     problems.append("paragraph %s phrase %d: literal translation differs" % (pg, i))
             else:
-                if (want["ft"].get(primary) or "") != (have["ft"].get(primary) or ""):
-                    problems.append("paragraph %s phrase %d: free translation differs" % (pg, i))
+                for w in sorted(visible):
+                    if _nfc(want["ft"].get(w)) != _nfc(have["ft"].get(w)):
+                        problems.append("paragraph %s phrase %d: free translation differs in %s" % (pg, i, w))
                 exp = (others or {}).get(have["segGuid"])
                 if exp is not None:
                     for field, label in (("ft", "free"), ("lt", "literal")):
                         wss = set(exp[field]) | set(have[field])
                         if field == "ft":
-                            wss.discard(primary)
+                            wss -= visible
                         for w in sorted(wss):
                             if (exp[field].get(w) or "") != (have[field].get(w) or ""):
                                 problems.append("paragraph %s phrase %d: %s translation in %s changed" % (pg, i, label, w))
@@ -275,6 +335,13 @@ def compare_post_state(intended, actual, loose_guids=(), primary=None, others=No
             for k, (ww, hw) in enumerate(zip(want["words"], have["words"])):
                 if ww.get("analysisGuid") and ww["analysisGuid"] != hw["analysisGuid"]:
                     problems.append("paragraph %s phrase %d word %d: analysis %s ≠ %s" % (pg, i, k, ww["analysisGuid"], hw["analysisGuid"]))
-                if ww.get("gls", "") != (hw.get("gls") or ""):
+                if visible is not None and isinstance(ww.get("glosses"), dict):
+                    # the gloss in every writing system the engine speaks for (one shared by several
+                    # words is checked by glosses.set_gloss: no other occurrence changes)
+                    for w in sorted(visible):
+                        a_, b_ = _nfc(ww["glosses"].get(w)), _nfc((hw.get("glosses") or {}).get(w))
+                        if a_ != b_:
+                            problems.append("paragraph %s phrase %d word %d: gloss in %s %r ≠ %r" % (pg, i, k, w, a_, b_))
+                elif ww.get("gls", "") != (hw.get("gls") or ""):
                     problems.append("paragraph %s phrase %d word %d: gloss %r ≠ %r" % (pg, i, k, ww.get("gls"), hw.get("gls")))
     return problems

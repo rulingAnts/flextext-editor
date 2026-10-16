@@ -254,7 +254,7 @@ console.log('\na gloss and times changed differently on both sides');
   ok(opsOf(r, t).ops.length === 0, 'unforced: FLEx keeps both, nothing written');
   r = mergeFlexDocs(b, o, t, { prefer: 'mine' });
   const d = opsOf(r, t);
-  ok(kinds(d) === 'gloss.set,times.set' && d.ops.find((op) => op.op === 'gloss.set').value === 'A2' && d.ops.find((op) => op.op === 'times.set').end === 2200,
+  ok(kinds(d) === 'gloss.set,times.set' && d.ops.find((op) => op.op === 'gloss.set').forms.en === 'A2' && d.ops.find((op) => op.op === 'times.set').end === 2200,
      '"use mine": both of ours are written: ' + kinds(d));
 }
 

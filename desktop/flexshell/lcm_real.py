@@ -568,13 +568,17 @@ class RealLcm(FlexPort):
         return any(nfd(self._tss_text(p.Form)) == nfd(form) for p in self._repo(IPunctuationFormRepository).AllInstances())
 
     def has_wordform(self, form, ws=None):
+        return self.find_wordform(form, ws) is not None
+
+    def find_wordform(self, form, ws=None):
         self._t()
         from SIL.LCModel import IWfiWordformRepository   # type: ignore[import-not-found]
         repo = self._repo(IWfiWordformRepository)
         tss = self._tss(form, self._ws_handle(ws) if ws else self.cache.DefaultVernWs)
         # bool TryGetObject(ITsString, out IWfiWordform) [source]: the out parameter omitted → (ok, wf)
         r = repo.TryGetObject(tss)
-        return bool(r[0] if isinstance(r, tuple) else r)
+        ok, wf = (r[0], r[1]) if isinstance(r, tuple) else (r, None)
+        return str(wf.Guid) if ok and wf is not None else None
 
     def force_parse(self, para_guid):
         self._t()

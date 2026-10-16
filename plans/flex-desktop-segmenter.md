@@ -377,6 +377,15 @@ of every touched paragraph, and the protocol's last in-UOW check is **"re-read t
 from LCM, convert it to the engine model, and compare with the intended post-state"** (§5.4 W4).
 A diff bug therefore causes a rollback, not a wrong write.
 
+**Which word is which (2026-10-16).** A word's id in the doc (`analysis:index`) can repeat across
+phrases, and edits move words between phrases, so glosses are keyed by the occurrence: the diff reads
+the shape of the edit — a split's pieces hold the split phrase's words in order, a join's survivor the
+joined phrases' words, any other phrase its own around the one word a word edit made — and only where
+the shape says nothing does it use the place a word was read at (`flex.seg` + `flex.index`, stamped by
+`to_engine_doc`). After a save the local copy is FLEx's text read again (§4.5), so its words carry FLEx's
+places; after an Undo of that save the copy is ahead of FLEx, and the shape still reads it right (a
+test pins it). Glosses and free translations are compared per analysis writing system (§7.2, §7.4).
+
 ### 4.3 Engine features that ship on the web first
 
 These are engine changes, usable everywhere, and go through the normal branch preview → staging →
@@ -426,14 +435,19 @@ we change."*
   the save still writes just the changes made here and FLEx's own stay. Cell by cell, by GUID: a
   phrase's times and free translation (they belong to the FLEx segment, so they survive FLEx rewording
   its words, as long as FLEx kept the segment between the same neighbours); each word's gloss (only
-  while FLEx kept the phrase's words); and the shape — a paragraph reshaped here (split, join, word
+  while FLEx kept the phrase's words) — a translation and a gloss in EACH analysis writing system being
+  a cell of its own (2026-10-16: English changed here and Indonesian in FLEx are both kept, and a
+  conflict names its language); and the shape — a paragraph reshaped here (split, join, word
   edits) goes in only if FLEx still has it as checked out, its phrases, words, and the times and
   translation of each phrase reshaped (a split's halves share what was one translation). Changed on one
   side → that side; on both to the same value → that; to different values → a **conflict**, listed by
   line before anything is written: *Keep FLEx's, save the rest* (the default after Cancel) or *Use mine
   for these* (offered only when every conflict can take it — never a reshaping over FLEx's changed
   words). The preview then says how many lines FLEx changed, and that they stay. After the save the
-  local copy is FLEx's text read again (its changes and ours), with this app's own estimate marks kept.
+  local copy is FLEx's text read again (its changes and ours), with this app's own estimate marks kept —
+  after EVERY save, merged or not (2026-10-16): the copy is then exactly FLEx's shape (no § a join took
+  out, LCM's guids for what the save made, each word at FLEx's place), so the next check-in compares with
+  exactly what FLEx has.
 - **Re-opening** a text with work here that FLEx has changed brings FLEx's changes in under the work
   (the checkout moves to FLEx's text now) when nothing conflicts, and asks nothing; with conflicts it
   keeps the work as it is and says Save to FLEx… will show them. ⚠ **Not under a Matcher draft**: the
@@ -820,26 +834,33 @@ every occurrence in every text. `WfiGloss.Form` is MultiUnicode (plain per WS); 
 MultiString. **[verified]** on the copy: no `WfiGloss` is referenced by anything but segments;
 roughly a third of the glosses in use are shared by more than one occurrence; 0 non-NFD strings.
 
-### 7.2 Set the word gloss of one occurrence in WS X (stricter than FLEx)
+### 7.2 Set the word gloss of one occurrence (stricter than FLEx)
 
-Inputs: segment, index *i*, the user's chosen gloss WSs *C* (limited to the project's current
-analysis WSs), the new value for X.
+Inputs: segment, index *i*, and the CHANGES — `{ws: text}` for the writing systems edited for this
+word, each one of the project's current analysis WSs (`gloss.set` `forms`; an older engine's single
+`ws` + `value` still reads). Seth, 2026-10-16: *"If it edits a GUID object (a word), it should ONLY
+change what we changed and leave everything else preserved. I don't want it erasing data in other
+writing systems or languages when I edit ONE of them, or only letting me make changes to one of them at
+a time."*
 
 1. **Concurrency:** re-read `seg.AnalysesRS[i]`; abort if its GUID, the segment's baseline or
    `AnalysesRS.Count` changed since preview. Refuse `PunctuationForm`.
 2. Find `A` (analysis) and `g0` (current gloss) from the occurrence.
-3. Target *T* over *C* = `g0`'s values with X replaced. All-empty *T* → point the occurrence back at
-   `A` (never delete `g0`) (Decision D5).
+3. Target *T* = `g0`'s values in **every** writing system it has — current or not, shown in the app or
+   not — with just the changed ones replaced. *T* the same as now → nothing written. All-empty *T* →
+   point the occurrence back at `A` (never delete `g0`) (Decision D5).
 4. **Unanalysed word** (no `A`): reuse an exact FLEx-style trivial analysis (no category, one
    bundle with Morph/Msa/Sense/InflType null and bundle Form = wordform; else 0 bundles);
    otherwise create one the way FLEx does (`WfiAnalysis` + one `WfiMorphBundle` whose Form is the
    wordform; `wf.Checksum = 0`). Never use guesses; never change case. (Decision D6: allow at all?)
 5. **Choose the gloss:**
-   - (i) reuse a gloss in `A.MeaningsOC` equal to *T* on every WS in *C* (blank = blank; tie-break:
-     fewest other non-empty WSs). Write nothing to it.
+   - (i) reuse a gloss in `A.MeaningsOC` equal to *T* in **every** writing system (blank = blank; the
+     first in FLEx's order) — one equal in English but lacking the word's Indonesian is not the word's
+     gloss. Write nothing to it. (An unanalysed word: a gloss of the trivial analysis it gets, likewise.)
    - (ii) else, if `g0` exists and is referenced **exactly once in the whole project** (this
      occurrence), edit it in place, only the WSs that differ.
-   - (iii) else create a new `WfiGloss` in `A.MeaningsOC` with *T*.
+   - (iii) else create a new `WfiGloss` in `A.MeaningsOC` with *T* — every writing system `g0` had
+     comes along.
    FLEx's "fill a blank on a shared gloss" match is deliberately skipped; every result is a state
    FLEx itself can produce, and **no other occurrence ever changes**.
 6. `seg.AnalysesRS[i] = g`.
@@ -847,7 +868,27 @@ analysis WSs), the new value for X.
    FLEx does; the preview says so (Decision D7).
 8. **Invariants** (in the UOW): `g.Owner == A`; `A.Wordform` unchanged; `A`'s bundles and
    category identical to the snapshot (new trivial analysis exempt); every other segment that
-   referenced `g0` still does and `g0.Form` is unchanged unless (ii); re-read gives *T*.
+   referenced `g0` still does and `g0.Form` is unchanged unless (ii); re-read gives *T* in **every**
+   writing system (a port that dropped one is caught here and rolled back — pinned by a test that
+   makes `create_gloss` drop one).
+
+**One save, many words (2026-10-16).** The preview plans every gloss of a save before any is written, but
+each runs on what the ones before it leave: a second unanalysed copy of a word finds the analysis the
+first made (and its gloss, when equal), a gloss made or edited for one word is one another may reuse,
+and a gloss another word has just left is single-use. `glosses.Planner` replays the save's gloss ops in
+run order over a simulation of those effects, so the preview's object counts are the save's — before it,
+glossing the same unanalysed word twice in one save rolled back on the W4 count check. A save's word ops
+that make the same new form count one `WfiWordform`, as FLEx makes one.
+
+**Where a gloss op runs (2026-10-16).** A word the base had runs FIRST, on the text as checked out,
+at the place the base holds it: every structural recipe keeps the analyses of the words it does not
+remake (§6), so the gloss travels with its word into a split's half or a joined phrase — a gloss edit
+and a split or join are one save now (it was refused). A word the save itself makes — a split's halves,
+an added or joined word, a respelled one — has no occurrence until the structural ops have run: its op
+(`newWord`, with its `form`) runs LAST, at its place in its phrase then, and is written only if that
+occurrence is exactly a bare wordform of that form (`E_INVARIANT` otherwise, nothing written); it is
+planned on FLEx's wordform of that form (`find_wordform`, new in the port) or the one the save makes. A
+respelled word is a new wordform in FLEx: its glosses, every language, are set on it rather than lost.
 
 **[verified]** single-use gloss edited in place; a gloss shared by two occurrences → a new gloss,
 the other occurrence untouched; unanalysed word → existing trivial analysis reused plus a new
@@ -892,12 +933,26 @@ instead of from device settings is only available on pywebview native version)"*
   quietly re-shown in another).
 - **Switched inside the text** (Seth, 2026-10-15: *"I'd like to be able to switch on the fly within the
   text I'm working on"*): the Matcher strip carries **Words in [vernacular ▾]** and **Glosses in
-  [analysis ▾ / All languages]**, from FLEx's lists, on EVERY FLEx text. With nothing done here that FLEx
-  lacks (no Matcher edit, no draft, an empty diff), a choice re-reads the text in it and re-opens the
-  Matcher in place (same line selected, same scroll, the recording still loaded) — glosses and the
-  free translation are then edited in the one shown. With such work, nothing is re-read: another
-  analysis writing system is SHOWN read-only as FLEx has it (tagged *read-only*), and the words wait
-  for a save. *All languages* stacks the others under the one edited (a view only).
+  [analysis ▾ / All languages]**, from FLEx's lists, on EVERY FLEx text.
+- **EVERY analysis writing system is kept and editable (2026-10-16).** Seth: *"I want our app to cache
+  and be able to edit (if the user wants) ALL writing systems (like they can switch from English to
+  indonesian mid-way and their English changes will be saved)"*. The doc carries each current analysis
+  writing system (`doc.flex.anals`, FLEx's order); **Glosses in** is a VIEW: it reads nothing and
+  refuses nothing, with work pending or not — the English typed before switching to Indonesian is still
+  in the record, and one Save to FLEx writes both (one FLEx history item). Every row is editable in its
+  own language (`setGlossIn` / `setFreeIn`: one language changed, every other one exactly as it was), and
+  *All languages* shows every one of FLEx's, an empty row where a word or line has none yet. The choice
+  is remembered on the record (`rec.flex.ws.anal`, `rec.flex.allLangs`). The diff compares each word's
+  glosses and each phrase's translations per writing system (`glossMap` / `freeMap`), names only the
+  ones that changed (one `gloss.set` per word, `forms: {ws: text}`; one `ft.set` per language), and the
+  post-state carries every one: the shell compares them all after the write (`compare_post_state`
+  `visible` = the project's current analysis WSs; the ones it never shows must be as they were). A
+  record an older build made (one analysis writing system in it) is read again first, or — with work in
+  it — asks for a save first (`flex.ws.busyOld`).
+- **The vernacular** is how the words are spelled, so **Words in** still re-reads the text from FLEx,
+  only with nothing pending here (the words wait for a save, and say so; glosses and translations switch
+  at any time). Editing a wordform's spelling in another vernacular alternative would change it in every
+  text of the project (a lexicon-wide change), so it is not offered.
 - ⚠ **Three reasons a text showed no glosses or translations it has in FLEx** (Seth, 2026-10-15:
   *"some load word glosses and free translations while others that DO have glosses and free
   translations DON'T load them"*; *"writing system selector shows within the text for some but not

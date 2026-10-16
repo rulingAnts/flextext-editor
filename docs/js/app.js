@@ -42,7 +42,8 @@ import { mergeSegments, splitSegment, isAligned, audioTierReachable, normalizeSe
          isEstimate, syncToLines, segmentsFollowLines, splitSpanAt, mergeSpanPair, withGuesses, dragSeam, timingReport,
          isPlaceholder, isPlaced, spreadUntimed, storableSegments, seedsToPending, edgeGuessed,
          gapRowsFor } from './segments.js';
-import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows } from './flextext.js';
+import { wordGlosses as glossesOfWord, phraseFrees as freesOfPhrase, baselineFromWords as textFromWords, analysisLangs, analysisRows,
+  glossIn, freeIn, setGlossIn, setFreeIn } from './flextext.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
@@ -10140,16 +10141,27 @@ let mgLangPref = (() => { try { return localStorage.getItem(MG_LANG_KEY) || 'pri
  * text that carried any English in English, read-only, whatever was chosen for it — glosses and free
  * translations the text had in its own language looked missing (Seth, 2026-10-15). For such a text the
  * column's picker steps aside and the choice lives only while it is open: 'primary', 'all' or a code. */
-let mgLangClaim = null;   // (rec) → true for a text whose writing systems are chosen elsewhere
+let mgLangClaim = null;   // (rec) → the view to open in ('primary', 'all' or a code), or false
 let mgLangOwn = null;     // that text's choice while it is open; null for every other text
+/* ⚠ AND EVERY ONE OF ITS LANGUAGES IS EDITABLE (Seth, 2026-10-16: "I want our app to cache and be able
+ * to edit (if the user wants) ALL writing systems (like they can switch from English to indonesian
+ * mid-way and their English changes will be saved)"). A FLEx text carries each analysis writing system
+ * of FLEx's; a row typed into is set in ITS language only (flextext.js setGlossIn / setFreeIn), and the
+ * shell writes back just the languages that changed. Every other text keeps one editable language
+ * (#41, plans/second-analysis-language.md). */
+function mgEveryLangEditable() { return !!mgLangOwn; }
 function mgPrimaryLang() { return (current && current.doc && current.doc.analLang) || settings.analLang || 'en'; }
 function mgLangsPresent() {
   const prim = mgPrimaryLang();
   const { gloss, free } = analysisLangs(current && current.doc, prim);
   const out = [prim];
-  for (const l of [...gloss, ...free]) if (!out.includes(l)) out.push(l);
+  // a FLEx text: FLEx's own analysis writing systems too, used in this text or not (each is editable)
+  const flexAnals = (mgLangOwn && current && current.doc && current.doc.flex && current.doc.flex.anals) || [];
+  for (const l of [...flexAnals, ...gloss, ...free]) if (!out.includes(l)) out.push(l);
   return out;
 }
+// The languages a row stack shows in 'all': for a FLEx text every one of them, typed into or not.
+function mgRowLangs() { return mgEveryLangEditable() ? mgLangsPresent() : null; }
 function mgLangMode() {
   const langs = mgLangsPresent();
   const pref = mgLangOwn || mgLangPref;
@@ -10167,12 +10179,13 @@ function mgLangPickerHtml() {
   return `<select id="mg-lang" class="mg-lang" title="${esc(t('mg.langPick', { lang: prim }))}" aria-label="${esc(t('mg.langPick', { lang: prim }))}">`
     + opt('primary', prim) + langs.slice(1).map((l) => opt(l, l)).join('') + opt('all', t('mg.langAll')) + '</select>';
 }
-// A read-only row for a language this device does not edit, tagged with its code.
+// A row for another language, tagged with its code: read-only, or (a FLEx text) editable in it.
 function mgAltRow(tag, cls, row) {
   const el = document.createElement(tag);
   el.className = cls;
   el.dataset.lang = row.lang;
-  el.title = t('mg.langAlt', { lang: row.lang, prim: mgPrimaryLang() });
+  el.title = mgEveryLangEditable() ? t('mg.langEdit', { lang: row.lang }) : t('mg.langAlt', { lang: row.lang, prim: mgPrimaryLang() });
+  if (mgEveryLangEditable()) el.classList.add(cls.includes('mg-ft') ? 'mg-ft-lang' : 'mg-g-lang');
   el.textContent = row.text;
   return el;
 }
@@ -10743,21 +10756,33 @@ function mgWordStack(ln, w, wi, editable) {
   we.textContent = w.txt;
   // The gloss rows for the language(s) chosen (see mgLangPickerHtml): the primary stays editable,
   // any other language is shown as it is.
-  const rows = analysisRows(w.src ? glossesOfWord(w.src) : [{ lang: '', text: w.gls }], mgLangMode(), mgPrimaryLang());
+  const rows = analysisRows(w.src ? glossesOfWord(w.src) : [{ lang: '', text: w.gls }], mgLangMode(), mgPrimaryLang(), mgRowLangs());
+  const every = mgEveryLangEditable();
   ge.textContent = rows[0].text;
-  if (!rows[0].primary) { ge.classList.add('mg-g-alt'); ge.dataset.lang = rows[0].lang; ge.title = t('mg.langAlt', { lang: rows[0].lang, prim: mgPrimaryLang() }); }
-  for (const r of rows.slice(1)) stack.appendChild(mgAltRow('span', 'mg-g mg-g-alt', r));
-  if (editable) { mgWireEditable(we, ln, wi, 'txt'); if (rows[0].primary) mgWireEditable(ge, ln, wi, 'gls'); }
+  if (!rows[0].primary) {
+    ge.classList.add(every ? 'mg-g-lang' : 'mg-g-alt');
+    ge.dataset.lang = rows[0].lang;
+    ge.title = every ? t('mg.langEdit', { lang: rows[0].lang }) : t('mg.langAlt', { lang: rows[0].lang, prim: mgPrimaryLang() });
+  }
+  const alts = rows.slice(1).map((r) => { const el = mgAltRow('span', 'mg-g mg-g-alt', r); stack.appendChild(el); return el; });
+  if (editable) {
+    mgWireEditable(we, ln, wi, 'txt');
+    if (rows[0].primary || every) mgWireEditable(ge, ln, wi, 'gls', every ? rows[0].lang : null);
+    if (every) alts.forEach((el, k) => mgWireEditable(el, ln, wi, 'gls', rows[k + 1].lang));
+  }
   return stack;
 }
 
-function mgWireEditable(el, ln, wi, field) {
+function mgWireEditable(el, ln, wi, field, lang = null) {
   // plaintext-only where the browser has it (Chromium); Firefox gets the plain flavour and the
   // commit strips whatever formatting a paste might carry.
   try { el.contentEditable = 'plaintext-only'; } catch { /* below */ }
   if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
   el.classList.add('mg-edit');
-  el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord');
+  el.dataset.ph = t(field === 'free' ? 'mg.tapFree' : field === 'gls' ? 'mg.tapGloss' : 'mg.tapWord')
+    + (lang && lang !== mgPrimaryLang() ? ' (' + lang + ')' : '');
+  // `lang`: the analysis language this row edits (a FLEx text's rows, every language); null = the slot
+  if (lang) el.dataset.editLang = lang;
   let was = el.textContent;
   /* ⚠ A KEYSTROKE THAT RESHAPED THE LINE HAS ALREADY COMMITTED THIS BOX. Its redraw removes the box,
    * and Chromium fires `blur` on a focused element it removes — so the commit below ran AFTER the split,
@@ -10777,7 +10802,7 @@ function mgWireEditable(el, ln, wi, field) {
     const at = mgCaretOffset(el);
     if (e.key === ' ' && at >= 0 && len > 0 && (at === 0 || at === len)) {
       e.preventDefault();
-      mgCommitEdit(el, ln, wi, field);                  // keep what was typed so far
+      mgCommitEdit(el, ln, wi, field, lang);            // keep what was typed so far
       reshape(() => mgInsertWord(ln.id, wi, at === 0 ? 'before' : 'after'));
       return;
     }
@@ -10794,7 +10819,7 @@ function mgWireEditable(el, ln, wi, field) {
     if (e.key === 'Delete' && at === len && len > 0) { e.preventDefault(); reshape(() => mgJoinWord(ln.id, wi, el.textContent, 'next')); return; }
     if (e.key === 'Backspace' && len === 0) { e.preventDefault(); reshape(() => mgDeleteWord(ln.id, wi)); }
   });
-  el.addEventListener('blur', () => { if (!handled) mgCommitEdit(el, ln, wi, field); });
+  el.addEventListener('blur', () => { if (!handled) mgCommitEdit(el, ln, wi, field, lang); });
 }
 // Caret position within the editable, or -1 when the selection is not a collapsed caret inside it.
 function mgCaretOffset(el) {
@@ -10805,9 +10830,9 @@ function mgCaretOffset(el) {
   r.setEnd(sel.anchorNode, sel.anchorOffset);
   return r.toString().length;
 }
-function mgCommitEdit(el, ln, wi, field) {
+function mgCommitEdit(el, ln, wi, field, lang = null) {
   const value = el.textContent.replace(/\s+/g, ' ').trim();
-  if (field === 'free') mgEditFree(ln.id, value); else mgEditWord(ln.id, wi, field, value);
+  if (field === 'free') mgEditFree(ln.id, value, lang); else mgEditWord(ln.id, wi, field, value, lang);
 }
 // One phrase per line is the shape everything here assumes; a legacy draft's two-phrase line is
 // merged the first time it is edited, exactly as Done would merge it.
@@ -10826,10 +10851,12 @@ function mgRealIndex(words, wi) {
   }
   return -1;
 }
-function mgEditWord(id, wi, field, value) {
+// `lang`: a gloss typed in ONE analysis language (a FLEx text's rows) — set in that language only.
+function mgEditWord(id, wi, field, value, lang = null) {
   const line = MG && MG.lines.find((l) => l.id === id);
   if (!line) return;
   const ph = mgLinePhrase(line);
+  const inLang = field === 'gls' && !!lang;
   let k = mgRealIndex(ph.words, wi);
   if (k < 0) {
     if (!value) return;                         // the blank line's empty pair, left empty
@@ -10837,20 +10864,22 @@ function mgEditWord(id, wi, field, value) {
     ph.words.push(makeWord('', {}));
     k = ph.words.length - 1;
   } else {
-    if ((ph.words[k][field] || '') === value) return;
+    if ((inLang ? glossIn(ph.words[k], lang, mgPrimaryLang()) : (ph.words[k][field] || '')) === value) return;
     mgCapture();
   }
-  ph.words[k][field] = value;
+  if (inLang) setGlossIn(ph.words[k], lang, value, mgPrimaryLang());
+  else ph.words[k][field] = value;
   if (field === 'txt') ph.baseline = baselineFromWords(ph.words);
   mgSaveDraft();
 }
-function mgEditFree(id, value) {
+function mgEditFree(id, value, lang = null) {
   const line = MG && MG.lines.find((l) => l.id === id);
   if (!line) return;
   const ph = mgLinePhrase(line);
-  if ((ph.free || '') === value) return;
+  if ((lang ? freeIn(ph, lang, mgPrimaryLang()) : (ph.free || '')) === value) return;
   mgCapture();
-  ph.free = value;
+  if (lang) setFreeIn(ph, lang, value, mgPrimaryLang());
+  else ph.free = value;
   mgSaveDraft();
 }
 function mgInsertWord(id, wi, where) {
@@ -11417,11 +11446,20 @@ function mgDraw() {
       });
     } else {
       // The free translation(s) for the language(s) chosen — same rule as the gloss rows.
-      const frows = analysisRows(mgLineFrees(ln), mgLangMode(), mgPrimaryLang());
+      const frows = analysisRows(mgLineFrees(ln), mgLangMode(), mgPrimaryLang(), mgRowLangs());
+      const every = mgEveryLangEditable();
       ftbox.textContent = frows[0].text;
-      if (!frows[0].primary) { ftbox.classList.add('mg-ft-alt'); ftbox.dataset.lang = frows[0].lang; ftbox.title = t('mg.langAlt', { lang: frows[0].lang, prim: mgPrimaryLang() }); }
-      if (editable && frows[0].primary) mgWireEditable(ftbox, ln, -1, 'free');
-      for (const r of frows.slice(1)) ftbox.parentElement.appendChild(mgAltRow('div', 'mg-ft mg-ft-alt', r));
+      if (!frows[0].primary) {
+        ftbox.classList.add(every ? 'mg-ft-lang' : 'mg-ft-alt');
+        ftbox.dataset.lang = frows[0].lang;
+        ftbox.title = every ? t('mg.langEdit', { lang: frows[0].lang }) : t('mg.langAlt', { lang: frows[0].lang, prim: mgPrimaryLang() });
+      }
+      if (editable && (frows[0].primary || every)) mgWireEditable(ftbox, ln, -1, 'free', every ? frows[0].lang : null);
+      for (const r of frows.slice(1)) {
+        const el = mgAltRow('div', 'mg-ft mg-ft-alt', r);
+        ftbox.parentElement.appendChild(el);
+        if (editable && every) mgWireEditable(el, ln, -1, 'free', r.lang);
+      }
     }
     const cell = document.createElement('div');
     cell.className = 'mg-cell';
@@ -11769,7 +11807,8 @@ async function mgOpen(id) {
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
   current = rec;
-  mgLangOwn = mgLangClaim && mgLangClaim(rec) ? 'primary' : null;   // see mgLangClaim
+  const claimed = mgLangClaim && mgLangClaim(rec);   // see mgLangClaim: the view the text opens in
+  mgLangOwn = claimed ? (typeof claimed === 'string' ? claimed : 'primary') : null;
   /* ⚠ ONE PHRASE PER LINE, AND THE ENGINE ALREADY KNOWS HOW. A FLExText commonly arrives with every
    * phrase inside ONE paragraph — Seth's "Rumah Jatuh di Muara Suhu" is 1 paragraph holding 60
    * phrases, and "Crocodile Woman" is 1 holding 77. mgLoad reads PARAGRAPHS, so such a text became a

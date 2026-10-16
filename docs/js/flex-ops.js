@@ -15,7 +15,7 @@
  *
  * Format-module rule: imports nothing but format modules, no DOM, no i18n. Node-testable. */
 
-import { isBoundaryMarker, flexPhraseWarnings, FLEX_EOS } from './flextext.js';
+import { isBoundaryMarker, flexPhraseWarnings, FLEX_EOS, wordGlosses, phraseFrees, setGlossIn, setFreeIn } from './flextext.js';
 
 const SECTION = '§';
 
@@ -37,6 +37,60 @@ const endsAtStop = (seg) => {
   const last = toks[toks.length - 1];
   return !!last && !!last.punct && !isBoundaryMarker(last) && FLEX_EOS.test(last.txt);
 };
+
+/* ---- every analysis writing system (Seth, 2026-10-16: "cache and be able to edit … ALL writing systems";
+ * "If it edits a GUID object (a word), it should ONLY change what we changed and leave everything else
+ * preserved"). A word's glosses and a phrase's free translations are compared, written and merged per
+ * writing system: {ws: text}, the empties dropped. `prim` is the doc's analysis language — the one a
+ * gloss or translation with no language of its own is in. */
+export function glossMap(w, prim) {
+  const out = {};
+  for (const g of wordGlosses(w)) { const l = g.lang || prim; const t = String(g.text || '').normalize('NFC'); if (t && !(l in out)) out[l] = t; }
+  return out;
+}
+export function freeMap(seg, prim) {
+  const out = {};
+  for (const f of phraseFrees(seg)) { const l = f.lang || prim; const t = String(f.text || '').normalize('NFC'); if (t && !(l in out)) out[l] = t; }
+  return out;
+}
+// {ws: new text ('' = cleared)} for each writing system whose text differs between two maps
+export function changedIn(was, now) {
+  const out = {};
+  for (const l of new Set([...Object.keys(was || {}), ...Object.keys(now || {})])) {
+    if (((was || {})[l] || '') !== ((now || {})[l] || '')) out[l] = (now || {})[l] || '';
+  }
+  return out;
+}
+const sameMap = (a, b) => !Object.keys(changedIn(a, b)).length;
+/* A word's identity: the occurrence it was read as (model.py stamps `flex.seg` + `flex.index`), carried
+ * wherever an edit moves the word — a word guid alone (analysis:index) can repeat across phrases. A word
+ * made here (a split's halves, an added or joined word) has none. `occ` maps the base's identities to
+ * where the base holds them; an older build's record (no `flex.seg`) is matched by its word guid, in its
+ * own phrase first. */
+function occurrences(base) {
+  const occ = new Map(), byGuid = new Map(), keyOf = new Map();
+  (base.paragraphs || []).forEach((ln) => {
+    const seg = ln.segments && ln.segments[0];
+    if (!seg) return;
+    const sg = segGuid(seg);
+    (seg.words || []).forEach((w, idx) => {
+      if (w.punct) return;
+      const f = w.flex || {};
+      const key = f.seg != null && f.index != null ? f.seg + '#' + f.index : sg + '#' + idx;
+      occ.set(key, { w, sg, pg: paraOf(ln), idx });
+      keyOf.set(w, key);
+      if (w.guid) byGuid.set(w.guid, [...(byGuid.get(w.guid) || []), key]);
+    });
+  });
+  const identity = (w, sgNow) => {
+    const f = w && w.flex;
+    if (f && f.seg != null && f.index != null) return occ.has(f.seg + '#' + f.index) ? f.seg + '#' + f.index : null;
+    const hits = (w && w.guid && byGuid.get(w.guid)) || [];
+    const here = hits.filter((k) => occ.get(k).sg === sgNow);
+    return here.length === 1 ? here[0] : hits.length === 1 ? hits[0] : null;
+  };
+  return { occ, identity, keyOf };
+}
 
 /* One FLEx-paragraph group: consecutive lines sharing a paraOf. */
 function groups(doc) {
@@ -102,11 +156,13 @@ function analysisIndex(seg, lexIndex) {
 /**
  * diffFlexDoc(base, cur, opts) → { ops, touched: Set<paraGuid>, unsupported: [...] }
  *   base — the doc as open_text returned it (frozen copy); cur — the doc now.
- *   opts.ws — the analysis WS the engine edits (doc.analLang); opts.media — a path to attach when
+ *   Glosses and free translations are compared in EVERY analysis writing system the docs carry; a
+ *   gloss.set names the word's changed ones ({forms: {ws: text}}), an ft.set one writing system each.
+ *   opts.ws — the analysis WS a doc with no analLang is in; opts.media — a path to attach when
  *   times exist and the text has no media link (plan D9); opts.relink — { uriGuid, path }.
  */
 export function diffFlexDoc(base, cur, opts = {}) {
-  const ws = opts.ws || cur.analLang || base.analLang || 'en';
+  const basePrim = base.analLang || opts.ws || 'en', curPrim = cur.analLang || basePrim;
   const ops = [];
   const touched = new Set();
   const unsupported = [];
@@ -129,6 +185,7 @@ export function diffFlexDoc(base, cur, opts = {}) {
   const groupOf = (seg) => baseLines.get(segGuid(seg)).group;
   const structural = new Set();   // phrases a split or a join reshapes: their words travel with the op
   const joined = new Set();
+  const joinedFrom = new Map();   // a join's survivor → the base phrases it is made of (itself first)
   const crossed = new Set();      // paragraph groups a join merges into the paragraph before them
   const newPhrases = new Map();   // guid of a phrase a split makes → its base paragraph group key
   // JOINS: base phrases gone from cur whose words now end the nearest surviving phrase before them
@@ -169,6 +226,7 @@ export function diffFlexDoc(base, cur, opts = {}) {
     touched.add(pg);
     structural.add(segGuid(s));
     joined.add(segGuid(s));
+    joinedFrom.set(segGuid(s), [s, ...run]);
   }
 
   // ---- paragraph boundaries: for each adjacent pair of cur lines whose phrases both exist in base
@@ -185,6 +243,7 @@ export function diffFlexDoc(base, cur, opts = {}) {
   }
 
   const examined = new Set();     // every phrase base never had that follows a base phrase
+  const splitPieces = new Map();  // a base phrase split here → its pieces, in order (itself first)
   // SPLITS: a base phrase followed in cur by phrases base never had, whose words continue it. Each new
   // phrase is a split of the one before it, all inside the base paragraph (so the splits run first); a
   // new phrase that opens a paragraph of its own (a Sentence break) then moves to it (afterSplit).
@@ -230,6 +289,7 @@ export function diffFlexDoc(base, cur, opts = {}) {
       }
     }
     ops.push(...toParas);
+    splitPieces.set(segGuid(s), pieces);
     if (!allTimed) {
       pieces.forEach((p, t) => ops.push({ op: 'times.set', paraGuid: pg, segGuid: segGuid(p), begin: times[t] ? times[t][0] : null, end: times[t] ? times[t][1] : null }));
     }
@@ -243,28 +303,18 @@ export function diffFlexDoc(base, cur, opts = {}) {
     unsupported.push({ why: lexForms(seg).length ? 'newPhraseWithoutSource' : 'addedLine', segGuid: segGuid(seg), paraGuid: paraOf(line) });
   });
 
-  // A reshaped phrase carries its words' glosses as they were; a gloss edited in the same save is
-  // refused, never dropped (save the reshaping first, then gloss).
-  const baseGls = new Map();
-  base.paragraphs.forEach((ln) => ln.segments.forEach((sg) => (sg.words || []).forEach((w) => { if (w.guid) baseGls.set(w.guid, w.gls || ''); })));
-  cur.paragraphs.forEach((line) => {
-    const seg = line.segments[0];
-    if (!seg || !(structural.has(segGuid(seg)) || newPhrases.has(segGuid(seg)))) return;
-    if ((seg.words || []).some((w) => w.guid && baseGls.has(w.guid) && baseGls.get(w.guid) !== (w.gls || ''))) {
-      unsupported.push({ why: 'structureWithGlossChange', segGuid: segGuid(seg), paraGuid: paraOf(line) });
-    }
-  });
-
-  // ---- per surviving phrase: words, glosses, FT, times
+  // ---- per surviving phrase: words, FT, times
   cur.paragraphs.forEach((line, li) => {
     const seg = line.segments[0];
     if (!seg) return;
     const sg = segGuid(seg);
     const b = baseLines.get(sg);
     if (!b) {
-      // a phrase a split made: FLEx gives it no free translation, so the one here is set after the split
+      // a phrase a split made: FLEx gives it no free translation, so each one here is set after the split
       const npg = newPhrases.get(sg);
-      if (npg != null && (seg.free || '')) { ops.push({ op: 'ft.set', paraGuid: npg, segGuid: sg, ws: seg.freeLang || ws, value: seg.free }); touched.add(npg); }
+      if (npg != null) {
+        for (const [l, v] of Object.entries(freeMap(seg, curPrim))) { ops.push({ op: 'ft.set', paraGuid: npg, segGuid: sg, ws: l, value: v }); touched.add(npg); }
+      }
       return;
     }
     const pg = b.group.key;
@@ -277,21 +327,18 @@ export function diffFlexDoc(base, cur, opts = {}) {
       else ops.push({ op: 'baseline.replace', paraGuid: pg, text: baselineOfGroup(cur, pg, b.group, base) });
       touched.add(pg);
     }
-    // glosses: by analysis index on words that still exist with the same form
-    if (!structural.has(sg)) {
-      const ob = wordsOf(b.seg), nw = wordsOf(seg);
-      if (ob.length === nw.length) {
-        nw.forEach((w, i) => {
-          if (w.punct || ob[i].punct || (w.txt || '') !== (ob[i].txt || '')) return;
-          if ((w.gls || '') !== (ob[i].gls || '')) {
-            const idx = (b.seg.words || []).indexOf(ob[i]);
-            ops.push({ op: 'gloss.set', paraGuid: pg, segGuid: sg, index: idx >= 0 ? idx : analysisIndex(b.seg, i), ws, value: w.gls || '' });
-            touched.add(pg);
-          }
-        });
-      }
+    // free translations, in every analysis writing system: those that changed — and on a join's survivor
+    // every one the joined phrases had, set outright (LCM joins each with a space; what is written is
+    // what the line here holds)
+    const fNow = freeMap(seg, curPrim);
+    if (joined.has(sg)) {
+      const langs = new Set(Object.keys(fNow));
+      for (const p of joinedFrom.get(sg) || []) for (const l of Object.keys(freeMap(p, basePrim))) langs.add(l);
+      for (const l of langs) ops.push({ op: 'ft.set', paraGuid: pg, segGuid: sg, ws: l, value: fNow[l] || '' });
+      if (langs.size) touched.add(pg);
+    } else {
+      for (const [l, v] of Object.entries(changedIn(freeMap(b.seg, basePrim), fNow))) { ops.push({ op: 'ft.set', paraGuid: pg, segGuid: sg, ws: l, value: v }); touched.add(pg); }
     }
-    if ((seg.free || '') !== (b.seg.free || '')) { ops.push({ op: 'ft.set', paraGuid: pg, segGuid: sg, ws: seg.freeLang || ws, value: seg.free || '' }); touched.add(pg); }
     const tNow = timesOf(seg, (cur.segments || [])[li]), tWas = timesOf(b.seg, b.span);
     // a join survivor's times are set outright: FLEx's join keeps the first phrase's start, the last one's end
     if (joined.has(sg) && (tNow || tWas)) {
@@ -303,6 +350,67 @@ export function diffFlexDoc(base, cur, opts = {}) {
     }
   });
 
+  /* ---- word glosses, in every analysis writing system, word by word wherever the word is now. A word
+   * the base had (the same occurrence — see occurrences — with the same form) has its gloss set where
+   * the base holds it, naming only the writing systems that changed: the shell sets these FIRST, on the
+   * text as checked out, and every structural recipe keeps the analyses of the words it does not remake,
+   * so the gloss travels with its word into a split's half or a joined phrase. A word made here — a
+   * split's halves, an added or a joined word, a respelled one — starts unglossed in FLEx; its glosses
+   * (every writing system it has) are set after the save's structural ops, at its place in its phrase
+   * now (`newWord`, with its form, which the shell checks before writing). */
+  const { occ, identity, keyOf } = occurrences(base);
+  /* Which base word each word here IS, from the shape of the edit — the same reading the structural ops
+   * above make of it: a split's pieces hold the split phrase's words in order, a join's survivor the joined
+   * phrases' words, and any other phrase its own, around the one word a word edit made (same count: place by
+   * place — a respelled word keeps its place, its form tells it apart). The occurrence a word was read as
+   * (`flex.seg`) answers only where the shape says nothing: after an Undo of a save, the copy here holds
+   * FLEx's text as it was after that save, and its words carry places that text had. */
+  const aligned = new Map();
+  const pairUp = (cw, bw) => {
+    if (cw.length !== bw.length) return;
+    cw.forEach((w, i) => { if (!w.punct && !bw[i].punct && keyOf.has(bw[i])) aligned.set(w, keyOf.get(bw[i])); });
+  };
+  for (const [sg, pieces] of splitPieces) pairUp(pieces.flatMap(wordsOf), wordsOf(baseLines.get(sg).seg));
+  for (const [sg, from] of joinedFrom) { const i = curIndexOf.get(sg); if (i != null) pairUp(wordsOf(cur.paragraphs[i].segments[0]), from.flatMap(wordsOf)); }
+  cur.paragraphs.forEach((line) => {
+    const seg = line.segments[0];
+    const sg = seg && segGuid(seg);
+    if (!seg || structural.has(sg) || !baseLines.has(sg)) return;
+    const bw = wordsOf(baseLines.get(sg).seg), cw = wordsOf(seg);
+    if (cw.length === bw.length) { pairUp(cw, bw); return; }
+    const we = wordLevelEdit(bw.map((w) => w.txt || ''), cw.map((w) => w.txt || ''));
+    // the base place of the word now at j, around the one word edit (null: a word made by it)
+    const from = (j) => {
+      if (!we) return null;
+      if (we.kind === 'split') return j < we.index ? j : j > we.index + 1 ? j - 1 : null;
+      if (we.kind === 'join') return j < we.index ? j : j > we.index ? j + 1 : null;
+      return j < we.at ? j : j > we.at ? j - 1 : null;   // insert
+    };
+    cw.forEach((w, j) => { const k = from(j); if (k != null && !w.punct && bw[k] && !bw[k].punct && keyOf.has(bw[k])) aligned.set(w, keyOf.get(bw[k])); });
+  });
+  const identityOf = (w, sgNow) => (aligned.has(w) ? aligned.get(w) : identity(w, sgNow));
+  cur.paragraphs.forEach((line) => {
+    const seg = line.segments[0];
+    if (!seg) return;
+    const sg = segGuid(seg);
+    (seg.words || []).forEach((w, idx) => {
+      if (w.punct) return;
+      const now = glossMap(w, curPrim);
+      const key = identityOf(w, sg);
+      const b = key && occ.get(key);
+      if (b && (b.w.txt || '') === (w.txt || '')) {
+        const forms = changedIn(glossMap(b.w, basePrim), now);
+        if (Object.keys(forms).length) { ops.push({ op: 'gloss.set', paraGuid: b.pg, segGuid: b.sg, index: b.idx, forms }); touched.add(b.pg); }
+        return;
+      }
+      if (!Object.keys(now).length) return;   // a new word with no gloss: FLEx leaves it unglossed too
+      const bl = baseLines.get(sg);
+      if (!bl || structural.has(sg)) { unsupported.push({ why: 'newWordGloss', segGuid: sg, paraGuid: paraOf(line) }); return; }
+      ops.push({ op: 'gloss.set', paraGuid: bl.group.key, segGuid: sg, index: idx, forms: now, newWord: true, form: w.txt || '' });
+      touched.add(bl.group.key);
+    });
+  });
+
   // ---- media
   const anyTimes = ops.some((o) => o.op === 'times.set' && o.begin != null) || ops.some((o) => o.op === 'phrase.split' && o.times);
   const hasMedia = !!(base.flex && base.flex.media && base.flex.media.length);
@@ -311,7 +419,10 @@ export function diffFlexDoc(base, cur, opts = {}) {
   else if (anyTimes && !hasMedia) unsupported.push({ why: 'timesNeedMedia' });
 
   // dedupe (a times.set and a phrase.split on the same seg both set times → the split wins)
-  return { ops, touched, unsupported };
+  // `baseOf(word, its phrase's guid)` → where the base holds that word ({ w, sg, pg, idx }), or null for a
+  // word made here — the reading the gloss ops were made from (postStateOf and the merge use it too)
+  const baseOf = (w, sgNow) => { const k = identityOf(w, sgNow); return (k && occ.get(k)) || null; };
+  return { ops, touched, unsupported, baseOf };
 }
 
 /* The FLEx paragraph's new Contents from the cur lines of one group: phrases joined, with FLEx's
@@ -330,29 +441,36 @@ export function baselineOfGroup(cur, pg, baseGroup, base) {
   return parts.join(' ');
 }
 
-/* The intended post-state per touched FLEx paragraph (what preview_save receives beside the ops).
- * Analysis GUIDs ride only on words the engine KEPT (same form as in base); new words and the § the
- * shell inserts carry null, since those are LCM's to assign. */
+/* The intended post-state per touched FLEx paragraph (what preview_save receives beside the ops): each
+ * word's gloss and each phrase's free translation in EVERY analysis writing system the doc carries —
+ * the shell compares each one with FLEx after the write, so a writing system nobody edited that changed
+ * anyway rolls the save back. The occurrence FLEx holds is promised only for a word the base had,
+ * unchanged in form and gloss; a word made here, or glossed anew, is LCM's to assign. FLEx's § marks are
+ * its structure, not text: a join removes the one between two phrases (the shell compares a phrase-final
+ * run away on both sides). */
 export function postStateOf(cur, touched, base) {
-  const baseWords = new Map();
-  (base ? base.paragraphs : []).forEach((ln) => ln.segments.forEach((s) => (s.words || []).forEach((w) => {
-    if (w.flex && w.flex.analysisGuid) baseWords.set(w.guid, w.flex.analysisGuid);
-  })));
+  const baseOf = base ? diffFlexDoc(base, cur).baseOf : () => null;
+  const basePrim = (base && base.analLang) || cur.analLang || 'en', curPrim = cur.analLang || basePrim;
   const out = {};
   cur.paragraphs.forEach((ln, li) => {
     const pg = paraOf(ln);
     if (!touched.has(pg)) return;
     const seg = ln.segments[0];
+    const sg = segGuid(seg);
     const span = (cur.segments || [])[li];
     const t = timesOf(seg, span);
-    const frees = {};
-    if (seg.free) frees[seg.freeLang || cur.analLang || 'en'] = seg.free;
+    const words = (seg.words || []).filter((w) => !isBoundaryMarker(w));
     (out[pg] = out[pg] || []).push({
-      segGuid: segGuid(seg),
-      text: (seg.words || []).map((w) => w.txt).join(' '),
-      words: (seg.words || []).map((w) => ({ txt: w.txt, punct: !!w.punct, gls: w.gls || '',
-        analysisGuid: baseWords.get(w.guid) && (w.flex && w.flex.analysisGuid) && !((w.gls || '') !== '' && (w.flex.analysisKind !== 'gloss')) ? w.flex.analysisGuid : null })),
-      ft: frees, lt: {},
+      segGuid: sg,
+      text: words.map((w) => w.txt).join(' '),
+      words: words.map((w) => {
+        if (w.punct) return { txt: w.txt, punct: true, gls: '', glosses: {}, analysisGuid: null };
+        const g = glossMap(w, curPrim);
+        const b = baseOf(w, sg);
+        const keep = b && (b.w.txt || '') === (w.txt || '') && sameMap(glossMap(b.w, basePrim), g) && b.w.flex && b.w.flex.analysisGuid;
+        return { txt: w.txt, punct: false, gls: g[curPrim] || '', glosses: g, analysisGuid: keep ? b.w.flex.analysisGuid : null };
+      }),
+      ft: freeMap(seg, curPrim), lt: {},
       begin: t ? String(t[0]) : null, end: t ? String(t[1]) : null,
     });
   });
@@ -464,35 +582,50 @@ export function keepTimeEstimates(was, fresh) {
  * mergeFlexDocs(base, ours, theirs, { prefer }) → { doc, conflicts, theirs }
  *   base   — the text as it was checked out (rec.flex.base)
  *   ours   — the work done here since (rec.doc)
- *   theirs — the text in FLEx now, read in the same writing systems
+ *   theirs — the text in FLEx now
  * `doc` is THEIRS with our changes on it, so diffFlexDoc(theirs, doc) is exactly our changes: a save
  * writes those and FLEx keeps everything else it has, its own changes since the check-out included.
- * Compared cell by cell, keyed by GUIDs, never by position alone:
- *   - a phrase's times and its free translation (the analysis writing system edited here), which belong
- *     to the FLEx segment — so they still apply after FLEx reworded its words, as long as FLEx kept the
- *     segment where it was (the same phrases either side of it);
- *   - each word's gloss, which belongs to a word at a place — only while FLEx kept the phrase's words;
+ * Compared cell by cell, keyed by GUIDs, never by position alone — and every analysis writing system is
+ * its own cell (2026-10-16): English edited here and Indonesian edited in FLEx are both kept:
+ *   - a phrase's times and its free translation in each writing system, which belong to the FLEx segment
+ *     — so they still apply after FLEx reworded its words, as long as FLEx kept the segment where it was
+ *     (the same phrases either side of it);
+ *   - each word's gloss in each writing system, which belongs to a word at a place — only while FLEx kept
+ *     the phrase's words;
  *   - the shape: which phrases a paragraph holds and their words. A paragraph reshaped here (a split, a
  *     join, a word split or joined) goes in as reshaped here only if FLEx still has it exactly as checked
- *     out — its phrases and words, and the times and free translation of every phrase reshaped here (a
+ *     out — its phrases and words, and the times and free translations of every phrase reshaped here (a
  *     split's halves share what was one translation: FLEx's new one cannot be laid on one half). FLEx's
  *     glosses, and its changes to the phrases not reshaped, are taken across. Else the reshaping is a
  *     conflict, and the paragraph stays as FLEx has it.
  * A cell changed on one side takes that side; on both to the same value, that value; to different values
  * it is a CONFLICT, and FLEx's value stays — unless `prefer: 'mine'`, which takes ours for a conflict that
- * can take it (`forceable`). Everything this app does not edit (other writing systems, literal
- * translations, notes, paragraphs FLEx added) is FLEx's. `theirs` counts the phrases FLEx changed, for
- * the preview. Pure: nothing here writes anything. */
+ * can take it (`forceable`). Everything this app does not edit (literal translations, notes, paragraphs
+ * FLEx added) is FLEx's. `theirs` counts the phrases FLEx changed, for the preview. Pure: nothing here
+ * writes anything. */
 export function mergeFlexDocs(base, ours, theirs, opts = {}) {
   const mine = opts.prefer === 'mine';
   const cl = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
+  // every gloss and translation with its language spelled out, so a doc's own analysis language (which
+  // a slot with none is in) cannot be mistaken for another doc's
+  const pin = (doc) => {
+    const d = cl(doc) || {}, p = d.analLang || 'en';
+    (d.paragraphs || []).forEach((ln) => (ln.segments || []).forEach((sg) => {
+      if ((sg.free || '') && !sg.freeLang) sg.freeLang = p;
+      (sg.words || []).forEach((w) => { if ((w.gls || '') && !w.glsLang) w.glsLang = p; });
+    }));
+    return d;
+  };
+  base = pin(base); ours = pin(ours); theirs = pin(theirs);
+  const P = (doc) => doc.analLang || 'en';
+  const outPrim = P(theirs);
   const conflicts = [];
   const at = (doc) => {
     const m = new Map();
     (doc.paragraphs || []).forEach((ln, li) => {
       const seg = ln.segments && ln.segments[0];
       const g = segGuid(seg);
-      if (g) m.set(g, { li, ln, seg, span: (doc.segments || [])[li], pg: paraOf(ln) });
+      if (g) m.set(g, { li, ln, seg, span: (doc.segments || [])[li], pg: paraOf(ln), prim: P(doc) });
     });
     return m;
   };
@@ -516,7 +649,9 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
   };
   const lineNo = (s) => (O.has(s) ? O.get(s).li + 1 : null);
   const tm = (I, s) => { const x = I.get(s); return x ? timesOf(x.seg, x.span) : null; };
-  const fr = (I, s) => { const x = I.get(s); return x ? (x.seg.free || '') : ''; };
+  const fm = (I, s) => { const x = I.get(s); return x ? freeMap(x.seg, x.prim) : {}; };
+  const V = (m, l) => (m && m[l]) || '';
+  const langsOf = (...ms) => [...new Set(ms.flatMap((m) => Object.keys(m || {})))].sort();
   const conflict = (c) => conflicts.push(c);
 
   // ---- the paragraphs reshaped here, gathered into regions that must go in whole
@@ -559,9 +694,9 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
     for (const bg of inBase) {
       if (!tK.get(bg.key)) { reg.bad = 'gone'; break; }
       if (!kept(bg, tK.get(bg.key), T)) { reg.bad = 'structure'; break; }
-      // a phrase reshaped here (gone into another, or its words changed) whose times or translation FLEx changed
+      // a phrase reshaped here (gone into another, or its words changed) whose times or translations FLEx changed
       if (bg.segs.some((s) => (!O.has(s) || formsOf(O.get(s).seg) !== formsOf(B.get(s).seg))
-          && (fr(T, s) !== fr(B, s) || !sameTimes(tm(T, s), tm(B, s))))) { reg.bad = 'structure'; break; }
+          && (!sameMap(fm(T, s), fm(B, s)) || !sameTimes(tm(T, s), tm(B, s))))) { reg.bad = 'structure'; break; }
     }
     if (!reg.bad) {
       // …and FLEx still has them side by side, in the same order
@@ -582,22 +717,13 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
     for (const k of ['begin-time-offset', 'end-time-offset']) { if (fa[k] != null) a[k] = fa[k]; else delete a[k]; }
     holder.span = cl(from.span);
   };
-  const setFree = (seg, from) => { seg.free = from.free || ''; seg.freeLang = from.free ? (from.freeLang || null) : null; };
-  const takeGloss = (w, from) => {   // FLEx's gloss onto a word kept here: its analysis comes with it
-    w.gls = from.gls || '';
-    w.glsLang = from.glsLang;
-    w.glosses = cl(from.glosses);
-    w.preservedXML = cl(from.preservedXML || []);
-    w.flex = { ...(w.flex || {}), analysisGuid: from.flex && from.flex.analysisGuid, analysisKind: from.flex && from.flex.analysisKind };
-    if (from.guid) w.guid = from.guid;
-  };
   let theirsChanged = 0;
   const theirsTouched = (s) => {
     const b = B.get(s), t = T.get(s);
     if (!b || !t) return true;
-    if (formsOf(b.seg) !== formsOf(t.seg) || fr(B, s) !== fr(T, s) || !sameTimes(tm(B, s), tm(T, s))) return true;
+    if (formsOf(b.seg) !== formsOf(t.seg) || !sameMap(fm(B, s), fm(T, s)) || !sameTimes(tm(B, s), tm(T, s))) return true;
     const bw = wordsOf(b.seg), tw = wordsOf(t.seg);
-    return bw.some((w, i) => (w.gls || '') !== ((tw[i] || {}).gls || ''));
+    return bw.some((w, i) => !sameMap(glossMap(w, b.prim), tw[i] ? glossMap(tw[i], t.prim) : {}));
   };
   T.forEach((_, s) => { if (theirsTouched(s)) theirsChanged++; });
   B.forEach((_, s) => { if (!T.has(s)) theirsChanged++; });
@@ -612,6 +738,15 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
     conflict({ ...c, forceable: true });
     return mine ? 'o' : 't';
   };
+  // a cell per writing system: `b`, `o`, `t` are {ws: text} maps (`t` null when FLEx's cannot be read
+  // here), `put(ws, text)` lays the side that wins onto the merged copy when it is not the copy's own
+  const perWs = (b, o, t, can, c, keepSide, put) => {
+    for (const l of langsOf(b, o, t || {})) {
+      const vb = V(b, l), vo = V(o, l), vt = t ? V(t, l) : null;
+      const s = side(vo !== vb, vt !== vb, vt === vo, can, { ...c, ws: l });
+      if (s !== keepSide) put(l, s === 'o' ? vo : vt);
+    }
+  };
 
   // ---- a paragraph not reshaped here: FLEx's lines, with the cells changed here laid over them
   const overlayTheirs = (ln, holder, s) => {
@@ -621,46 +756,44 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
     const c = { segGuid: s, paraGuid: t.pg, line: lineNo(s) };
     const tb = tm(B, s), to = tm(O, s), tt = tm(T, s);
     if (side(!sameTimes(to, tb), !sameTimes(tt, tb), sameTimes(tt, to), spot, { ...c, kind: 'times' }) === 'o') setTimes(ln, holder, o);
-    if (side(fr(O, s) !== fr(B, s), fr(T, s) !== fr(B, s), fr(T, s) === fr(O, s), spot, { ...c, kind: 'free' }) === 'o') setFree(ln.segments[0], o.seg);
+    perWs(fm(B, s), fm(O, s), fm(T, s), spot, { ...c, kind: 'free' }, 't', (l, v) => setFreeIn(ln.segments[0], l, v, outPrim));
     const bw = wordsOf(b.seg), ow = wordsOf(o.seg), mw = wordsOf(ln.segments[0]);
     const wordsKept = formsOf(t.seg) === formsOf(b.seg);
     ow.forEach((w, i) => {
       if (w.punct || !bw[i]) return;
-      const gb = bw[i].gls || '', go = w.gls || '', gt = wordsKept && mw[i] ? (mw[i].gls || '') : null;
-      if (side(go !== gb, gt !== gb, gt === go, wordsKept, { ...c, kind: 'gloss', word: i + 1 }) === 'o') {
-        mw[i].gls = go;
-        mw[i].glsLang = w.glsLang || mw[i].glsLang;
-      }
+      perWs(glossMap(bw[i], b.prim), glossMap(w, o.prim), wordsKept && mw[i] ? glossMap(mw[i], t.prim) : null, wordsKept,
+        { ...c, kind: 'gloss', word: i + 1 }, 't', (l, v) => setGlossIn(mw[i], l, v, outPrim));
     });
   };
-  // ---- a paragraph reshaped here: OUR lines, with FLEx's changes to the cells we left alone taken over
-  const bWord = new Map();   // a base word's guid → its phrase and place
-  B.forEach((x, s) => wordsOf(x.seg).forEach((w, i) => { if (w.guid) bWord.set(w.guid, { s, i, w }); }));
+  // ---- a paragraph reshaped here: OUR lines, with FLEx's changes to the cells we left alone taken over.
+  // Which checked-out word each of ours is: the diff's reading of the reshaping; FLEx's word is at the same
+  // place (the region passed only if FLEx kept those phrases' words exactly as checked out).
+  const baseOfOurs = diffFlexDoc(base, ours).baseOf;
   const overlayOurs = (ln, holder, s) => {
     const seg = ln.segments[0];
     const b = B.get(s), t = T.get(s);
     if (b && t) {
-      // the region passed only if FLEx left the times and translation of every phrase reshaped here alone,
-      // so a cell here is either one FLEx did not change or one of a phrase not reshaped here
+      // the region passed only if FLEx left the times and translations of every phrase reshaped here
+      // alone, so a cell here is either one FLEx did not change or one of a phrase not reshaped here
       const c = { segGuid: s, paraGuid: t.pg, line: lineNo(s) };
       const tb = tm(B, s), to = timesOf(seg, holder.span), tt = tm(T, s);
       if (side(!sameTimes(to, tb), !sameTimes(tt, tb), sameTimes(tt, to), true, { ...c, kind: 'times' }) === 't') setTimes(ln, holder, t);
-      if (side((seg.free || '') !== fr(B, s), fr(T, s) !== fr(B, s), fr(T, s) === (seg.free || ''), true, { ...c, kind: 'free' }) === 't') setFree(seg, t.seg);
-      // what this app never edits is FLEx's: its other writing systems, literal translations, notes
-      seg.postItemsXML = cl(t.seg.postItemsXML || []);
-      seg.frees = cl(t.seg.frees);
+      perWs(fm(B, s), freeMap(seg, P(ours)), fm(T, s), true, { ...c, kind: 'free' }, 'o', (l, v) => setFreeIn(seg, l, v, outPrim));
+      // what this app never edits is FLEx's: literal translations, notes
       seg.lits = cl(t.seg.lits);
       if (t.seg.flex) seg.flex = { ...(seg.flex || {}), notes: cl(t.seg.flex.notes) };
     }
+    const sg = segGuid(seg);
     wordsOf(seg).forEach((w, i) => {
-      const from = w.guid && bWord.get(w.guid);
-      if (!from || w.punct) return;
-      const tw = T.has(from.s) ? wordsOf(T.get(from.s).seg)[from.i] : null;
-      if (!tw) return;
-      const gb = from.w.gls || '', gt = tw.gls || '', go = w.gls || '';
-      const c = { segGuid: segGuid(seg), paraGuid: paraOf(ln), line: lineNo(segGuid(seg)), kind: 'gloss', word: i + 1 };
-      if (side(go !== gb, gt !== gb, gt === go, true, c) === 't') takeGloss(w, tw);
-      else w.preservedXML = cl(tw.preservedXML || []);   // the word's other writing systems are FLEx's
+      if (w.punct) return;
+      const from = baseOfOurs(w, sg);
+      const tw = from && T.has(from.sg) ? (T.get(from.sg).seg.words || [])[from.idx] : null;
+      if (!from || !tw || (from.w.txt || '') !== (w.txt || '') || (tw.txt || '') !== (w.txt || '')) return;
+      // the occurrence is FLEx's as it is now, so a gloss left as FLEx has it is FLEx's own
+      w.flex = { ...(w.flex || {}), ...(tw.flex || {}) };
+      if (tw.guid) w.guid = tw.guid;
+      perWs(glossMap(from.w, P(base)), glossMap(w, P(ours)), glossMap(tw, P(theirs)), true,
+        { segGuid: sg, paraGuid: paraOf(ln), line: lineNo(sg), kind: 'gloss', word: i + 1 }, 'o', (l, v) => setGlossIn(w, l, v, outPrim));
     });
   };
 
@@ -691,8 +824,8 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
   O.forEach((o, s) => {
     const b = B.get(s);
     if (!b || T.has(s) || regionOf(b.pg)) return;
-    const changed = !sameTimes(tm(O, s), tm(B, s)) || fr(O, s) !== fr(B, s)
-      || wordsOf(o.seg).some((w, i) => (w.gls || '') !== ((wordsOf(b.seg)[i] || {}).gls || ''));
+    const changed = !sameTimes(tm(O, s), tm(B, s)) || !sameMap(fm(O, s), fm(B, s))
+      || wordsOf(o.seg).some((w, i) => !sameMap(glossMap(w, o.prim), wordsOf(b.seg)[i] ? glossMap(wordsOf(b.seg)[i], b.prim) : {}));
     if (changed) conflict({ kind: 'gone', segGuid: s, paraGuid: b.pg, line: lineNo(s), forceable: false });
   });
   const doc = cl({ ...theirs, paragraphs: [], segments: [] });

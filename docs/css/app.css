@@ -3648,6 +3648,9 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 .mg-g-alt,.mg-ft-alt{color:var(--muted,#667)}
 .mg-ft-alt{margin-top:.15rem}
 .mg-g-alt::before,.mg-ft-alt::before{content:attr(data-lang);display:inline-block;font-size:.62rem;font-style:normal;font-weight:600;line-height:1.3;color:var(--muted,#667);border:1px solid #cdd3da;border-radius:4px;padding:0 .25em;margin-right:.35em;vertical-align:middle}
+/* a FLEx text: every analysis language is editable, so its rows keep the tag but not the read-only grey */
+.mg-g-lang::before,.mg-ft-lang::before{content:attr(data-lang);display:inline-block;font-size:.62rem;font-style:normal;font-weight:600;line-height:1.3;color:var(--muted,#667);border:1px solid #cdd3da;border-radius:4px;padding:0 .25em;margin-right:.35em;vertical-align:middle}
+.mg-g-alt.mg-g-lang,.mg-ft-alt.mg-ft-lang{color:inherit}
 .mg-rows{list-style:none;margin:0;padding:.3rem .6rem .6rem;overflow:auto;overscroll-behavior:contain;
   max-height:calc(100vh - 22rem);min-height:12rem}
 .mg-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start;margin-bottom:.35rem}
@@ -3857,7 +3860,6 @@ a.offsite-off, area.offsite-off {
 /* the Matcher strip's writing systems: FLEx's own, switched in place (plan §7.4) */
 .flex-ws-field{display:inline-flex;align-items:center;gap:.3rem;font-size:.85rem}
 .flex-ws-select{font-size:.85rem;padding:.1rem .3rem;border:1px solid var(--border,#d7dbe0);border-radius:6px;background:#fff;max-width:14em}
-.flex-ws-ro{font-size:.75rem;padding:.05rem .4rem;border-radius:999px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b}
 .flex-ws-unapproved{color:#92400e;opacity:1}
 /* Reset… (plan §8.4): what goes is said first; Cancel is the default */
 .flex-reset-lose{color:#b91c1c;font-weight:600}

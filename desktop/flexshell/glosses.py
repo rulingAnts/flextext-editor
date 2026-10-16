@@ -30,6 +30,15 @@ same unanalysed word twice.
 A word made by the same save (a split's halves, an added word, a join) does not exist until the save's
 structural ops have run: its gloss op runs after them (`new_word` = its form), and is planned on the
 bare wordform FLEx makes for it, or the one it already has with that form.
+
+FLEx'S GUESS (2026-10-16). A word this text has not analysed is shown by FLEx with its best guess from
+elsewhere — blue in its interlinear, every writing system of it (Seth's line 1: English glosses FLEx was
+guessing, Indonesian typed in the app). A gloss typed into such a word is a change TO that guess, as in
+FLEx's own box: the op names the guess (`guess` = {analysisGuid, glossGuid}, checked against FLEx as it
+is now), T is the guessed gloss with the changes, and the occurrence takes (i) a gloss of the guessed
+analysis equal to T — the guess itself when nothing differs — else (iii) a new gloss of that analysis
+holding T. Never (ii): the guessed gloss is other words' gloss, and is never edited. Without a guess, or
+with one FLEx no longer has, the word is planned as before.
 """
 
 from .errors import FlexError
@@ -62,10 +71,27 @@ def check_changes(changes, allowed_wss):
             raise FlexError("E_SCOPE", "a gloss must be text", {"ws": w})
 
 
-def plan_gloss(port, seg, index, changes, allowed_wss, occurrence=None):
+def _guess_base(port, occ, guess):
+    """FLEx's guess for an unanalysed occurrence, checked against FLEx as it is NOW: the analysis still
+    this word's, the gloss still that analysis's — with its forms as FLEx holds them, never the copy the
+    page was given. None when it no longer is (the word is then planned as an unguessed one)."""
+    if not isinstance(guess, dict) or occ.get("kind") != "wordform" or not occ.get("wordformGuid"):
+        return None
+    a = guess.get("analysisGuid")
+    if not a or port.owner_of(a) != occ["wordformGuid"]:
+        return None
+    gg = guess.get("glossGuid")
+    if not gg:
+        return {"analysisGuid": a, "glossGuid": None, "forms": {}}
+    g = next((x for x in port.glosses_of(a) if x["guid"] == gg), None)
+    return {"analysisGuid": a, "glossGuid": gg, "forms": _norm(g["forms"])} if g is not None else None
+
+
+def plan_gloss(port, seg, index, changes, allowed_wss, occurrence=None, guess=None):
     """The decision WITHOUT writing: → {outcome, target, changed, ...} for the preview's wording. `seg`
     is a SegRead; `occurrence` stands in for a word the save has not made yet. `port` needs only
-    find_trivial_analysis, glosses_of and gloss_ref_count (a Planner provides them for a whole save)."""
+    find_trivial_analysis, glosses_of, gloss_ref_count and owner_of (a Planner provides them for a
+    whole save). `guess` = the op's FLEx guess for an unanalysed word (module docstring)."""
     check_changes(changes, allowed_wss)
     if occurrence is None:
         if not (0 <= index < len(seg["analyses"])):
@@ -75,6 +101,19 @@ def plan_gloss(port, seg, index, changes, allowed_wss, occurrence=None):
         occ = occurrence
     if occ["kind"] == "punct":
         raise FlexError("E_SCOPE", "punctuation has no gloss", {"index": index})
+    base = _guess_base(port, occ, guess) if occurrence is None else None
+    if base is not None:
+        current = base["forms"]
+        target = target_of(current, changes)
+        if not target:
+            return {"outcome": "unchanged", "analysisGuid": None, "target": target, "changed": []}
+        changed = sorted(w for w in set(target) | set(current) if target.get(w, "") != current.get(w, ""))
+        plan = {"analysisGuid": base["analysisGuid"], "target": target, "changed": changed, "from": None,
+                "wordformGuid": occ.get("wordformGuid"), "fromGuess": True, "guessGloss": base["glossGuid"], "guessForms": current}
+        for g in port.glosses_of(base["analysisGuid"]):
+            if _norm(g["forms"]) == target:
+                return dict(plan, outcome="reuse", glossGuid=g["guid"])
+        return dict(plan, outcome="newGloss", otherUses=0)
     g0 = occ if occ["kind"] == "gloss" else None
     a_guid = occ.get("analysisGuid")
     current = _norm(g0["gloss"]) if g0 else {}
@@ -120,6 +159,9 @@ class Planner:
         return "planned-%s-%d" % (what, self._n)
 
     # what plan_gloss asks
+    def owner_of(self, guid):
+        return None if str(guid).startswith("planned-") else self.port.owner_of(guid)
+
     def find_trivial_analysis(self, wordform_key):
         if wordform_key in self.trivial:
             return self.trivial[wordform_key]
@@ -143,13 +185,14 @@ class Planner:
             return "planned-wf:%s@%s" % (nfc(form), ws)
         return wf
 
-    def plan(self, seg, index, changes, allowed_wss, new_word=None, ws=None):
-        """Plan one op and record what it will do. `new_word` = the form of a word the save makes."""
+    def plan(self, seg, index, changes, allowed_wss, new_word=None, ws=None, guess=None):
+        """Plan one op and record what it will do. `new_word` = the form of a word the save makes;
+        `guess` = FLEx's guess the page showed for an unanalysed word."""
         occ = None
         if new_word is not None:
             wf = self.wordform_of(new_word, ws)
             occ = {"kind": "wordform", "guid": wf, "wordformGuid": wf or "planned-wf:%s@%s" % (nfc(new_word), ws), "form": nfc(new_word)}
-        plan = plan_gloss(self, seg, index, changes, allowed_wss, occurrence=occ)
+        plan = plan_gloss(self, seg, index, changes, allowed_wss, occurrence=occ, guess=guess)
         out = plan["outcome"]
         if out in ("unchanged",):
             return plan
@@ -171,7 +214,7 @@ class Planner:
         return plan
 
 
-def set_gloss(port, text_guid, para_guid, seg_guid, index, changes, allowed_wss, snapshot_seg=None, new_word=None):
+def set_gloss(port, text_guid, para_guid, seg_guid, index, changes, allowed_wss, snapshot_seg=None, new_word=None, guess=None):
     """Apply, inside the UOW, with the concurrency and invariant checks of §7.2. `new_word` = the form
     of a word this save made (the op runs after the save's structural ops): the occurrence must be
     exactly that bare wordform, or nothing is written."""
@@ -197,7 +240,7 @@ def set_gloss(port, text_guid, para_guid, seg_guid, index, changes, allowed_wss,
         occ = seg["analyses"][index] if 0 <= index < len(seg["analyses"]) else None
         if occ is None or occ["kind"] != "wordform" or nfc(occ["form"]) != nfc(new_word):
             raise FlexError("E_INVARIANT", "a word this save made is not where the save expected it", {"seg": seg_guid, "index": index})
-    plan = plan_gloss(port, seg, index, changes, allowed_wss)
+    plan = plan_gloss(port, seg, index, changes, allowed_wss, guess=guess)
     if plan["outcome"] == "unchanged":
         return plan
     occ = seg["analyses"][index]
@@ -240,6 +283,11 @@ def set_gloss(port, text_guid, para_guid, seg_guid, index, changes, allowed_wss,
     if have != plan["target"]:
         bad = sorted(w for w in set(have) | set(plan["target"]) if have.get(w, "") != plan["target"].get(w, ""))
         raise FlexError("E_INVARIANT", "re-read gloss differs from the target", {"ws": bad})
+    if plan.get("fromGuess") and plan.get("guessGloss"):
+        # FLEx's guessed gloss is other words' gloss: never edited, whatever this word took
+        gq = next((x for x in port.glosses_of(a_guid) if x["guid"] == plan["guessGloss"]), None)
+        if gq is None or _norm(gq["forms"]) != plan["guessForms"]:
+            raise FlexError("E_INVARIANT", "FLEx's guessed gloss changed", {"gloss": plan["guessGloss"]})
     if g0_guid and plan["outcome"] != "editInPlace":
         # every other reference to g0 still stands and g0's forms are unchanged
         for pp in t2["paragraphs"]:

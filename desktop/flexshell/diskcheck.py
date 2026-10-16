@@ -72,8 +72,10 @@ def diff_rt(bak_path, fwdata_path):
     added = {g: new[g] for g in new if g not in old}
     removed = {g: old[g] for g in old if g not in new}
     changed = {g: (old[g], new[g]) for g in new if g in old and old[g]["hash"] != new[g]["hash"]}
+    # `newMap` is the saved file's objects, for check()'s ownership chains: parsing a 25 MB file again took
+    # five seconds of every save (2026-10-16, the first real saves)
     return {"added": added, "removed": removed, "changed": changed, "oldCount": len(old), "newCount": len(new),
-            "headerVersion": header_version(fwdata_path)}
+            "headerVersion": header_version(fwdata_path), "newMap": new}
 
 
 def owner_chain(rt_map, guid):

@@ -90,7 +90,7 @@ def word_form(a, vern):
     return (a.get("forms") or {}).get(vern) or a["form"]
 
 
-def to_engine_doc(t, media_urls=None, ws=None):
+def to_engine_doc(t, media_urls=None, ws=None, guesses=None):
     """The engine's doc: ONE PHRASE PER LINE (the engine's own flat model), `paraOf` = the FLEx
     paragraph GUID so the serializer and the ¶ control see the paragraph structure, phrase guid =
     segment guid, words from AnalysesRS with `flex` ride-alongs, a phrase-final § flagged
@@ -100,8 +100,13 @@ def to_engine_doc(t, media_urls=None, ws=None):
     the free translation in `anal` in the engine's editable slot (`gls`, `free`), and every other current
     analysis writing system's as the items a .flextext from FLEx carries (`<item type="gls" lang=…>`) —
     every one of them shown and editable in the Matcher (2026-10-16), compared per writing system by
-    the diff, and written back only where it changed (glosses.py)."""
+    the diff, and written back only where it changed (glosses.py).
+
+    `guesses` = port.guesses(text): a word with no analysis of its own carries FLEx's guess for it as
+    `flex.guess` = {analysisGuid, glossGuid, gloss: {ws: text}, form} — shown, never its own gloss; a
+    gloss typed into the word adopts it, and the save builds on it (glosses.plan_gloss)."""
     media_urls = media_urls or {}
+    guesses = guesses or {}
     ws = ws or default_ws(t)
     vern, prim = ws["vern"], ws["anal"]
     others = [w for w in (t["analWss"] or []) if w != prim]
@@ -116,6 +121,10 @@ def to_engine_doc(t, media_urls=None, ws=None):
                 # the word wherever an edit moves it (the engine keys a word's gloss by them, flex-ops.js)
                 w = {"guid": a["guid"] + ":" + str(i), "txt": word_form(a, vern), "punct": a["kind"] == "punct", "phrase": False, "gls": "",
                      "preservedXML": [], "flex": {"analysisGuid": a["guid"], "analysisKind": a["kind"], "index": i, "seg": s["guid"]}}
+                gs = guesses.get(s["guid"], {}).get(i) if a["kind"] == "wordform" else None
+                if gs and gs.get("analysisGuid"):
+                    w["flex"]["guess"] = {"analysisGuid": gs["analysisGuid"], "glossGuid": gs.get("glossGuid"),
+                                          "gloss": dict(gs.get("gloss") or {}), "form": w["txt"]}
                 if a["kind"] == "gloss":
                     g = a.get("gloss", {})
                     w["gls"] = g.get(prim, "")

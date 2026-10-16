@@ -814,6 +814,69 @@ ok(await page.locator('#flex-ws-anal').inputValue() === 'all', 'the text re-open
 await page.click('#mg-back');
 await waitHome();
 
+// ── 15. FLEx's guesses, and audio past a FLEx text's last line (Seth, 2026-10-16: glosses typed into words FLEx
+// shows in blue, then Done, then Save to FLEx — refused for "a line added here" nobody had added) ──────────────
+await home();
+await openProject('guess-write', 'write');
+await textRow('Guessed here').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+await page.selectOption('#flex-ws-anal', 'all');
+await page.waitForFunction(() => !!document.querySelector('#view-matcher .mg-g.mg-guess'), null, T(5000));
+const guess15 = gloss14(0, 0, 'en');
+ok(await guess15.getAttribute('data-ph') === 'K-en' && /mg-guess/.test(await guess15.getAttribute('class')) && (await guess15.innerText()) === '',
+   'FLEx\'s guess for kkk is shown in English — as a guess, not as a gloss the word has');
+ok(await page.locator('#view-matcher .mg-line').nth(0).locator('.mg-wstack').nth(1).locator('.mg-guess').count() === 0, 'mmm: FLEx has nothing to guess');
+const status15 = await page.locator('#mg-status').innerText();
+ok(/1 more audio than lines\. FLEx makes its lines from its own text, so Done leaves the extra audio without a line/.test(status15),
+   'the recording runs past the last line: said, and no blank line promised: ' + status15);
+ok(await page.locator('#view-matcher .mg-insert').count() === 0, 'no + rows on a FLEx text');
+await type14(gloss14(0, 0, 'id'), 'K-id');              // Indonesian typed into the word FLEx guesses English for
+ok(await gloss14(0, 0, 'en').innerText() === 'K-en', 'typing adopted the guess: the English is the word\'s own now');
+await shot('25-guess');
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+await textRow('Guessed here').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+const pv15 = await page.locator('.flex-preview').innerText();
+ok(/FLEx’s guess with your change, as a new gloss of the same analysis/.test(pv15), 'the preview: built on FLEx\'s guess: ' + pv15.replace(/\n+/g, ' | ').slice(0, 300));
+ok(!/a line added here/.test(await toasts()), 'no "line added" refusal');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after15 = (await rpc('__flexRead', ['guess-write', 'Guessed here'])).result;
+ok(after15.length === 2, 'FLEx has its two lines, as before: Done padded nothing');
+ok(after15[0].words[0].kind === 'gloss' && C(after15[0].words[0].gloss) === C({ en: 'K-en', id: 'K-id' }),
+   'kkk: FLEx\'s English kept beside the Indonesian typed: ' + C(after15[0].words[0].gloss));
+ok(after15[0].words[1].kind === 'wordform', 'mmm, untouched, is as FLEx had it');
+ok(C((await rpc('__flexRead', ['guess-write', 'Glossed elsewhere'])).result[0].words[0].gloss) === C({ en: 'K-en' }), 'the word elsewhere keeps its gloss as it was');
+
+// ── 16. a record an older build kept (Seth's own): a gloss typed there into a word FLEx was guessing for, the
+// guesses never read. Rebuilt in storage as that build left it, then saved: FLEx's English comes along. ────────
+await page.evaluate(async () => {
+  const db = await import('/flextext-editor/js/db.js');
+  const { setGlossIn } = await import('/flextext-editor/js/flextext.js');
+  const d = (await db.listDocs()).find((x) => x.title === 'Guessed here');
+  const r = await db.getDoc(d.id);
+  const strip = (doc) => doc.paragraphs.forEach((ln) => ln.segments.forEach((sg) => (sg.words || []).forEach((w) => { if (w.flex) { delete w.flex.guess; delete w.flex.adopted; } })));
+  strip(r.doc); strip(r.flex.base);
+  setGlossIn(r.doc.paragraphs[1].segments[0].words[0], 'id', 'N-id', r.doc.analLang || 'en');   // nnn: Indonesian alone
+  await db.putDoc(r);
+});
+await home();
+await openProject('guess-write', 'write');
+await rowHas('.flex-save-text');
+await textRow('Guessed here').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+const pv16 = await page.locator('.flex-preview').innerText();
+ok(/FLEx’s guess with your change/.test(pv16), 'the preview: built on FLEx\'s guess, read now: ' + pv16.replace(/\n+/g, ' | ').slice(0, 300));
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after16 = (await rpc('__flexRead', ['guess-write', 'Guessed here'])).result;
+ok(after16[1].words[0].kind === 'gloss' && C(after16[1].words[0].gloss) === C({ en: 'N-en', id: 'N-id' }),
+   'nnn: the Indonesian typed in the older build, FLEx\'s English beside it: ' + C(after16[1].words[0].gloss));
+ok(C(after16[0].words[0].gloss) === C({ en: 'K-en', id: 'K-id' }), 'line 1 as the save before left it');
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

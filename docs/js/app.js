@@ -5444,6 +5444,11 @@ function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete ===
 // Researcher-controlled: may this device add a blank text line in the matcher? Same shape and
 // default as the two below — on when there is no researcher session.
 function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankLines === true; }
+/* A FLEx text (the FLEx shell, desktop/) in the Matcher: FLEx makes its lines from its own text, so this
+ * screen invents none — no + rows, and Done gives leftover audio no blank line (2026-10-16: Done padded
+ * one for the audio after the last line, and Save to FLEx then refused a line nobody had added). */
+function mgIsFlexText() { return !!(current && current.doc && current.doc.flex); }
+function mgBlankLinesOn() { return allowBlankLinesOn() && !mgIsFlexText(); }
 /* Researcher-controlled: may this device REMOVE a text's recording (the ✕ on the player dock)?
  * Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on, and a
  * PAIRED device has it off unless the researcher says otherwise (Seth, 2026-09-08: "we don't want
@@ -10769,8 +10774,59 @@ function mgWordStack(ln, w, wi, editable) {
     mgWireEditable(we, ln, wi, 'txt');
     if (rows[0].primary || every) mgWireEditable(ge, ln, wi, 'gls', every ? rows[0].lang : null);
     if (every) alts.forEach((el, k) => mgWireEditable(el, ln, wi, 'gls', rows[k + 1].lang));
+    /* FLEx'S GUESS for a word this text has not analysed (a FLEx text; blue in FLEx's interlinear): shown in
+     * each empty row it has a gloss for — never as the word's own gloss. Typing into the word adopts it
+     * (mgAdoptGuess), as FLEx's own box does. */
+    const guess = mgGuessOf(w.src);
+    if (guess) [ge, ...alts].forEach((el, k) => {
+      const g = guess.gloss[rows[k].lang];
+      if (g && !el.textContent && el.classList.contains('mg-edit')) {
+        el.dataset.ph = g;
+        el.classList.add('mg-guess');
+        el.title = t('mg.flexGuess', { g });
+      }
+    });
   }
   return stack;
+}
+// FLEx's guess for this word as the text was read (open_text's flex.guess), while the word is still the
+// one FLEx was guessing for — the same spelling — and has no gloss of its own in any language.
+function mgGuessOf(word) {
+  const g = word && word.flex && word.flex.analysisKind === 'wordform' && word.flex.guess;
+  if (!g || !g.gloss || (g.form != null && (word.txt || '') !== g.form)) return null;
+  return glossesOfWord(word).some((e) => e.text) ? null : g;
+}
+/* TYPING INTO A WORD FLEx IS GUESSING FOR ADOPTS THE GUESS (2026-10-16: English guessed, Indonesian typed —
+ * a save of the Indonesian alone would have left FLEx showing the word with no English). The guess's other
+ * languages become the word's, then the typed one is set: the save builds on FLEx's guessed analysis
+ * (flex-ops gloss.set `guess`, glosses.py), and the preview says so. */
+function mgAdoptGuess(word, lang) {
+  const g = mgGuessOf(word);
+  if (!g) return null;
+  word.flex.adopted = true;   // done here: Save to FLEx never adopts for it again (flex-ops adoptFlexGuesses)
+  const prim = mgPrimaryLang();
+  // FLEx's CURRENT analysis writing systems only: the ones this text shows and a save may name; the guess's
+  // others stay FLEx's, carried by the shell (glosses.py builds T from the guessed gloss as FLEx holds it)
+  const anals = (typeof current !== 'undefined' && current && current.doc && current.doc.flex && current.doc.flex.anals) || null;
+  const adopted = {};
+  for (const [l, text] of Object.entries(g.gloss)) {
+    if (text && l !== lang && (!anals || anals.includes(l))) { setGlossIn(word, l, text, prim); adopted[l] = text; }
+  }
+  return Object.keys(adopted).length ? adopted : null;
+}
+/* The rows of a word that just adopted FLEx's guess, in place (a plain edit does not redraw, so Tab keeps
+ * walking the line): the adopted languages show as the word's own text, and no row is a guess any more. */
+function mgShowAdopted(el, adopted) {
+  const stack = el && el.closest ? el.closest('.mg-wstack') : null;
+  if (!stack) return;
+  const prim = mgPrimaryLang();
+  for (const row of stack.querySelectorAll('.mg-guess')) {
+    const l = row.dataset.editLang || prim;
+    if (adopted && adopted[l] != null && !row.textContent) row.textContent = adopted[l];
+    row.classList.remove('mg-guess');
+    row.dataset.ph = t('mg.tapGloss') + (l !== prim ? ' (' + l + ')' : '');
+    row.title = row.dataset.lang ? t('mg.langEdit', { lang: row.dataset.lang }) : '';
+  }
 }
 
 function mgWireEditable(el, ln, wi, field, lang = null) {
@@ -10832,7 +10888,9 @@ function mgCaretOffset(el) {
 }
 function mgCommitEdit(el, ln, wi, field, lang = null) {
   const value = el.textContent.replace(/\s+/g, ' ').trim();
-  if (field === 'free') mgEditFree(ln.id, value, lang); else mgEditWord(ln.id, wi, field, value, lang);
+  if (field === 'free') { mgEditFree(ln.id, value, lang); return; }
+  const adopted = mgEditWord(ln.id, wi, field, value, lang);
+  if (adopted) mgShowAdopted(el, adopted);   // FLEx's guess became the word's own (mgAdoptGuess)
 }
 // One phrase per line is the shape everything here assumes; a legacy draft's two-phrase line is
 // merged the first time it is edited, exactly as Done would merge it.
@@ -10867,10 +10925,12 @@ function mgEditWord(id, wi, field, value, lang = null) {
     if ((inLang ? glossIn(ph.words[k], lang, mgPrimaryLang()) : (ph.words[k][field] || '')) === value) return;
     mgCapture();
   }
+  const adopted = field === 'gls' && value ? mgAdoptGuess(ph.words[k], inLang ? lang : mgPrimaryLang()) : null;
   if (inLang) setGlossIn(ph.words[k], lang, value, mgPrimaryLang());
   else ph.words[k][field] = value;
   if (field === 'txt') ph.baseline = baselineFromWords(ph.words);
   mgSaveDraft();
+  return adopted;
 }
 function mgEditFree(id, value, lang = null) {
   const line = MG && MG.lines.find((l) => l.id === id);
@@ -11106,7 +11166,10 @@ async function mgCommit() {
   const last = lines[lines.length - 1];
   // Up to the last piece of REAL audio: a trailing "no audio" row earns no blank line — nor (v718) does a
   // row shown in its gap, which is a line with no time, not a piece of audio somebody cut.
-  const padTo = MG.spans.reduce((m, s, i) => (isPlaced(s) ? i + 1 : m), 0);
+  // ⚠ NEVER ON A FLEx TEXT: FLEx makes its lines from its own text and cannot take a blank one, so the
+  // audio after its last line stays without a line (mgIsFlexText; flex-ops stripFlexPadding drops what
+  // an earlier Done added).
+  const padTo = rec.doc.flex ? 0 : MG.spans.reduce((m, s, i) => (isPlaced(s) ? i + 1 : m), 0);
   for (let i = lines.length; i < padTo; i++) {
     lines.push({
       id: 'ln+end' + i, guid: newGuid(), phrases: [makeSegment('', [])],
@@ -11466,9 +11529,9 @@ function mgDraw() {
     /* ⚠ BETWEEN the rows it inserts between, and one ABOVE the first — the same positional rule the
      * join controls follow (v322): a control that sits where its result will appear needs no label.
      * On the TEXT side only: a blank line is the only thing this screen invents. */
-    if (allowBlankLinesOn() && i === 0) cell.appendChild(mgInsertRow(-1));
+    if (mgBlankLinesOn() && i === 0) cell.appendChild(mgInsertRow(-1));
     cell.appendChild(li);
-    if (allowBlankLinesOn()) cell.appendChild(mgInsertRow(i));
+    if (mgBlankLinesOn()) cell.appendChild(mgInsertRow(i));
     lineEls.push(cell);
   });
 
@@ -11485,8 +11548,8 @@ function mgDraw() {
     if (!right) {
       right = document.createElement('div');
       right.className = 'mg-cell mg-cell-empty';
-      right.textContent = t('mg.noLineCell');
-      if (allowBlankLinesOn()) right.appendChild(mgInsertRow(MG.lines.length - 1));
+      right.textContent = t(mgIsFlexText() ? 'mg.noLineCellFlex' : 'mg.noLineCell');
+      if (mgBlankLinesOn()) right.appendChild(mgInsertRow(MG.lines.length - 1));
     }
     row.append(left, right);
     rowsEl.appendChild(row);
@@ -11497,7 +11560,7 @@ function mgDraw() {
     // The two counts, and what Done will do about a difference — said up front, not after.
     const a = MG.spans.length, tl = MG.lines.length;
     bar.textContent = a === tl ? t('mg.countsMatch').replace('{n}', a)
-      : a > tl ? t('mg.moreAudio').replace('{a}', a).replace('{t}', tl).replace('{n}', a - tl)
+      : a > tl ? t(mgIsFlexText() ? 'mg.moreAudioFlex' : 'mg.moreAudio').replace('{a}', a).replace('{t}', tl).replace('{n}', a - tl)
       : t('mg.moreText').replace('{a}', a).replace('{t}', tl).replace('{n}', tl - a);
   }
   const done = $('#mg-done');

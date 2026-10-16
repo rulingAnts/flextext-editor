@@ -27,7 +27,7 @@
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
 import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, arrangeTexts, recordingLink, pendingMediaFix, flexFailText, flexClosedBy } from './flex-ops.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, arrangeTexts, recordingLink, pendingMediaFix, flexFailText, flexClosedBy, stripFlexPadding, graftFlexGuesses, adoptFlexGuesses } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
@@ -421,7 +421,7 @@ function textRow(r) {
 function notInFlex(rec) {
   let save;
   try {
-    const d = diffFlexDoc(rec.flex.base, rec.doc, { ws: rec.doc.analLang });
+    const d = diffFlexDoc(rec.flex.base, stripFlexPadding(rec.flex.base, rec.doc), { ws: rec.doc.analLang });
     save = d.ops.length > 0 || d.unsupported.length > 0;
   } catch { save = true; }   // cannot tell: say the work may not be in FLEx
   return { save, relink: !!pendingMediaFix(rec.flex).relink };
@@ -460,7 +460,7 @@ async function openTextSteps(tx, pause, resume) {
     /* FLEx changed the text and there is work here (§4.5): FLEx's changes come in under the work — the
      * checkout moves to FLEx's text as it is now, the work rides on it — unless the two changed the same
      * thing, which Save to FLEx… then shows. Nothing is lost either way, nothing is asked here. */
-    const m = mergeFlexDocs(existing.flex.base, existing.doc, opened.doc);
+    const m = mergeFlexDocs(existing.flex.base, stripFlexPadding(existing.flex.base, existing.doc), opened.doc);
     if (!m.conflicts.length) {
       keepTimeEstimates(existing.doc, m.doc);
       rec = { ...existing, doc: m.doc, title: m.doc.title,
@@ -481,6 +481,11 @@ async function openTextSteps(tx, pause, resume) {
     rec = load ? fromFlex(existing, id, tx, opened) : existing;
   } else {
     rec = how === 'keep' ? existing : fromFlex(existing, id, tx, opened);
+    if (how === 'keep') {
+      // FLEx unchanged: its guesses for the words not glossed here, on a record an older build kept (shown in the Matcher)
+      rec.flex.base = graftFlexGuesses(rec.flex.base, opened.doc);
+      rec.doc = graftFlexGuesses(rec.doc, opened.doc);
+    }
   }
   const links = (opened.doc.flex && opened.doc.flex.media) || [];
   rec.flex.writable = project.writable;
@@ -963,18 +968,24 @@ async function saveSteps(tx, id, rec, spin) {
    * changed the text since, the work goes onto FLEx's text as it is NOW (mergeFlexDocs) and the diff is
    * against THAT — so only the changes made here are written, and FLEx's own stay as they are. Where both
    * changed the same thing the user says which to keep, first. */
-  let base = rec.flex.base, work = rec.doc, baseRev = rec.flex.baseRev, merged = null;
+  // blank lines an earlier Done added after FLEx's last line are this app's padding, never FLEx's (stripFlexPadding)
+  const mine = stripFlexPadding(rec.flex.base, rec.doc);
+  let base = rec.flex.base, work = mine, baseRev = rec.flex.baseRev, merged = null;
   if (opened.baseRev !== rec.flex.baseRev) {
-    merged = mergeFlexDocs(rec.flex.base, rec.doc, opened.doc);
+    merged = mergeFlexDocs(rec.flex.base, mine, opened.doc);
     if (merged.conflicts.length) {
       done();
       const how = await mergeDialog(merged.conflicts);
       if (!how) return;
-      if (how === 'mine') merged = mergeFlexDocs(rec.flex.base, rec.doc, opened.doc, { prefer: 'mine' });
+      if (how === 'mine') merged = mergeFlexDocs(rec.flex.base, mine, opened.doc, { prefer: 'mine' });
       spin.again();
     }
     base = opened.doc; work = merged.doc; baseRev = opened.baseRev;
+  } else {
+    base = graftFlexGuesses(base, opened.doc);   // FLEx unchanged: its guesses as read now (a record from an older build has none)
   }
+  // a word glossed here that FLEx was guessing for keeps the guess's other languages (adoptFlexGuesses)
+  work = adoptFlexGuesses(base, work);
   // a recording this app found for a link that points nowhere rides along, shown in the preview (§8.4)
   const diff = diffFlexDoc(base, work, { ws: work.analLang, ...pendingMediaFix(rec.flex) });
   const blockers = flexBlockers(work, diff.touched).filter((b) => b.blocking);
@@ -1219,7 +1230,7 @@ function describe(s) {
     case 'ft.set': return s.ws ? T('flex.sum.ftIn', { w: wsName(s.ws, 'anal'), b: s.before || '—', a: s.after || '—' }) : T('flex.sum.ft', { b: s.before || '—', a: s.after || '—' });
     case 'lt.set': return T('flex.sum.lt', { b: s.before || '—', a: s.after || '—' });
     case 'times.set': return T('flex.sum.times', { b: s.begin, e: s.end });
-    case 'gloss.set': return T('flex.sum.gloss.' + s.outcome, { n: s.otherUses || 0 })
+    case 'gloss.set': return T(s.fromGuess ? (s.outcome === 'reuse' ? 'flex.sum.gloss.guessReuse' : 'flex.sum.gloss.guessNew') : 'flex.sum.gloss.' + s.outcome, { n: s.otherUses || 0 })
       + (s.ws && s.ws.length ? ' — ' + T('flex.sum.inWs', { w: s.ws.map((w) => wsName(w, 'anal')).join(', ') }) : '')
       + (s.newWord ? ' ' + T('flex.sum.newWord') : '') + (s.approves ? ' ' + T('flex.sum.approves') : '');
     case 'word.split': return T('flex.sum.wordSplit', { w: s.word, a: s.into[0], b: s.into[1] });

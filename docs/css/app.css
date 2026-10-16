@@ -3777,6 +3777,10 @@ a.rp-app-link { display: block; text-align: center; text-decoration: none; box-s
 .mg-edit{outline:none;border-bottom:1px dashed transparent;min-width:1.2em;display:inline-block;padding:0 .1em;border-radius:3px}
 .mg-edit:focus{border-bottom-color:var(--teal,#10514d);background:hsl(174 30% 96%)}
 .mg-edit:empty::before{content:attr(data-ph);color:#a9b0b8;font-weight:400;font-style:italic}
+/* FLEx's guess for a word the text has not analysed (a FLEx text): FLEx's own blue, never mistaken for a
+ * gloss the word has — typing replaces it (app.js mgAdoptGuess) */
+.mg-edit.mg-guess:empty::before{color:#1c5a80;background:rgba(80,180,230,.22);font-style:normal;border-radius:3px;padding:0 .2em}
+@media (prefers-color-scheme: dark) { .mg-edit.mg-guess:empty::before{color:#9fd3f0;background:rgba(80,180,230,.18)} }
 .mg-ft.mg-edit{display:block}
 
 /* Arrival rows (assigned audio still downloading): the bar, one line of words beside it, and the

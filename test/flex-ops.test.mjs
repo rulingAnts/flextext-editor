@@ -5,7 +5,7 @@
  * Run: node test/flex-ops.test.mjs */
 import { installMiniXmlDom } from './lib/mini-xml-dom.mjs';
 installMiniXmlDom();
-const { diffFlexDoc, postStateOf, flexBlockers, baselineOfGroup } = await import('../docs/js/flex-ops.js');
+const { diffFlexDoc, postStateOf, flexBlockers, baselineOfGroup, stripFlexPadding, hasLocalWork } = await import('../docs/js/flex-ops.js');
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -240,5 +240,33 @@ console.log('\nblockers: a phrase with no letters');
   ok(bl.length === 1 && bl[0].code === 'noWordChar' && bl[0].blocking && bl[0].segGuid === 's3', 'an empty phrase blocks the save (D4)');
   ok(flexBlockers(c, new Set(['P1'])).length === 0, 'only touched paragraphs are checked');
 }
+console.log('\nDone\'s blank line after a FLEx text\'s last line is padding, never a line to save (2026-10-16)');
+{
+  // glosses typed on line 1, and Done padded a blank line for the audio after the last line: Save to FLEx
+  // said "a line added here is not in FLEx" though nobody added one
+  const b = base(), c = clone(b);
+  c.paragraphs[0].segments[0].words[1].gls = 'B';
+  c.paragraphs.push({ guid: 'ln+end3', paraOf: 'P2', segments: [{ attrs: { guid: 'eng-pad' }, baseline: '', words: [], free: '' }] });
+  c.segments.push({ start: 3000, end: 4000 });
+  ok(diffFlexDoc(b, c).unsupported.some((u) => u.why === 'addedLine'), 'as it was: the padding blocked the save');
+  const s = stripFlexPadding(b, c);
+  ok(s.paragraphs.length === 3 && s.segments.length === 3, 'the trailing blank line and its span are dropped');
+  const r = diffFlexDoc(b, s);
+  ok(r.unsupported.length === 0 && kinds(r) === 'gloss.set', 'only the gloss is left to save');
+  ok(c.paragraphs.length === 4, 'the record itself is not changed');
+  ok(stripFlexPadding(b, b) === b, 'nothing to strip: the same object back');
+  // never a line with something in it, never one FLEx has, never one in the middle
+  const typed = clone(c); typed.paragraphs[3].segments[0].free = 'typed here';
+  ok(stripFlexPadding(b, typed).paragraphs.length === 4, 'a blank line with a translation typed into it is work: kept (and still refused)');
+  const mid = clone(b); mid.paragraphs.splice(1, 0, { guid: 'ln+mid', paraOf: 'P1', segments: [{ attrs: { guid: 'eng-mid' }, baseline: '', words: [], free: '' }] });
+  mid.segments.splice(1, 0, { start: 0, end: 0, timePending: true });
+  ok(stripFlexPadding(b, mid).paragraphs.length === 4, 'a blank line in the middle (a + someone pressed) is not padding');
+  const all = clone(b); all.paragraphs.push(clone(c.paragraphs[3]), { guid: 'ln+end4', segments: [] }); all.segments.push({ start: 0, end: 0 }, { start: 0, end: 0 });
+  ok(stripFlexPadding(b, all).paragraphs.length === 3, 'several at the end, a line with no phrase at all among them: all padding');
+  // a record whose only difference is the padding has no work of its own: re-opening reads FLEx again
+  const padOnly = clone(b); padOnly.paragraphs.push(clone(c.paragraphs[3])); padOnly.segments.push({ start: 3000, end: 4000 });
+  ok(hasLocalWork({ flex: { base: b }, doc: padOnly }) === false, 'padding alone is not local work');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : `\nPASSED\n`);
 process.exit(fail ? 1 : 0);

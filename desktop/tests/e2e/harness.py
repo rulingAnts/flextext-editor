@@ -215,6 +215,29 @@ def start(tmp):
     b.commit(h)
     b.save()
     b.close_project()
+    # FLEx's guesses (2026-10-16): "kkk" glossed and approved in one text, unanalysed in another — FLEx shows its
+    # guess there — and that text timed 0–3 s of a 5 s recording, so the Matcher has audio past its last line
+    MockLcm.create_project(str(projects), "guess-write", texts=[{"title": "Glossed elsewhere", "paragraphs": ["kkk lll", "nnn ppp"]},
+                                                                {"title": "Guessed here", "paragraphs": ["kkk mmm", "nnn ooo"], "media": [in_lf]}],
+                           anal_wss=("en", "id"), ws_names=WS_NAMES)
+    (projects / "guess-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("guess-write", write=True)
+    by_title = {x["title"]: x["guid"] for x in b.list_texts()}
+    there = b.read_text(by_title["Glossed elsewhere"])["paragraphs"]
+    t = b.read_text(by_title["Guessed here"])
+    h = b.begin_uow("fixture", "fixture")
+    for line, gloss in ((0, "K-en"), (1, "N-en")):        # kkk and nnn glossed and approved there
+        s0 = there[line]["segments"][0]
+        an = b.create_trivial_analysis(s0["analyses"][0]["wordformGuid"])
+        b.set_analysis(s0["guid"], 0, b.create_gloss(an, {"en": gloss}))
+        b.set_evaluation(an, True)
+    for k, para in enumerate(t["paragraphs"]):
+        b.set_segment_times(para["segments"][0]["guid"], k * 1500, (k + 1) * 1500)
+        b.set_segment_media(para["segments"][0]["guid"], t["media"][0]["guid"])
+    b.commit(h)
+    b.save()
+    b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
     clip = Clipboard()

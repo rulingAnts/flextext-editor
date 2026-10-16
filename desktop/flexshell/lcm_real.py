@@ -783,6 +783,115 @@ class RealLcm(FlexPort):
         self._t()
         return [{"guid": str(g.Guid), "forms": self._multi(g.Form)} for g in self._obj(analysis_guid).MeaningsOC]
 
+    # ---- FLEx's guesses (read-only) ------------------------------------------------------------------
+    def guesses(self, text_guid):
+        """FLEx's best guess for each word of the text that has no analysis of its own — what FLEx's
+        interlinear shows in blue — computed READ-ONLY with FLEx's ranking (liblcm AnalysisGuessServices):
+        an analysis chosen in texts first, by how often (analysis or one of its glosses); else
+        human-approved, parser-approved, computer-made, no opinion, parser-disapproved; never a
+        human-disapproved one; ties by GUID. Then that analysis's gloss chosen most often in texts, else
+        its first by GUID. ⚠ NEVER through AnalysisGuessServices itself: its GetBestGuess creates computer
+        analyses from the lexicon (GenerateEntryGuesses, in a NON-undoable unit of work) — a write inside a
+        read, outside the save protocol. FLEx also weighs the words either side; this does not, so where
+        FLEx's choice hangs on context, the two can differ.
+        → {segGuid: {index: {analysisGuid, glossGuid|None, gloss: {ws: text}}}}"""
+        self._t()
+        lp = self.cache.LanguageProject
+        agents = {"parser": getattr(lp, "DefaultParserAgent", None), "computer": getattr(lp, "DefaultComputerAgent", None)}
+        memo, out = {}, {}
+        for p in self._paras(self._text(text_guid)):
+            for seg in p.SegmentsOS:
+                seg = _cast(seg)
+                for i, a in enumerate(seg.AnalysesRS):
+                    if str(a.ClassName) != "WfiWordform":
+                        continue
+                    g = str(a.Guid)
+                    if g not in memo:
+                        try:
+                            memo[g] = self._best_guess(_cast(a), agents)
+                        except Exception as e:   # noqa: BLE001 — a guess is a display aid, never a reason to fail a read
+                            LOG.warning("no guess for wordform %s: %s", g, e)
+                            memo[g] = None
+                    if memo[g]:
+                        out.setdefault(str(seg.Guid), {})[i] = memo[g]
+        return out
+
+    def _uses(self, obj):
+        """How many times segments point at `obj` (an analysis or a gloss) — FLEx's 'chosen in texts'."""
+        h = int(obj.Hvo)
+        n = 0
+        for ref in obj.ReferringObjects:   # HashSet<ICmObject> [source]
+            if str(ref.ClassName) == "Segment":
+                n += sum(1 for x in _cast(ref).AnalysesRS if int(x.Hvo) == h)
+        return n
+
+    @staticmethod
+    def _human_opinion(an):
+        """AnalysisGuessServices.IsHumanApproved/IsHumanDisapproved: the last evaluation by a human agent
+        decides (True/False), None when no human has an opinion [source]."""
+        op = None
+        for ev in an.EvaluationsRC:
+            ev = _cast(ev)
+            if bool(ev.Human):
+                op = bool(ev.Approves)
+        return op
+
+    def _best_guess(self, wf, agents):
+        from SIL.LCModel import Opinions   # type: ignore[import-not-found]
+        analyses = [_cast(a) for a in wf.AnalysesOC]
+        chosen_a, chosen_g = {}, {}
+        for an in analyses:
+            n = self._uses(an)
+            for gl in an.MeaningsOC:
+                k = self._uses(gl)
+                if k:
+                    chosen_g[str(gl.Guid)] = k
+                    n += k
+            if n:
+                chosen_a[str(an.Guid)] = n
+
+        def opinion(an, agent):
+            if agent is None:
+                return None
+            o = an.GetAgentOpinion(agent)
+            return True if o == Opinions.approves else False if o == Opinions.disapproves else None
+        best = None
+        for an in analyses:
+            ag = str(an.Guid)
+            if ag in chosen_a:
+                key = (-7, -chosen_a[ag], ag)
+            else:
+                human = self._human_opinion(an)
+                if human is False:
+                    continue
+                parser = opinion(an, agents["parser"])
+                prio = 6 if human else 5 if parser else 2 if parser is False else 4 if opinion(an, agents["computer"]) else 3
+                key = (-prio, -1, ag)
+            if best is None or key < best[0]:
+                best = (key, an)
+        if best is None:
+            return None
+        an = best[1]
+        gbest = None
+        for gl in an.MeaningsOC:
+            gl = _cast(gl)
+            gg = str(gl.Guid)
+            key = (-2, -chosen_g[gg], gg) if gg in chosen_g else (-1, -1, gg)
+            if gbest is None or key < gbest[0]:
+                gbest = (key, gl)
+        return {"analysisGuid": str(an.Guid), "glossGuid": str(gbest[1].Guid) if gbest else None,
+                "gloss": self._multi(gbest[1].Form) if gbest else {}}
+
+    def owner_of(self, guid):
+        """The owning object's guid, or None — None too for an object that no longer exists (a guess
+        named at preview that FLEx has since deleted)."""
+        self._t()
+        try:
+            o = self._obj(guid).Owner
+        except Exception:   # noqa: BLE001 — GetObject throws for an unknown guid
+            return None
+        return str(o.Guid) if o is not None else None
+
     def gloss_ref_count(self, gloss_guid):
         self._t()
         g = self._obj(gloss_guid)

@@ -54,6 +54,10 @@ glosses_of(analysis_guid) → [{guid, forms: {ws: text}}]
 gloss_ref_count(gloss_guid) → int (segments referencing it, whole project)
 create_gloss(analysis_guid, forms) → guid;  set_gloss_form(gloss_guid, ws, text)
 is_approved(analysis_guid) → bool;  set_evaluation(analysis_guid, approves=True)
+guesses(text_guid) → {segGuid: {index: {analysisGuid, glossGuid|None, gloss: {ws: text}}}} — FLEx's best
+                      guess for each word of the text with no analysis of its own (blue in FLEx), ranked
+                      as AnalysisGuessServices ranks, READ-ONLY (never through it: it writes analyses)
+owner_of(guid) → the owner's guid, or None (also for an object that no longer exists)
 user_agent() → {guid, missingEvaluations}: the agent approvals are recorded for, and how many of its
                       two evaluation objects (approves, disapproves) the next approval would CREATE
                       (CmAgent.SetEvaluation makes both when either is missing) — for the W8 check
@@ -199,6 +203,10 @@ class FlexPort(ABC):
     def set_evaluation(self, analysis_guid, approves=True): ...
     @abstractmethod
     def user_agent(self): ...
+    @abstractmethod
+    def guesses(self, text_guid): ...
+    @abstractmethod
+    def owner_of(self, guid): ...
     @abstractmethod
     def create_media(self, text_guid, path): ...
     @abstractmethod

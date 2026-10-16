@@ -1309,6 +1309,74 @@ class MockLcm(FlexPort):
         an["Evaluations"] = ev
         self._mark(analysis_guid)
 
+    # ---- FLEx's guesses, ranked as lcm_real ranks them (AnalysisGuessServices without its writes) -------
+    def _uses(self, guid):
+        return sum(sum(1 for a in o["Analyses"] if a == guid) for o in self.store.values() if o.cls == "Segment")
+
+    def _human_opinion(self, an):
+        agent = self._agent()
+        op = None
+        for e in an.get("Evaluations") or []:
+            if agent and e == agent.get("Approves"):
+                op = True
+            elif agent and e == agent.get("Disapproves"):
+                op = False
+        return op
+
+    def guesses(self, text_guid):
+        """The mock has the user agent only: no parser or computer opinions to rank by."""
+        out, memo = {}, {}
+        st = self.store[self.store[text_guid]["Contents"]]
+        for pg in st["Paragraphs"]:
+            for sg in self.store[pg]["Segments"]:
+                for i, a in enumerate(self.store[sg]["Analyses"]):
+                    o = self.store.get(a)
+                    if o is None or o.cls != "WfiWordform":
+                        continue
+                    if a not in memo:
+                        memo[a] = self._best_guess(a)
+                    if memo[a]:
+                        out.setdefault(sg, {})[i] = memo[a]
+        return out
+
+    def _best_guess(self, wf_guid):
+        analyses = sorted((o for o in self.store.values() if o.cls == "WfiAnalysis" and o.owner == wf_guid), key=lambda o: o.guid)
+        chosen_a, chosen_g = {}, {}
+        for an in analyses:
+            n = self._uses(an.guid)
+            for g in an["Meanings"]:
+                k = self._uses(g)
+                if k:
+                    chosen_g[g] = k
+                    n += k
+            if n:
+                chosen_a[an.guid] = n
+        best = None
+        for an in analyses:
+            if an.guid in chosen_a:
+                key = (-7, -chosen_a[an.guid], an.guid)
+            else:
+                human = self._human_opinion(an)
+                if human is False:
+                    continue
+                key = (-(6 if human else 3), -1, an.guid)
+            if best is None or key < best[0]:
+                best = (key, an)
+        if best is None:
+            return None
+        an = best[1]
+        gbest = None
+        for g in an["Meanings"]:
+            key = (-2, -chosen_g[g], g) if g in chosen_g else (-1, -1, g)
+            if gbest is None or key < gbest[0]:
+                gbest = (key, g)
+        return {"analysisGuid": an.guid, "glossGuid": gbest[1] if gbest else None,
+                "gloss": {ws: nfc(t) for ws, t in self.store[gbest[1]]["Form"].items() if t} if gbest else {}}
+
+    def owner_of(self, guid):
+        o = self.store.get(guid)
+        return o.owner if o is not None else None
+
     def user_agent(self):
         agent = self._agent()
         if agent is None:

@@ -96,6 +96,10 @@ The first saves to a real project (2026-10-16) found the next one: the shell cou
 FLEx's undo history as if they were its items, so every save "made two history items" and the project
 was closed unsaved — then reported as "rolled back" and "FLEx reported a problem saving". Fixed from
 liblcm's source, with the messages (plan §5.2, §5.4 "Found by the first saves to a real FLEx project").
+The next run saved a relink through every check, then found two more: the Matcher's Done padded a
+blank line for audio past a FLEx text's last line (and Save to FLEx refused it), and words FLEx shows
+with a guess showed blank here. Done no longer pads a FLEx text, and FLEx's guesses are shown and
+built on — read without ever calling FLEx's own guesser, which writes (plan §7, "FLEx's guesses").
 The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
 when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
 

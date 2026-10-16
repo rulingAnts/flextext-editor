@@ -127,6 +127,7 @@ class Session:
         self.texts = {}                # textGuid → {"fp": {paraGuid: hash}, "baseRev", "read": readModel}
         self.backup_ok = None          # path of the verified backup that still predates every save
         self.history = []              # one entry per Save to FLEx (what undo_flex compares against)
+        self.guess_cache = {}          # textGuid → port.guesses(text): FLEx's guesses change only when this session writes
         self.redo_history = []
         self.log = _LogCapture(self._on_error_log)
         self.wedged = False
@@ -185,7 +186,16 @@ class Session:
         fp = model.fingerprint_text(t)
         rev = model.base_rev(t)
         self.texts[text_guid] = {"fp": fp, "baseRev": rev, "read": t, "ws": chosen}
-        return {"doc": model.to_engine_doc(t, media_urls, chosen), "baseRev": rev, "ws": chosen,
+        # FLEx's guesses for the words this text has not analysed (shown in blue in FLEx): a display aid and
+        # the base a typed gloss builds on — never a reason a text does not open
+        guesses = self.guess_cache.get(text_guid)
+        if guesses is None:
+            try:
+                guesses = self.guess_cache[text_guid] = self.port.guesses(text_guid)
+            except Exception as e:   # noqa: BLE001
+                SAVE.warning("no guesses for text %s: %s", text_guid, e)
+                guesses = {}
+        return {"doc": model.to_engine_doc(t, media_urls, chosen, guesses=guesses), "baseRev": rev, "ws": chosen,
                 "wsDefault": model.default_ws(t), "wsUsage": model.text_ws_usage(t)}
 
     def text_ws(self, text_guid):
@@ -402,7 +412,7 @@ class Session:
             if op.get("newWord"):
                 plan = planner.plan(None, op["index"], gloss_changes(op), chosen, new_word=op["form"], ws=p["ws"])
             else:
-                plan = planner.plan(s, op["index"], gloss_changes(op), chosen)
+                plan = planner.plan(s, op["index"], gloss_changes(op), chosen, guess=op.get("guess"))
             if plan["outcome"] == "unchanged":
                 continue
             if plan.get("newAnalysis"):
@@ -412,6 +422,7 @@ class Session:
                 deltas["WfiGloss"] += 1
             a = plan.get("analysisGuid")
             summary.append({"kind": "gloss.set", "seg": op["segGuid"], "index": op["index"], "outcome": plan["outcome"],
+                            "fromGuess": bool(plan.get("fromGuess")),
                             "ws": plan["changed"], "newWord": bool(op.get("newWord")), "otherUses": plan.get("otherUses", 0),
                             "approves": plan["outcome"] != "unglossed" and bool(a) and (str(a).startswith("planned-") or not self.port.is_approved(a))})
         # post-state checks: empty phrases and internal EOS, per touched paragraph — on the marker-agnostic
@@ -696,7 +707,7 @@ class Session:
                         port.set_segment_media(sg, t["media"][0]["guid"])   # times always ride with a media link (§8.1)
             elif kind == "gloss.set":
                 glosses.set_gloss(port, text_guid, pg, sg, op["index"], gloss_changes(op), chosen,
-                                  new_word=op["form"] if op.get("newWord") else None)
+                                  new_word=op["form"] if op.get("newWord") else None, guess=op.get("guess"))
             elif kind == "media.relink":
                 port.set_media_uri(op["uriGuid"], op["path"])
             elif kind == "media.attach":
@@ -775,6 +786,7 @@ class Session:
     def _save_and_check(self, progress, allowed, expect_fields=None):
         """W7 + W8, shared by save and undo/redo. Poisons on failure."""
         port = self.port
+        self.guess_cache.clear()   # a write (or its undo) can change any word's guess, in any text
         if progress:
             progress("Saving…")
         fw = port.fwdata_path()
@@ -817,7 +829,7 @@ class Session:
         for g, (o, n) in d["changed"].items():
             SAVE.debug("  W8 changed %s %s: %s", n["cls"], g,
                        sorted(k for k in set(o["fields"]) | set(n["fields"]) if o["fields"].get(k) != n["fields"].get(k)))
-        problems = diskcheck.check(d, a, diskcheck.load_rt(fw))
+        problems = diskcheck.check(d, a, d.get("newMap") or diskcheck.load_rt(fw))
         if problems:
             for p in problems:
                 SAVE.error("  W8 NOT EXPLAINED: %s", p)

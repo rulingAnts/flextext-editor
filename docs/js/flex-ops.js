@@ -161,6 +161,82 @@ function analysisIndex(seg, lexIndex) {
  *   opts.ws — the analysis WS a doc with no analLang is in; opts.media — a path to attach when
  *   times exist and the text has no media link (plan D9); opts.relink — { uriGuid, path }.
  */
+/* Lines an earlier Matcher Done added for the audio after a FLEx text's last line (2026-10-16): blank — no
+ * word, no translation — at the END, and not FLEx's. FLEx makes its lines from its own text and can never
+ * take one, so they are this app's padding, not work: dropped (with the time spans they carried) before any
+ * diff, merge or "not in FLEx yet", so the work beside them saves. Only at the end and only while blank: a
+ * line typed into, or one added in the middle, is still the user's to resolve (flex.unsupported.addedLine). */
+export function stripFlexPadding(base, doc) {
+  if (!base || !doc || !Array.isArray(doc.paragraphs)) return doc;
+  const prim = doc.analLang || base.analLang || 'en';
+  const known = new Set((base.paragraphs || []).map((l) => segGuid((l.segments || [])[0])).filter(Boolean));
+  const paras = doc.paragraphs;
+  let n = paras.length;
+  while (n > 0) {
+    const line = paras[n - 1];
+    const segs = line.segments || [];
+    if (segs.some((sg) => known.has(segGuid(sg)))) break;
+    if (segs.some((sg) => wordsOf(sg).length || Object.keys(freeMap(sg, prim)).length)) break;
+    n--;
+  }
+  if (n === paras.length) return doc;
+  return { ...doc, paragraphs: paras.slice(0, n), ...(Array.isArray(doc.segments) ? { segments: doc.segments.slice(0, n) } : {}) };
+}
+
+/* ---- FLEx's guesses on a record made before the shell read them (2026-10-16) ------------------------------
+ * A word a FLEx text has not analysed carries `flex.guess` from open_text (FLEx's best guess, blue in FLEx);
+ * the Matcher shows it and adopts it when a gloss is typed (app.js mgAdoptGuess, which marks the word
+ * `flex.adopted`). A record kept from an older build has neither — and glosses typed there for words FLEx
+ * was guessing would save as one language alone, FLEx's other languages for those words gone from view. */
+const occKey = (w) => (w && w.flex && w.flex.seg != null && w.flex.index != null ? w.flex.seg + '#' + w.flex.index : null);
+const eachWord = (doc, fn) => { for (const ln of (doc && doc.paragraphs) || []) for (const sg of ln.segments || []) for (const w of sg.words || []) fn(w); };
+const copyDoc = (x) => JSON.parse(JSON.stringify(x));
+
+/* `fresh`'s guesses (open_text: FLEx as it is now) on the same occurrences of `doc` — ONLY while FLEx has not
+ * changed the text (same baseRev; the caller checks). Metadata only: no gloss is touched. A copy when
+ * anything changed, else `doc` itself. */
+export function graftFlexGuesses(doc, fresh) {
+  const by = new Map();
+  eachWord(fresh, (w) => { const k = occKey(w); if (k && w.flex.guess) by.set(k, w.flex.guess); });
+  if (!by.size || !doc) return doc;
+  let changed = false;
+  const out = copyDoc(doc);
+  eachWord(out, (w) => {
+    const k = occKey(w);
+    if (k && by.has(k) && w.flex.analysisKind === 'wordform' && !w.flex.guess) { w.flex.guess = copyDoc(by.get(k)); changed = true; }
+  });
+  return changed ? out : doc;
+}
+
+/* A word glossed in `work` that FLEx was guessing for in `base` (no gloss of its own there, the same
+ * spelling), never adopted in the Matcher: the guess's languages the word does not have come along, as
+ * mgAdoptGuess would have done when it was typed. A word the Matcher already adopted for (`flex.adopted`) is
+ * left exactly as it is — a language removed after adopting stays removed. A copy when anything changed. */
+export function adoptFlexGuesses(base, work) {
+  const basePrim = (base && base.analLang) || 'en';
+  const guessOf = new Map();
+  eachWord(base, (w) => {
+    const k = occKey(w);
+    if (k && w.flex.analysisKind === 'wordform' && w.flex.guess && w.flex.guess.gloss && !Object.keys(glossMap(w, basePrim)).length) guessOf.set(k, w.flex.guess);
+  });
+  if (!guessOf.size || !work) return work;
+  const prim = work.analLang || basePrim;
+  // FLEx's current analysis writing systems only (a save may name no other); the shell carries the rest
+  const anals = (work.flex && work.flex.anals) || (base.flex && base.flex.anals) || null;
+  let changed = false;
+  const out = copyDoc(work);
+  eachWord(out, (w) => {
+    const g = guessOf.get(occKey(w));
+    if (!g || w.flex.adopted || (g.form != null && (w.txt || '') !== g.form)) return;
+    const now = glossMap(w, prim);
+    if (!Object.keys(now).length) return;              // not glossed here: the guess stays a guess
+    for (const [l, text] of Object.entries(g.gloss)) {
+      if (text && !now[l] && (!anals || anals.includes(l))) { setGlossIn(w, l, text, prim); changed = true; }
+    }
+  });
+  return changed ? out : work;
+}
+
 export function diffFlexDoc(base, cur, opts = {}) {
   const basePrim = base.analLang || opts.ws || 'en', curPrim = cur.analLang || basePrim;
   const ops = [];
@@ -400,7 +476,14 @@ export function diffFlexDoc(base, cur, opts = {}) {
       const b = key && occ.get(key);
       if (b && (b.w.txt || '') === (w.txt || '')) {
         const forms = changedIn(glossMap(b.w, basePrim), now);
-        if (Object.keys(forms).length) { ops.push({ op: 'gloss.set', paraGuid: b.pg, segGuid: b.sg, index: b.idx, forms }); touched.add(b.pg); }
+        if (Object.keys(forms).length) {
+          const op = { op: 'gloss.set', paraGuid: b.pg, segGuid: b.sg, index: b.idx, forms };
+          // a word FLEx was guessing for (open_text's flex.guess): the gloss builds on that guess (glosses.py)
+          const gs = b.w.flex && b.w.flex.analysisKind === 'wordform' && b.w.flex.guess;
+          if (gs && gs.analysisGuid) op.guess = { analysisGuid: gs.analysisGuid, glossGuid: gs.glossGuid || null };
+          ops.push(op);
+          touched.add(b.pg);
+        }
         return;
       }
       if (!Object.keys(now).length) return;   // a new word with no gloss: FLEx leaves it unglossed too
@@ -531,7 +614,7 @@ export function hasLocalWork(rec) {
   if (!rec || !rec.flex) return false;
   if (rec.matchDraft || rec.flex.dirty) return true;
   try {
-    const d = diffFlexDoc(rec.flex.base, rec.doc, { ws: rec.doc.analLang });
+    const d = diffFlexDoc(rec.flex.base, stripFlexPadding(rec.flex.base, rec.doc), { ws: rec.doc.analLang });
     return d.ops.length > 0 || d.unsupported.length > 0;
   } catch { return true; }
 }

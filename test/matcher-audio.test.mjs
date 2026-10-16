@@ -293,8 +293,11 @@ console.log('\nPAIRING IS THE ROW NUMBER — nothing is picked, nothing is linke
   const commit = asyncFn(app, 'mgCommit');
   ok(/for \(let i = lines\.length; i < padTo; i\+\+\)/.test(commit) && /makeSegment\(''/.test(commit),
      'audio past the last line gets a blank line each at the end — no piece is dropped for want of words');
-  ok(/const padTo = MG\.spans\.reduce\(\(m, s, i\) => \(isPlaced\(s\) \? i \+ 1 : m\), 0\)/.test(commit),
+  ok(/const padTo = rec\.doc\.flex \? 0 : MG\.spans\.reduce\(\(m, s, i\) => \(isPlaced\(s\) \? i \+ 1 : m\), 0\)/.test(commit),
      'up to the last piece of REAL audio — a trailing "no audio" row earns no blank line, nor (v718) a row shown in its gap');
+  // 2026-10-16: on a FLEx text Done padded a blank line for the audio after its last line, and Save to FLEx
+  // then refused "a line added here" that nobody had added. FLEx makes its lines from its own text.
+  ok(/rec\.doc\.flex \? 0 :/.test(commit), 'NEVER on a FLEx text: the audio after its last line stays without a line');
   ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, )/.test(commit),
      'a line past the last piece of audio is written timePending — the engine\'s own word for it');
   ok(/blankAdded/.test(commit) && /mg\.committedLeftover/.test(commit),
@@ -337,8 +340,9 @@ console.log('\none list, row i left beside row i right');
   ok(/<ul class="mg-rows" id="mg-rows"><\/ul>/.test(draw) && !/mg-list/.test(draw), 'one list, not two panes');
   ok(/const spanEls = \[\]/.test(draw) && /const lineEls = \[\]/.test(draw) && /row\.append\(left, right\)/.test(draw),
      'the cells are built per side and zipped into rows by index');
-  ok(/t\('mg\.noAudioCell'\)/.test(draw) && /t\('mg\.noLineCell'\)/.test(draw),
-     'a side that runs out shows an empty cell saying what Done will do about it');
+  ok(/t\('mg\.noAudioCell'\)/.test(draw) && /t\(mgIsFlexText\(\) \? 'mg\.noLineCellFlex' : 'mg\.noLineCell'\)/.test(draw),
+     'a side that runs out shows an empty cell saying what Done will do about it — on a FLEx text, that it adds no line');
+  ok(/t\(mgIsFlexText\(\) \? 'mg\.moreAudioFlex' : 'mg\.moreAudio'\)/.test(draw), 'and the count line says so too');
   ok(/cell\.appendChild\(mgInsertRow\(i\)\)/.test(draw) && !/left\.appendChild\(mgInsertRow/.test(draw),
      'the + rows live on the TEXT side only');
   ok(/right\.appendChild\(mgInsertRow\(MG\.lines\.length - 1\)\)/.test(draw),
@@ -386,7 +390,10 @@ console.log('\nblank lines, for audio that deserves a line but has no words yet'
   ok(/makeSegment\(''/.test(ins), 'it inserts the engine\'s own empty phrase');
   ok(/above\.paraOf/.test(ins), 'inheriting paraOf, so inserting inside a sentence does not start a new one');
   ok(/mgCapture\(\);/.test(ins), 'and it is undoable');
-  ok(/if \(allowBlankLinesOn\(\)\)/.test(fn(app, 'mgDraw')), 'the + rows appear only when allowed');
+  ok(/if \(mgBlankLinesOn\(\)\)/.test(fn(app, 'mgDraw')) && !/allowBlankLinesOn\(\)/.test(fn(app, 'mgDraw')),
+     'the + rows appear only when allowed');
+  ok(/function mgBlankLinesOn\(\) \{ return allowBlankLinesOn\(\) && !mgIsFlexText\(\); \}/.test(app),
+     'and never on a FLEx text, which can take no line FLEx does not have');
 }
 
 console.log('\na matched pair scrolls and highlights together');

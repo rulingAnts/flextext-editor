@@ -658,6 +658,16 @@ misleading messages:
   writing system alone — so a word written only in a second vernacular orthography got an empty bundle,
   and a real analysis of it compared "equal" (two empty strings) and could be reused as the bare one.
   Both now use every writing system the wordform has, as the mock always did.
+- With that fixed, the relink saved through every check. The gloss save was then refused by the PAGE, before
+  the shell: "a line added here is not in FLEx". Nobody had added one — the Matcher's Done gives audio past
+  the last line a blank line of its own (right for a text this app made, §4), and this text's recording ran
+  past its last line. On a FLEx text Done now adds no line (FLEx makes its lines from its own text), the
+  Matcher offers no `+` and says the extra audio stays without a line, and `stripFlexPadding` drops the
+  blank trailing lines an earlier Done added before any diff, merge or "changes not in FLEx yet" — so the
+  work beside them saves as it is.
+- The words glossed had been FLEx's GUESSES (§7, "FLEx's guesses"): shown blank here, English in FLEx.
+- W8 parsed the saved file twice (the diff, then the ownership chains): five seconds of every save on a
+  25 MB project. Once now.
 - The console now traces everything (`trace.py`; `FLEXSHELL_DEBUG=0` quiets it to warnings): every
   bridge call and answer, every job, every call into FLEx with its timing, each W-step with the counts it
   compared, the W8 diff by class, and a .NET exception whole (type, message, inner exceptions, stack).
@@ -910,6 +920,35 @@ a time."*
    referenced `g0` still does and `g0.Form` is unchanged unless (ii); re-read gives *T* in **every**
    writing system (a port that dropped one is caught here and rolled back — pinned by a test that
    makes `create_gloss` drop one).
+
+**FLEx's guesses (2026-10-16).** A word a text has not analysed (its occurrence points at the bare
+`WfiWordform`) is shown by FLEx with its best guess from elsewhere — blue in its interlinear, every writing
+system of it. The app showed those words blank; Seth typed Indonesian glosses for three of them while FLEx
+was showing English, and a save of the Indonesian alone would have left FLEx showing those words with no
+English at all. Now:
+- **Read-only, FLEx's ranking.** `port.guesses(text)` ranks as liblcm's `AnalysisGuessServices` does: an
+  analysis chosen in texts first, by how often (it or one of its glosses); then human-approved,
+  parser-approved, computer-made, no opinion, parser-disapproved; never a human-disapproved one; ties by
+  GUID; then that analysis's gloss chosen most often, else its first by GUID. ⚠ NEVER through
+  `AnalysisGuessServices` itself: its `GetBestGuess` runs `GenerateEntryGuesses`, which CREATES computer
+  analyses from the lexicon in a non-undoable unit of work — a write inside a read, outside the protocol,
+  that the next save's disk check would find unexplained. FLEx also weighs the words either side; this does
+  not, so where FLEx's choice hangs on context the two can differ. Cached per text until this session writes.
+- **Shown, never stored.** `open_text` gives such a word `flex.guess` = {analysisGuid, glossGuid, gloss, form};
+  the Matcher draws it in FLEx's blue in each empty row, as the row's placeholder — never as the word's gloss.
+- **Typing adopts it**, as FLEx's own box does: the guess's other writing systems become the word's, then the
+  typed one is set (one undo step), and the rows show them as the word's own at once.
+- **The save builds on it.** The op names the guess; the shell checks it against FLEx as it is now (the
+  analysis still the word's, the gloss still the analysis's) and plans T = the guessed gloss with the changes:
+  (i) a gloss of the guessed analysis equal to T — the guess itself when nothing differs — else (iii) a new
+  gloss of that analysis holding T. Never (ii): the guessed gloss is other words' gloss and is never edited
+  (an in-UOW check refuses it). Approval as usual. A guess FLEx no longer has → planned as an unguessed word.
+- **A record an older build kept** has no guesses on its words, and glosses typed there for guessed words.
+  While FLEx is unchanged, Save to FLEx attaches the guesses as read now (`graftFlexGuesses`) and adopts them
+  for the words glossed there (`adoptFlexGuesses`) — the same result as typing them in this build, shown in
+  the preview before anything is written. A word the Matcher already adopted for (`flex.adopted`) is never
+  adopted again (a language removed after adopting stays removed). Re-opening such a record grafts the
+  guesses too, so the words still unglossed show them.
 
 **One save, many words (2026-10-16).** The preview plans every gloss of a save before any is written, but
 each runs on what the ones before it leave: a second unanalysed copy of a word finds the analysis the

@@ -1,4 +1,4 @@
-# Plan: dragging a boundary may leave a gap — "allow unsegmented audio" and the 🔗 stick toggle
+# Plan: dragging a boundary may leave a gap — "allow unsegmented audio" and the stick toggle
 
 Seth, 2026-10-16: *"if the user drags an audio segment boundary INWARD, it only resizes THAT segment.
 The segment bordering it stays in place, leaving unsegmented audio in between. However, if the segment
@@ -6,7 +6,8 @@ boundary is dragged outward, once it collides with a neighboring segment, it wil
 boundary together so that the segments don't end up overlapping."* Plus an optional, very iconic
 player toggle that *"drags segment boundaries together once they are actually adjacent."*
 
-Status: **planned, not built.** Branch `segment-gaps` from `main`. Docs only so far.
+Status: **planned, not built.** Branch `segment-gaps` from `main`. Docs only so far. Decisions 1, 2, 3 and 5
+of §11 confirmed by Seth 2026-10-16; the glyph (11.1) is the one open item.
 
 ## 0. Short answer
 
@@ -22,9 +23,12 @@ and adds two switches:
 - `segmentGaps` — the researcher's switch (device setting): may gaps be CREATED on this device. Off
   by default on a managed device, on when working alone. Gaps that already exist in a text are kept
   either way.
-- 🔗 **stick** — the user's toggle on the player, beside ✨: while on, two boundaries that touch (or
-  are pushed into touching) move as one. Forced on while `segmentGaps` is off; otherwise defaults on
-  for a paired device and off for an unpaired one; the user flips it on the player.
+- **stick** — the user's toggle on the player, beside ✨ (glyph: §4, the one open decision): while on,
+  two boundaries that touch (or are pushed into touching) move as one. Forced on while `segmentGaps`
+  is off; otherwise defaults on for a paired device and off for an unpaired one; the user flips it on
+  the player.
+- **Grips at the file's ends** when gaps are allowed: the first line's start and the last line's end
+  become draggable, so a gap can be opened before the first line or after the last.
 
 The whole rule lives in ONE place — `moveBoundary` / `dragSeam` in `segments.js` — because every drag
 surface already goes through it: the editor's Baseline, Cut and Gloss grips, the Cut tab's player
@@ -40,14 +44,15 @@ drag is exactly one Undo, pushed neighbour included.
 | G3 | The push **stops** when the neighbour is at its minimum length (`MIN_SEGMENT_MS`, 120 ms). It never cascades to the next line. |
 | G4 | **Elastic** within one drag (stick off): drag back and the pushed edge returns to where it was at pick-up, then stays; the gap reopens past that point. |
 | G5 | **Stick on:** two edges that touch — or that this drag pushed into touching — move as one for the rest of the drag and in every later drag. Touching = within `GUESS_TOL_MS` (1 ms), the model's own tolerance. Separating them again means turning stick off. |
-| G6 | **Snap:** on release, a dragged edge that ends within **40 ms** of its neighbour closes onto it exactly (gap = 0, not 1 ms) — the "micro gap" that would otherwise never count as touching. |
+| G6 | **Snap:** on release, a dragged edge that ends within **40 ms** of its neighbour closes onto it exactly (gap = 0, not 1 ms) — the "micro gap" that would otherwise never count as touching. **In every mode**, and with stick on (or gaps off) the snapped pair is stuck from then on: *"If you keep dragging inward, the gap expands, but once snaps, sticky from then on."* |
 | G7 | Merging two lines across a gap keeps the gap's audio inside the merged line — confirmed in the code: `mergeSpanPair` → `{start: a.start, end: b.end}`. Times are absolute offsets into the recording, so no boundary edit can misalign audio and text. |
 | G8 | Only **drag** surfaces change. Merge, split and cut keep producing touching seams; ⇥ (set this line's end at the playhead) keeps today's clamp to the neighbour. |
 | G9 | A **pushed** edge is a user-set time, not a `~` estimate: it sits at exactly the time the finger chose. |
-| G10 | Applies to the **editor and the Segmenter** alike, under the device's settings. |
+| G10 | Applies to the **editor, the Segmenter and PAT** alike, under the device's settings — PAT never pairs, so it has the lone-worker defaults and its toggle lives in its own bar. |
 | G11 | **Settings:** `segmentGaps` off by default on a paired device (the user never sees gaps unless the researcher switches it on), on by default unpaired. Stick: forced on while gaps are off; otherwise on by default paired, off by default unpaired; a player toggle, very iconic, beside ✨. |
 | G12 | A text that arrives WITH gaps on a gaps-off device keeps them. The user can close them (drag together, snap) but never reopen them until gaps are enabled and stick is off. |
 | G13 | **One Undo, exactly**, for a drag — both edges when a push happened. |
+| G14 | **File-edge grips** (the first line's start, the last line's end) exist when `segmentGaps` is on. No neighbour: never a push, never stick; they snap to the recording's start/end within 40 ms. |
 
 ## 2. Model
 
@@ -69,10 +74,18 @@ Per drag step, target time `t`, with `gaps = segmentGapsOn()`, `stick = seamStic
 | pause | `start` | — | the mirror image: `b.start = min(t, b.end−min)` inward; outward `b.start = max(t, a.start+min)` and `a.end = min(a0.end, b.start)` while past it. |
 | any edge unaligned / `timePending` | — | — | refused (`reason: 'pending'`), as today. |
 
-**Snap (G6), on release only, `gaps && !stick`:** if `0 < b.start − a.end ≤ SNAP_MS (40)` after the
+**Snap (G6), on release only, in every mode:** if `0 < b.start − a.end ≤ SNAP_MS (40)` after the
 drag, the **dragged** edge is set to the neighbour's (the neighbour was never touched by the user).
 It can only lengthen the dragged line, so minMs cannot be violated. A pause that this drag did not
-bring under 40 ms is left exactly as imported. In seam mode and with stick on there is nothing to snap.
+bring under 40 ms is left exactly as imported. Seam mode never leaves a gap, so there is nothing to
+snap there; with stick on, or gaps off, the snapped pair now touches — and touching means stuck from
+the next pick-up on (G5). That is the whole of *"once snaps, sticky from then on"*.
+
+**File edges (G14), `gaps` only:** the first line's start moves within `[0, a.end − min]`; the last
+line's end within `[b.start + min, durationMs]` — and when the recording's length is not yet known
+(`overviewMarks` already handles that case), only inward, never past the current end. No neighbour, so
+no push and no stick; snap closes onto `0` / `durationMs` within 40 ms. Gap rows before the first line
+and after the last already exist (v719 `gapRowsFor`), so the result is shown as today.
 
 **Edges and estimates (G9):** `placeSeam` already makes the placed edge real and keeps the far edges;
 the push places TWO edges (`a.end` and `b.start`) at the same `t` — both real. A pushed edge of a v718
@@ -116,29 +129,38 @@ function toggleSeamStick() { settings.seamStick = !seamStickOn(); saveSettings(s
   disabled"* — the ability exists exactly when gaps are enabled; when gaps are disabled stick is on
   and there is nothing to toggle. A separate researcher switch "may the coworker toggle stick" would
   be redundant: pinning stick on while gaps are enabled behaves identically to gaps disabled (existing
-  gaps kept, closable, never reopenable). So it is not built. **Seth: say so if you do want a third
-  switch**, e.g. to let the researcher pin stick OFF.
+  gaps kept, closable, never reopenable). So it is not built. **Confirmed by Seth, 2026-10-16.**
+- **PAT** never pairs: `Sync.hasSession()` is false there, so it has the lone-worker defaults (gaps
+  on, stick off) and the researcher's switch has nothing to reach. Its toggle sits in its own bar
+  (`paragraph-ui.js`), a device preference like the others. Seth: *"the UI settings of course are for
+  the app since it doesn't do the pairing/send/receive."*
 - `?devreset` and "Erase all data" take both with everything else; nothing new to clear.
 
 ## 4. UI
 
-- **The toggle: 🔗.** Emoji 1.0 (2015), so it renders on every Android in the field — the same test
-  `index.html` records for ✨ (🧲 is Emoji 11, 🔗 is the safe one). Lit = stuck together; dimmed =
-  free, like the other dock toggles. Tooltip + aria-label carry the words (`seg.stickOn` /
-  `seg.stickOff`); never a sentence on the button (Seth, 2026-08-14).
+- **The toggle's glyph — OPEN (decision 11.1).** ⚠ Not 🔗: it already means "join these two words"
+  on the Gloss tab, and the two must be distinct (Seth, 2026-10-16). The constraint that remains is
+  the one `index.html` records for ✨: a glyph in Emoji 1.0 (2015) renders on every Android in the
+  field, newer ones are tofu (🧲 is Emoji 11, 🧷 Emoji 11, 🤝 Emoji 3). **Recommendation: 🔒 / 🔓** —
+  Seth's own first name for the setting was *"lock segment boundaries together"*, the pair is
+  universally read, and the glyph itself changes state (🔒 = touching boundaries move together, 🔓 =
+  each moves alone) instead of relying on dimming. Alternative from the same set: 📎 (clipped
+  together) / dimmed. Escape hatch: a small inline SVG, which has no emoji constraint at all. Tooltip +
+  aria-label carry the words (`seg.stickOn` / `seg.stickOff`); never a sentence on the button (Seth,
+  2026-08-14).
 - **Editor:** its own `<button id="btn-seam-stick" class="icon-btn2">` beside `#btn-guess-splits` in
   the player dock — but NOT tied to the Cut tab the way ✨ is (✨ is shown by renderCut and hidden by
   stopCut). Shown whenever grips can exist and gaps are on: `segmentationEnabled() &&
   adjustBoundariesAllowed() && segmentGapsOn()`, repainted by `applyLiveSettings` (a pushed
   `segmentGaps` flip shows or hides it live).
 - **Audio Segmenter:** `#mg-stick` in the `.mg-bar` beside `#mg-guess`, same rule.
-- **PAT:** has grips (`paragraph-ui.js` → `makeBoundaryDrag`). Decision 11.3 below.
+- **PAT:** `#pa-stick` in its own bar; same rule, lone-worker defaults (§3).
 - The grips themselves are unchanged: left grip = this line's start, right grip = this line's end, so
   "inward/outward" is always unambiguous — and with stick on it does not matter which line's grip you
   took (G5: either one moves both).
-- No grip on the first line's left edge or the last line's right edge, as today (`bi < 0 ||
-  bi >= n−1` in `attachEdgeHandles`). Gaps at the file's ends still come only from import or cuts.
-  Decision 11.4.
+- **File-edge grips (G14):** `attachEdgeHandles` today skips `bi < 0 || bi >= n−1`. With gaps on,
+  those two grips are built too, with `edge: 'fileStart'` / `'fileEnd'`, and drive `moveFileEdge`
+  (§5). With gaps off they stay absent, exactly as today.
 
 ## 5. Exact changes (all under `docs/js/`)
 
@@ -152,23 +174,28 @@ function toggleSeamStick() { settings.seamStick = !seamStickOn(); saveSettings(s
   neighbour's facing edge as well (both real, G9). The `'same'` short-circuit stays.
 - New `export function snapSeam(live, bi, edge, snapMs = SNAP_MS)` — the release-time close (G6);
   returns the new `t` or null. `export const SNAP_MS = 40`.
+- New `export function moveFileEdge(segments, i, ms, { which: 'start'|'end', durationMs, minMs })` for
+  G14 — the clamps in §2, a NEW array, the placed edge real; and `snapFileEdge` for the 0 /
+  `durationMs` close. Kept separate from `moveBoundary` rather than faking a neighbour: a fake
+  neighbour would make `isAligned`/`placeSeam` lie about a line that does not exist.
 - `withGuesses` / `placeSeam` / `settle` unchanged.
 
 **`segment-strips.js` — `makeBoundaryDrag(o)`**
 - Per-drag state grows one flag: `stuck = false` at `'start'`. `o` gains `gaps()` and `stick()`
   (functions, read at pick-up and held for the drag — the mode is fixed at pick-up, as the v717
   comment insists). On `'move'`: `const r = dragSeam(segs, before, bi, ms, grabbed, { gaps, stick, stuck })`;
-  `if (r.touched && stick) stuck = true`. On `'end'`, before `o.persist()`: `if (moved && gaps &&
-  !stick) snapSeam(segs, bi, grabbed)`. Capture stays at the first effective move — the snapshot is the
-  whole array, so a push is inside the one Undo (G13).
+  `if (r.touched && stick) stuck = true`. On `'end'`, before `o.persist()`: `if (moved) snapSeam(segs,
+  bi, grabbed)` — every mode (G6). File-edge grips call `moveFileEdge` / `snapFileEdge` through the same
+  controller (`edge: 'fileStart' | 'fileEnd'`; `o.duration()` supplies `durationMs`). Capture stays at
+  the first effective move — the snapshot is the whole array, so a push is inside the one Undo (G13).
 - Its four consumers (`stripsDrag`, `cutDrag` here; `glossDrag` in app.js; `paDragFn` in
   paragraph-ui.js) pass `gaps: deps.gapsOn, stick: deps.stickOn` from the app's two readers.
 
 **`app.js`**
 - `segmentGapsOn()`, `seamStickOn()`, `toggleSeamStick()` (§3); the Segmenter's `mgBoundaryDrag`
   mirrors the controller: `mgDragFrom.stuck`, `snapSeam` on `'end'` before `mgDraw()`.
-- `#btn-seam-stick` / `#mg-stick` wiring and `renderStickToggle()` called from `applyLiveSettings`,
-  `renderCut`/`renderStrips`/`renderGloss` and `mgLoad`.
+- `#btn-seam-stick` / `#mg-stick` (and `#pa-stick` in paragraph-ui.js) wiring and `renderStickToggle()`
+  called from `applyLiveSettings`, `renderCut`/`renderStrips`/`renderGloss` and `mgLoad`.
 - `syncGatherInventory`'s `settings` snapshot already carries `settings`; nothing to add.
 
 **`researcher-panel.js`** — the Buttons-group field, the settings-link param, the device-setup mirror
@@ -200,10 +227,10 @@ SHELL change in any `sw.js` (the v108 rule is not engaged).
    a 50 ms gap, invisible (below the 350 ms gap-row threshold), honest, and a later drag can close it.
 6. **A 20 ms pause that came from ELAN, never dragged.** Untouched: snap acts only on the dragged edge
    at release.
-7. **Gaps off, text with gaps (G12).** Pause edges move as today (free within their span), closing is
-   allowed, snap does not apply (stick is on), and a touching seam is seam mode — so a closed gap can
-   never reopen. ⚠ **Decision 11.2:** today a pause edge dragged inward WIDENS the pause even with
-   gaps off (v717 behaviour, shipped). Kept, since "no new gaps" is read as "no gap where none was".
+7. **Gaps off, text with gaps (G12).** Pause edges move as today (free within their span — a pause
+   dragged inward WIDENS, v717 behaviour, confirmed kept by Seth 2026-10-16), closing is allowed, a
+   release within 40 ms snaps to touching (G6), and a touching seam is seam mode — so a closed gap
+   can never reopen: *"once snaps, sticky from then on."*
 8. **Neighbour is a v718 placeholder.** It is drawn, not stored; `isAligned` is true so the drag is
    allowed as today; a push writes its start and `storableRecord` stores it as a placed line. The
    gloss/baseline redraw shows it solid. Pushing a placeholder is a real edit, stamped.
@@ -223,6 +250,12 @@ SHELL change in any `sw.js` (the v108 rule is not engaged).
     `applyLiveSettings` after the drag's persist. Nothing moves under the finger.
 17. **Corpus gate.** `tools/corpus-timing.mjs` over the real files must show 0 time changes on open:
     this plan writes nothing on open — only on a drag's release.
+18. **First line's start dragged left to 0, or last line's end dragged right past the recording.**
+    Clamped to `[0, …]` / `[…, durationMs]`; snapped onto the file edge within 40 ms. With the duration
+    unknown, the last edge moves inward only (G14) — no boundary is ever placed in audio that may not
+    exist.
+19. **Stick on, pause, released 30 ms short of the neighbour.** Snap closes it (every mode), and the
+    pair is stuck from the next pick-up — the case Seth named.
 
 ## 7. Tests
 
@@ -232,7 +265,10 @@ SHELL change in any `sw.js` (the v108 rule is not engaged).
   (capture count across a push), settings shapes (`segmentGapsOn` false when paired and unset, true
   unpaired; `seamStickOn` true when gaps off whatever `settings.seamStick` says; pairing defaults),
   toggle visibility pins (shown by segmentation+adjust+gaps, not by the Cut tab), panel field present,
-  i18n keys in both languages.
+  i18n keys in both languages; snap in stick-on mode leaves a touching pair that the next
+  `moveBoundary` judges as seam mode (case 19); `moveFileEdge` clamps at 0 / `durationMs`, inward-only
+  with the duration unknown, snaps to the file edge, never pushes (case 18); file-edge grips exist
+  only when gaps are on (an `attachEdgeHandles` pin).
 - **Update:** `test/adjust-boundaries.test.mjs` (today pins "never past its neighbour" — becomes
   "never overlapping, and never below the neighbour's minimum"), `test/segments-ordering.test.mjs`
   (the seam-mode row is unchanged; the pause rows gain the push).
@@ -254,27 +290,27 @@ updated in the same commit, and one bullet in CLAUDE.md's segmentation section.
 
 ## 9. What you will see, Seth
 
-Open a text with audio, Segmentation on, on an unpaired device: 🔗 sits dimmed beside ✨. Grab the
+Open a text with audio, Segmentation on, on an unpaired device: the stick toggle (🔓, if you take the
+recommendation) sits beside ✨. Grab the
 right edge of a line's wave and pull it left: that line gets shorter, the next line does not move, and
 if the space you opened is more than a third of a second a gap row appears there with its own ▶. Pull
 it right instead: it meets the next line and pushes its start along; pull back and the next line
-springs back to where it was. Tap 🔗 so it lights: now two edges that meet stay together — pull back
-and the next line comes with you. On a device you manage, none of this is there until you tick "Let
+springs back to where it was. Tap the toggle (🔒): now two edges that meet stay together — pull back
+and the next line comes with you. Let go 30 ms short of the next line and it snaps shut anyway; from
+then on those two move as one until you unlock. The first line's left edge and the last line's right
+edge have grips too now, so a gap can be opened at either end of the recording. On a device you manage, none of this is there until you tick "Let
 the coworker leave audio between lines" in the panel; until then boundaries behave as they do today,
-and 🔗 is not shown.
+and the toggle is not shown.
 
 ## 10. Left for later
 
-- Grips on the first line's start and the last line's end (a gap at the file's ends by dragging).
 - ⇥ pushing rather than clamping (G8 says drag heads only, for now).
 - Keyboard nudging of a boundary.
 
 ## 11. Decisions for Seth
 
-1. **Two settings, not three** (§3): confirm, or ask for a researcher switch that pins stick off.
-2. **Gaps off at an existing pause** (§6 case 7): keep today's free movement (a pause can widen), or
-   make the pause edge one-way (only toward the neighbour)? Recommendation: keep today's.
-3. **PAT:** same rule under the same settings (it is the same engine and already has grips), or stays
-   stick-on? Recommendation: same rule.
-4. **🔗 as the glyph** (Emoji 1.0, field-safe) — or something else from the 2015 set.
-5. **File-edge grips** (§10) — later, or never.
+1. **The glyph** (§4) — 🔒/🔓 recommended; 📎 or an inline SVG otherwise. Not 🔗. **Open.**
+2. ~~Two settings, not three~~ — confirmed (§3).
+3. ~~Gaps off at an existing pause~~ — today's free movement kept; snap makes a closed pair sticky (§6 case 7).
+4. ~~PAT~~ — same rule, lone-worker defaults, its own toggle (§3, §4).
+5. ~~File-edge grips~~ — in scope when gaps are on (G14).

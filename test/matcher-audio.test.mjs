@@ -397,7 +397,10 @@ console.log('\nwork in progress is autosaved — losing it was the one unaccepta
   ok(/}, 400\);/.test(save), 'on the same 400ms debounce as schedulePersist — "like the rest of our app"');
   ok(/mgSaveDraft\(\);/.test(fn(app, 'mgDraw')),
      'hung off mgDraw, the one chokepoint every change passes through, so no verb can forget it');
-  ok(!/rec\.modified/.test(code(save)),
+  // the write itself: the timer's, and the one Back makes as it closes (test/segmenter-draft-flush.test.mjs)
+  const write = fn(app, 'mgWriteDraft');
+  ok(/mgWriteDraft\(MG\)/.test(save) && /rec\.matchDraft = \{/.test(write), 'the timer hands the open session to the one draft writer');
+  ok(!/rec\.modified/.test(code(write)),
      '⚠ it does NOT bump modified — that drives upload staleness, and a draft is not a content change');
   ok(/hasDraft: !!\(matchDraft/.test(read('docs/js/db.js')),
      'the list projects a FLAG, never the draft (which holds every line of the text)');
@@ -414,7 +417,7 @@ console.log('\nwork in progress is autosaved — losing it was the one unaccepta
    * remembers, which is the STARTING state. Seth: "It said my work was saved, but what was saved
    * was the starting state." Ordering cannot fix a last-write-wins race; the writers have to agree
    * on the value, so the draft is written to both. */
-  ok(/if \(current && current\.id === id\) current\.matchDraft = rec\.matchDraft;/.test(save),
+  ok(/if \(current && current\.id === id\) current\.matchDraft = rec\.matchDraft;/.test(write),
      'the draft is written to `current` as well as to storage, or persist() silently reverts it');
   ok(/if \(current && current\.id === id\) delete current\.matchDraft;/.test(asyncFn(app, 'mgClearDraft')),
      'and clearing follows the same rule, or a cleared draft comes back');
@@ -431,7 +434,7 @@ const close = fn(app, 'mgClose');
 ok(/mgStopTicker\(\)/.test(close), 'the frame loop stops (it would otherwise outlive its screen)');
 ok(/player\?\.hide\?\.\(\)/.test(close), 'the dock is hidden — it is a sibling of the views, so show() does not touch it');
 ok(/MG = null/.test(close), 'and the open mapping is dropped');
-ok(/mgClose\(\)/.test(commit), 'Done goes through the same exit as Back');
+ok(/mgClose\(\{ keepDraft: false \}\)/.test(commit), 'Done goes through the same exit as Back — without Back\'s draft: it has just cleared it');
 
 console.log('\nthe dock sits ABOVE the matcher in the shell, or sticky glues it to the wrong edge');
 const dockAt = shell.indexOf('id="audio-player"');

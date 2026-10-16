@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v716';
+export const ENGINE_VERSION = 'v724';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v716';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'back-keeps-draft v1';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -1658,6 +1658,7 @@ internet after the first time.</p>
     ,'panel.rel.new.freeEnterNext': 'On the Gloss tab, Enter at the end of a free translation now goes on to the next line’s first word gloss, so glossing follows reading order: the glosses, the free translation, then the next line. A new setting, “Enter at the end of a free translation goes to”, can keep it on the free translations instead. Where a line has no gloss boxes, Enter goes to its free translation either way. This applies when Enter is set to move to the next line.'
     ,'panel.rel.new.feedbackLink': 'The Researcher Panel’s header has a Feedback link where Release notes used to be. It opens one small window for all of it: report a problem, suggest a feature, look through the known issues and planned fixes on GitHub, or read what changed in each version. Those notes are now called About this version, and Help (?) opens them too.'
     ,'panel.rel.fix.lametaFileNames': 'The lameta session download now names every file the way lameta requires (Tautua_Do.eaf, not "Tautua Do.eaf"), so lameta no longer flags them for breaking its file naming rules. The ELAN file and the .flextext both point at the renamed recording, and HOW-TO-OPEN.txt now sits at the top of the zip instead of inside the session folder. A session already added with the old names should be downloaded again and replaced.'
+    ,'panel.rel.fix.matcherBackKeeps': 'Audio Segmenter: leaving the matcher right after a change no longer loses it. Pressing Back, or opening another text from the Texts tab, within half a second of an edit used to drop that edit (and any made just before it); and after Back the text’s row now says at once that its matching is in progress.'
     ,'panel.rel.fix.noticeLinks': 'Researcher panel: an operator notice now comes in four colours \u2014 a calm grey-blue heads-up (the default), green for good news, the amber maintenance look, and red for a real problem \u2014 its links use the notice\u2019s own colour instead of an unreadable blue, and it can be raised without a last line.'
     ,'panel.rel.new.betaChannel': 'Groundwork for a beta tier: from the next release, each version will first run for a while on beta copies of the apps (beta.flextext.app and the beta-\u2026 addresses, \u201cbeta\u201d shown beside the version) before the same version reaches the production addresses. Beta apps will use the same accounts, coworkers and texts as production. It is not open yet; when it is, ask for a beta link if you would like to try releases early.'
     ,'panel.rel.new.opsNotice': 'Researcher panel: a notice from the operator can now carry its own heading and last line, a collapsed \u201cMore info\u201d section and links \u2014 instead of always reading \u201cMaintenance in progress\u201d with the advice to avoid making changes. Long notices are no longer cut off.'
@@ -4306,6 +4307,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
     ,'panel.rel.new.freeEnterNext': 'Di tab Glos, Enter di akhir terjemahan bebas kini berlanjut ke glos kata pertama di baris berikutnya, jadi pengisian glos mengikuti urutan baca: glos-glosnya, terjemahan bebas, lalu baris berikutnya. Setelan baru, “Enter di akhir terjemahan bebas menuju ke”, dapat membuatnya tetap berpindah antar terjemahan bebas. Bila sebuah baris tidak punya kotak glos, Enter tetap menuju terjemahan bebasnya. Ini berlaku bila Enter diatur untuk berpindah ke baris berikutnya.'
     ,'panel.rel.new.feedbackLink': 'Header Panel Peneliti kini punya tautan Masukan di tempat Catatan rilis sebelumnya. Tautan itu membuka satu jendela kecil untuk semuanya: laporkan masalah, usulkan fitur, lihat masalah yang diketahui dan perbaikan yang direncanakan di GitHub, atau baca apa yang berubah di tiap versi. Catatan itu kini bernama Tentang versi ini, dan Bantuan (?) juga membukanya.'
     ,'panel.rel.fix.lametaFileNames': 'Unduhan sesi lameta kini menamai setiap berkas sesuai aturan lameta (Tautua_Do.eaf, bukan "Tautua Do.eaf"), sehingga lameta tidak lagi menandainya melanggar aturan penamaan berkas. Berkas ELAN dan .flextext sama-sama menunjuk ke rekaman yang namanya sudah diganti, dan HOW-TO-OPEN.txt kini ada di tingkat teratas zip, bukan di dalam folder sesi. Sesi yang sudah ditambahkan dengan nama lama sebaiknya diunduh ulang dan diganti.'
+    ,'panel.rel.fix.matcherBackKeeps': 'Pemotong Audio: meninggalkan pencocok tepat setelah sebuah perubahan tidak lagi menghilangkannya. Menekan Kembali, atau membuka teks lain dari tab Teks, dalam setengah detik setelah suntingan dulu membuang suntingan itu (dan yang dibuat tepat sebelumnya); dan setelah Kembali, baris teks itu kini langsung menunjukkan bahwa teks itu sedang dicocokkan.'
     ,'panel.rel.fix.noticeLinks': 'Panel peneliti: pemberitahuan operator kini punya empat warna \u2014 abu-kebiruan tenang untuk sekadar pemberitahuan (bawaan), hijau untuk kabar baik, kuning tampilan pemeliharaan, dan merah untuk masalah sungguhan \u2014 tautannya memakai warna pemberitahuan itu sendiri, bukan biru yang sulit dibaca, dan pemberitahuan bisa dibuat tanpa baris penutup.'
     ,'panel.rel.new.betaChannel': 'Persiapan tingkat beta: mulai rilis berikutnya, setiap versi akan berjalan dulu beberapa waktu di salinan beta aplikasi (beta.flextext.app dan alamat beta-\u2026, dengan \u201cbeta\u201d di samping nomor versi) sebelum versi yang sama sampai ke alamat produksi. Aplikasi beta akan memakai akun, rekan kerja, dan teks yang sama dengan produksi. Belum dibuka; begitu dibuka, mintalah tautan beta kalau ingin mencoba rilis lebih awal.'
     ,'panel.rel.new.opsNotice': 'Panel peneliti: pemberitahuan dari operator kini bisa membawa judul dan baris penutupnya sendiri, bagian \u201cInfo lebih lanjut\u201d yang terlipat, dan tautan \u2014 bukan selalu berbunyi \u201cPemeliharaan sedang berlangsung\u201d dengan saran untuk tidak membuat perubahan. Pemberitahuan yang panjang tidak lagi terpotong.'

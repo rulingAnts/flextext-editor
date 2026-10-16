@@ -701,6 +701,56 @@ export function mergeFlexDocs(base, ours, theirs, opts = {}) {
   return { doc, conflicts, theirs: theirsChanged };
 }
 
+/* ---- the FLEx text list, sorted and filtered (plan §11.1) ---------------------------------------------
+ * Seth, 2026-10-16: "sorting options for texts, including open/pending edits, most recently opened/edited
+ * (in this app, in FLEx), alphabetical, date created, etc. Also ability to filter (including by genre or
+ * checkbox)."
+ *   rows: [{ guid, title, flexIndex, created, modified (FLEx's, epoch ms), genres: [{guid, name}], segs,
+ *            timedSegs, pending (work here not in FLEx), openedAt (here), recording (here), checked }]
+ *   view: { sort: one of TEXT_SORTS, reverse, genre: '' (all) | 'none' | a genre guid, q (title search,
+ *           accents and case ignored), only: { pending, checked, opened, recording, untimed } }
+ * → the rows to show, in order. Title by default: the order FLEx hands texts over in is its own storage
+ * order (GUIDs), not one a person chose. Each sort has its natural direction (latest, newest, least timed first);
+ * `reverse` turns it round, and a row with nothing to sort by (never opened here, no date in FLEx) stays
+ * at the end either way. Ties go by title, numbers as numbers ("Text 9" before "Text 10"). Pure. */
+export const TEXT_SORTS = ['title', 'pending', 'opened', 'changed', 'created', 'timed'];
+export function arrangeTexts(rows, view = {}) {
+  const fold = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const q = fold(view.q).trim();
+  const only = view.only || {};
+  const shown = (rows || []).filter((r) => {
+    const genres = r.genres || [];
+    if (q && !fold(r.title).includes(q)) return false;
+    if (view.genre === 'none' && genres.length) return false;
+    if (view.genre && view.genre !== 'none' && !genres.some((g) => g.guid === view.genre)) return false;
+    if (only.pending && !r.pending) return false;
+    if (only.checked && !r.checked) return false;
+    if (only.opened && !r.openedAt) return false;
+    if (only.recording && !r.recording) return false;
+    if (only.untimed && !(r.segs > 0 && (r.timedSegs || 0) < r.segs)) return false;
+    return true;
+  });
+  const title = (a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' })
+    || (a.flexIndex || 0) - (b.flexIndex || 0);
+  // a key and its natural direction (-1: largest first); no key → last, whichever way round
+  const by = (key, dir) => (a, b) => {
+    const x = key(a), y = key(b);
+    if (x == null || y == null) return (x == null) - (y == null);
+    return x === y ? 0 : (x < y ? -1 : 1) * dir;
+  };
+  const flip = view.reverse ? -1 : 1;
+  const sorts = {
+    pending: [by((r) => (r.pending ? 1 : 0), -flip), by((r) => r.openedAt || null, -1), title],
+    opened: [by((r) => r.openedAt || null, -flip), title],
+    changed: [by((r) => r.modified || null, -flip), title],
+    title: [(a, b) => flip * title(a, b)],
+    created: [by((r) => r.created || null, -flip), title],
+    timed: [by((r) => (r.segs > 0 ? (r.timedSegs || 0) / r.segs : null), flip), title],
+  };
+  const chain = sorts[view.sort] || sorts.title;
+  return shown.slice().sort((a, b) => { for (const c of chain) { const d = c(a, b); if (d) return d; } return 0; });
+}
+
 /* Which of a text's media links the Segmenter cuts: one that resolves on this machine, else the
  * first. (A FLEx text normally carries one; several is possible and the Segmenter uses one.) */
 export function recordingLink(media) {

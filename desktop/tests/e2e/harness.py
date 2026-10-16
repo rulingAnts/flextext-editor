@@ -128,6 +128,13 @@ def start(tmp):
     b.commit(h)
     b.save()
     b.close_project()
+    # the text list's sort and filter: genres and FLEx dates (made up)
+    MockLcm.create_project(str(projects), "list-proj", texts=[
+        {"title": "Text 10", "paragraphs": ["aaa bbb"], "media": [in_lf], "genres": ["Narrative"], "created": "2024-03-01 00:00:00.000"},
+        {"title": "Text 9", "paragraphs": ["ccc ddd"], "media": [in_lf], "genres": ["Narrative", "Procedural"], "created": "2024-01-01 00:00:00.000"},
+        {"title": "\u00c1gua", "paragraphs": ["eee fff"], "media": [in_lf], "created": "2024-02-01 00:00:00.000"},
+        {"title": "bridge", "paragraphs": ["ggg hhh"], "media": [in_lf], "genres": ["Procedural"], "created": "2023-12-01 00:00:00.000"},
+    ])
     # the check-in merge: FLEx changes the text between the check-out and the check-in
     MockLcm.create_project(str(projects), "merge-write", texts=[{"title": "Merge text", "paragraphs": STRUCT, "media": [in_lf]}])
     (projects / "merge-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")

@@ -11,7 +11,9 @@ protocol, segmentation and gloss modules never touch pythonnet types and run unc
 Read models
 -----------
 counts()            → {className: int} for the classes W4 counts (plan §5.3 C5)
-list_texts()        → [{guid, title, paras, segs, timedSegs, media:[{guid, uri, exists}], labelSegs}]
+list_texts()        → [{guid, title, paras, segs, timedSegs, media:[{guid, uri, exists}], labelSegs,
+                        created, modified (epoch ms: Text.DateCreated; the later of Text/StText.DateModified),
+                        genres:[{guid, name}] (Text.GenresRC)}]
 read_text(guid)     → {guid, title, paragraphs: [ParaRead], media: [{guid, uri}], vernWs, analWss}
   ParaRead          = {guid, contents, ws, segments: [SegRead]}
   SegRead           = {guid, begin, end, ft: {ws: text}, lt: {ws: text}, notes: [text],

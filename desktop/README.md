@@ -118,7 +118,8 @@ joined with Backspace / split with Space saved to FLEx, Reset… / Reset all tex
 changes named first; the recording kept, or forgotten with the shell's remembered choice), the loading
 spinner on a slowed shell, check-in with a merge (FLEx edits the text between the check-out and the
 check-in: only the work done here is written, FLEx's changes stay, a conflict is asked about first), and
-Make a copy to write to… (a copy-only build's way to a project it may write). It needs Node with Playwright and a Chromium
+Make a copy to write to… (a copy-only build's way to a project it may write), and the text list's sort
+and filter (genre, FLEx's dates, checked, opened here, title search, kept across a reload). It needs Node with Playwright and a Chromium
 (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them. It is the first thing to run
 after touching `flex-panel.js`, `flex-ops.js`, `api.py`, `protocol.py` or the server's CSP: it found the
 CSP that loaded every recording and played none before any VM did, and with the protocol tests it found

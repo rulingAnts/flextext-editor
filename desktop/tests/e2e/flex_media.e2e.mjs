@@ -676,6 +676,58 @@ await page.click('#flex-open-write');
 await page.waitForSelector('#flex-texts li', T(10000));
 ok((await textRow('Missing link text').innerText()).length > 0 && await page.locator('#flex-project-actions').isVisible(), 'open for writing: the texts, and Undo/Redo/Import');
 
+// ── 12. the text list: sort and filter (Seth, 2026-10-16: "sorting options for texts, including open/pending
+// edits, most recently opened/edited (in this app, in FLEx), alphabetical, date created, etc. Also ability to
+// filter (including by genre or checkbox)") ────────────────────────────────────────────────────────────────
+const titles = () => page.evaluate(() => [...document.querySelectorAll('#flex-texts li .doc-name')].map((e) => e.textContent).join(' | '));
+const count = () => page.evaluate(() => (document.querySelector('#flex-count') || {}).textContent || '');
+await home();
+await openProject('list-proj', 'read');
+ok(await titles() === 'Água | bridge | Text 9 | Text 10', 'by title at first, accents and case ignored, numbers as numbers: ' + await titles());
+ok(await count() === '4 texts', 'and how many: ' + await count());
+const genreOpts = await page.locator('#flex-genre option').allInnerTexts();
+ok(JSON.stringify(genreOpts) === '["All genres","Narrative (2)","Procedural (2)","No genre (1)"]', 'FLEx\'s genres, with how many texts each: ' + JSON.stringify(genreOpts));
+await page.selectOption('#flex-genre', { label: 'Narrative (2)' });
+ok(await titles() === 'Text 9 | Text 10' && await count() === '2 of 4 texts', 'one genre: ' + await titles());
+await page.selectOption('#flex-genre', { label: 'No genre (1)' });
+ok(await titles() === 'Água', 'texts with no genre');
+await page.selectOption('#flex-genre', '');
+await page.selectOption('#flex-sort', 'created');
+ok(await titles() === 'Text 10 | Água | Text 9 | bridge', 'created in FLEx, newest first: ' + await titles());
+await page.click('#flex-sort-rev');
+ok(await titles() === 'bridge | Text 9 | Água | Text 10', 'reversed: oldest first');
+await page.click('#flex-sort-rev');
+await page.fill('#flex-q', 'agua');
+ok(await titles() === 'Água', 'the search ignores accents and case');
+await page.fill('#flex-q', 'zzz');
+ok(/No text matches/.test(await page.locator('#flex-texts').innerText()), 'nothing matching says so');
+await page.click('#flex-texts .flex-empty button');
+ok(await titles() === 'Text 10 | Água | Text 9 | bridge' && await page.inputValue('#flex-q') === '', '…and Show all clears the filters (the sort stays)');
+// a working set: checked texts, kept on this device for this project
+await textRow('Text 9').locator('.flex-check').check();
+await textRow('bridge').locator('.flex-check').check();
+await page.check('#flex-list-tools [data-only="checked"]');
+ok(await titles() === 'Text 9 | bridge', 'show only the checked ones: ' + await titles());
+await shot('22-list-checked');
+await home();
+await openProject('list-proj', 'read');
+ok(await titles() === 'Text 9 | bridge' && await page.isChecked('#flex-list-tools [data-only="checked"]') && await page.inputValue('#flex-sort') === 'created',
+   'after a reload: the same checks, the same filter, the same sort');
+await page.uncheck('#flex-list-tools [data-only="checked"]');
+// opened here, latest first: open one, come back
+await textRow('Água').locator('.flex-open-text').click();
+await waitMatcher();
+await page.click('#mg-back');
+await waitHome();
+await page.selectOption('#flex-sort', 'opened');
+await page.waitForFunction(() => /^Água/.test([...document.querySelectorAll('#flex-texts li .doc-name')].map((e) => e.textContent).join(' | ')), null, T(5000));
+ok((await titles()).startsWith('Água'), 'opened here, latest first: ' + await titles());
+await page.check('#flex-list-tools [data-only="opened"]');
+ok(await titles() === 'Água', 'show only the texts opened here');
+await page.uncheck('#flex-list-tools [data-only="opened"]');
+await page.selectOption('#flex-sort', 'title');
+ok(/Narrative/.test(await textRow('Text 10').innerText()), 'each row names its genres');
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

@@ -162,6 +162,15 @@ def _now():
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
+def _ms(stamp):
+    """A stored date ("YYYY-MM-DD HH:MM:SS.fff", UTC, as _now writes it) → epoch milliseconds, or None."""
+    try:
+        d = _dt.datetime.strptime(str(stamp), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=_dt.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    return int(d.timestamp() * 1000)
+
+
 class Obj(dict):
     """One LCM object: dict of fields plus `cls`, `guid`, `owner`. Plain data, deep-copyable."""
 
@@ -228,7 +237,8 @@ class MockLcm(FlexPort):
     def create_project(cls, projects_dir, name, texts=(), sharing=False, model_version=MODEL_VERSION,
                        vern_ws="xx", anal_wss=("en",), media_files=(), vern_wss=None, ws_names=None):
         """Write a fresh project folder. `texts` = [{"title": str, "paragraphs": [str, ...],
-        "media": [path, ...], "ws": vernacular ws of its baseline (default vern_ws)}]. Segments and
+        "media": [path, ...], "ws": vernacular ws of its baseline (default vern_ws), "genres": [name, ...]
+        (FLEx's genre list, made as needed), "created": a stored date}]. Segments and
         analyses are derived as FLEx's parser would. `vern_wss` = the project's current vernacular
         writing systems (vern_ws, the default, first when omitted); `ws_names` = {id: display name}."""
         folder = cls.project_folder(projects_dir, name)
@@ -266,8 +276,25 @@ class MockLcm(FlexPort):
                 f.write('<?xml version="1.0" encoding="utf-8"?>\n<ProjectLexiconSettings projectSharing="true" />\n')
         return folder
 
+    def _genre(self, name):
+        """The genre of that name in the project's genre list (LangProject.GenreList), made if new."""
+        lp = self.store[self._lp]
+        if not lp.get("GenreList"):
+            gl = Obj("CmPossibilityList", owner=self._lp, Possibilities=[])
+            self.store[gl.guid] = gl
+            lp["GenreList"] = gl.guid
+        gl = self.store[lp["GenreList"]]
+        for g in gl["Possibilities"]:
+            if self.store[g]["Name"].get("en") == name:
+                return g
+        poss = Obj("CmPossibility", owner=gl.guid, Name={"en": name})
+        self.store[poss.guid] = poss
+        gl["Possibilities"].append(poss.guid)
+        return poss.guid
+
     def _create_text(self, spec):
-        text = Obj("Text", owner=self._lp, Name={"en": spec.get("title", "Text")}, DateModified=_now())
+        text = Obj("Text", owner=self._lp, Name={"en": spec.get("title", "Text")}, DateModified=_now(),
+                   DateCreated=spec.get("created") or _now(), Genres=[self._genre(n) for n in spec.get("genres", ())])
         self.store[text.guid] = text
         st = Obj("StText", owner=text.guid, Paragraphs=[], DateModified=_now())
         self.store[st.guid] = st
@@ -866,7 +893,7 @@ class MockLcm(FlexPort):
                     o[k] = {a.get("ws"): "".join(r.text or "" for r in a.iter("Run")) for a in fld.findall("AStr")}
                 elif fld.find("objsur") is not None:
                     gs = [x.get("guid") for x in fld.findall("objsur")]
-                    o[k] = gs if (len(gs) > 1 or k in ("Segments", "Paragraphs", "MediaURIs", "Analyses", "Meanings", "MorphBundles", "Evaluations", "AnalWss")) else gs[0]
+                    o[k] = gs if (len(gs) > 1 or k in ("Segments", "Paragraphs", "MediaURIs", "Analyses", "Meanings", "MorphBundles", "Evaluations", "AnalWss", "Genres", "Possibilities")) else gs[0]
                 elif fld.find("Str") is not None:
                     o[k] = ["".join(r.text or "" for r in s.iter("Run")) for s in fld.findall("Str")]
                 elif fld.find("Uni") is not None:
@@ -938,9 +965,12 @@ class MockLcm(FlexPort):
                 for ug in self.store[t["MediaFiles"]]["MediaURIs"]:
                     u = self.store[ug]
                     media.append({"guid": ug, "uri": u["MediaURI"], "exists": mediafind.link_exists(u["MediaURI"], self.linked_files_dir())})
+            stamps = [x for x in (_ms(t.get("DateModified")), _ms(st.get("DateModified"))) if x is not None]
             out.append({"guid": t.guid, "title": nfc(t["Name"].get("en", "")), "paras": len(paras), "segs": len(segs),
                         "timedSegs": sum(1 for s in segs if s["BeginTimeOffset"] is not None),
-                        "media": media, "labelSegs": sum(1 for s in segs if self._is_label(s))})
+                        "media": media, "labelSegs": sum(1 for s in segs if self._is_label(s)),
+                        "created": _ms(t.get("DateCreated")), "modified": max(stamps) if stamps else None,
+                        "genres": [{"guid": g, "name": nfc(self.store[g]["Name"].get("en", ""))} for g in (t.get("Genres") or []) if g in self.store]})
         return out
 
     def _is_label(self, seg):

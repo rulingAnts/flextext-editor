@@ -1138,6 +1138,19 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
   from FLEx — judged by the diff Save would make, never by timestamps), **Fix FLEx's recording
   link…** (writable, a relink pending), **Writing systems…**, **Reset…** (§8.4), **Export bundle…**,
   **Open**; beside Close project, **Reset all texts…**.
+- **Sort and filter** (Seth, 2026-10-16: *"sorting options for texts, including open/pending edits, most
+  recently opened/edited (in this app, in FLEx), alphabetical, date created, etc. Also ability to filter
+  (including by genre or checkbox)"*): above the rows — Sort (Title A–Z by default; work not in FLEx
+  first; opened here, latest first; changed in FLEx, latest first; created in FLEx, newest first; least
+  timed first) with ⇅ to reverse; Genre (FLEx's own, with counts, and *No genre*); a title search
+  (accents and case ignored); *Show only*: work not in FLEx, checked, opened here, with a recording
+  here, not fully timed; a count. Every row has a checkbox — a working set of one's own, which *Show
+  only: checked* lists. `arrangeTexts` (flex-ops.js, node-tested) does the work. FLEx's dates and
+  genres come from `list_texts` (`created` = Text.DateCreated, `modified` = the later of Text/StText
+  DateModified, `genres` = Text.GenresRC — a contract test, so the VM checks them on real data); "opened
+  here" is stamped on every open (`rec.flex.openedAt`). Remembered on the device: sort, direction and
+  *show only* for all projects; the genre and the checked texts per project; the search is for now
+  only. The order FLEx lists texts in is its own storage order (GUIDs), so it is not offered.
 - **The Segmenter's own list leaves FLEx texts to that section** (`hideFromList`; a FLEx record's id
   starts `flex-`): it showed each text again, once per project copy, with no project to tell them apart.
 - **In the Matcher**, a strip under its bar: *FLEx text* (· read-only), **Words in / Glosses in** — the

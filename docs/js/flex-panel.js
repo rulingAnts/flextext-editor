@@ -27,7 +27,7 @@
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
 import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, recordingLink, pendingMediaFix } from './flex-ops.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, arrangeTexts, recordingLink, pendingMediaFix } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
@@ -93,6 +93,20 @@ function renderHome() {
       <button id="flex-redo" class="secondary-btn" disabled>${esc(T('flex.redo'))}</button>
       <button id="flex-import" class="link-btn">${esc(T('flex.import'))}</button>
     </div>
+    <div id="flex-list-tools" class="flex-list-tools" hidden>
+      <label class="flex-tool">${esc(T('flex.list.sort'))} <select id="flex-sort">
+        ${[['title', 'flex.list.byTitle'], ['pending', 'flex.list.byPending'], ['opened', 'flex.list.byOpened'], ['changed', 'flex.list.byChanged'],
+           ['created', 'flex.list.byCreated'], ['timed', 'flex.list.byTimed']]
+          .map(([v, k]) => `<option value="${v}">${esc(T(k))}</option>`).join('')}
+      </select></label>
+      <button id="flex-sort-rev" class="link-btn flex-sort-rev" aria-pressed="false" title="${esc(T('flex.list.reverse'))}" aria-label="${esc(T('flex.list.reverse'))}">⇅</button>
+      <label class="flex-tool">${esc(T('flex.list.genre'))} <select id="flex-genre"></select></label>
+      <input id="flex-q" class="flex-q" type="search" placeholder="${esc(T('flex.list.search'))}" aria-label="${esc(T('flex.list.search'))}">
+      <span id="flex-count" class="flex-count" role="status"></span>
+      <div class="flex-only"><span>${esc(T('flex.list.only'))}</span>
+        ${['pending', 'checked', 'opened', 'recording', 'untimed'].map((k) => `<label><input type="checkbox" data-only="${k}"> ${esc(T('flex.list.only.' + k))}</label>`).join('')}
+      </div>
+    </div>
     <ul id="flex-texts" class="doc-list" hidden></ul>`;
   view.insertBefore(box, view.firstChild);
   $('#flex-project', box).addEventListener('change', onProjectPick);
@@ -101,6 +115,7 @@ function renderHome() {
   $('#flex-close', box).addEventListener('click', closeProject);
   $('#flex-reset-all', box).addEventListener('click', resetAll);
   $('#flex-make-copy', box).addEventListener('click', makeCopy);
+  wireListTools(box);
   $('#flex-undo', box).addEventListener('click', () => undoRedo('undo'));
   $('#flex-redo', box).addEventListener('click', () => undoRedo('redo'));
   $('#flex-import', box).addEventListener('click', importFlextext);
@@ -148,6 +163,7 @@ async function showOpenProject() {
   if (sel) { sel.value = project.name; sel.disabled = true; }
   $('#flex-close').hidden = false;
   $('#flex-reset-all').hidden = false;   // read-only too: it changes nothing in FLEx
+  $('#flex-list-tools').hidden = false;
   $('#flex-make-copy').hidden = true;    // a copy is made with nothing open here
   $('#flex-open-read').disabled = $('#flex-open-write').disabled = true;
   $('#flex-reasons').hidden = true;
@@ -162,6 +178,7 @@ async function closeProject() {
   flexHist.done = []; flexHist.undone = [];
   $('#flex-close').hidden = true;
   $('#flex-reset-all').hidden = true;
+  $('#flex-list-tools').hidden = true;
   $('#flex-project').disabled = false;
   $('#flex-texts').hidden = true;
   $('#flex-project-actions').hidden = true;
@@ -197,10 +214,72 @@ async function makeCopy() {
   } catch (e) { prog.close(); fail(e); } finally { busy = false; }
 }
 
+/* ---- the text list: sorted and filtered (plan §11.1) --------------------------------------------------
+ * Seth, 2026-10-16: "sorting options for texts, including open/pending edits, most recently opened/edited
+ * (in this app, in FLEx), alphabetical, date created, etc. Also ability to filter (including by genre or
+ * checkbox)." flex-ops.js arrangeTexts does the sorting and filtering; here are the controls, a checkbox
+ * on every row (your own working set, filtered by "checked"), and what this device remembers: the sort,
+ * its direction and the "show only" boxes for every project; the genre and the checked texts per project
+ * (a genre is a guid of ONE project's list). The search is for now only. FLEx's dates and genres come
+ * from list_texts; "opened here" is stamped on every open (`rec.flex.openedAt`). */
+const VIEW_KEY = 'flextext-flex-view';
+const view = (() => {
+  const v = { sort: 'title', reverse: false, only: {}, genres: {}, q: '' };
+  try { Object.assign(v, JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'), { q: '' }); } catch { /* a private window: defaults */ }
+  return v;
+})();
+const projectKey = () => (project ? flexDocId(project.name, '').slice('flex-'.length) : '');
+function saveView() {
+  const { q, ...keep } = view;
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(keep)); } catch { /* the view still applies now */ }
+}
+const checkedKey = () => 'flextext-flex-checked' + projectKey();
+function checkedSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(checkedKey()) || '[]')); } catch { return new Set(); }
+}
+function saveChecked(set) {
+  try { localStorage.setItem(checkedKey(), JSON.stringify([...set])); } catch { /* kept for this session only */ }
+}
+function wireListTools(box) {
+  const sortSel = $('#flex-sort', box), rev = $('#flex-sort-rev', box), genreSel = $('#flex-genre', box), q = $('#flex-q', box);
+  sortSel.value = view.sort;
+  rev.setAttribute('aria-pressed', String(!!view.reverse));
+  box.querySelectorAll('[data-only]').forEach((cb) => { cb.checked = !!view.only[cb.dataset.only]; });
+  sortSel.addEventListener('change', () => { view.sort = sortSel.value; saveView(); drawTexts(); });
+  rev.addEventListener('click', () => { view.reverse = !view.reverse; rev.setAttribute('aria-pressed', String(view.reverse)); saveView(); drawTexts(); });
+  genreSel.addEventListener('change', () => { view.genres[projectKey()] = genreSel.value; saveView(); drawTexts(); });
+  q.addEventListener('input', () => { view.q = q.value; drawTexts(); });
+  box.querySelectorAll('[data-only]').forEach((cb) => cb.addEventListener('change', () => {
+    view.only = { ...view.only, [cb.dataset.only]: cb.checked };
+    saveView();
+    drawTexts();
+  }));
+}
+// FLEx's genres, as this project's texts carry them: All, each (with how many), and None if any has none
+function fillGenres() {
+  const sel = $('#flex-genre');
+  if (!sel || !project) return;
+  const count = new Map();
+  let none = 0;
+  for (const tx of project.texts) {
+    if (!(tx.genres || []).length) none++;
+    for (const g of tx.genres || []) count.set(g.guid, { name: g.name || '?', n: ((count.get(g.guid) || {}).n || 0) + 1 });
+  }
+  const list = [...count].sort((a, b) => a[1].name.localeCompare(b[1].name));
+  sel.innerHTML = `<option value="">${esc(T('flex.list.allGenres'))}</option>`
+    + list.map(([guid, g]) => `<option value="${esc(guid)}">${esc(g.name)} (${g.n})</option>`).join('')
+    + (none && list.length ? `<option value="none">${esc(T('flex.list.noGenre', { n: none }))}</option>` : '');
+  const want = view.genres[projectKey()] || '';
+  sel.value = [...sel.options].some((o) => o.value === want) ? want : '';
+  sel.closest('.flex-tool').hidden = !list.length;   // a project without genres has nothing to choose
+}
+
 /* The text rows: what FLEx's link does here, whether the app has its own recording, whether the work
  * done here is in FLEx yet — and the actions that fit. One read of the library for the whole list; a
- * full record read only for the texts that have one. */
+ * full record read only for the texts that have one. A change of sort or filter redraws from what was
+ * read (drawTexts); renderTexts reads again. */
 let renderSeq = 0;
+let rows = [];
 async function renderTexts() {
   const ul = $('#flex-texts');
   if (!ul || !project) return;
@@ -217,22 +296,57 @@ async function renderTexts() {
     if (local.has(id)) recs[tx.guid] = await H.db.getDoc(id).catch(() => null);
   }
   if (seq !== renderSeq || project !== proj) return;   // a newer render, or the project closed meanwhile
-  ul.hidden = false;
-  ul.innerHTML = '';
-  for (const tx of proj.texts) {
-    const rec = recs[tx.guid];
+  const checked = checkedSet();
+  rows = proj.texts.map((tx, i) => {
+    const rec = recs[tx.guid] || null;
     const id = flexDocId(proj.name, tx.guid);
     const todo = rec && rec.flex ? notInFlex(rec) : { save: false, relink: false };
-    const media = have.has(id) ? T('flex.media.inApp')
-      : !tx.media.length ? T('flex.media.noLinkTag')
-      : tx.media.some((m) => m.exists) ? '' : T('flex.mediaMissing');
-    const bits = [T('flex.textMeta', { p: tx.paras, s: tx.segs, t: tx.timedSegs }), wsOf(rec) ? wsPair(wsOf(rec)) : '', media,
-      rec && rec.matchDraft ? T('sg.inProgress') : '', todo.save || todo.relink ? T('flex.textUnsaved') : ''].filter(Boolean);
+    return { tx, rec, id, todo, guid: tx.guid, title: tx.title, flexIndex: i, created: tx.created || null, modified: tx.modified || null,
+      genres: tx.genres || [], segs: tx.segs, timedSegs: tx.timedSegs, pending: !!(todo.save || todo.relink || (rec && rec.matchDraft)),
+      openedAt: rec && rec.flex ? (rec.flex.openedAt || rec.flex.loadedAt || null) : null, recording: have.has(id), checked: checked.has(tx.guid) };
+  });
+  fillGenres();
+  drawTexts();
+}
+function drawTexts() {
+  const ul = $('#flex-texts');
+  if (!ul || !project) return;
+  const shown = arrangeTexts(rows, { ...view, genre: view.genres[projectKey()] || '' });
+  ul.hidden = false;
+  ul.innerHTML = '';
+  const cnt = $('#flex-count');
+  if (cnt) cnt.textContent = shown.length === rows.length ? T('flex.list.countAll', { n: rows.length }) : T('flex.list.count', { n: shown.length, all: rows.length });
+  if (!shown.length && rows.length) {
     const li = document.createElement('li');
-    li.className = 'rec-item';
-    li.dataset.textGuid = tx.guid;
-    // the Segmenter list's own row structure (sgRenderList), so the app's styles apply
-    li.innerHTML = `<div class="rec-item-main"><span class="doc-name"></span>
+    li.className = 'flex-empty';
+    li.innerHTML = `<span>${esc(T('flex.list.none'))}</span> <button class="link-btn">${esc(T('flex.list.showAll'))}</button>`;
+    li.querySelector('button').addEventListener('click', () => {
+      view.only = {}; view.q = ''; view.genres[projectKey()] = '';
+      saveView();
+      document.querySelectorAll('#flex-list-tools [data-only]').forEach((cb) => { cb.checked = false; });
+      const q = $('#flex-q'); if (q) q.value = '';
+      fillGenres();
+      drawTexts();
+    });
+    ul.appendChild(li);
+    return;
+  }
+  for (const r of shown) ul.appendChild(textRow(r));
+}
+function textRow(r) {
+  const { tx, rec, id, todo } = r;
+  const proj = project;
+  const media = r.recording ? T('flex.media.inApp')
+    : !tx.media.length ? T('flex.media.noLinkTag')
+    : tx.media.some((m) => m.exists) ? '' : T('flex.mediaMissing');
+  const bits = [T('flex.textMeta', { p: tx.paras, s: tx.segs, t: tx.timedSegs }), r.genres.map((g) => g.name).join(', '), wsOf(rec) ? wsPair(wsOf(rec)) : '', media,
+    rec && rec.matchDraft ? T('sg.inProgress') : '', todo.save || todo.relink ? T('flex.textUnsaved') : ''].filter(Boolean);
+  const li = document.createElement('li');
+  li.className = 'rec-item';
+  li.dataset.textGuid = tx.guid;
+  // the Segmenter list's own row structure (sgRenderList), so the app's styles apply
+  li.innerHTML = `<label class="flex-check-wrap" title="${esc(T('flex.list.checkTip'))}"><input type="checkbox" class="flex-check" aria-label="${esc(T('flex.list.checkTip'))}"${r.checked ? ' checked' : ''}></label>
+    <div class="rec-item-main"><span class="doc-name"></span>
         <span class="doc-meta">${esc(bits.join(' · '))}</span></div>
       <div class="rec-item-actions">
         ${proj.writable && todo.save ? `<button class="primary-btn flex-save-text">${esc(T('flex.save'))}</button>` : ''}
@@ -242,19 +356,25 @@ async function renderTexts() {
         ${rec ? `<button class="link-btn flex-export-text">${esc(T('flex.export'))}</button>` : ''}
         <button class="secondary-btn flex-open-text">${esc(T('flex.openText'))}</button>
       </div>`;
-    li.querySelector('.doc-name').textContent = tx.title;   // titles reach the UI only, never a log
-    li.querySelector('.flex-open-text').addEventListener('click', () => openText(tx));
-    const sv = li.querySelector('.flex-save-text');
-    if (sv) sv.addEventListener('click', () => saveTextToFlex(tx));
-    const fx = li.querySelector('.flex-fix-link');
-    if (fx) fx.addEventListener('click', () => fixLink(tx));
-    const ex = li.querySelector('.flex-export-text');
-    if (ex) ex.addEventListener('click', () => exportBundle(tx));
-    li.querySelector('.flex-ws-text').addEventListener('click', () => chooseWs(tx));
-    const rs = li.querySelector('.flex-reset-text');
-    if (rs) rs.addEventListener('click', () => resetText(tx));
-    ul.appendChild(li);
-  }
+  li.querySelector('.doc-name').textContent = tx.title;   // titles reach the UI only, never a log
+  li.querySelector('.flex-check').addEventListener('change', (e) => {
+    const set = checkedSet();
+    if (e.target.checked) set.add(tx.guid); else set.delete(tx.guid);
+    saveChecked(set);
+    r.checked = e.target.checked;
+    if (view.only.checked) drawTexts();
+  });
+  li.querySelector('.flex-open-text').addEventListener('click', () => openText(tx));
+  const sv = li.querySelector('.flex-save-text');
+  if (sv) sv.addEventListener('click', () => saveTextToFlex(tx));
+  const fx = li.querySelector('.flex-fix-link');
+  if (fx) fx.addEventListener('click', () => fixLink(tx));
+  const ex = li.querySelector('.flex-export-text');
+  if (ex) ex.addEventListener('click', () => exportBundle(tx));
+  li.querySelector('.flex-ws-text').addEventListener('click', () => chooseWs(tx));
+  const rs = li.querySelector('.flex-reset-text');
+  if (rs) rs.addEventListener('click', () => resetText(tx));
+  return li;
 }
 /* What FLEx does not have yet of the work COMMITTED here (the Matcher's Done): text or time changes →
  * Save to FLEx…; a recording link that points nowhere → Fix FLEx's recording link…. Judged by the diff
@@ -338,6 +458,7 @@ async function openTextSteps(tx, pause, resume) {
     rec.flex.recording = got.recording;
     rec.flex.mediaFix = got.fix;
   }
+  rec.flex.openedAt = Date.now();          // "opened here", for the list's sort and filter
   await H.db.putDoc(rec);                  // a raw write: opening is not an edit
   await H.openRecord(id);
   if (after) { pause(); H.toast(after, 9000); }

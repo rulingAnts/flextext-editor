@@ -175,6 +175,17 @@ def _map_open_error(e):
     return e
 
 
+def _epoch_ms(dt):
+    """A .NET DateTime (LCM's DateCreated / DateModified) → epoch milliseconds (UTC), or None when unset."""
+    if dt is None:
+        return None
+    try:
+        ms = (int(dt.ToUniversalTime().Ticks) - 621355968000000000) // 10000
+    except Exception:   # noqa: BLE001
+        return None
+    return ms if ms > 0 else None
+
+
 def _cast(obj):
     """pythonnet respects .NET interface typing strictly (pyflexicon lcm_casting): an element of a
     collection or an .Owner is typed as the base interface and exposes nothing of the concrete one.
@@ -492,9 +503,25 @@ class RealLcm(FlexPort):
             segs = [_cast(s) for p in paras for s in p.SegmentsOS]
             lf = self.linked_files_dir()
             media = [{"guid": str(u.Guid), "uri": path, "exists": mediafind.link_exists(path, lf)} for u, path in self._media_uris(t)]
+            st = t.ContentsOA
+            stamps = [x for x in (_epoch_ms(getattr(t, "DateModified", None)), _epoch_ms(getattr(st, "DateModified", None) if st is not None else None)) if x is not None]
             out.append({"guid": str(t.Guid), "title": self._best(t.Name), "paras": len(paras), "segs": len(segs),
                         "timedSegs": sum(1 for s in segs if s.BeginTimeOffset), "media": media,
-                        "labelSegs": sum(1 for s in segs if s.IsLabel)})
+                        "labelSegs": sum(1 for s in segs if s.IsLabel),
+                        # for sorting and filtering the list (plan §11.1): FLEx's own dates and genres
+                        "created": _epoch_ms(getattr(t, "DateCreated", None)), "modified": max(stamps) if stamps else None,
+                        "genres": self._genres(t)})
+        return out
+
+    def _genres(self, text):
+        """IText.GenresRC: the text's genres from the project's genre list, {guid, name}."""
+        out = []
+        try:
+            for g in text.GenresRC:
+                g = _cast(g)
+                out.append({"guid": str(g.Guid), "name": self._best(g.Name)})
+        except Exception:   # noqa: BLE001 — the list's sort and filter are comfort; never fail a listing for them
+            LOG.warning("genres not read for a text")
         return out
 
     def read_text(self, guid):

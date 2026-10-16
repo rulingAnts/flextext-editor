@@ -654,6 +654,28 @@ await rowLacks('.flex-save-text');
 md = await flexDoc('Merge text');
 ok(md.paragraphs[2].segments[0].free === 'line three, here' && md.paragraphs[1].segments[0].words[0].gls === 'D-FLEx', 'FLEx has both');
 
+// ── 11. this build writes only to a marked copy: one click makes one (Seth, 2026-10-16: "So far audio
+// segmenter can't write at all yet. Now's the time to start changing that.") ─────────────────────────────
+await home();
+await rpc('close_project', []);
+await page.selectOption('#flex-project', 'media-proj');
+ok(await page.locator('#flex-open-write').isDisabled() && await page.locator('#flex-make-copy').isVisible(),
+   'a project this build may not write: Open for writing is off, and the way to a copy is right beside the reason');
+await page.click('#flex-make-copy');
+await page.waitForSelector('[data-confirm-dialog]', T(10000));
+const cdl = await page.locator('[data-confirm-dialog]').innerText();
+ok(/media-proj - copy for writing/.test(cdl) && /without its Send\/Receive repository/.test(cdl) && /Close FLEx first/.test(cdl),
+   'the confirmation names the copy, says Send/Receive stays behind, and asks for FLEx closed: ' + cdl.replace(/\n+/g, ' | ').slice(0, 200));
+await shot('21-make-copy');
+await page.click('[data-confirm-dialog] [data-cf="ok"]');
+await page.waitForFunction(() => /Made “media-proj - copy for writing”/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(15000));
+ok(await page.locator('#flex-project').inputValue() === 'media-proj - copy for writing' && !(await page.locator('#flex-open-write').isDisabled()),
+   'the copy is chosen, and opens for writing');
+ok(!(await page.locator('#flex-make-copy').isVisible()), 'it needs no copy of its own');
+await page.click('#flex-open-write');
+await page.waitForSelector('#flex-texts li', T(10000));
+ok((await textRow('Missing link text').innerText()).length > 0 && await page.locator('#flex-project-actions').isVisible(), 'open for writing: the texts, and Undo/Redo/Import');
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

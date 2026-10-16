@@ -87,6 +87,7 @@ function renderHome() {
       <button id="flex-reset-all" class="link-btn" hidden>${esc(T('flex.resetAll'))}</button>
     </div>
     <p id="flex-reasons" class="flex-reasons" hidden></p>
+    <button id="flex-make-copy" class="secondary-btn" hidden>${esc(T('flex.copy.make'))}</button>
     <div class="flex-row" id="flex-project-actions" hidden>
       <button id="flex-undo" class="secondary-btn" title="${esc(T('flex.undoTip'))}" disabled>${esc(T('flex.undo'))}</button>
       <button id="flex-redo" class="secondary-btn" disabled>${esc(T('flex.redo'))}</button>
@@ -99,6 +100,7 @@ function renderHome() {
   $('#flex-open-write', box).addEventListener('click', () => openProject('write'));
   $('#flex-close', box).addEventListener('click', closeProject);
   $('#flex-reset-all', box).addEventListener('click', resetAll);
+  $('#flex-make-copy', box).addEventListener('click', makeCopy);
   $('#flex-undo', box).addEventListener('click', () => undoRedo('undo'));
   $('#flex-redo', box).addEventListener('click', () => undoRedo('redo'));
   $('#flex-import', box).addEventListener('click', importFlextext);
@@ -110,6 +112,7 @@ async function loadProjects() {
   try { projects = await flex.listProjects(); } catch (e) { fail(e); return; }
   const sel = $('#flex-project');
   if (!sel) return;
+  for (const o of [...sel.options]) if (o.value) o.remove();   // a reload (a copy just made) starts clean
   for (const p of projects) {
     const o = document.createElement('option');
     o.value = p.name;
@@ -124,6 +127,8 @@ function onProjectPick() {
   const r = $('#flex-reasons');
   r.hidden = !p || !p.reasons.length;
   if (p && p.reasons.length) r.textContent = p.reasons.map((c) => T('flex.err.' + c)).join(' ');
+  // this build writes only to a marked copy: the way to one, right where it says so
+  $('#flex-make-copy').hidden = !p || !!project || !p.reasons.includes('E_COPY_ONLY');
 }
 async function openProject(mode) {
   const name = $('#flex-project').value;
@@ -143,6 +148,7 @@ async function showOpenProject() {
   if (sel) { sel.value = project.name; sel.disabled = true; }
   $('#flex-close').hidden = false;
   $('#flex-reset-all').hidden = false;   // read-only too: it changes nothing in FLEx
+  $('#flex-make-copy').hidden = true;    // a copy is made with nothing open here
   $('#flex-open-read').disabled = $('#flex-open-write').disabled = true;
   $('#flex-reasons').hidden = true;
   $('#flex-project-actions').hidden = !project.writable;
@@ -160,6 +166,35 @@ async function closeProject() {
   $('#flex-texts').hidden = true;
   $('#flex-project-actions').hidden = true;
   onProjectPick();
+}
+
+/* ---- Make a copy to write to (plan §12.3) -------------------------------------------------------------
+ * Seth, 2026-10-16: "So far audio segmenter can't write at all yet. Now's the time to start changing that."
+ * This build writes only to a marked disposable copy, which had to be made by hand — and a copy made by
+ * hand carries the project's Send/Receive repository, so a Send/Receive from it could send test writes to
+ * the team's shared project. The shell copies the folder beside the original without it, renames it,
+ * marks it, and only reads the original; the copy then opens for writing like any project. */
+async function makeCopy() {
+  if (busy || project) return;
+  const name = $('#flex-project').value;
+  const p = projects.find((x) => x.name === name);
+  if (!p) return;
+  let plan;
+  const reading = working(T('flex.reading'));
+  try { plan = await flex.copyPlan(name); } catch (e) { reading(); fail(e); return; } finally { reading(); }
+  const msg = T('flex.copy.confirm', { p: name, c: plan.name, s: sizeText(plan.bytes), f: sizeText(plan.free) })
+    + (p.sharing ? '\n\n' + T('flex.copy.sharing') : '');
+  if (!await H.confirmDialog(msg, { ok: T('flex.copy.ok'), cancel: T('share.cancel') })) return;   // nothing is lost by it: not a destructive question
+  busy = true;
+  const prog = progressModal(T('flex.copy.making', { c: plan.name }));
+  try {
+    const r = await flexJobWithProgress('make_copy', name, (x) => prog.set(x && x.n ? T('flex.copy.progress', { i: x.i, n: x.n }) : ''));
+    prog.close();
+    await loadProjects();
+    $('#flex-project').value = r.name;
+    onProjectPick();
+    H.toast(T('flex.copy.done', { c: r.name }), 10000);
+  } catch (e) { prog.close(); fail(e); } finally { busy = false; }
 }
 
 /* The text rows: what FLEx's link does here, whether the app has its own recording, whether the work
@@ -326,7 +361,7 @@ function fromFlex(existing, id, tx, opened) {
 /* ---- the recording (§8.4) ------------------------------------------------------------------------- */
 const baseName = (s) => String(s || '').split(/[\\/]/).filter(Boolean).pop() || '';
 const stemOf = (n) => baseName(n).replace(/\.[^.]*$/, '').toLowerCase();
-const sizeText = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+const sizeText = (n) => (n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 function adopted(u, link, source) {
   return { recording: { source, name: u.name, path: u.path, uriGuid: link ? link.uriGuid : null },
            fix: { uriGuid: link ? link.uriGuid : null, path: u.path } };

@@ -116,8 +116,9 @@ record an older build made (no glosses, no translations) read again from FLEx in
 systems, switching them inside the Matcher (in place; read-only when there is unsaved work), words
 joined with Backspace / split with Space saved to FLEx, Reset… / Reset all texts… (a draft and unsaved
 changes named first; the recording kept, or forgotten with the shell's remembered choice), the loading
-spinner on a slowed shell, and check-in with a merge (FLEx edits the text between the check-out and the
-check-in: only the work done here is written, FLEx's changes stay, a conflict is asked about first). It needs Node with Playwright and a Chromium
+spinner on a slowed shell, check-in with a merge (FLEx edits the text between the check-out and the
+check-in: only the work done here is written, FLEx's changes stay, a conflict is asked about first), and
+Make a copy to write to… (a copy-only build's way to a project it may write). It needs Node with Playwright and a Chromium
 (`FLEX_E2E_SHOTS=<dir>` keeps screenshots) and skips itself without them. It is the first thing to run
 after touching `flex-panel.js`, `flex-ops.js`, `api.py`, `protocol.py` or the server's CSP: it found the
 CSP that loaded every recording and played none before any VM did, and with the protocol tests it found
@@ -171,7 +172,10 @@ Electron test build. No GitHub Actions workflow (repository policy).
 
 ## What must be verified on the VM, with real FLEx, on a disposable copy
 
-In this order. The scripts refuse a folder without the copy marker.
+In this order. The scripts refuse a folder without the copy marker. **Making the copy:** close FLEx,
+choose the project in the shell and press **Make a copy to write to…** (shown under "This build writes
+only to a marked disposable copy"): it copies the project folder beside the original, renamed and
+marked, WITHOUT its Send/Receive repository — never Send/Receive from a copy made by hand.
 
 1. **Conformance** — `python desktop/vm/run_conformance.py --project <copy>` runs
    `desktop/tests/contract` against `lcm_real`. Any mismatch with the mock is a bug in the mock or

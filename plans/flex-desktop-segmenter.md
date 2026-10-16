@@ -1208,6 +1208,18 @@ created by the copy script, and the project name is not in a protected list. The
 like `electron/src/flags.js`: anything but an explicit release stamp means copy-only (fail
 closed). Read-only features work on any project.
 
+**Make a copy to write to…** (2026-10-16; Seth: *"So far audio segmenter can't write at all yet. Now's
+the time to start changing that."*) — beside the copy-only reason, for a project this build may not
+write, with nothing open in the shell. `make_copy` (a job) copies the project folder beside the original
+as `<name> - copy for writing` (then ` 2`, ` 3`…) — into `<new>.partial`, renamed when complete, so a
+copy cut short never looks like a project — renames `<name>.*` at its top to match the folder, and
+writes the marker. It LEAVES BEHIND Send/Receive (`.hg`, `.hgignore`, `OtherRepositories`,
+`*.ChorusNotes`): a hand copy carries the team's repository, and a Send/Receive from it could send test
+writes to the shared project. Also left: the lock, `.tmp`, FLEx's `.bak`. Refused while FLEx (or
+anything) holds the project — a copy of a project mid-save could be half a save — and when the space is
+not there. The original is only read. Sharing, if on, comes with the copy (turned off in FLEx, for the
+copy, before writing: the confirmation says so).
+
 ---
 
 ## 13. Testing strategy

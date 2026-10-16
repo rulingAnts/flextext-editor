@@ -177,6 +177,39 @@ class Api:
                 "printViewConfig": _print_view_config(folder), "glossWsDefaults": [w["id"] for w in ws["anal"][:1]],
                 "versions": versions}
 
+    def _project_folder(self, name):
+        if not isinstance(name, str) or not name or os.sep in name or "/" in name or name.startswith("."):
+            raise FlexError("E_NOT_FOUND", "no such project", {})
+        folder = os.path.join(self._projects_dir or "", name)
+        if not os.path.isfile(os.path.join(folder, name + ".fwdata")):
+            raise FlexError("E_NOT_FOUND", "no such project", {"project": name})
+        return folder
+
+    @exposed
+    def copy_plan(self, name):
+        """What "Make a copy to write to…" would make of a project (plan §12.3). Reads only."""
+        self._project_folder(name)
+        return copyonly.copy_plan(self._projects_dir, name)
+
+    @exposed
+    def make_copy(self, name):
+        """A disposable copy of a project, beside it, marked so this build may write to it, its Send/Receive
+        repository left behind (plan §12.3) — a job. Only with no project open here, and the project free:
+        a copy of a project something is saving could be a copy of half a save."""
+        folder = self._project_folder(name)
+        if self._session is not None:
+            raise FlexError("E_ALREADY_OPEN", "close the project open here first", {"open": self._registry.open_name})
+        lock, _info = prechecks.read_lock(folder, name)
+        if lock == prechecks.LOCK_FLEX:
+            raise FlexError("E_FLEX_HOLDS_PROJECT", prechecks.MESSAGES["E_FLEX_HOLDS_PROJECT"], {"project": name})
+        if lock in (prechecks.LOCK_OTHER, prechecks.LOCK_BUSY):
+            raise FlexError("E_LOCKED_OTHER", prechecks.MESSAGES["E_LOCKED_OTHER"], {"project": name})
+        if prechecks.file_state(folder, name)["crashedSave"]:
+            raise FlexError("E_CRASHED_SAVE_STATE", prechecks.MESSAGES["E_CRASHED_SAVE_STATE"], {"project": name})
+        new = copyonly.copy_name(self._projects_dir, name)
+        return self._job("make_copy", lambda j: copyonly.make_disposable_copy(self._projects_dir, name, new,
+                                                                              progress=lambda p: setattr(j, "progress", p)))
+
     def _need_session(self):
         if not self._session:
             raise FlexError("E_NOT_FOUND", "no project is open", {})

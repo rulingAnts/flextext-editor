@@ -89,6 +89,34 @@ def test_list_projects_is_filesystem_only(api):
     assert api._factory.last is None, "never opens a project"
 
 
+def test_make_a_copy_to_write_to_through_the_bridge(api, tmp_path):
+    """Plan §12.3: the copy-only build's way to a project it may write — one click, a job, the original
+    only read; the copy listed writable and opening for writing."""
+    plan = ok(api.copy_plan("prod"))
+    assert plan["name"] == "prod - copy for writing" and plan["files"] >= 1 and plan["free"] > plan["bytes"]
+    st = wait(api, ok(api.make_copy("prod")))
+    assert st["state"] == "done" and st["result"] == {"name": "prod - copy for writing"}, st
+    listed = {p["name"]: p for p in ok(api.list_projects())}
+    assert listed["prod - copy for writing"]["writable"] and listed["prod - copy for writing"]["disposableCopy"]
+    assert listed["prod"]["reasons"] == ["E_COPY_ONLY"], "the original is as it was"
+    ok(api.open_project("prod - copy for writing", "write"))
+    assert len(ok(api.list_texts())) == len(TEXTS)
+    ok(api.close_project())
+
+
+def test_a_copy_is_refused_while_a_project_is_open_or_held(api, tmp_path):
+    ok(api.open_project("copy-api", "read"))
+    assert err(api.make_copy("prod"))["code"] == "E_ALREADY_OPEN"
+    ok(api.close_project())
+    lock = tmp_path / "Projects" / "prod" / "prod.fwdata.lock"
+    lock.write_text(json.dumps({"PID": os.getpid(), "ProcessName": "FieldWorks"}), encoding="utf-8")
+    assert err(api.make_copy("prod"))["code"] == "E_FLEX_HOLDS_PROJECT", "FLEx holding it could be mid-save"
+    lock.unlink()
+    for bad in ("../prod", "nope", "", None):
+        assert err(api.make_copy(bad))["code"] == "E_NOT_FOUND"
+    assert not [p for p in (tmp_path / "Projects").iterdir() if "copy for writing" in p.name]
+
+
 def test_open_write_read_close_lifecycle(api):
     r = ok(api.open_project("copy-api", "write"))
     assert r["writable"] and r["ws"]["vern"][0]["id"] == "xx" and r["glossWsDefaults"] == ["en"]

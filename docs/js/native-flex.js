@@ -138,6 +138,7 @@ export async function flexJob(method, ...args) {
 export const flex = {
   hello: () => flexCall('hello'),
   listProjects: () => flexCall('list_projects'),
+  copyPlan: (name) => flexCall('copy_plan', name),   // "Make a copy to write to…" (plan §12.3); the copy itself is a job
   openProject: (name, mode) => flexCall('open_project', name, mode),
   closeProject: () => flexCall('close_project'),
   listTexts: () => flexCall('list_texts'),

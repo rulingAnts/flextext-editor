@@ -533,6 +533,31 @@ await page.click('[data-flex-media] [data-cancel]');
 await page.waitForSelector('[data-flex-media]', { state: 'detached', timeout: 5000 });
 await shot('17-after-reset');
 
+// ── 9. a slow FLEx: the app says it is working (Seth, 2026-10-16: "We do need a loading spinner instead of
+// just an app that looks like it's frozen after 'open' is clicked") ─────────────────────────────────────
+const scrim = () => page.evaluate(() => { const el = document.querySelector('.rp-loading'); return el ? el.innerText : null; });
+await home();
+await rpc('close_project', []);
+await rpc('__slow', ['open_project', 1500]);
+await page.selectOption('#flex-project', 'media-copy');
+await page.click('#flex-open-read');
+const projScrim = await page.waitForSelector('.rp-loading', T(400)).then(() => scrim(), () => null);
+ok(projScrim && /Opening media-copy/.test(projScrim) && await page.evaluate(() => !!document.querySelector('.rp-loading .rp-spinner')),
+   'opening a project: a spinner and what is happening, at once: ' + JSON.stringify(projScrim));
+await shot('18-opening-project');
+await page.waitForSelector('#flex-texts li', T(10000));
+ok(await scrim() === null, 'and gone once the texts are listed');
+await rpc('__slow', ['open_project', 0]);
+await rpc('__slow', ['open_text', 1500]);
+await textRow('Missing link text').locator('.flex-open-text').click();
+const textScrim = await page.waitForSelector('.rp-loading', T(400)).then(() => scrim(), () => null);
+ok(textScrim && /Opening “Missing link text”/.test(textScrim), 'opening a text: the same, naming the text: ' + JSON.stringify(textScrim));
+await waitMatcher();
+ok(await scrim() === null, 'and gone once the Matcher is up');
+await rpc('__slow', ['open_text', 0]);
+await page.click('#mg-back');
+await waitHome();
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

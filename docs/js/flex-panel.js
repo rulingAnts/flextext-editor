@@ -31,14 +31,26 @@ import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexD
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
-let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, getCurrent, openRecord, reopenRecord, matcherEdited,
-                  //   forgetRecord, selectedSegGuid, hideFromList, claimLangView, langView, setLangView, fetchMedia }
+let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, busyScrim, getCurrent, openRecord, reopenRecord,
+                  //   matcherEdited, forgetRecord, selectedSegGuid, hideFromList, claimLangView, langView, setLangView, fetchMedia }
 // project.ws = FLEx's writing systems, { vern: [{ id, name, abbr, isDefault }], anal: [...] } (open_project)
 let project = null;   // { name, writable, ws, printViewConfig, texts: [...] } while a project is open in the shell
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const T = (k, v) => (H && H.t ? H.t(k, v) : k);
+
+/* "Working…" while FLEx is read or written (Seth, 2026-10-16: "We do need a loading spinner instead of
+ * just an app that looks like it's frozen after 'open' is clicked"). LCM reads a whole project, or a
+ * text, in seconds on a real machine, and the page waited with no sign of life. This is the app's own
+ * loading scrim (app.js busyScrim: a spinner and what is happening, the page held so a second click
+ * cannot start a second open), up within a frame of the click. It comes DOWN before anything asks the
+ * user a question — a dialog never opens over "Opening…" — and goes up again for the next wait.
+ * → a stopper, safe to call more than once. */
+function working(label) {
+  let off = H && H.busyScrim ? H.busyScrim(label) : null;
+  return () => { if (off) { off(); off = null; } };
+}
 
 export function initFlexPanel(hooks) {
   H = hooks;
@@ -116,12 +128,15 @@ function onProjectPick() {
 async function openProject(mode) {
   const name = $('#flex-project').value;
   if (!name) return;
+  const done = working(T('flex.openingProject', { p: name }));   // the list of texts is part of the wait
   try {
-    const r = await flex.openProject(name, mode);
-    project = { name, writable: r.writable, ws: r.ws, printViewConfig: r.printViewConfig, texts: await flex.listTexts() };
-  } catch (e) { fail(e); return; }
-  flexHist.done = []; flexHist.undone = [];
-  await showOpenProject();
+    try {
+      const r = await flex.openProject(name, mode);
+      project = { name, writable: r.writable, ws: r.ws, printViewConfig: r.printViewConfig, texts: await flex.listTexts() };
+    } catch (e) { done(); fail(e); return; }
+    flexHist.done = []; flexHist.undone = [];
+    await showOpenProject();
+  } finally { done(); }
 }
 async function showOpenProject() {
   const sel = $('#flex-project');
@@ -135,7 +150,8 @@ async function showOpenProject() {
   await renderTexts();
 }
 async function closeProject() {
-  try { await flex.closeProject(); } catch (e) { fail(e); }
+  const done = working(T('flex.closingProject'));
+  try { await flex.closeProject(); } catch (e) { done(); fail(e); } finally { done(); }
   project = null;
   flexHist.done = []; flexHist.undone = [];
   $('#flex-close').hidden = true;
@@ -231,6 +247,12 @@ async function openText(tx) {
   try { await openTextNow(tx); } finally { opening = false; }
 }
 async function openTextNow(tx) {
+  let done = working(T('flex.openingText', { t: tx.title }));
+  const again = () => { done = working(T('flex.openingText', { t: tx.title })); };
+  try { await openTextSteps(tx, () => done(), again); } finally { done(); }
+}
+// The steps of an open; `pause` takes the spinner down before a question, `resume` puts it back.
+async function openTextSteps(tx, pause, resume) {
   const id = flexDocId(project.name, tx.guid);
   const existing = await H.db.getDoc(id).catch(() => null);
   const local = hasLocalWork(existing);
@@ -239,12 +261,14 @@ async function openTextNow(tx) {
   // own (the shell's default) — the one it is glossed and translated in, which that build never read.
   const ws = existing && existing.flex ? (existing.flex.ws || (local ? wsOf(existing) : null)) : null;
   let opened;
-  try { opened = await flex.openText(tx.guid, ws); } catch (e) { fail(e); return; }
+  try { opened = await flex.openText(tx.guid, ws); } catch (e) { pause(); fail(e); return; }
   const how = reopenDecision(existing, opened.baseRev, local);
   let rec;
   if (how === 'ask') {
     // the destructive answer is the one Escape and a click outside never give
+    pause();
     const load = await H.confirmDialog(T('flex.reopen.conflict'), { ok: T('flex.reopen.loadFlex'), cancel: T('flex.reopen.keep'), cancelFirst: true });
+    resume();
     rec = load ? fromFlex(existing, id, tx, opened) : existing;
   } else {
     rec = how === 'keep' ? existing : fromFlex(existing, id, tx, opened);
@@ -255,8 +279,10 @@ async function openTextNow(tx) {
   // the recording: this app's own copy if it has one; else FLEx's link, a remembered choice, or the user
   const have = await H.db.getMedia(id).catch(() => null);
   if (!have) {
+    pause();                               // the card, or the copy's own progress, says what happens now
     const got = await obtainRecording(id, tx, links);
     if (!got) return;                      // "Not now": nothing stored, nothing opened
+    resume();
     rec.flex.recording = got.recording;
     rec.flex.mediaFix = got.fix;
   }
@@ -403,7 +429,8 @@ const wsPair = (ws) => T('flex.ws.pair', { v: wsName(ws.vern, 'vern'), a: wsName
 async function chooseWs(tx) {
   if (busy || !project) return;
   let info;
-  try { info = await flex.textWs(tx.guid); } catch (e) { fail(e); return; }
+  const reading = working(T('flex.reading'));
+  try { info = await flex.textWs(tx.guid); } catch (e) { reading(); fail(e); return; } finally { reading(); }
   const id = flexDocId(project.name, tx.guid);
   const rec = await H.db.getDoc(id).catch(() => null);
   const cur = wsOf(rec) || info.default;
@@ -420,6 +447,7 @@ async function chooseWs(tx) {
     return;
   }
   busy = true;
+  const done = working(T('flex.reading'));
   try {
     const opened = await flex.openText(tx.guid, pick);
     const next = fromFlex(rec, id, tx, opened);
@@ -427,8 +455,9 @@ async function chooseWs(tx) {
     next.flex.linkOk = ((opened.doc.flex && opened.doc.flex.media) || []).some((m) => m.url);
     await H.db.putDoc(next);              // a raw write: a new view of FLEx's text is not an edit
     await renderTexts();
+    done();
     wsChangedToast(opened);
-  } catch (e) { fail(e); } finally { busy = false; }
+  } catch (e) { done(); fail(e); } finally { done(); busy = false; }
 }
 /* → { vern, anal } or null. Each option says how much of this text is in it, and which is its own. */
 function wsDialog(tx, info, cur) {
@@ -541,10 +570,12 @@ async function resetText(tx) {
   const pick = await resetDialog({ title: tx.title, lost: workLost(rec) });
   if (!pick || !project) return;
   busy = true;
+  const done = working(T('flex.reading'));
   try {
     await resetOne(tx.guid, rec, pick.media);
+    done();
     H.toast(T(pick.media ? 'flex.reset.doneMedia' : 'flex.reset.done'), 7000);
-  } catch (e) { fail(e); } finally { busy = false; }
+  } catch (e) { done(); fail(e); } finally { done(); busy = false; }
   await renderTexts();
 }
 /* Every local record of THIS project's texts (isFlexDocOf — a copy of the project keeps its own). A
@@ -641,6 +672,7 @@ async function switchWs(kind, value) {
     return;
   }
   busy = true;
+  const done = working(T('flex.reading'));
   try {
     const opened = await flex.openText(rec.flex.textGuid, { ...ws, [kind]: value });
     // an edit made, or a text opened, while FLEx was being read wins: nothing is replaced under it
@@ -652,8 +684,9 @@ async function switchWs(kind, value) {
     next.flex.linkOk = ((opened.doc.flex && opened.doc.flex.media) || []).some((m) => m.url);
     await H.db.putDoc(next);              // a raw write: a new view of FLEx's text is not an edit
     await H.reopenRecord(rec.id);
+    done();
     wsChangedToast(opened);
-  } catch (e) { fail(e); renderMatcherStrip(); } finally { busy = false; }
+  } catch (e) { done(); fail(e); renderMatcherStrip(); } finally { done(); busy = false; }
 }
 // Words shown in a vernacular writing system the text is not written in are FLEx's alternatives for
 // them: they show, and the shell refuses to save a change to them (E_WS_WORDS) — so say so up front.
@@ -677,15 +710,20 @@ async function saveTextNow(tx) {
   const id = flexDocId(project.name, tx.guid);
   const rec = await H.db.getDoc(id).catch(() => null);
   if (!rec || !rec.flex) return;
+  const done = working(T('flex.preparingSave'));   // down before the preview (or any message) shows
+  try { await saveSteps(tx, id, rec, done); } finally { done(); }
+}
+async function saveSteps(tx, id, rec, done) {
   let opened;
-  try { opened = await flex.openText(tx.guid, wsOf(rec)); } catch (e) { fail(e); return; }
-  if (opened.baseRev !== rec.flex.baseRev) { fail({ code: 'E_STALE_BASE' }); return; }
+  try { opened = await flex.openText(tx.guid, wsOf(rec)); } catch (e) { done(); fail(e); return; }
+  if (opened.baseRev !== rec.flex.baseRev) { done(); fail({ code: 'E_STALE_BASE' }); return; }
   const base = rec.flex.base;
   // a recording this app found for a link that points nowhere rides along, shown in the preview (§8.4)
   const diff = diffFlexDoc(base, rec.doc, { ws: rec.doc.analLang, ...pendingMediaFix(rec.flex) });
   const blockers = flexBlockers(rec.doc, diff.touched).filter((b) => b.blocking);
-  if (!diff.ops.length && !diff.unsupported.length) { H.toast(T('flex.nothingToSave')); return; }
+  if (!diff.ops.length && !diff.unsupported.length) { done(); H.toast(T('flex.nothingToSave')); return; }
   if (diff.unsupported.length) {
+    done();
     const why = [...new Set(diff.unsupported.map((u) => T('flex.unsupported.' + u.why)))].join('\n');
     H.toast(T('flex.cannotDiff') + '\n' + why, 9000);
     return;
@@ -693,7 +731,8 @@ async function saveTextNow(tx) {
   let preview;
   try {
     preview = await flex.previewSave(tx.guid, rec.flex.baseRev, diff.ops, postStateOf(rec.doc, diff.touched, base));
-  } catch (e) { fail(e); return; }
+  } catch (e) { done(); fail(e); return; }
+  done();
   if (!await showPreview(preview, blockers, flexBlockers(rec.doc, diff.touched).filter((b) => !b.blocking))) return;
   const prog = progressModal(T('flex.saving'));
   try {
@@ -748,11 +787,13 @@ async function fixLinkNow(tx) {
   const rec = await H.db.getDoc(id).catch(() => null);
   const fix = rec && rec.flex && pendingMediaFix(rec.flex).relink;
   if (!fix) return;
+  const done = working(T('flex.preparingSave'));
   try {
     // A relink changes the path inside FLEx's media object, which no phrase fingerprint covers: the
     // base revision stays what it was, and work done here stays exactly as unsaved as it was.
     await flex.openText(tx.guid, wsOf(rec));   // the shell's session must know the text for the preview
     const preview = await flex.relinkPreview(tx.guid, fix.uriGuid, fix.path);
+    done();
     if (!await showPreview(preview, [], [])) return;
     const prog = progressModal(T('flex.saving'));
     try {
@@ -768,7 +809,7 @@ async function fixLinkNow(tx) {
       await renderTexts();
       H.toast(T('flex.relinked'));
     } catch (e) { prog.close(); fail(e, true); }
-  } catch (e) { fail(e); }
+  } catch (e) { done(); fail(e); } finally { done(); }
 }
 
 /* ---- Undo / Redo Save to FLEx (§4.4): FLEx goes back; the work done here stays, unsaved -------------- */
@@ -862,7 +903,10 @@ function describe(s) {
 function progressModal(title) {
   const wrap = document.createElement('div');
   wrap.className = 'modal';
-  wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><p class="flex-progress">…</p></div>`;
+  // the app's own indeterminate bar (the Matcher's audio note): "working", without an invented percentage
+  wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true"><h3>${esc(title)}</h3>
+    <p class="flex-progress" role="status" aria-live="polite">…</p>
+    <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span></div>`;
   document.body.appendChild(wrap);
   return { set: (m) => { const p = wrap.querySelector('.flex-progress'); if (p) p.textContent = m || '…'; }, close: () => wrap.remove() };
 }
@@ -904,7 +948,9 @@ async function importFlextext() {
   try {
     const pick = await flex.pickFile('flextext');
     if (!pick || !pick.path) return;
-    const pv = await flex.importPreview(pick.path);
+    const reading = working(T('flex.reading'));
+    let pv;
+    try { pv = await flex.importPreview(pick.path); } finally { reading(); }
     const ok = await H.confirmDialog(T('flex.importConfirm', { t: pv.texts, p: pv.paras, n: pv.phrases }) + '\n\n' + pv.warnings.map((w) => T('flex.warn.' + w.code, w)).join('\n'));
     if (!ok) return;
     const prog = progressModal(T('flex.importing'));

@@ -1107,6 +1107,12 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
 - **Undo / Redo** re-read the text and judge "not in FLEx" by the same diff (two saves undone and one
   redone leaves work FLEx does not have); an undone relink offers Fix link again.
 - The native dialog uses `webview.FileDialog.OPEN` (pywebview 6 deprecates `OPEN_DIALOG`).
+- **Every wait on FLEx shows the app's loading scrim** (Seth, 2026-10-16: *"We do need a loading spinner
+  instead of just an app that looks like it's frozen after 'open' is clicked"*): opening and closing a
+  project, opening a text (the read, then the Matcher), a writing-systems read or switch, a reset, the
+  save and relink previews, an import preview — `working(label)` over app.js `busyScrim`, up within a
+  frame of the click, holding the page against a second click, and down before any question is asked.
+  The job dialogs (save, undo, copy the recording, reset all) carry the app's indeterminate bar.
 - **Writing systems… per text** (§7.4) on every text row, the row showing the pair (*Example →
   English*); the Matcher strip switches them inside the text.
 - ⚠ **Word keystrokes in the Matcher wrote the wrong word** (found by the end-to-end test, 2026-10-15;

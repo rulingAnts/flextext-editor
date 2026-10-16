@@ -11,6 +11,7 @@ import pathlib
 import socket
 import sys
 import threading
+import time
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -138,6 +139,7 @@ def start(tmp):
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
     clip = Clipboard()
+    slow = {}                                            # method → seconds: a real FLEx takes this long
     api = Api(MockBackendFactory(str(projects)), engine_root=engine, pick_file_fn=picker, copy_text_fn=clip,
               state_dir=str(tmp / "state"), export_dir=str(tmp / "exports"))
     port = free_port()
@@ -159,9 +161,14 @@ def start(tmp):
                 out = {"ok": True, "result": picker.calls}
             elif method == "__clipboard":
                 out = {"ok": True, "result": clip.text}
+            elif method == "__slow":                     # the test makes one shell method slow (or fast again)
+                slow[args[0]] = float(args[1]) / 1000.0
+                out = {"ok": True}
             elif method.startswith("_") or not callable(getattr(api, method, None)):
                 out = {"ok": False, "error": {"code": "E_INTERNAL", "message": "no such method " + method}}
             else:
+                if slow.get(method):
+                    time.sleep(slow[method])
                 out = getattr(api, method)(*args)        # the @exposed wrapper: never raises
             body = json.dumps(out).encode()
             self.send_response(200)

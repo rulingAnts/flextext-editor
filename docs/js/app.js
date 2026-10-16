@@ -12920,7 +12920,7 @@ if (SEGMENTER_MODE) {
   whenFlexReady().then((ready) => {
     if (!ready || !isFlexShell()) return;
     return import('./flex-panel.js').then((m) => m.initFlexPanel({
-      db, t, toast, confirmDialog, docStats,
+      db, t, toast, confirmDialog, docStats, busyScrim,
       getCurrent: () => current,
       // A FLEx text opens in THIS app's Matcher, exactly as the Segmenter's own list opens a text
       // (Seth, 2026-10-15: "the Audio Segmenter app for audio segmenting/matching is what I want").

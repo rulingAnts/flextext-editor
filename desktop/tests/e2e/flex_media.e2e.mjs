@@ -467,7 +467,6 @@ const recordOf = (project, title) => page.evaluate(async ([pj, ti]) => {
   }
   return null;
 }, [project, title]);
-await new Promise((r) => setTimeout(r, 700));   // the Matcher's draft autosave waits 400 ms after an edit (mgSaveDraft)
 await page.click('#mg-back');
 await waitHome();
 await page.waitForFunction(() => /matching in progress/.test((document.querySelector('#flex-texts') || {}).innerText || ''), null, T(10000));

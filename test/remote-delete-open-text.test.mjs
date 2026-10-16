@@ -19,6 +19,11 @@
  * and the matcher steps that await (Done, clearing a draft, "start over?") carrying on, or throwing,
  * after a delete had closed the matcher under them. Those are pinned here too.
  *
+ * Since 2026-10-16 Back WRITES the matcher's unsaved edits as it closes (mgFlushDraft — see
+ * test/segmenter-draft-flush.test.mjs). So the same property now has a second half: a delete closes
+ * the matcher WITHOUT Back's draft (mgClose({ keepDraft: false })), and calls off any draft write still
+ * owed to the text (mgCallOffDraft) — a write landing after db.deleteDoc would put the text back.
+ *
  * Source pins first, then the real functions lifted out of app.js and run against stubs, so the
  * order is the functions' actual behaviour and not a regex's opinion of it.
  * Run: node --test test/remote-delete-open-text.test.mjs
@@ -58,10 +63,13 @@ test('#90: deleteUploadedDoc leaves the open text the whole way (source)', () =>
      'no persist() here, unlike Back: a write racing db.deleteDoc could put the deleted text back');
 
   console.log('\nthe segmenter: its own exit closes the matcher');
-  const iMg = body.indexOf('if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();');
+  const iMg = body.indexOf('if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose({ keepDraft: false });');
   ok(iMg > 0, 'an open matcher on the deleted text is closed through mgClose(), keyed on MG.docId');
   ok(iMg < body.indexOf('if (current && current.id === docId)'),
      'before the editor branch — mgClose releases `current` itself, so the teardown runs once');
+  const iOff = body.indexOf('if (SEGMENTER_MODE) mgCallOffDraft(docId);');
+  ok(iOff > 0 && iOff < iMg && iOff < body.indexOf('db.deleteDoc(docId)'),
+     'without Back\'s draft, and every draft write still owed to the text called off first — open or not');
   ok(/MG = null;/.test(fn(app, 'mgClose')) && /current = null;/.test(fn(app, 'mgClose')) && /player\?\.hide\?\.\(\)/.test(fn(app, 'mgClose')),
      '(mgClose drops MG and `current` and hides the shared dock — what this relies on)');
   ok(/docId: rec\.id,/.test(fn(app, 'mgLoad')), '(and MG.docId is the field mgLoad actually sets)');
@@ -92,9 +100,11 @@ test('#90 review: the Segmenter\'s own 🗑 and the matcher\'s async steps (sour
   console.log('\nuserDeleteDoc: the segmenter can delete the text its matcher has open');
   const ud = asyncFn(app, 'userDeleteDoc');
   const iConfirm = ud.indexOf('if (!await confirmDialog(msg)) return;');
-  const iGuard = ud.indexOf('if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();');
-  ok(iGuard > 0, 'an open matcher on the text being deleted is closed through mgClose()');
+  const iGuard = ud.indexOf('if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose({ keepDraft: false });');
+  ok(iGuard > 0, 'an open matcher on the text being deleted is closed through mgClose(), without Back\'s draft');
   ok(iConfirm > 0 && iGuard > iConfirm, 'only once the user has said yes — Cancel leaves the matcher as it was');
+  const iUdOff = ud.indexOf('if (SEGMENTER_MODE) mgCallOffDraft(docId);');
+  ok(iUdOff > iConfirm && iUdOff < iGuard, 'and its draft writes are called off, also only after the yes');
   ok(iGuard < ud.indexOf('if (!d || !uploads || backedUp) {'),
      'and before BOTH branches, so the upload-first one goes through uploadDocById, not the editor\'s doUpload');
   /* Why the list can be on screen with the matcher open: show() hides the home tabs only for the
@@ -124,7 +134,12 @@ test('#90 review: the Segmenter\'s own 🗑 and the matcher\'s async steps (sour
 
 /* Lift the real function out and run it in a scope that stands in for app.js's module scope. The
  * stubs record what happened and in what order; mgClose behaves as the real one does to the two
- * variables this function reads after it (MG and `current`). */
+ * variables this function reads after it (MG and `current`).
+ * ⚠ Every close in this file is a delete's, Done's or Start over's, and none of them may take Back's
+ * draft with it (see mgClose's keepDraft). A close that would is recorded under another name, so
+ * every check below that looks for 'mgClose' fails on it. */
+const MG_CLOSE_STUB = `function mgClose(o) { calls.push(o && o.keepDraft === false ? 'mgClose' : 'mgClose:KEEPS-DRAFT'); MG = null; current = null; }
+    function mgCallOffDraft(id) { calls.push('callOff:' + id); }`;
 function harness(env) {
   const src = fn(app, 'deleteUploadedDoc');
   if (!src) throw new Error('deleteUploadedDoc not found');
@@ -136,7 +151,7 @@ function harness(env) {
     function splitCancel() { calls.push('splitCancel'); }
     function leaveEditor() { calls.push('leaveEditor(current=' + (current ? current.id : null) + ')'); }
     function show(v) { calls.push('show:' + v); }
-    function mgClose() { calls.push('mgClose'); MG = null; current = null; }
+    ${MG_CLOSE_STUB}
     function refreshList() { calls.push('refreshList'); }
     const shareEl = env.shareMenu ? { hidden: false } : null;   // some shells have no share menu
     const $ = (sel) => (sel === '#share-menu' ? shareEl : null);
@@ -202,7 +217,8 @@ test('#90: deleteUploadedDoc, run for real against stubs', async () => {
     const h = harness({ ...editor, SEGMENTER_MODE: true, current: { id: 'A' }, MG: { docId: 'A' } });
     await h.run('A');
     const s = h.state();
-    ok(s.calls[0] === 'mgClose', 'the matcher\'s own exit runs first');
+    ok(same(s.calls.slice(0, 2), ['callOff:A', 'mgClose']),
+       `the matcher's own exit runs first, without Back's draft, its draft writes called off (${s.calls.join(' → ')})`);
     ok(s.calls.indexOf('mgClose') < s.calls.indexOf('deleteDoc:A'), 'before the record is deleted');
     ok(!s.calls.includes('show:texts'), 'and no texts view is shown — mgClose takes the user to the segmenter list');
     ok(s.MG === null && s.current === null, 'nothing is open afterwards');
@@ -213,7 +229,8 @@ test('#90: deleteUploadedDoc, run for real against stubs', async () => {
     const h = harness({ ...editor, SEGMENTER_MODE: true, current: { id: 'B' }, MG: { docId: 'B' } });
     await h.run('A');
     const s = h.state();
-    ok(same(s.calls, ['deleteDoc:A', 'refreshList']), `the matcher is left alone (${s.calls.join(' → ')})`);
+    ok(same(s.calls, ['callOff:A', 'deleteDoc:A', 'refreshList']),
+       `the matcher is left alone; only A's draft writes are called off — a Back a moment ago may still be writing one (${s.calls.join(' → ')})`);
     ok(s.MG && s.MG.docId === 'B' && s.current && s.current.id === 'B', 'still matching the text the user opened');
   }
 
@@ -222,15 +239,15 @@ test('#90: deleteUploadedDoc, run for real against stubs', async () => {
     const h = harness({ ...editor, SEGMENTER_MODE: true, current: { id: 'A' }, MG: null });
     await h.run('A');
     const s = h.state();
-    ok(same(s.calls, ['splitCancel', 'leaveEditor(current=null)', 'deleteDoc:A', 'refreshList']),
+    ok(same(s.calls, ['callOff:A', 'splitCancel', 'leaveEditor(current=null)', 'deleteDoc:A', 'refreshList']),
        `the editor branch still releases it and hides the dock (${s.calls.join(' → ')})`);
   }
   done();
 });
 
 /* The review's findings, run for real. A "remote delete" below is what deleteUploadedDoc does to the
- * matcher before it touches storage: mgClose() — MG and `current` dropped — in the middle of
- * whatever await the stubbed storage call stands for. */
+ * matcher before it touches storage: mgClose({ keepDraft: false }) — MG and `current` dropped — in
+ * the middle of whatever await the stubbed storage call stands for. */
 function lift(names, body, env) {
   const srcs = names.map((n) => fn(app, n) || asyncFn(app, n));
   srcs.forEach((s, i) => { if (!s) throw new Error(names[i] + ' not found'); });
@@ -240,8 +257,8 @@ function lift(names, body, env) {
     let mgDraftTimer = 0;
     const SEGMENTER_MODE = env.SEGMENTER_MODE !== false;
     const calls = [];
-    function mgClose() { calls.push('mgClose'); MG = null; current = null; }
-    const remoteDelete = () => { calls.push('remoteDelete'); mgClose(); };
+    ${MG_CLOSE_STUB}
+    const remoteDelete = () => { calls.push('remoteDelete'); mgClose({ keepDraft: false }); };
     const t = (k) => k;
     function toast(m) { calls.push('toast:' + m); }
     ${body}
@@ -281,6 +298,8 @@ test('#90 review: the Segmenter\'s own 🗑, run for real', async () => {
     const h = await run({ MG: { docId: 'A' }, current: { id: 'A' }, uploads: false, del: 'A' });
     ok(h.calls.indexOf('mgClose') > h.calls.indexOf('confirm') && h.calls.indexOf('mgClose') < h.calls.indexOf('deleteDoc:A'),
        `the matcher is closed after the yes and before the delete (${h.calls.join(' → ')})`);
+    ok(h.calls.indexOf('callOff:A') > h.calls.indexOf('confirm') && h.calls.indexOf('callOff:A') < h.calls.indexOf('deleteDoc:A'),
+       'its draft writes called off in the same window, so none can land after the delete');
     ok(h.MG === null && h.current === null, 'nothing is left open over the empty list — so no dock, no player');
   }
 
@@ -295,6 +314,7 @@ test('#90 review: the Segmenter\'s own 🗑, run for real', async () => {
   {
     const h = await run({ MG: { docId: 'A' }, current: { id: 'A' }, uploads: false, del: 'A', answer: false });
     ok(!h.calls.includes('mgClose') && h.MG && h.MG.docId === 'A', 'Cancel leaves the matcher exactly as it was');
+    ok(!h.calls.includes('callOff:A'), 'its autosave included');
   }
   {
     const h = await run({ MG: { docId: 'B' }, current: { id: 'B' }, uploads: false, del: 'A' });

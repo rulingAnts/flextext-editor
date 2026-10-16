@@ -72,12 +72,16 @@ function segmenter(store, extra = {}) {
     const $ = () => null, show = () => {};
     function mgDraw() { if (!MG) return; MG.spans = mgSpreadSpans(MG.spans, peaksDurationMs(MG.docId)); mgSaveDraft(); }
     const setTimeout = (fn) => { timers.push(fn); return timers.length; }, clearTimeout = (h) => { if (h) timers[h - 1] = null; };
-    async function flush() { while (timers.some(Boolean)) { const i = timers.findIndex(Boolean); const f = timers[i]; timers[i] = null; await f(); } }
+    // the timers, and the draft writes they queue (mgDraftWrites) landing
+    async function flush() {
+      while (timers.some(Boolean)) { const i = timers.findIndex(Boolean); const f = timers[i]; timers[i] = null; await f(); }
+      for (let p = null; p !== mgDraftWrites;) { p = mgDraftWrites; await p; }
+    }
     async function uploadDocById() {}
     function sgRenderList() {}
     function mgClose() { MG = null; current = null; }
     function mgGuess() {}
-    ${liftAll(APP, ['cheapHash', 'mgLoad', 'mgBaseSig', 'mgSeedSpans', 'mgSpreadSpans', 'mgCommit', 'mgOpen', 'mgSaveDraft', 'mgClearDraft',
+    ${liftAll(APP, ['cheapHash', 'mgLoad', 'mgBaseSig', 'mgSeedSpans', 'mgSpreadSpans', 'mgCommit', 'mgOpen', 'mgSaveDraft', 'mgClearDraft', 'mgDraftWrites', 'mgDraftCallOffs', 'mgWriteDraft', 'mgFlushDraft', 'mgCallOffDraft',
       'mgCapture', 'mgSnap', 'MG_UNDO_MAX', 'mgPrepareAudio', 'mgSplitSpan', 'mgSplitAtPlayhead', 'mgJoinSpan', 'mgComplete', 'mgApply',
       'mgUndoOnce', 'mgRedoOnce', 'mgBoundaryTimes'])}
     return {

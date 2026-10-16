@@ -60,7 +60,7 @@ function segmenter(store, extra = {}) {
     async function mgClearDraft(id) { const r = store[id]; if (r) delete r.matchDraft; }
     function mgClose() { MG = null; }
     function sgRenderList() {}
-    ${liftAll(APP, ['cheapHash', 'mgLoad', 'mgBaseSig', 'mgSeedSpans', 'mgSpreadSpans', 'mgCommit', 'mgOpen', 'mgSaveDraft', 'mgCapture', 'mgSnap', 'MG_UNDO_MAX'])}
+    ${liftAll(APP, ['cheapHash', 'mgLoad', 'mgBaseSig', 'mgSeedSpans', 'mgSpreadSpans', 'mgCommit', 'mgOpen', 'mgSaveDraft', 'mgDraftWrites', 'mgDraftCallOffs', 'mgWriteDraft', 'mgFlushDraft', 'mgCapture', 'mgSnap', 'MG_UNDO_MAX'])}
     return {
       get MG() { return MG; }, set MG(v) { MG = v; },
       load(id) { current = clone(store[id]); mgLoad(current); return MG; },

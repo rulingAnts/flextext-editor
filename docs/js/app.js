@@ -5500,8 +5500,12 @@ function deleteUploadedDoc(docId) {
   /* ⚠ THE AUDIO SEGMENTER'S OPEN TEXT LIVES IN THE MATCHER (MG), not in the editor (#90): without
    * this the matcher stayed up over a deleted record. mgClose() is that app's one exit (ticker,
    * dock, `current`, back to its own list) and runs FIRST — it releases `current` itself, so the
-   * editor branch below finds nothing open and the segmenter is torn down once, by its own exit. */
-  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
+   * editor branch below finds nothing open and the segmenter is torn down once, by its own exit.
+   * ⚠ WITHOUT BACK'S DRAFT. Back writes the unsaved edits (mgFlushDraft); these belong to a text
+   * that is going, and a write landing after db.deleteDoc would put it back. Called off whether or
+   * not the text is open, because a Back a moment ago may still have a write on its way. */
+  if (SEGMENTER_MODE) mgCallOffDraft(docId);
+  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose({ keepDraft: false });
   if (current && current.id === docId) {
     current = null;
     splitCancel();   // a text closed mid-split: dropped, nothing written
@@ -5580,10 +5584,12 @@ async function userDeleteDoc(docId, title) {
    * text gone, with the dock still up playing the deleted recording over "No texts on this device
    * yet": Brian's #90 symptom by a second route. Same guard as deleteUploadedDoc, through the
    * matcher's own exit, and BEFORE the two branches: the upload-first branch then sends through
-   * uploadDocById (as the matcher's own Done does) rather than the editor's doUpload. Closing here
-   * drops no matching work: mgClose skips a draft save still pending, but the tab tap blurred any
-   * edit and that save's 400ms ran out long before anyone answered the confirm. */
-  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();
+   * uploadDocById (as the matcher's own Done does) rather than the editor's doUpload. It closes
+   * without Back's draft, as deleteUploadedDoc does and for its reason: a draft write racing the
+   * delete could put the text back. That drops no matching work — the tab tap blurred any edit, and
+   * that save's 400ms ran out long before anyone answered the confirm. */
+  if (SEGMENTER_MODE) mgCallOffDraft(docId);
+  if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose({ keepDraft: false });
   if (!d || !uploads || backedUp) {
     // Nothing to preserve (gone / no upload target / already safely on Drive) → remove now,
     // cancelling any stray queued upload so it can't resurrect.
@@ -10387,17 +10393,38 @@ function mgSaveDraft() {
    * from the first edit here (mgCapture), or because one was resumed. */
   if (!MG.edited && !MG.resumed) return;
   clearTimeout(mgDraftTimer);
-  mgDraftTimer = setTimeout(async () => {
-    if (!MG) return;
-    const id = MG.docId;
+  mgDraftTimer = setTimeout(() => { mgDraftTimer = 0; if (MG) mgWriteDraft(MG); }, 400);
+}
+
+/* ⚠ BACK KEEPS THE DRAFT — ITS LAST 400 ms INCLUDED (found by the desktop-flex e2e, 2026-10-16). The
+ * write used to read MG when its timer fired, and mgClose sets MG to null: an edit followed by Back
+ * inside the debounce was never written, and a write already reading storage when Back came was
+ * dropped by its own "left while we read" check. Every edit since the last write that landed was
+ * lost, on the one exit whose promise is that nothing is. So a write is made from a SESSION, not from
+ * MG: the timer passes the open one, and mgClose hands over the one it is closing (mgFlushDraft)
+ * before letting go of it. Nothing edits a closed session, so what is written is what the user left.
+ *
+ * Writes run one at a time, in the order they were asked for, so an older one never lands over a
+ * newer; mgOpen waits for them, so a text reopened at once resumes what Back has just kept. */
+let mgDraftWrites = Promise.resolve();
+/* …AND A WRITE CAN BE CALLED OFF, per text (mgCallOffDraft). "Is the matcher still open on this text"
+ * was the old guard, and a write that outlives the matcher cannot ask it. It still has to hear that
+ * its text is being deleted — a write landing after db.deleteDoc puts the text back (#90) — or that
+ * its draft was cleared on purpose (Done, Start over). */
+const mgDraftCallOffs = new Map();   // text id → how many times its unwritten drafts were called off
+function mgWriteDraft(session) {
+  const id = session.docId, calls = mgDraftCallOffs.get(id) || 0;
+  mgDraftWrites = mgDraftWrites.then(async () => {
     try {
       const rec = await db.getDoc(id);
-      if (!rec || !MG || MG.docId !== id) return;      // left, or a different text, while we read
+      // Gone, or called off while this waited. Checked in the tick that issues the put, so a delete
+      // that follows is queued behind the put and still wins (the same reasoning as mgCommit's).
+      if (!rec || (mgDraftCallOffs.get(id) || 0) !== calls) return;
       rec.matchDraft = {
         at: Date.now(),
-        spans: MG.spans,   // placeholders go to storage untimed — db.js storableRecord
-        lines: MG.lines,
-        baseSig: MG.baseSig,   // the text this draft was made from (v718, case 22) — see mgBaseSig
+        spans: session.spans,   // placeholders go to storage untimed — db.js storableRecord
+        lines: session.lines,
+        baseSig: session.baseSig,   // the text this draft was made from (v718, case 22) — see mgBaseSig
       };
       await db.putDoc(rec);        // ⚠ rec.modified deliberately NOT touched — see above
       /* ⚠ AND KEEP `current` IN STEP, or persist() will quietly undo this.
@@ -10417,12 +10444,28 @@ function mgSaveDraft() {
       toast(t(e && e.name === 'QuotaExceededError' ? 'toast.storageFull'
                                                    : 'toast.autosaveFailed', { msg: e.message }), 8000);
     }
-  }, 400);
+  }).catch(() => {});   // never rejects: one failed write has said so, and every later one must still run
+  return mgDraftWrites;
+}
+
+// The save mgSaveDraft has scheduled and not yet made, made now: Back, and a text opened over this one.
+function mgFlushDraft() {
+  if (!mgDraftTimer) return;
+  clearTimeout(mgDraftTimer);
+  mgDraftTimer = 0;
+  if (MG) mgWriteDraft(MG);
+}
+
+// Text `id`'s draft is going (Done, Start over), or the text is (a delete): no save still owed to it
+// may land — neither the scheduled one nor one that a Back has already handed to storage.
+function mgCallOffDraft(id) {
+  if (MG && MG.docId === id) { clearTimeout(mgDraftTimer); mgDraftTimer = 0; }
+  mgDraftCallOffs.set(id, (mgDraftCallOffs.get(id) || 0) + 1);
 }
 
 // Committed, or explicitly started over: the draft has served its purpose.
 async function mgClearDraft(id) {
-  clearTimeout(mgDraftTimer);
+  mgCallOffDraft(id);
   try {
     const rec = await db.getDoc(id);
     if (!rec || !rec.matchDraft) return;
@@ -11251,7 +11294,7 @@ async function mgCommit() {
   if (blankAdded || noAudio) {
     toast(t('mg.committedLeftover').replace('{a}', blankAdded).replace('{t}', noAudio), 9000);
   }
-  mgClose();
+  mgClose({ keepDraft: false });       // committed and cleared above: Done leaves no draft behind
   sgRenderList();
 }
 
@@ -11827,7 +11870,12 @@ async function mgGuess() {
 // One exit, so the ticker, the player and the open record are always released together. Three
 // callers (Back, Done, and a failed open) each releasing two of the three is how a rAF loop outlives
 // its screen and keeps scrolling a list nobody is looking at.
-function mgClose() {
+/* `keepDraft` is Back's rule, and the default: the edits since the last autosave are written, not
+ * dropped (mgFlushDraft — see mgDraftWrites). Done and Start over have already dealt with the draft,
+ * and a text being deleted must not have one written back, so those close with { keepDraft: false }. */
+function mgClose({ keepDraft = true } = {}) {
+  const was = MG;
+  if (was) { if (keepDraft) mgFlushDraft(); else mgCallOffDraft(was.docId); }
   mgStopTicker();
   MG = null;
   mgLangOwn = null;
@@ -11848,9 +11896,15 @@ function mgClose() {
   // update flush — and re-queued for upload as "changed" when nothing changed.
   current = null;
   show('segmenter');
-  // the FLEx shell's panel re-reads its text rows (a draft, a recording now in the app); nothing listens in a
-  // browser, and the tests that lift mgClose have no document
-  if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('flextext:matcher-closed'));
+  /* …and the rows say so: this app's list, and the FLEx shell's panel, which re-reads its text rows on
+   * the event (a draft, a recording now in the app). After Back, once the draft has LANDED — a row read
+   * before the write would not show the text as in progress (the desktop-flex e2e waited 700 ms for it).
+   * Nothing listens in a browser, and the tests that lift mgClose have no document. */
+  const told = () => {
+    if (was && keepDraft && !MG) sgRenderList();
+    if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('flextext:matcher-closed'));
+  };
+  if (was && keepDraft) mgDraftWrites.then(told); else told();
 }
 
 /* Throw the unfinished work away and begin from the committed document. The ONLY path that
@@ -11862,11 +11916,16 @@ async function mgStartOver() {
   if (!MG) return;                      // the dialog is async; a remote delete may have closed it (#90)
   const id = MG.docId;
   await mgClearDraft(id);
-  mgClose();
+  mgClose({ keepDraft: false });        // ⚠ never Back's exit here: that would write the work back
   mgOpen(id);
 }
 
 async function mgOpen(id) {
+  /* A text opened over an open one — the Texts tab leaves the matcher open, and its list opens
+   * texts — ends that session as Back does: its last edits are written, not dropped. And a draft
+   * still on its way to storage (this text's, from a Back a moment ago) lands before it is read. */
+  mgFlushDraft();
+  await mgDraftWrites;
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
   current = rec;
@@ -13050,7 +13109,8 @@ if (SEGMENTER_MODE) {
       // audio — the recording (db.deleteDoc takes it), the WAV working copy made from it, the waveform
       // the dock holds and its peaks — so the next open gets a recording afresh and draws IT.
       forgetRecord: async (id) => {
-        if (MG && MG.docId === id) mgClose();
+        mgCallOffDraft(id);   // a delete, so no draft write may land after it — Back's included (mgCallOffDraft)
+        if (MG && MG.docId === id) mgClose({ keepDraft: false });
         await db.deleteDoc(id);
         await db.deleteMedia('segwav:' + id).catch(() => {});
         forgetPeaks(id);

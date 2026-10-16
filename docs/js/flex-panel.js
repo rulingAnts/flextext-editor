@@ -27,7 +27,7 @@
  * nothing here ever writes to FLEx except through the shell's Save to FLEx, which the user confirms. */
 
 import { flex, flexCall, flexShellInfo, isFlexShell } from './native-flex.js';
-import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, arrangeTexts, recordingLink, pendingMediaFix } from './flex-ops.js';
+import { diffFlexDoc, postStateOf, flexBlockers, flexDocId, isFlexDocId, isFlexDocOf, reopenDecision, hasLocalWork, keepTimeEstimates, mergeFlexDocs, arrangeTexts, recordingLink, pendingMediaFix, flexFailText, flexClosedBy } from './flex-ops.js';
 import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
@@ -1295,20 +1295,13 @@ async function importFlextext() {
   } catch (e) { fail(e); }
 }
 
-/* ---- errors: stable codes → translated messages; a poisoned session says exactly what happened ---- */
+/* ---- errors: stable codes → translated messages; a closed session says exactly what happened ---- */
 function fail(e, afterWrite = false) {
-  H.toast(failMessage(e, afterWrite), 12000);
-  console.warn('[flex]', (e && e.code) || 'E_INTERNAL', e);
+  const msg = failMessage(e, afterWrite);
+  H.toast(msg, flexClosedBy(e) ? 30000 : 12000);
+  // the whole error, on one line, for the shell's console (native-flex mirrors console.warn there)
+  let detail = '';
+  try { detail = e && e.detail !== undefined ? ' | detail ' + JSON.stringify(e.detail) : ''; } catch { /* unserialisable */ }
+  console.warn('[flex] ' + ((e && e.code) || 'E_INTERNAL') + ': ' + ((e && e.message) || e) + detail + ' | shown: ' + msg);
 }
-function failMessage(e, afterWrite = false) {
-  const code = (e && e.code) || 'E_INTERNAL';
-  let msg = T('flex.err.' + code, (e && e.detail) || undefined);
-  if (msg === 'flex.err.' + code) msg = T('flex.err.E_INTERNAL');
-  if (code === 'E_POISONED' && e.detail) {
-    msg = T('flex.poisoned', { f: e.detail.failedFile || '', b: e.detail.backup || '' });
-  } else if (afterWrite && code !== 'E_POISONED') {
-    msg = T('flex.nothingWritten') + ' ' + msg;
-  }
-  if (e && e.message && code === 'E_INTERNAL') msg += ' (' + e.message + ')';
-  return msg;
-}
+function failMessage(e, afterWrite = false) { return flexFailText(e, afterWrite, T); }

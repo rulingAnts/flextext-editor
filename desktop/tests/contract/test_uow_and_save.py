@@ -29,7 +29,7 @@ def para0(b):
 
 def test_opening_creates_no_pending_changes(backend):
     assert backend.has_unsaved_changes() is False
-    assert backend.depth() == 0 and backend.undoable_action_count() == 0
+    assert backend.depth() == 0 and backend.undo_item_count() == 0
 
 
 def test_uow_commit_is_one_undo_item_and_rollback_restores_everything(backend):
@@ -46,11 +46,11 @@ def test_uow_commit_is_one_undo_item_and_rollback_restores_everything(backend):
     b.rollback(h)
     assert b.depth() == 0
     assert fingerprint_text(b.read_text(tg)) == before, "rollback restores the fingerprint"
-    assert b.counts() == counts and b.undoable_action_count() == 0
+    assert b.counts() == counts and b.undo_item_count() == 0
     h = b.begin_uow("Undo Y", "Redo Y")
     b.set_free_translation(p["segments"][0]["guid"], "en", "kept")
     b.commit(h)
-    assert b.undoable_action_count() == 1 and b.last_undo_text() == "Undo Y"
+    assert b.undo_item_count() == 1 and b.last_undo_text() == "Undo Y"
     assert b.read_text(tg)["paragraphs"][0]["segments"][0]["ft"] == {"en": "kept"}
 
 

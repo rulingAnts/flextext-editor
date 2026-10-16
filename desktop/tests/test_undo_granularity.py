@@ -40,17 +40,17 @@ def test_many_objects_one_item_one_undo_one_redo(tmp_path):
     assert len(pv["summary"]) == 9
     assert pv["counts"] == {"WfiAnalysis": 3, "WfiMorphBundle": 3, "WfiGloss": 3}
     r = s.save(pv["previewToken"])
-    assert port.undoable_action_count() == 1, "nine edits, ONE FLEx history item"
+    assert port.undo_item_count() == 1, "nine edits, ONE FLEx history item"
     assert port.last_undo_text() == "Undo Save to FLEx (9 changes)"
     fp1 = model.fingerprint_text(port.read_text(tg))
     c1 = port.counts()
     assert fp1 != fp0 and c1["WfiGloss"] == c0["WfiGloss"] + 3
     s.undo_save()
     assert model.fingerprint_text(port.read_text(tg)) == fp0 and port.counts() == c0, "ONE undo restores every object"
-    assert port.undoable_action_count() == 0
+    assert port.undo_item_count() == 0
     s.redo_save()
     assert model.fingerprint_text(port.read_text(tg)) == fp1 and port.counts() == c1, "ONE redo redoes all of it"
-    assert port.undoable_action_count() == 1
+    assert port.undo_item_count() == 1
     t = port.read_text(tg)
     assert [sg["ft"]["en"] for p in t["paragraphs"] for sg in p["segments"]] == ["line 0", "line 1", "line 2"]
     assert [sg["analyses"][0]["gloss"]["en"] for p in t["paragraphs"] for sg in p["segments"]] == ["G0", "G1", "G2"]
@@ -74,9 +74,9 @@ def test_two_saves_are_two_items_and_undo_walks_them_back_one_at_a_time(tmp_path
         r = s.save(pv["previewToken"])
         rev = r["newBaseRev"]
         fps.append(model.fingerprint_text(port.read_text(tg)))
-    assert port.undoable_action_count() == 2
+    assert port.undo_item_count() == 2
     s.undo_save()
     assert model.fingerprint_text(port.read_text(tg)) == fps[1]
     s.undo_save()
     assert model.fingerprint_text(port.read_text(tg)) == fps[0]
-    assert port.undoable_action_count() == 0
+    assert port.undo_item_count() == 0

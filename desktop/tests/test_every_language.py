@@ -110,7 +110,7 @@ def test_two_languages_on_one_word_and_the_third_kept(world):
     assert [(x["outcome"], x["ws"], x["otherUses"]) for x in gl] == [("newGloss", ["en", "id"], 1), ("newGloss", ["id"], 0)]
     assert {(x["ws"], x["after"]) for x in pv["summary"] if x["kind"] == "ft.set"} == {("en", "one!"), ("id", "dua")}
     r = s.save(pv["previewToken"])
-    assert port.undoable_action_count() == 1, "one save, one FLEx history item"
+    assert port.undo_item_count() == 1, "one save, one FLEx history item"
     after = raw(port, w["tg"])
     assert after[0]["words"][0][2] == {"en": "K-en2", "id": "K-id2", "fr": "K-fr"}, "French came along onto the new gloss"
     assert after[0]["words"][2][2] == {"en": "K-en", "id": "K-id", "fr": "K-fr"}, "the other copy keeps the gloss it shared"
@@ -131,7 +131,7 @@ def test_a_post_state_wrong_in_another_language_rolls_back(world):
     with pytest.raises(FlexError) as ei:
         s.save(pv["previewToken"])
     assert ei.value.code == "E_INVARIANT" and "gloss in id" in ei.value.message
-    assert raw(port, w["tg"]) == before and port.undoable_action_count() == 0
+    assert raw(port, w["tg"]) == before and port.undo_item_count() == 0
 
 
 def test_a_write_that_would_drop_a_language_never_lands(world, monkeypatch):

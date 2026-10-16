@@ -271,8 +271,10 @@ class RealLcm(FlexPort):
     def subscribe_log(self, handler):
         """Attach to flexicon's headless-UI logger (flexicon.code.headless_ui logs ERROR on
         ReportException / ReportDuplicateGuids / ConflictingSave): any ERROR record is the only
-        signal of a silent save failure [verified]."""
-        for name in ("flexicon", "flexlibs2", "FwLcmUI", ""):
+        signal of a silent save failure [verified]. ⚠ pyflexicon's loggers ONLY — never the root
+        logger: an ERROR anywhere in the process (the page bridge, the web view, this shell's own
+        console tracing) is not FLEx reporting a failed save, and must never close a project."""
+        for name in ("flexicon", "flexlibs2", "FwLcmUI"):
             logging.getLogger(name).addHandler(handler)
         self._handlers.append(handler)
 
@@ -649,9 +651,16 @@ class RealLcm(FlexPort):
         self._t()
         return int(self.ah.CurrentDepth)
 
-    def undoable_action_count(self):
+    def undo_item_count(self):
+        """FLEx's history items — IActionHandler.UndoableSequenceCount, the number of undo bundles (the
+        times the user could press Undo). ⚠ NEVER UndoableActionCount: the same-sounding property sums the
+        CHANGES in every bundle (liblcm UndoStack.cs: m_undoBundles.Sum(uow => uow.Changes.Count)), and
+        ending a task adds DateModified changes of its own (EndUndoTaskCommon), so a save of ONE change
+        grew it by 2 or more — W5 read that as a second history item and closed the project unsaved
+        (2026-10-16, the first real saves). [source: UndoStack.cs; declared on IActionHandler in
+        SIL.LCModel.Core, checked in the 10.1.0 assembly]"""
         self._t()
-        return int(self.ah.UndoableActionCount)
+        return int(self.ah.UndoableSequenceCount)
 
     def last_undo_text(self):
         self._t()
@@ -729,6 +738,9 @@ class RealLcm(FlexPort):
         s.AnalysesRS[int(index)] = self._obj(analysis_guid)   # pyflexicon SetAnalysis writes the indexer the same way
 
     def _is_trivial(self, an):
+        """No category and at most one bundle that names nothing but the word itself — in EVERY
+        writing system the bundle has a form in (a text in a second vernacular writing system has
+        nothing in the default one, where a one-system comparison was always equal)."""
         from SIL.LCModel import IWfiWordform   # type: ignore[import-not-found]
         if an.CategoryRA is not None:
             return False
@@ -738,10 +750,10 @@ class RealLcm(FlexPort):
         if len(bundles) != 1:
             return False
         mb = bundles[0]
-        wf = IWfiWordform(an.Owner)
-        vern = self.cache.DefaultVernWs
-        return (mb.MorphRA is None and mb.MsaRA is None and mb.SenseRA is None and mb.InflTypeRA is None
-                and self._tss_text(mb.Form.get_String(vern)) == self._tss_text(wf.Form.get_String(vern)))
+        if not (mb.MorphRA is None and mb.MsaRA is None and mb.SenseRA is None and mb.InflTypeRA is None):
+            return False
+        wf_forms = self._multi(IWfiWordform(an.Owner).Form)
+        return all(wf_forms.get(ws, "") == text for ws, text in self._multi(mb.Form).items() if text)
 
     def find_trivial_analysis(self, wordform_guid):
         self._t()
@@ -760,8 +772,10 @@ class RealLcm(FlexPort):
         wf.AnalysesOC.Add(an)
         mb = self._repo(IWfiMorphBundleFactory).Create()
         an.MorphBundlesOS.Add(mb)
-        vern = self.cache.DefaultVernWs
-        mb.Form.set_String(vern, wf.Form.get_String(vern))
+        # the bundle names the word in every writing system the wordform has (only the default
+        # vernacular's left a word of a second vernacular writing system with an empty bundle)
+        for h in list(wf.Form.AvailableWritingSystemIds):
+            mb.Form.set_String(int(h), wf.Form.get_String(int(h)))
         wf.Checksum = 0
         return str(an.Guid)
 
@@ -809,6 +823,19 @@ class RealLcm(FlexPort):
         from SIL.LCModel import Opinions   # type: ignore[import-not-found]
         an = self._obj(analysis_guid)
         an.SetAgentOpinion(self.cache.LanguageProject.DefaultUserAgent, Opinions.approves if approves else Opinions.disapproves)
+
+    def user_agent(self):
+        """LanguageProject.DefaultUserAgent, and how many of ApprovesOA/DisapprovesOA are still missing:
+        CmAgent.SetEvaluation creates BOTH the first time either is needed [source: liblcm
+        OverridesCellar.cs], so the first approval ever made in a project adds two CmAgentEvaluation
+        objects, owned by the agent — which the W8 disk check must expect."""
+        self._t()
+        agent = self.cache.LanguageProject.DefaultUserAgent
+        if agent is None:
+            return {"guid": None, "missingEvaluations": 0}
+        agent = _cast(agent)
+        missing = (1 if agent.ApprovesOA is None else 0) + (1 if agent.DisapprovesOA is None else 0)
+        return {"guid": str(agent.Guid), "missingEvaluations": missing}
 
     def create_media(self, text_guid, path):
         """As pyflexicon TextOperations does [source]: ICmMediaContainerFactory for MediaFilesOA,

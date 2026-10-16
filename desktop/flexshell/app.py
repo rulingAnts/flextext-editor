@@ -49,11 +49,14 @@ def main(argv=None):
                          "python -m pytest desktop/tests")
     import webview   # pywebview — lazy: the test suite must import this package without it
 
+    from . import trace
     from .api import Api
     from .lcm_real import RealBackendFactory
 
     root = engine_root()
     sys.stderr.write(startup_line(root) + "\n")
+    trace.setup()   # very verbose console output, for now (trace.py)
+    trace.LOG.info("engine at %s; port %d; data in %s", root, port, storage_path())
     api = Api(backend_factory=RealBackendFactory(), engine_root=root)
     srv = start_server(root, port=port, connect_origins=api._connect_origins(), media=api._media)
     api._attach_server(srv)

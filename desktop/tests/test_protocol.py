@@ -71,7 +71,7 @@ def test_preview_then_save_is_one_uow_one_history_item_and_a_clean_disk_diff(wor
     assert progress == ["Backing up…", "Verifying backup…", "Writing…", "Checking…", "Saving…", "Checking the file on disk…"]
     assert r["undoLabel"] == "Undo Save to FLEx (2 changes)" and r["backup"]["verified"] and r["disk"]["ok"]
     assert r["disk"]["changed"].get("Segment") == 2
-    assert port.undoable_action_count() == 1 and port.last_undo_text() == "Undo Save to FLEx (2 changes)"
+    assert port.undo_item_count() == 1 and port.last_undo_text() == "Undo Save to FLEx (2 changes)"
     assert port.has_unsaved_changes() is False and fw_bytes(port) != before
     assert r["newBaseRev"] != w["rev"]
     uow = [c for c in port.calls if c[0] in ("begin_uow", "commit", "rollback")]
@@ -177,7 +177,7 @@ def test_w3_exception_inside_lcm_rolls_back_and_nothing_is_written(world):
         s.save(pv["previewToken"])
     assert ei.value.code == "E_INVARIANT"
     assert s.poisoned is None, "a clean rollback is not poison"
-    assert port.depth() == 0 and port.undoable_action_count() == 0
+    assert port.depth() == 0 and port.undo_item_count() == 0
     assert model.fingerprint_text(port.read_text(w["tg"])) == fp
     assert [c[0] for c in port.calls if c[0] in ("commit", "rollback")] == ["rollback"]
     # the backup ran (and saved) but no write landed after it
@@ -194,7 +194,7 @@ def test_w4_post_state_mismatch_rolls_back(world):
     with pytest.raises(FlexError) as ei:
         s.save(pv["previewToken"])
     assert ei.value.code == "E_INVARIANT" and "free translation differs" in ei.value.message
-    assert model.fingerprint_text(port.read_text(w["tg"])) == fp and port.undoable_action_count() == 0
+    assert model.fingerprint_text(port.read_text(w["tg"])) == fp and port.undo_item_count() == 0
     assert s.poisoned is None
 
 
@@ -581,7 +581,7 @@ def test_import_preview_and_import_then_export_round_trip(world, tmp_path):
     assert p["segments"][0]["beginTime"] == "0" and p["segments"][0]["mediaUri"], "a phrase with a media-file kept its times"
     assert p["segments"][1]["beginTime"] is None, "a phrase with times but no media-file had them dropped"
     assert p["segments"][0]["analyses"][0]["kind"] == "gloss" and p["segments"][0]["analyses"][0]["gloss"] == {"en": "A"}
-    assert port.counts()["Text"] == counts["Text"] + 1 and port.undoable_action_count() == 1
+    assert port.counts()["Text"] == counts["Text"] + 1 and port.undo_item_count() == 1
     # export: elan mode writes times only for segments with media, phrase guid = segment guid, § as punct
     out = s.export_editor_bundle(r["newTextGuids"][0], str(tmp_path / "exports"))
     with zipfile.ZipFile(out["zipPath"]) as z:
@@ -646,7 +646,7 @@ def test_copy_only_without_marker_refuses_the_write(tmp_path):
     pv = s.preview(tg, o["baseRev"], [op], {})
     with pytest.raises(FlexError) as ei:
         s.save(pv["previewToken"])
-    assert ei.value.code == "E_COPY_ONLY" and port.undoable_action_count() == 0
+    assert ei.value.code == "E_COPY_ONLY" and port.undo_item_count() == 0
 
 
 def test_section_marks_replaced_in_the_engine_compare_clean_and_a_sentence_break_is_a_para_split(world):

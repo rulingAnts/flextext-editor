@@ -168,3 +168,150 @@ def test_services_come_from_getservice_never_getinstance():
     assert "get_Properties(0).GetIntPropValues(1, 0)" in src, "run-0 writing system, pyflexicon's idiom"
     assert "ITsString(tss).Text" in src, "ITsString cast before .Text, pyflexicon's idiom"
     assert re.search(r"TryGetObject\(tss\)", src), "out parameter omitted → tuple"
+
+
+# ---- 2026-10-16, the first saves to a real FLEx project (test_real_flex_findings.py has the protocol side) ----
+def test_history_items_are_undo_bundles_never_the_changes_in_them():
+    """W5 counts FLEx history ITEMS. LCM's UndoableActionCount sums the CHANGES in them, and ending a task
+    adds DateModified changes of its own (UndoStack.EndUndoTaskCommon), so one save of one change grew it
+    by 2 or more and W5 closed the project. UndoableSequenceCount is the number of undo bundles."""
+    port = lcm_real.RealLcm("projects")
+    # LCM's undo stack after ONE save of ONE change: one bundle — the change plus two DateModified stamps
+    port.ah = types.SimpleNamespace(UndoableSequenceCount=1, UndoableActionCount=3, CurrentDepth=0)
+    assert port.undo_item_count() == 1
+
+
+def test_the_flex_error_watch_listens_to_pyflexicon_only_never_the_root_logger():
+    import logging
+    port = lcm_real.RealLcm("projects")
+    got = []
+    h = logging.Handler()
+    h.emit = got.append
+    root_before = list(logging.getLogger().handlers)
+    port.subscribe_log(h)
+    try:
+        assert logging.getLogger().handlers == root_before, "never on the root logger"
+        for name in ("pywebview", "flexshell.page", "some.other.library"):
+            logging.getLogger(name).error("an error that is not FLEx failing to save")
+        assert got == []
+        logging.getLogger("flexicon.code.headless_ui").error("ConflictingSave")
+        assert [r.getMessage() for r in got] == ["ConflictingSave"]
+    finally:
+        for name in ("flexicon", "flexlibs2", "FwLcmUI"):
+            logging.getLogger(name).removeHandler(h)
+
+
+def test_user_agent_says_how_many_evaluations_the_first_approval_would_create():
+    port = lcm_real.RealLcm("projects")
+    agent = types.SimpleNamespace(Guid="agent-guid", ApprovesOA=None, DisapprovesOA=None)
+    port.cache = types.SimpleNamespace(LanguageProject=types.SimpleNamespace(DefaultUserAgent=agent))
+    assert port.user_agent() == {"guid": "agent-guid", "missingEvaluations": 2}
+    agent.ApprovesOA = object()
+    assert port.user_agent()["missingEvaluations"] == 1
+    agent.DisapprovesOA = object()
+    assert port.user_agent() == {"guid": "agent-guid", "missingEvaluations": 0}
+
+
+class _Tss:
+    def __init__(self, text):
+        self.Text = text
+
+
+class _Multi:
+    """IMultiUnicode: writing system handle → ITsString (an absent one reads as an empty string, as in LCM)."""
+    def __init__(self, alts=None):
+        self.alts = {h: _Tss(t) for h, t in (alts or {}).items()}
+
+    @property
+    def AvailableWritingSystemIds(self):
+        return [h for h, v in self.alts.items() if v.Text]
+
+    def get_String(self, h):
+        return self.alts.get(int(h)) or _Tss("")
+
+    def set_String(self, h, tss):
+        self.alts[int(h)] = tss
+
+
+class _Owning(list):
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+
+    def Add(self, x):
+        self.append(x)
+        x.Owner = self.owner
+
+
+@pytest.fixture
+def analyses(monkeypatch):
+    """Just enough LCM for the trivial-analysis calls: pass-through interfaces, two vernacular writing
+    systems (handle 1 the default, handle 2 a second orthography), a wordform found by guid."""
+    def passthrough(o):
+        return o
+    lcm = types.ModuleType("SIL.LCModel")
+    for n in ("IWfiWordform", "IWfiAnalysis", "IWfiMorphBundle"):
+        setattr(lcm, n, passthrough)
+    lcm.IWfiAnalysisFactory, lcm.IWfiMorphBundleFactory = "IWfiAnalysisFactory", "IWfiMorphBundleFactory"
+    ki = types.ModuleType("SIL.LCModel.Core.KernelInterfaces")
+    ki.ITsString = passthrough
+    core = types.ModuleType("SIL.LCModel.Core")
+    core.KernelInterfaces = ki
+    lcm.Core = core
+    sil = types.ModuleType("SIL")
+    sil.LCModel = lcm
+    system = types.ModuleType("System")
+    system.Guid = str
+    for name, mod in {"SIL": sil, "SIL.LCModel": lcm, "SIL.LCModel.Core": core, "SIL.LCModel.Core.KernelInterfaces": ki, "System": system}.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+    objects = {}
+    made = []
+
+    def new_analysis():
+        an = types.SimpleNamespace(ClassName="WfiAnalysis", Guid="an-%d" % len(made), CategoryRA=None, Owner=None)
+        an.MorphBundlesOS = _Owning(an)
+        made.append(an)
+        return an
+
+    def new_bundle():
+        return types.SimpleNamespace(ClassName="WfiMorphBundle", Form=_Multi(), MorphRA=None, MsaRA=None, SenseRA=None, InflTypeRA=None)
+    factories = {"IWfiAnalysisFactory": types.SimpleNamespace(Create=new_analysis),
+                 "IWfiMorphBundleFactory": types.SimpleNamespace(Create=new_bundle)}
+    wsm = types.SimpleNamespace(Get=lambda h: types.SimpleNamespace(Id={1: "xx", 2: "xx-Latn"}[int(h)]))
+    sl = types.SimpleNamespace(GetService=lambda k: factories[k], GetObject=lambda g: objects[str(g)], WritingSystemManager=wsm)
+    port = lcm_real.RealLcm("projects")
+    port.cache = types.SimpleNamespace(ServiceLocator=sl, DefaultVernWs=1)
+
+    def wordform(guid, alts):
+        wf = types.SimpleNamespace(ClassName="WfiWordform", Guid=guid, Form=_Multi(alts), Checksum=5)
+        wf.AnalysesOC = _Owning(wf)
+        objects[guid] = wf
+        return wf
+    return types.SimpleNamespace(port=port, wordform=wordform, made=made)
+
+
+def test_a_new_trivial_analysis_names_the_word_in_every_writing_system_it_has(analyses):
+    port = analyses.port
+    wf = analyses.wordform("wf-both", {1: "dari", 2: "DARI"})
+    port.create_trivial_analysis("wf-both")
+    an = analyses.made[-1]
+    assert an.Owner is wf and wf.Checksum == 0, "owned by the wordform; FLEx's checksum reset"
+    assert port._multi(an.MorphBundlesOS[0].Form) == {"xx": "dari", "xx-Latn": "DARI"}
+    assert port._is_trivial(an) and port.find_trivial_analysis("wf-both") == an.Guid
+    # a word written ONLY in the second orthography: its bundle is not left empty
+    analyses.wordform("wf-second", {2: "KOTA"})
+    port.create_trivial_analysis("wf-second")
+    assert port._multi(analyses.made[-1].MorphBundlesOS[0].Form) == {"xx-Latn": "KOTA"}
+
+
+def test_an_analysis_is_trivial_only_when_its_bundle_matches_the_word_in_every_writing_system(analyses):
+    port = analyses.port
+    analyses.wordform("wf-second", {2: "KOTA"})
+    port.create_trivial_analysis("wf-second")
+    an = analyses.made[-1]
+    assert port._is_trivial(an)
+    # a real analysis of that word (a different bundle form in ITS writing system) must not be taken for the
+    # bare one: comparing the default vernacular only saw two empty strings and called them equal
+    an.MorphBundlesOS[0].Form.set_String(2, _Tss("KO-TA"))
+    assert not port._is_trivial(an)
+    assert port.find_trivial_analysis("wf-second") is None

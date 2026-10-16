@@ -165,6 +165,55 @@ export const flex = {
   openExternal: (url) => flexCall('open_external', url),
 };
 
+/* A line for the shell's console (the window it was started from) — Seth, 2026-10-16: "we want very
+ * verbose TTY debugging output, at least for now". Best effort: never throws, never rejects, and does
+ * nothing in a browser or under an older shell without the method. */
+let logging = false;   // a console line the bridge itself prints while forwarding one is never forwarded (no loop)
+export function flexLog(level, message) {
+  if (logging) return;
+  logging = true;
+  try {
+    const b = bridge();
+    if (!b || typeof b.client_log !== 'function') return;
+    Promise.resolve(b.client_log(String(level || 'info'), String(message).slice(0, 8000))).catch(() => {});
+  } catch { /* the console is best effort */ } finally { logging = false; }
+}
+
+function logText(x) {
+  if (x instanceof Error) {
+    const extra = [x.code && 'code ' + x.code, x.detail !== undefined && 'detail ' + logText(x.detail)].filter(Boolean).join(' | ');
+    return (x.stack || (x.name + ': ' + x.message)) + (extra ? '\n  ' + extra : '');
+  }
+  if (typeof x === 'string') return x;
+  try { return JSON.stringify(x); } catch { return String(x); }
+}
+
+/* On a page the shell served, the page's own warnings and errors — console.warn/error, uncaught
+ * errors, unhandled rejections — are copied to the shell's console as they happen, beside its own
+ * trace of every bridge call. Installed once, at load; inert on the web (isFlexShellPage is false). */
+let mirroring = false;
+export function mirrorConsoleToShell() {
+  if (mirroring || typeof window === 'undefined' || typeof console === 'undefined' || !isFlexShellPage()) return false;
+  mirroring = true;
+  for (const level of ['warn', 'error']) {
+    const orig = console[level];
+    if (typeof orig !== 'function') continue;
+    console[level] = function (...args) {
+      orig.apply(this, args);
+      flexLog(level, args.map(logText).join(' '));
+    };
+  }
+  window.addEventListener('error', (ev) => {
+    flexLog('error', 'page error: ' + (ev.error ? logText(ev.error) : (ev.message || '?'))
+      + (ev.filename ? ' (at ' + ev.filename + ':' + ev.lineno + ':' + ev.colno + ')' : ''));
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    flexLog('error', 'unhandled rejection: ' + logText(ev.reason));
+  });
+  return true;
+}
+mirrorConsoleToShell();
+
 /* What the shell cannot do (plan §2.2 item 8): off-site flows (Google sign-in) are unavailable.
  * The engine hides those entry points when this is false. In a browser it is true. */
 export function offsiteAuthAvailable() {

@@ -28,3 +28,55 @@ test('app.js isLocalDev is off on the shell page, and the staged shell carries t
   const src = readFileSync(new URL('../satellites/audio-segmenter/index.html', import.meta.url), 'utf8');
   assert.ok(!src.includes('flextext-flex-shell'), 'the web satellite is never marked');
 });
+
+// Seth, 2026-10-16: "we want very verbose TTY debugging output". On the shell's page, the page's own
+// warnings and errors reach the console the shell was started from; on the web nothing changes.
+test('page warnings, errors and rejections are copied to the shell console, only on the shell page', async () => {
+  const { mirrorConsoleToShell, flexLog } = await import('../docs/js/native-flex.js');
+  assert.equal(mirrorConsoleToShell(), false, 'node: no window, nothing installed');
+  assert.doesNotThrow(() => flexLog('info', 'no bridge: a no-op'));
+  const listeners = {};
+  const lines = [];
+  globalThis.window = {
+    addEventListener: (ev, fn) => { listeners[ev] = fn; },
+    pywebview: { api: { client_log: async (level, msg) => { lines.push([level, msg]); return { ok: true }; } } },
+  };
+  globalThis.document = { querySelector: () => ({ getAttribute: () => '0' }) };
+  assert.equal(mirrorConsoleToShell(), false, 'a page the shell did not serve (the web) is left alone');
+  globalThis.document = { querySelector: (sel) => (sel === 'meta[name="flextext-flex-shell"]' ? { getAttribute: () => '1' } : null) };
+  const orig = { warn: console.warn, error: console.error };
+  const seen = [];
+  console.warn = (...a) => seen.push(['warn', a]);
+  console.error = (...a) => seen.push(['error', a]);
+  try {
+    assert.equal(mirrorConsoleToShell(), true);
+    assert.equal(mirrorConsoleToShell(), false, 'installed once');
+    const e = Object.assign(new Error('boom'), { code: 'E_INVARIANT', detail: { closed: true } });
+    console.warn('[flex] save failed', e);
+    console.error('plain', { a: 1 });
+    listeners.error({ message: 'x is not defined', filename: 'app.js', lineno: 3, colno: 7, error: null });
+    listeners.unhandledrejection({ reason: Object.assign(new Error('nope'), { code: 'E_POISONED' }) });
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(seen.length, 2, 'the page console still gets every line');
+    assert.equal(lines[0][0], 'warn');
+    assert.match(lines[0][1], /^\[flex\] save failed Error: boom/);
+    assert.match(lines[0][1], /code E_INVARIANT \| detail \{"closed":true\}/);
+    assert.deepEqual(lines[1], ['error', 'plain {"a":1}']);
+    assert.match(lines[2][1], /^page error: x is not defined \(at app\.js:3:7\)/);
+    assert.match(lines[3][1], /^unhandled rejection: Error: nope[\s\S]*code E_POISONED/);
+    flexLog('info', 'x'.repeat(9000));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(lines[4][1].length, 8000, 'one console line is capped');
+    globalThis.window.pywebview.api.client_log = () => { throw new Error('bridge gone'); };
+    assert.doesNotThrow(() => console.warn('still fine'), 'a failing bridge never breaks the page console');
+    let calls = 0;
+    globalThis.window.pywebview.api.client_log = async () => { calls += 1; console.error('the bridge complains'); return { ok: true }; };
+    console.warn('once');
+    assert.equal(calls, 1, 'a line printed while forwarding is not forwarded again (no loop)');
+  } finally {
+    console.warn = orig.warn;
+    console.error = orig.error;
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+});

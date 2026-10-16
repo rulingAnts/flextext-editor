@@ -9,14 +9,16 @@ There is NO HTTP endpoint for any of this (plan §2.2 item 7): the bridge is in-
 """
 
 import functools
+import logging
 import os
 import sys
 import tempfile
 import threading
+import time
 import traceback
 
 from . import FLEX_CONTRACT, SHELL_VERSION
-from . import copyonly, mediafind, prechecks
+from . import copyonly, mediafind, prechecks, trace
 from .errors import FlexError
 from .protocol import Session
 from .server import MediaRegistry
@@ -43,26 +45,47 @@ def _err(e):
                                    "detail": {"trace": traceback.format_exc(limit=3)}}}
 
 
-# A refusal worth seeing in the console window (Seth runs the shell from one, and pastes what it says): why
-# a project did not open, or a copy was not made. Everything else refused is the page's to explain.
-_CONSOLE_REFUSALS = frozenset({"open_project", "make_copy"})
+TRACE = logging.getLogger("flexshell.bridge")
+PAGE = logging.getLogger("flexshell.page")
+# polled every 150 ms while a job runs (the worker traces each job's start, progress and end), and the
+# page's own log lines (traced as what they say)
+_QUIET = frozenset({"job_status", "client_log"})
 
 
 def exposed(fn):
-    """Wrap a method: never raise into JS. An unexpected failure (a bug, not a refusal) also goes to the
-    console with its trace — the page shows one line, and the VM's console is where a fix starts."""
+    """Wrap a method: never raise into JS. Every call is traced to the console with its arguments, how
+    long it took and what it answered (trace.py); a refusal with its code, message and detail; an
+    unexpected failure (a bug, not a refusal) with its whole exception, .NET parts included — the page
+    shows one line, and the console is where a fix starts (Seth, 2026-10-16: "we want very verbose TTY
+    debugging output, at least for now")."""
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
+        name = fn.__name__
+        loud = name not in _QUIET and TRACE.isEnabledFor(logging.DEBUG)
+        t0 = time.monotonic()
         try:
-            return _ok(fn(self, *args, **kwargs))
+            if loud:
+                TRACE.debug("page → %s(%s)", name, ", ".join(trace.short(a, 240) for a in args))
+        except Exception:   # noqa: BLE001 — a console that cannot be written never costs the answer
+            pass
+        try:
+            result = fn(self, *args, **kwargs)
+            try:
+                if loud:
+                    TRACE.debug("page ← %s ok in %d ms: %s", name, (time.monotonic() - t0) * 1000, trace.short(result, 300))
+            except Exception:   # noqa: BLE001
+                pass
+            return _ok(result)
         except BaseException as e:   # noqa: BLE001
             out = _err(e)
             try:
-                if not isinstance(e, FlexError):
-                    sys.stderr.write("[flexshell] %s failed: %s\n%s" % (fn.__name__, out["error"]["message"], traceback.format_exc()))
-                elif fn.__name__ in _CONSOLE_REFUSALS:
-                    sys.stderr.write("[flexshell] %s refused: %s — %s\n" % (fn.__name__, e.code, e))
-            except Exception:   # noqa: BLE001 — a console that cannot be written never costs the answer
+                ms = (time.monotonic() - t0) * 1000
+                if isinstance(e, FlexError):
+                    TRACE.warning("page ← %s refused in %d ms: %s — %s%s", name, ms, e.code, e.message,
+                                  (" | detail " + trace.short(e.detail, 1200)) if e.detail else "")
+                else:
+                    TRACE.error("page ← %s FAILED in %d ms:\n%s", name, ms, trace.exc_text(e))
+            except Exception:   # noqa: BLE001
                 pass
             return out
     wrapper.__exposed__ = True
@@ -525,6 +548,15 @@ class Api:
     @exposed
     def job_status(self, job_id):
         return self._worker.status(job_id)
+
+    @exposed
+    def client_log(self, level, message):
+        """A line from the page — an error it caught, a failure it showed the user — printed in this
+        console beside the shell's own (trace.py). Nothing is stored or sent anywhere."""
+        lv = {"debug": logging.DEBUG, "info": logging.INFO, "warn": logging.WARNING, "warning": logging.WARNING,
+              "error": logging.ERROR}.get(str(level or "").lower(), logging.INFO)
+        PAGE.log(lv, "%s", str(message)[:8000])
+        return True
 
 
 def _engine_version(root):

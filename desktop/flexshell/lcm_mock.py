@@ -256,6 +256,10 @@ class MockLcm(FlexPort):
                  WsNames=dict(m._ws_names))
         m.store[lp.guid] = lp
         m._lp = lp.guid
+        # FLEx's default user agent, as a new project has it: no evaluation objects yet — the first approval
+        # ever recorded creates both (CmAgent.SetEvaluation [source: liblcm OverridesCellar.cs])
+        agent = Obj("CmAgent", owner=lp.guid, guid=DEFAULT_USER_AGENT, Name={"en": "default user"}, Human=True)
+        m.store[agent.guid] = agent
         # a few lexicon objects so the never-change counts are non-trivial
         for _ in range(3):
             le = Obj("LexEntry", owner=lp.guid)
@@ -604,7 +608,7 @@ class MockLcm(FlexPort):
         handle.state = "rolledback"
         self._uow = None
 
-    def undoable_action_count(self):
+    def undo_item_count(self):
         return len(self._undo)
 
     def last_undo_text(self):
@@ -1220,8 +1224,9 @@ class MockLcm(FlexPort):
         mbs = [self.store[g] for g in an["MorphBundles"]]
         if not mbs:
             return True
+        # the bundle names nothing but the word, in EVERY writing system it has a form in (as lcm_real)
         return len(mbs) == 1 and all(mbs[0].get(k) is None for k in ("Morph", "Msa", "Sense", "InflType")) \
-            and mbs[0].get("Form", {}).get(self._vern) == wf["Form"].get(self._vern)
+            and all(wf["Form"].get(ws, "") == t for ws, t in (mbs[0].get("Form") or {}).items() if t)
 
     def find_trivial_analysis(self, wordform_guid):
         for o in self.store.values():
@@ -1277,21 +1282,38 @@ class MockLcm(FlexPort):
             g["Form"].pop(ws, None)
         self._mark(gloss_guid)
 
+    def _agent(self):
+        return self.store.get(DEFAULT_USER_AGENT)
+
     def is_approved(self, analysis_guid):
         an = self.store[analysis_guid]
-        return DEFAULT_USER_AGENT in an["Evaluations"]
+        agent = self._agent()
+        return bool(agent and agent.get("Approves")) and agent["Approves"] in an["Evaluations"]
 
     def set_evaluation(self, analysis_guid, approves=True):
-        """SetEvaluation(A, approves) as FLEx does [verified behaviour; the exact objects added are
-        unverified, V-12: the mock records the agent on the analysis]."""
+        """CmAgent.SetEvaluation as LCM does it [source: liblcm OverridesCellar.cs]: the agent's
+        Disapproves and Approves (CmAgentEvaluation, owned by the agent) are created the first time either
+        is needed; the analysis's Evaluations then hold the one saying what the agent thinks, never both."""
         self.calls.append(("set_evaluation", analysis_guid, approves))
         self._require_uow()
+        agent = self._agent()
+        for k in ("Disapproves", "Approves"):
+            if not agent.get(k):
+                ev = Obj("CmAgentEvaluation", owner=agent.guid)
+                self.store[ev.guid] = ev
+                agent[k] = ev.guid
+                self._mark(ev.guid, agent.guid)
         an = self.store[analysis_guid]
-        ev = [e for e in an["Evaluations"] if e != DEFAULT_USER_AGENT]
-        if approves:
-            ev.append(DEFAULT_USER_AGENT)
+        ev = [e for e in an["Evaluations"] if e not in (agent["Approves"], agent["Disapproves"])]
+        ev.append(agent["Approves"] if approves else agent["Disapproves"])
         an["Evaluations"] = ev
         self._mark(analysis_guid)
+
+    def user_agent(self):
+        agent = self._agent()
+        if agent is None:
+            return {"guid": None, "missingEvaluations": 0}
+        return {"guid": agent.guid, "missingEvaluations": sum(1 for k in ("Approves", "Disapproves") if not agent.get(k))}
 
     def create_media(self, text_guid, path):
         self.calls.append(("create_media", text_guid))

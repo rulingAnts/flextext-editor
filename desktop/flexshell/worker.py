@@ -7,13 +7,18 @@ so EVERY LCM call is enqueued here and the caller waits on a Future. The thread 
 as STA on Windows (FLEx's own convention; that it matters for these calls is [unverified], V-10).
 """
 
+import logging
 import queue
 import threading
 import time
 import uuid
 from concurrent.futures import Future
 
+from . import trace
 from .errors import FlexError
+
+JOBS = logging.getLogger("flexshell.job")
+PORT = logging.getLogger("flexshell.flex")
 
 
 class Job:
@@ -72,12 +77,22 @@ class Worker:
             if job is None:
                 return
             job.state = "running"
+            t0 = time.monotonic()
+            _quietly(JOBS.debug, "job %s [%s] started", job.label, job.id[:8])
             try:
                 job.future.set_result(job.fn(job))
                 job.state = "done"
+                _quietly(JOBS.debug, "job %s [%s] done in %d ms", job.label, job.id[:8], (time.monotonic() - t0) * 1000)
             except BaseException as e:   # noqa: BLE001 — every exception becomes a job error
                 job.future.set_exception(e)
                 job.state = "error"
+                # a job's failure reaches the page only through job_status: say it HERE, in full
+                ms = (time.monotonic() - t0) * 1000
+                if isinstance(e, FlexError):
+                    _quietly(JOBS.warning, "job %s [%s] ended in %d ms with %s — %s%s", job.label, job.id[:8], ms, e.code, e.message,
+                             (" | detail " + trace.short(e.detail, 2000)) if e.detail else "")
+                else:
+                    _quietly(JOBS.error, "job %s [%s] FAILED in %d ms:\n%s", job.label, job.id[:8], ms, trace.exc_text(e))
             finally:
                 with self._lock:
                     if self._busy_write is job:
@@ -125,6 +140,27 @@ class Worker:
         self._q.put(None)
 
 
+def _quietly(log, *args):
+    """A trace line that can never cost the job (trace.py)."""
+    try:
+        log(*args)
+    except Exception:   # noqa: BLE001
+        pass
+
+
+def _summary(name, r):
+    """A port call's answer, briefly: a text read is its shape, a count list is itself."""
+    try:
+        if name == "read_text" and isinstance(r, dict):
+            segs = sum(len(p.get("segments") or []) for p in r.get("paragraphs") or [])
+            return "%d paragraphs, %d phrases, %d media" % (len(r.get("paragraphs") or []), segs, len(r.get("media") or []))
+        if name == "list_texts" and isinstance(r, list):
+            return "%d texts" % len(r)
+        return trace.short(r, 300)
+    except Exception:   # noqa: BLE001
+        return "?"
+
+
 def _com_init_sta():
     """CoInitializeEx(COINIT_APARTMENTTHREADED) on Windows; a no-op elsewhere. Lazy, never imported
     at module load, so this file runs on Linux."""
@@ -160,11 +196,33 @@ class ThreadBound:
         def bound(*a, **kw):
             if threading.get_ident() != worker.thread_id:
                 raise RuntimeError("LCM call off the worker thread (would wedge the session): " + name)
-            return attr(*a, **kw)
+            # every call into FLEx, traced (trace.py): what was asked, what came back, how long it took —
+            # and when FLEx throws, the whole exception, .NET stack and inner exceptions included
+            t0 = time.monotonic()
+            try:
+                r = attr(*a, **kw)
+            except BaseException as e:   # noqa: BLE001
+                ms = (time.monotonic() - t0) * 1000
+                if isinstance(e, FlexError):
+                    _quietly(PORT.warning, "%s(%s) refused in %d ms: %s — %s", name, _args(a, kw), ms, e.code, e.message)
+                else:
+                    _quietly(PORT.error, "%s(%s) THREW in %d ms:\n%s", name, _args(a, kw), ms, trace.exc_text(e))
+                raise
+            if PORT.isEnabledFor(logging.DEBUG):   # a big answer is never formatted for a console that is quiet
+                _quietly(PORT.debug, "%s(%s) → %s in %d ms", name, _args(a, kw), _summary(name, r), (time.monotonic() - t0) * 1000)
+            return r
         return bound
 
     def __setattr__(self, name, value):
         setattr(object.__getattribute__(self, "_port"), name, value)
+
+
+def _args(a, kw):
+    try:
+        parts = [trace.short(x, 160) for x in a] + ["%s=%s" % (k, trace.short(v, 160)) for k, v in kw.items()]
+        return ", ".join(parts)
+    except Exception:   # noqa: BLE001
+        return "…"
 
 
 class ProjectRegistry:

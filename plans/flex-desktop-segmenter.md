@@ -494,6 +494,9 @@ after an exception. So the shell **never calls `CloseProject()` on a poisoned se
 | `ProjectBackupService.BackupProject` writes FLEx's own `.fwbackup` (appears in File ▸ Restore); it saves first. | **verified** (1.7 s; zip verified) / appearing in Restore list **unverified** |
 | A failed rollback/undo (`kuresFailed`) is ignored by `UnitOfWork.Rollback` and by flexicon's `Undo()`. | **source** (injection test **unverified**) |
 | `LcmCache.Dispose` does not save data. | **source** (**unverified** as the poisoned-close path) |
+| **FLEx's history items are `IActionHandler.UndoableSequenceCount`** (the undo bundles: the times the user could press Undo). ⚠ `UndoableActionCount` — the name the first port used — sums the CHANGES in those bundles (`m_undoBundles.Sum(uow => uow.Changes.Count)`), and ending a task adds `DateModified` changes of its own (`EndUndoTaskCommon` stamps the nearest owner that has one: `StText`, `Text`, `LangProject` at most every 2 minutes), so a save of ONE change grows it by 2 or more. Both properties are declared on `IActionHandler` (SIL.LCModel.Core). | **source** (liblcm `UndoStack.cs`; the 10.1.0 assembly). The first real saves (2026-10-16) failed W5 on exactly this. |
+| `CmAgent.SetEvaluation` (what `SetAgentOpinion` calls) creates the agent's `ApprovesOA` **and** `DisapprovesOA` (`CmAgentEvaluation`, owned by the agent) the first time either is needed, then edits `WfiAnalysis.EvaluationsRC`; `AdjustApprovalLists` touches virtual properties only. The first approval ever recorded in a project therefore adds two objects outside the text. | **source** (liblcm `OverridesCellar.cs`, `OverridesLing_Wfi.cs`) |
+| The classes carrying `DateModified` among those a save touches: `StText`, `Text` (`CmMajorObject`), `LangProject` (`CmProject`) — none of `StTxtPara`, `Segment`, `Wfi*`, `CmAgent*`, `CmMedia*`, `PunctuationForm`. | **source** (`MasterLCModel.xml`) |
 
 ### 5.3 Before and at open
 
@@ -580,8 +583,9 @@ One **Save to FLEx** = one user action = **one LCM UOW = one FLEx history item**
   6. Re-read the touched text into the engine model = the intended post-state (§4.2).
 - **W5 commit or roll back**: success → `h.set_RollBack(False)`; `h.Dispose()`. Exception →
   `h.Dispose()` with RollBack left true. If `Dispose`/`EndUndoTask` throws and depth is still 1 →
-  `ah.Rollback(0)`. Then assert depth 0 and `UndoableActionCount` +1 with the expected undo text
-  (success) or unchanged (failure).
+  `ah.Rollback(0)`. Then assert depth 0 and the history items (`UndoableSequenceCount`, §5.2 — never
+  `UndoableActionCount`) +1 with the expected undo text (success) or unchanged (failure). A failure
+  here closes the project unsaved and says what it counted (`itemsBefore`/`itemsAfter`/`undoText`).
 - **W6 after any rollback**: compare every touched fingerprint with the pre-state. Mismatch →
   `E_ROLLBACK_INCOMPLETE`, poison.
 - **W7 save**: `usm.Save()` at depth 0, then wait for the commit thread by reflection
@@ -593,7 +597,10 @@ One **Save to FLEx** = one user action = **one LCM UOW = one FLEx history item**
   below) and to a touched text (ownership chain), or be a `WfiWordform`/`WfiAnalysis`/`WfiGloss`/
   `PunctuationForm` referenced from a touched segment; field values must equal the intended
   values; zero unexplained changes. Also: `.tmp` is gone, `.fwdata` mtime changed. Failure →
-  `E_DISK_CHECK_FAILED`, poison, then W9.
+  `E_DISK_CHECK_FAILED`, poison, then W9. The first approval in a project (§5.2) is MEASURED inside
+  the unit of work (`port.user_agent()` before and after: how many of the agent's two evaluations
+  the write made) and only then allowed — `CmAgentEvaluation` (+n, owned by the agent) and the
+  agent's own change; never predicted at preview, where a save in between could make it stale.
   - ⚠ **[verified] validator pitfalls:** self-closing `<rt …/>` elements exist (a regex missed
     185 of them); hashing `ET.tostring(el)` at an iterparse end event includes the element's
     *tail*, which depends on buffer boundaries — set `el.tail = None` first, and always test the
@@ -613,7 +620,7 @@ Expected disk-diff classes per op (from the verified runs; plus `LangProject`/`S
 | § split / join / move | `StTxtPara`, `Segment` (+/−), `PunctuationForm` (+ on first use) |
 | paragraph split / join / convert | `StTxtPara` (+/−), `StText`, `Segment`; `PunctuationForm` (+ on first use, when a join appends `§`) |
 | word split / insert | `StTxtPara`, `Segment`, `WfiWordform` (+) |
-| gloss set | `Segment`, `WfiGloss` (+ or edited single-use), `WfiAnalysis` (gains a gloss; + new trivial analysis; its evaluations change on approval — exact objects **[unverified]**, V-12), `WfiMorphBundle` (+ only with a new trivial analysis) |
+| gloss set | `Segment`, `WfiGloss` (+ or edited single-use), `WfiAnalysis` (gains a gloss; + new trivial analysis; its evaluations change on approval), `WfiMorphBundle` (+ only with a new trivial analysis, its form = the wordform's in every writing system it has), and — the first approval in a project only — `CmAgent` with two new `CmAgentEvaluation` (§5.2, **source**) |
 | relink | `CmMediaURI` |
 | media attach | `Text`, `CmMediaContainer` (+), `CmMediaURI` (+), `Segment` |
 | import | the new `Text` subtree, `WfiWordform`/`WfiAnalysis`/`WfiGloss`/`PunctuationForm` (+) |
@@ -633,6 +640,29 @@ Expected disk-diff classes per op (from the verified runs; plus `LangProject`/`S
   POISONED a save that had succeeded. Exactly that form, and only when the preview counted it
   (`newPunctForms`), is now explained.
 
+**Found by the first saves to a real FLEx project, 2026-10-16** (a disposable copy; sharing off). "Fix
+FLEx's recording link" said *rolled back*; a save of glosses added in a second analysis writing system
+and an export bundle then both said *FLEx reported a problem saving … preserved as ;*. One cause, two
+misleading messages:
+
+- W5 read `UndoableActionCount` as the number of history items (§5.2). The relink committed its one
+  item, the count rose by the change AND the DateModified stamps, and W5 closed the project unsaved. The
+  gloss save and the export never ran: every call after a closed session answers `E_POISONED`, which the
+  panel worded as a FLEx save problem. Nothing reached the project file.
+- The mock had agreed with the mistake — its history count was its item count, so no test could see the
+  difference. lcm_real now reads `UndoableSequenceCount` (a fake undo stack with 1 item and 3 changes
+  pins it), and the mock models the other LCM behaviour the shell had only assumed: the first approval
+  creates the agent's two evaluations (`test_real_flex_findings.py`).
+- Found while there, before they could bite: the FLEx-error watch on the root logger (§5.6); a trivial
+  analysis's bundle written in the default vernacular only, and an analysis judged "trivial" by that
+  writing system alone — so a word written only in a second vernacular orthography got an empty bundle,
+  and a real analysis of it compared "equal" (two empty strings) and could be reused as the bare one.
+  Both now use every writing system the wordform has, as the mock always did.
+- The console now traces everything (`trace.py`; `FLEXSHELL_DEBUG=0` quiets it to warnings): every
+  bridge call and answer, every job, every call into FLEx with its timing, each W-step with the counts it
+  compared, the W8 diff by class, and a .NET exception whole (type, message, inner exceptions, stack).
+  The page's own warnings, errors and failures are copied there too (`native-flex.js`).
+
 ### 5.5 Undo / redo of a save
 
 `undo_flex()`: refuse at depth > 0; `r = ah.Undo()`; require `r == kuresSuccess` (flexicon's
@@ -645,7 +675,10 @@ backup still predates everything).
 
 ### 5.6 Poisoned sessions
 
-Triggers: any ERROR from the headless UI log, `E_ROLLBACK_INCOMPLETE`, `E_SAVE_FAILED`,
+Triggers: any ERROR from the headless UI log — pyflexicon's loggers (`flexicon`, `flexlibs2`, `FwLcmUI`)
+ONLY: the first port also listened to the ROOT logger, so an error anywhere in the process (the page
+bridge, the web view, the shell's own console lines) would have closed the project; the shell's own
+`flexshell.*` lines are never counted even if a handler is misplaced — `E_ROLLBACK_INCOMPLETE`, `E_SAVE_FAILED`,
 `E_DISK_CHECK_FAILED`, a wedge (`LockRecursionException`, `NullReferenceException` from the undo
 stack, state stuck in `BroadcastingPropChanges`), or any exception from `Save`.
 
@@ -653,6 +686,12 @@ Response: block every further call; **dispose the cache without saving** (never 
 `CloseProject`, which saves); keep the process alive only to show the message; the user reopens
 from disk. **[unverified]** that `LcmCache.Dispose()` without `Save()` leaves the disk untouched
 in a write-enabled session — must be proven on the VM before release (V-5).
+
+Every error that closes the session carries `detail.closed`, and every later call answers
+`E_POISONED` with that error as `detail.cause`. The panel says the project was **closed without
+saving** and why — never "rolled back" (the change was not merely undone: the session is gone and
+must be reopened), and never "FLEx reported a problem" unless FLEx did. (2026-10-16: the first real
+failure said "rolled back"; the two after it said "FLEx reported a problem saving … preserved as ;".)
 
 ### 5.7 Close
 
@@ -1387,7 +1426,7 @@ copy, before writing: the confirmation says so).
 | V-9 | `LcmNewerVersionException` mapping (copy with header version + 1). | Script. |
 | V-10 | STA worker + pywebview `js_api` marshalling; WebView2 navigation hooks; `private_mode=False` persistence across launches; fixed-port nonce check. | `desktop/vm/test_navguard_e2e.py` and a launch/relaunch test. |
 | V-11 | Relink path form (absolute vs LinkedFiles-relative) as FLEx writes it. | Relink in FLEx on a copy and compare. |
-| V-12 | Create-new-trivial-analysis path for an unanalysed word; the exact objects `SetEvaluation` adds. | Script + disk diff. |
+| V-12 | Create-new-trivial-analysis path for an unanalysed word; the exact objects `SetEvaluation` adds (source says two `CmAgentEvaluation` under the agent, the first time — §5.2; the shell measures and allows them). | Script + disk diff. |
 | V-13 | Golden Print-view clipboard capture (a variant morph with final punctuation; a multi-segment paragraph; two Free WSs). | Seth copies in FLEx on the copy; saved to scratch; byte-compare. |
 | V-14 | Fragile-paragraph repair (only if a fragile paragraph is ever found). | Script. |
 | V-15 | PyInstaller onedir build loading FLEx's DLLs from the install folder; clean Windows user account. | Build + run. |

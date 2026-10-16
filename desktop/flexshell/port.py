@@ -34,7 +34,10 @@ get_diffs(old, new)    → (ich, cchInsert, cchDelete) — the diff LCM will com
 Units of work
 -------------
 begin_uow(undo_label, redo_label) → handle;  commit(handle);  rollback(handle);  depth()
-undoable_action_count();  last_undo_text();  undo() → 'kuresSuccess'|'kuresFailed'|...;  redo()
+undo_item_count()  → FLEx's HISTORY ITEMS: the times the user could press Undo. ⚠ Not LCM's
+                      UndoableActionCount, which counts every CHANGE in them — and a commit adds
+                      DateModified changes of its own, so one save grows it by 2 or more (2026-10-16)
+last_undo_text();  undo() → 'kuresSuccess'|'kuresFailed'|...;  redo()
 
 Writes (inside a UOW only; the implementation raises outside one)
 -----------------------------------------------------------------
@@ -51,6 +54,9 @@ glosses_of(analysis_guid) → [{guid, forms: {ws: text}}]
 gloss_ref_count(gloss_guid) → int (segments referencing it, whole project)
 create_gloss(analysis_guid, forms) → guid;  set_gloss_form(gloss_guid, ws, text)
 is_approved(analysis_guid) → bool;  set_evaluation(analysis_guid, approves=True)
+user_agent() → {guid, missingEvaluations}: the agent approvals are recorded for, and how many of its
+                      two evaluation objects (approves, disapproves) the next approval would CREATE
+                      (CmAgent.SetEvaluation makes both when either is missing) — for the W8 check
 create_media(text_guid, path) → (container_guid, uri_guid);  set_media_uri(uri_guid, path)
 import_flextext(path) → [new_text_guid]   (FLEx's own importer, joins our UOW)
 
@@ -148,7 +154,7 @@ class FlexPort(ABC):
     @abstractmethod
     def depth(self): ...
     @abstractmethod
-    def undoable_action_count(self): ...
+    def undo_item_count(self): ...
     @abstractmethod
     def last_undo_text(self): ...
     @abstractmethod
@@ -191,6 +197,8 @@ class FlexPort(ABC):
     def is_approved(self, analysis_guid): ...
     @abstractmethod
     def set_evaluation(self, analysis_guid, approves=True): ...
+    @abstractmethod
+    def user_agent(self): ...
     @abstractmethod
     def create_media(self, text_guid, path): ...
     @abstractmethod

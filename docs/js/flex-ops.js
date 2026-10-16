@@ -900,3 +900,40 @@ export function pendingMediaFix(flexState) {
   if (!f || !f.path || flexState.linkOk) return {};
   return f.uriGuid ? { relink: { uriGuid: f.uriGuid, path: f.path } } : { media: f.path };
 }
+
+/* ---- what a failed FLEx call tells the user (Seth, 2026-10-16: three real-FLEx failures in a row said
+ * "rolled back" or "FLEx reported a problem saving" when the project had in fact been CLOSED unsaved by
+ * the shell's own check) — PURE: `T(key, vars)` is the caller's translator. */
+
+/* The error that closed the project, when this one did or follows one that did: the shell closes a
+ * session WITHOUT saving whenever a write cannot be confirmed (detail.closed), and every later call
+ * answers E_POISONED carrying that cause. */
+export function flexClosedBy(e) {
+  if (!e) return null;
+  const d = e.detail || {};
+  if (e.code === 'E_POISONED') return d.cause || { code: e.code, message: e.message, detail: {} };
+  return d.closed ? e : null;
+}
+// codes whose own message already says nothing was written (no "Nothing was written" before them)
+const SAYS_NOTHING_WRITTEN = new Set(['E_INVARIANT', 'E_STALE_BASE', 'E_BACKUP_FAILED']);
+// codes whose shell message says WHY, in words worth showing beside the translated one
+const WHY_CODES = new Set(['E_INVARIANT', 'E_SAVE_FAILED', 'E_DISK_CHECK_FAILED', 'E_ROLLBACK_INCOMPLETE', 'E_BACKUP_FAILED', 'E_IMPORT_INVALID', 'E_INTERNAL']);
+
+export function flexFailText(e, afterWrite, T) {
+  const code = (e && e.code) || 'E_INTERNAL';
+  const closed = flexClosedBy(e);
+  if (closed) {
+    // never "rolled back" and never "nothing changed" alone: the project is CLOSED and must be reopened
+    const d = (e && e.detail) || {};
+    const f = d.failedFile || (closed.detail && closed.detail.failedFile) || '';
+    let msg = T(f ? 'flex.closedSetAside' : 'flex.closedUnsaved', { f });
+    if (d.backup) msg += ' ' + T('flex.closedBackup', { b: d.backup });
+    if (closed.message) msg += ' ' + T('flex.why', { why: closed.message });
+    return msg;
+  }
+  let msg = T('flex.err.' + code, (e && e.detail) || undefined);
+  if (msg === 'flex.err.' + code) msg = T('flex.err.E_INTERNAL');
+  if (afterWrite && !SAYS_NOTHING_WRITTEN.has(code)) msg = T('flex.nothingWritten') + ' ' + msg;
+  if (e && e.message && WHY_CODES.has(code)) msg += ' ' + T('flex.why', { why: e.message });
+  return msg;
+}

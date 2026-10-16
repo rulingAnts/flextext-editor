@@ -92,8 +92,20 @@ liblcm's model (plan §2.4 item 10) instead of one line per launch. The eighth o
 and tripped the shell's own one-thread guard on the read-back after the open (item 11: the rule is
 now enforced on the mock too, so the suite catches it). Still never exercised on Windows: everything in `lcm_real.py` past `OpenProject`, the real `CoreWebView2` attribute path,
 the Save dialog for exports.
+The first saves to a real project (2026-10-16) found the next one: the shell counted the CHANGES in
+FLEx's undo history as if they were its items, so every save "made two history items" and the project
+was closed unsaved — then reported as "rolled back" and "FLEx reported a problem saving". Fixed from
+liblcm's source, with the messages (plan §5.2, §5.4 "Found by the first saves to a real FLEx project").
 The web Segmenter itself should come up at `http://127.0.0.1:8017/`; the FLEx section appears only
 when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
+
+**The console is very verbose, for now** (Seth, 2026-10-16). The window the shell was started from
+prints every call the page makes and its answer, every job, every call into FLEx with its arguments and
+timing, each step of a save (backup, unit of work, the checks and the counts they compared, the disk
+read-back by class), any .NET exception whole — type, message, inner exceptions, stack — and the page's
+own warnings and errors. When something fails, that console text is the report: paste it (it may name
+your project and texts, so share it only where you would share those). `FLEXSHELL_DEBUG=0` quiets it to
+warnings and errors.
 
 ## Running the tests (Linux, Mac or Windows — no FLEx needed)
 

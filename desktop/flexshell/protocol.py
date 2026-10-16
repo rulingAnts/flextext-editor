@@ -28,15 +28,17 @@ import os
 import secrets
 import shutil
 import time
+import traceback
 import zipfile
 import xml.etree.ElementTree as ET
 
-from . import mediafind
+from . import mediafind, trace
 from . import diskcheck, glosses, model, segmentation as S
 from .errors import FlexError, POISONING
 from .lcm_mock import EOS_CHARS, SECTION, is_word_forming, tokenize
 from .port import COUNTED_CLASSES, NEVER_CHANGE, UNDO_SUCCESS, nfc, nfd
 
+SAVE = logging.getLogger("flexshell.save")   # every step of a save, and why one stopped (trace.py)
 PREVIEW_TTL = 600.0
 BACKUP_COMMENT = "FlexText Segmenter before save"
 
@@ -99,8 +101,15 @@ class _LogCapture(logging.Handler):
         self.on_error = on_error
 
     def emit(self, record):
+        if record.name == "flexshell" or record.name.startswith("flexshell."):
+            return   # the shell's own console lines (trace.py) are reports, never FLEx failing to save
         self.records.append(record)
         if record.levelno >= logging.ERROR:
+            try:
+                SAVE.error("FLEx logged an ERROR (%s): %s%s", record.name, record.getMessage(),
+                           ("\n" + self.format(record)) if record.exc_info else "")
+            except Exception:   # noqa: BLE001
+                pass
             self.on_error(record)
 
 
@@ -130,6 +139,7 @@ class Session:
         if write and port.are_multiple_apps_connected():  # C4
             raise FlexError("E_PEERS_CONNECTED", "another program has this project open (a peer); read-only", {})
         self.counts0 = port.counts()                      # C5
+        SAVE.info("session open: %s, %s; object counts %s", name, "read and write" if write else "read only", trace.short(self.counts0, 600))
 
     # ---- poison ------------------------------------------------------------------------------
     def _on_error_log(self, record):
@@ -138,9 +148,16 @@ class Session:
 
     def _poison(self, err):
         """§5.6: block every further call; dispose WITHOUT saving (never flexicon's CloseProject);
-        keep the process alive to show the message."""
+        keep the process alive to show the message. The error says so (`detail.closed`): the page tells
+        the user the project was closed without saving, never that a change was merely rolled back."""
         if self.poisoned:
             return
+        err.detail = dict(err.detail or {}, closed=True)
+        try:
+            SAVE.error("PROJECT CLOSED WITHOUT SAVING — %s: %s | detail %s\n  called from:\n    %s", err.code, err.message,
+                       trace.short(err.detail, 2000), "".join(traceback.format_stack(limit=8)[:-1]).strip().replace("\n", "\n    "))
+        except Exception:   # noqa: BLE001
+            pass
         self.poisoned = err
         try:
             self.port.close_without_save()
@@ -150,10 +167,10 @@ class Session:
 
     def guard(self):
         if self.poisoned:
-            raise FlexError("E_POISONED", "the project session is closed after a failed write: %s. Your last good file is "
-                            "preserved%s; your edits are still in the editor." % (
-                                self.poisoned.message, (" as " + self.failed_file) if self.failed_file else ""),
-                            {"cause": self.poisoned.to_dict(), "failedFile": self.failed_file, "backup": self.backup_ok})
+            raise FlexError("E_POISONED", "the project was closed without saving (%s: %s)%s; close it and open it again to carry on" % (
+                                self.poisoned.code, self.poisoned.message,
+                                ("; the file that failed the check was set aside as " + self.failed_file) if self.failed_file else ""),
+                            {"cause": self.poisoned.to_dict(), "failedFile": self.failed_file, "backup": self.backup_ok, "closed": True})
         if self.closed:
             raise FlexError("E_NOT_FOUND", "no project is open", {})
 
@@ -418,6 +435,15 @@ class Session:
             raise FlexError("E_EMPTY_PHRASE", "a phrase with no letters cannot be saved to FLEx; type its words or merge it",
                             {"blockers": blockers, "warnings": warnings})
         token = secrets.token_hex(16)
+        try:
+            SAVE.info("preview %s: %d ops, %d changes, deltas %s, warnings %s", token[:8], len(ops), len(summary),
+                      trace.short({k: v for k, v in deltas.items() if v}), trace.short(warnings, 600))
+            for i, op in enumerate(ops):
+                SAVE.debug("  op %d: %s", i + 1, trace.short(op, 700))
+            for x in summary:
+                SAVE.debug("  change: %s", trace.short(x, 500))
+        except Exception:   # noqa: BLE001
+            pass
         self.previews[token] = {
             "text": text_guid, "baseRev": base_rev, "ops": ops, "post": post_state or {}, "chosen": chosen, "ws": text_ws,
             "touched": touched_paras, "deltas": {k: v for k, v in deltas.items() if v}, "classes": classes,
@@ -494,27 +520,39 @@ class Session:
         fp_before = model.fingerprint_text(t_before)
         if fp_before != pv["fp"]:
             raise FlexError("E_STALE_BASE", "the text changed since it was opened", {})
+        SAVE.info("save %s: text %s, %d ops", token[:8], text_guid, len(pv["ops"]))
         backup = self.ensure_backup(progress)
+        SAVE.info("W2 backup %s (verified%s)", backup.get("path"), ", reused" if backup.get("reused") else "")
         if progress:
             progress("Writing…")
         if self.port.depth() != 0:
             raise FlexError("E_INTERNAL", "a unit of work is already open", {"depth": self.port.depth()})
         counts_before = self.port.counts()
-        actions_before = self.port.undoable_action_count()
+        actions_before = self.port.undo_item_count()
         undo_label = "Undo Save to FLEx (%d changes)" % pv["n"]
         redo_label = "Redo Save to FLEx (%d changes)" % pv["n"]
         alias = {}
         touched = set(pv["touched"])
         new_owners = set()
+        agent_before = self.port.user_agent() or {}
+        SAVE.info("W3 begin unit of work %r (FLEx history items before: %d)", undo_label, actions_before)
         h = self.port.begin_uow(undo_label, redo_label)
         try:
             self._apply_ops(text_guid, pv, alias, touched, new_owners)
             if progress:
                 progress("Checking…")
+            SAVE.info("W4 checking the result inside the unit of work")
             self._check_invariants(text_guid, pv, alias, touched, fp_before, counts_before, t_before)
+            evaluations_made = self._evaluations_made(agent_before, any(o.get("op") == "gloss.set" for o in pv["ops"]))
+            SAVE.info("W5 commit")
             self.port.commit(h)
         except Exception as e:   # noqa: BLE001 — anything → rollback
             err = e if isinstance(e, FlexError) else FlexError("E_INVARIANT", "the write failed: %s" % e, {"type": type(e).__name__})
+            try:
+                SAVE.warning("rolling back: %s — %s%s", err.code, err.message,
+                             ("\n" + trace.exc_text(e)) if not isinstance(e, FlexError) else (" | detail " + trace.short(err.detail, 2000)))
+            except Exception:   # noqa: BLE001
+                pass
             try:
                 if self.port.depth() > 0:
                     self.port.rollback(h)
@@ -522,22 +560,35 @@ class Session:
                 self._poison(FlexError("E_ROLLBACK_INCOMPLETE", "rollback itself failed: %s" % e2, {}))
                 raise self.poisoned from e2
             # W6: everything back as it was?
-            if self.port.depth() != 0 or self.port.undoable_action_count() != actions_before:
+            if self.port.depth() != 0 or self.port.undo_item_count() != actions_before:
                 self._poison(FlexError("E_ROLLBACK_INCOMPLETE", "the undo stack is not as before the write", {}))
                 raise self.poisoned
             t_after = self.port.read_text(text_guid)
             if model.fingerprint_text(t_after) != fp_before or self.port.counts() != counts_before:
                 self._poison(FlexError("E_ROLLBACK_INCOMPLETE", "a rolled-back write left the text changed", {}))
                 raise self.poisoned
+            SAVE.info("rolled back cleanly: FLEx is as it was, nothing was written")
             raise err
-        # W5 post-conditions
-        if self.port.depth() != 0 or self.port.undoable_action_count() != actions_before + 1 or self.port.last_undo_text() != undo_label:
-            self._poison(FlexError("E_INVARIANT", "the commit did not produce exactly one FLEx history item", {}))
+        # W5 post-conditions: depth 0, ONE more FLEx history item, and it is ours (port.undo_item_count
+        # counts history items — never LCM's UndoableActionCount, which counts every change in them)
+        depth_after, items_after, text_after = self.port.depth(), self.port.undo_item_count(), self.port.last_undo_text()
+        SAVE.info("W5 committed: depth %d, FLEx history items %d → %d, top item %r", depth_after, actions_before, items_after, text_after)
+        if depth_after != 0 or items_after != actions_before + 1 or text_after != undo_label:
+            self._poison(FlexError("E_INVARIANT", "the commit did not produce exactly one FLEx history item (depth %d, items %d → %d, "
+                                   "top item %r, expected %r)" % (depth_after, actions_before, items_after, text_after, undo_label),
+                                   {"depth": depth_after, "itemsBefore": actions_before, "itemsAfter": items_after,
+                                    "undoText": text_after, "expected": undo_label}))
             raise self.poisoned
         fp_after = model.fingerprint_text(self.port.read_text(text_guid))
         allowed = {"classes": set(pv["classes"]), "touchedOwners": {text_guid} | new_owners, "countDeltas": dict(pv["deltas"]),
                    "referencedFrom": self._referenced_from(text_guid),
                    "newPunctForms": {SECTION} if pv["deltas"].get("PunctuationForm", 0) > 0 else set()}
+        if evaluations_made:
+            # the first approval ever recorded in this project made the user agent's two evaluation objects
+            # (CmAgent.SetEvaluation): new, owned by the agent, which changes too — and undone with the save
+            allowed["classes"] |= {"CmAgent", "CmAgentEvaluation"}
+            allowed["touchedOwners"].add(agent_before["guid"])
+            allowed["countDeltas"]["CmAgentEvaluation"] = evaluations_made
         disk = self._save_and_check(progress, allowed, expect_fields=self._expected_fields(pv, alias))
         entry = self.texts[text_guid]
         entry["fp"] = fp_after
@@ -546,8 +597,24 @@ class Session:
                              "countsBefore": counts_before, "countsAfter": self.port.counts()})
         self.redo_history.clear()
         self.backup_ok = None    # after a save the next save backs up again
+        SAVE.info("saved: %d changes, one FLEx history item %r; on disk %s", pv["n"], undo_label, trace.short(disk.get("changed"), 600))
         return {"undoLabel": undo_label, "backup": backup, "disk": disk, "newBaseRev": entry["baseRev"], "alias": alias,
                 "saved": pv["n"]}
+
+    def _evaluations_made(self, agent_before, may_approve):
+        """How many of the user agent's evaluation objects this write created, measured inside the unit of
+        work: CmAgent.SetEvaluation makes ApprovesOA and DisapprovesOA the first time either is needed
+        [source: liblcm OverridesCellar.cs], so the first approval ever recorded in a project adds two.
+        Measured at the write, never predicted at preview (another save in between may have made them).
+        Only an approval can make them — a gloss op's, or FLEx's importer's — anything else is not ours."""
+        after = self.port.user_agent() or {}
+        made = int(agent_before.get("missingEvaluations") or 0) - int(after.get("missingEvaluations") or 0)
+        if made < 0 or made > 2 or (made and not may_approve) or (made and after.get("guid") != agent_before.get("guid")):
+            raise FlexError("E_INVARIANT", "the user agent's evaluations changed in a way this save does not explain",
+                            {"before": agent_before, "after": after})
+        if made:
+            SAVE.info("W4 the first approval in this project made %d evaluation object(s) of the user agent %s", made, after.get("guid"))
+        return made
 
     def _referenced_from(self, text_guid):
         refs = set()
@@ -713,15 +780,21 @@ class Session:
         fw = port.fwdata_path()
         mtime_before = os.stat(fw).st_mtime_ns
         n_err = len([r for r in self.log.records if r.levelno >= logging.ERROR])
+        SAVE.info("W7 saving the project file %s", fw)
         try:
             port.save()
             port.complete_all_commits()
         except Exception as e:   # noqa: BLE001
-            self._poison(FlexError("E_SAVE_FAILED", "Save threw: %s" % e, {}))
+            try:
+                SAVE.error("W7 FLEx's save threw:\n%s", trace.exc_text(e))
+            except Exception:   # noqa: BLE001
+                pass
+            self._poison(FlexError("E_SAVE_FAILED", "Save threw: %s" % e, {"type": type(e).__name__}))
             raise self.poisoned from e
         if self.poisoned or len([r for r in self.log.records if r.levelno >= logging.ERROR]) > n_err:
             if not self.poisoned:
-                self._poison(FlexError("E_SAVE_FAILED", "FLEx logged an error while saving", {}))
+                said = [r.getMessage() for r in self.log.records if r.levelno >= logging.ERROR][n_err:]
+                self._poison(FlexError("E_SAVE_FAILED", "FLEx logged an error while saving: %s" % "; ".join(said[:3]), {"log": said[:10]}))
             self._w9(fw)
             raise self.poisoned
         if progress:
@@ -735,10 +808,22 @@ class Session:
         d = diskcheck.diff_rt(base + ".bak", fw)
         a = dict(allowed)
         a["expect"] = expect_fields or {}
+        SAVE.info("W8 disk read-back: %d objects added, %d removed, %d changed (allowed classes %s, count deltas %s)",
+                  len(d["added"]), len(d["removed"]), len(d["changed"]), sorted(a.get("classes", ())), a.get("countDeltas"))
+        for g, n in d["added"].items():
+            SAVE.debug("  W8 added %s %s (owner %s)", n["cls"], g, n["owner"])
+        for g, o in d["removed"].items():
+            SAVE.debug("  W8 removed %s %s", o["cls"], g)
+        for g, (o, n) in d["changed"].items():
+            SAVE.debug("  W8 changed %s %s: %s", n["cls"], g,
+                       sorted(k for k in set(o["fields"]) | set(n["fields"]) if o["fields"].get(k) != n["fields"].get(k)))
         problems = diskcheck.check(d, a, diskcheck.load_rt(fw))
         if problems:
-            self._poison(FlexError("E_DISK_CHECK_FAILED", "the file on disk changed in ways the preview did not allow",
-                                   {"problems": problems[:20]}))
+            for p in problems:
+                SAVE.error("  W8 NOT EXPLAINED: %s", p)
+            said = "; ".join("%s %s: %s" % (p["cls"], (p["guid"] or "")[:8], p["why"]) for p in problems[:3])
+            self._poison(FlexError("E_DISK_CHECK_FAILED", "the file on disk changed in ways the preview did not allow: %s%s" % (
+                said, " (and %d more)" % (len(problems) - 3) if len(problems) > 3 else ""), {"problems": problems[:20]}))
             self._w9(fw)
             raise self.poisoned
         changed = {}
@@ -760,8 +845,10 @@ class Session:
             if os.path.exists(fw):
                 os.rename(fw, failed)
                 self.failed_file = failed
-        except OSError:
-            pass
+                SAVE.error("W9 the file that failed the check was set aside as %s; the file from before this save is %s",
+                           failed, fw[:-len(".fwdata")] + ".bak")
+        except OSError as e:
+            SAVE.error("W9 could not set the file aside: %s", e)
 
     def recover(self, choice):
         """After W9: 'bak' copies <name>.bak → .fwdata (the pre-save file). The W2 backup is restored
@@ -893,9 +980,11 @@ class Session:
         if progress:
             progress("Importing…")
         counts_before = self.port.counts()
-        actions_before = self.port.undoable_action_count()
+        actions_before = self.port.undo_item_count()
         texts_before = {t["guid"] for t in self.port.list_texts()}
+        agent_before = self.port.user_agent() or {}
         label = "Undo Import .flextext"
+        SAVE.info("import: begin unit of work (FLEx history items before: %d)", actions_before)
         h = self.port.begin_uow(label, "Redo Import .flextext")
         try:
             new = self.port.import_flextext(pv["import"])
@@ -909,22 +998,35 @@ class Session:
                 for p in self.port.read_text(g)["paragraphs"]:
                     if not S.check_invariant(self.port, p):
                         raise FlexError("E_INVARIANT", "an imported paragraph fails the segmentation invariant", {"para": p["guid"]})
+            evaluations_made = self._evaluations_made(agent_before, True)   # FLEx's importer may approve what it glosses
             self.port.commit(h)
         except Exception as e:   # noqa: BLE001
             err = e if isinstance(e, FlexError) else FlexError("E_IMPORT_INVALID", "import failed: %s" % e, {})
+            try:
+                SAVE.warning("import rolling back: %s — %s%s", err.code, err.message,
+                             ("\n" + trace.exc_text(e)) if not isinstance(e, FlexError) else (" | detail " + trace.short(err.detail, 2000)))
+            except Exception:   # noqa: BLE001
+                pass
             if self.port.depth() > 0:
                 self.port.rollback(h)
             if self.port.counts() != counts_before or {t["guid"] for t in self.port.list_texts()} != texts_before:
                 self._poison(FlexError("E_ROLLBACK_INCOMPLETE", "a rolled-back import left objects behind", {}))
                 raise self.poisoned
             raise err
-        if self.port.undoable_action_count() != actions_before + 1:
-            self._poison(FlexError("E_INVARIANT", "import did not produce exactly one history item", {}))
+        items_after = self.port.undo_item_count()
+        SAVE.info("import committed: FLEx history items %d → %d, top item %r", actions_before, items_after, self.port.last_undo_text())
+        if items_after != actions_before + 1:
+            self._poison(FlexError("E_INVARIANT", "import did not produce exactly one history item (items %d → %d)" % (actions_before, items_after),
+                                   {"itemsBefore": actions_before, "itemsAfter": items_after}))
             raise self.poisoned
         after = self.port.counts()
         deltas = {c: after[c] - counts_before[c] for c in COUNTED_CLASSES if after[c] != counts_before[c]}
         allowed = {"classes": set(OP_CLASSES["import"]), "touchedOwners": set(new), "countDeltas": deltas,
                    "referencedFrom": set().union(*(self._referenced_from(g) for g in new)) if new else set()}
+        if evaluations_made:
+            allowed["classes"] |= {"CmAgent", "CmAgentEvaluation"}
+            allowed["touchedOwners"].add(agent_before["guid"])
+            allowed["countDeltas"]["CmAgentEvaluation"] = evaluations_made
         disk = self._save_and_check(progress, allowed)
         self.history.append({"text": new[0] if new else None, "fpBefore": {}, "fpAfter": {}, "allowed": allowed, "label": label,
                              "countsBefore": counts_before, "countsAfter": after, "import": True})

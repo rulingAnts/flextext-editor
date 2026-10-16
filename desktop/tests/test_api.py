@@ -185,7 +185,9 @@ def test_poisoned_session_answers_e_poisoned_until_closed(api):
     assert err(api.list_texts())["code"] == "E_POISONED"
     assert err(api.preview_save(tg, r["baseRev"], [], None))["code"] == "E_POISONED"
     e = err(api.open_text(tg))
-    assert e["code"] == "E_POISONED" and "edits are still in the editor" in e["message"]
+    # it says the project was CLOSED (never "rolled back"), and carries the error that closed it
+    assert e["code"] == "E_POISONED" and "closed without saving" in e["message"]
+    assert e["detail"]["closed"] is True and e["detail"]["cause"]["code"] == "E_SAVE_FAILED"
     assert ok(api.close_project())["poisoned"] is True
     assert api._factory.last.calls.count(("close_project",)) == 0
 

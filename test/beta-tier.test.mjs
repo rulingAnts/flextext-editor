@@ -103,7 +103,7 @@ test('the editor refuses ?devreset on beta, hands ?mode=researcher to the beta p
   assert.match(body, /if \(isBetaHost\(host\)\) return false;/, 'beta is refused');
   assert.ok(body.indexOf('isBetaHost(host)') < body.indexOf('/\\.workers\\.dev$/'), '...and checked BEFORE the broad workers.dev rule that would admit it');
   // Lift the real predicate with isDevHost stubbed false, and prove the property rather than the text.
-  const call = (h) => new Function('isBetaHost', 'isDevHost', 'h', body.slice(body.indexOf('{') + 1))(isBetaHost, () => false, h);
+  const call = (h) => new Function('isBetaHost', 'isDevHost', 'isFlexShellPage', 'h', body.slice(body.indexOf('{') + 1))(isBetaHost, () => false, () => false, h);
   assert.equal(call('staging-flextext-editor.68mh29kgsd.workers.dev'), true, 'staging still honours ?devreset');
   assert.equal(call('flextext-editor-beta.68mh29kgsd.workers.dev'), false, '⚠ beta does not');
   assert.equal(call('app.flextext.app'), false, 'production never did');

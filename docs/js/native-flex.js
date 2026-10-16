@@ -23,6 +23,13 @@
 
 // The bridge contract this engine speaks. Must equal FLEX_CONTRACT in desktop/flexshell/__init__.py.
 // On a mismatch the seam refuses every FLEx feature and says so, rather than misbehave quietly.
+/* ⚠ BUMP IT ONLY FOR A CHANGE AN OLDER SHELL CANNOT SURVIVE. Today a shell bundles the engine it was
+ * built with, so the two numbers always move together. The day a shell loads the engine from the live
+ * site instead (plans/flex-shell-live-path.md), the engine will be NEWER than most installed shells,
+ * and every bump here switches the FLEx features off on all of them until each is reinstalled. So a
+ * NEW method or op is not a bump: the shell lists it in hello().capabilities, and the engine offers
+ * the feature only where it is listed. A bump is for a changed meaning or a removed method — never for
+ * an addition. (The shell already refuses an op it does not know, whole: protocol.py preview, E_SCOPE.) */
 const EXPECTED_FLEX_CONTRACT = 1;
 
 let warned = false;

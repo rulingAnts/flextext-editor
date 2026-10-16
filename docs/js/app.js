@@ -13276,6 +13276,11 @@ function devResetAllowed(h) {
    * possibly un-uploaded work — a forwarded ?devreset link must be refused there exactly as on
    * production. isBetaHost is checked first so the broad workers.dev rule cannot admit it. */
   if (isBetaHost(host)) return false;
+  /* ⚠ NOT IN THE FLEx DESKTOP SHELL. It serves this engine from 127.0.0.1, which isDevHost admits —
+   * the same trap isLocalDev fell into (plans/flex-desktop-segmenter.md §2.4 item 7). That origin is
+   * an installed app holding check-outs: FLEx texts with work not yet saved back to FLEx, which live
+   * nowhere else. "Erase all data" asks first; a link must not get there without asking. */
+  if (isFlexShellPage()) return false;
   return isDevHost(host) || /\.workers\.dev$/.test(host);
 }
 // Dev-only hard reset hook: ?devreset runs the same wipe on the hosts above (a no-op elsewhere,

@@ -139,6 +139,25 @@ def test_w1_scope_and_empty_phrase_and_expiry(world):
     assert ei.value.code == "E_PREVIEW_EXPIRED"
 
 
+def test_w1_a_save_naming_one_op_this_shell_does_not_know_is_refused_whole(world):
+    """The day the shell loads the live engine, the engine will often be NEWER than the shell, and a
+    newer engine can send an op this shell has never heard of (plans/flex-shell-live-path.md §3.4).
+    The only safe answer is to refuse the whole save — never to write the part it does understand,
+    which would leave FLEx holding half of what the user saw in the preview. The unknown op comes
+    AFTER a valid one on purpose: a loop that skipped what it did not know would pass the old test."""
+    w, s = world, world["s"]
+    before = fw_bytes(w["port"])
+    known = ft_op(w)
+    future = dict(known, op="ft.setRich")   # an op a later engine might send
+    with pytest.raises(FlexError) as ei:
+        s.preview(w["tg"], w["rev"], [known, future], post_for(w, [known]))
+    assert ei.value.code == "E_SCOPE" and ei.value.detail == {"op": "ft.setRich"}
+    assert s.previews == {}, "no preview is issued for the part it does know"
+    assert fw_bytes(w["port"]) == before, "and nothing reached the project"
+    pv = s.preview(w["tg"], w["rev"], [known], post_for(w, [known]))
+    assert pv["previewToken"] in s.previews, "the session is still usable after the refusal"
+
+
 def test_w1_fragile_paragraph_is_refused(world):
     w, s, port = world, world["s"], world["port"]
     pg = w["doc"]["paragraphs"][0]["paraOf"]

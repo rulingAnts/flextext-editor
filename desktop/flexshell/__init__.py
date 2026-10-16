@@ -12,5 +12,7 @@ Label convention carried from the plan into code comments:
 """
 
 SHELL_VERSION = "0.1.0-dev"
-# The bridge contract native-flex.js expects (EXPECTED_FLEX_CONTRACT there). Bump both together.
+# The bridge contract native-flex.js expects (EXPECTED_FLEX_CONTRACT there). Bump both together —
+# and only for a change an older shell cannot survive: an ADDED method or op goes into hello()'s
+# `capabilities` instead (native-flex.js explains why; plans/flex-shell-live-path.md §3.4).
 FLEX_CONTRACT = 1

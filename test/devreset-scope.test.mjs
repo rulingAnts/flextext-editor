@@ -24,7 +24,8 @@ const ok = (cond, msg) => { console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${msg}`); 
  * stub isDevHost, so these are the function's ACTUAL answers, not a regex's opinion of them. */
 const src = (app.match(/function devResetAllowed\(h\) \{[\s\S]*?\n\}/) || [''])[0];
 const isDevHostSrc = (app.match(/function isDevHost\(h\) \{[\s\S]*?\n\}/) || [''])[0];
-const allowed = new Function('isBetaHost', `${isDevHostSrc}\n${src}\nreturn devResetAllowed;`)(isBetaHost);
+let shellPage = false;   // the FLEx desktop shell's page marker (native-flex.js), stubbed per case below
+const allowed = new Function('isBetaHost', 'isFlexShellPage', `${isDevHostSrc}\n${src}\nreturn devResetAllowed;`)(isBetaHost, () => shellPage);
 
 console.log('the wipe is reachable where testing happens');
 {
@@ -50,6 +51,12 @@ console.log('\n…and REFUSED on every origin a field device can be on');
   ok(allowed('') === false && allowed(undefined) === false, 'and on a missing hostname');
   /* Not a substring match: an attacker-shaped lookalike must not pass for the preview estate. */
   ok(allowed('workers.dev.evil.example') === false, 'the preview check is an ENDING, not a substring');
+  /* The FLEx desktop shell serves the engine from 127.0.0.1 — a dev host by address, an installed app
+   * holding unsaved FLEx check-outs in fact. Its page marker is what tells them apart. */
+  shellPage = true;
+  ok(allowed('127.0.0.1') === false, 'refused inside the FLEx desktop shell, though its host is 127.0.0.1');
+  shellPage = false;
+  ok(allowed('127.0.0.1') === true, '...and a developer\'s 127.0.0.1 still honours it');
 }
 
 console.log('\nthe gate is devreset\'s own, and a refusal is never silent');

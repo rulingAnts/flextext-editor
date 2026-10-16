@@ -21,7 +21,7 @@ from . import FLEX_CONTRACT, SHELL_VERSION
 from . import copyonly, mediafind, prechecks, trace
 from .errors import FlexError
 from .protocol import Session
-from .server import MediaRegistry
+from .server import MEDIA_PREFIX, MediaRegistry
 from .worker import ProjectRegistry, ThreadBound, Worker
 
 # The relay workers the engine may talk to (CSP connect-src): production, and the staging worker a
@@ -128,6 +128,14 @@ class Api:
 
     def _set_window(self, window):
         self._window = window
+
+    def _media_url(self, path):
+        """The ONE place a recording's URL is made (plans/flex-shell-live-path.md §3.2). The engine uses
+        the answer as an opaque string and never builds one itself, so where a recording is served from
+        is this function's decision alone: today a path on the shell's own server, which is the page's
+        origin. A shell whose page is served from somewhere else changes this and nothing in the
+        engine. Registers the file; the token dies with the project session."""
+        return MEDIA_PREFIX + self._media.register(path)
 
     def _connect_origins(self):
         return list(RELAY_ORIGINS)
@@ -298,7 +306,7 @@ class Api:
         for m in media:
             here = mediafind.link_path(m["uri"], lf)
             if here and os.path.isfile(here):
-                urls[m["guid"]] = "/media/" + self._media.register(here)
+                urls[m["guid"]] = self._media_url(here)
         return self._worker.run("open_text", lambda j: s.open_text(text_guid, urls, ws))
 
     @exposed
@@ -338,7 +346,7 @@ class Api:
             name = mediafind.link_name(m["uri"])
             entry = {"uriGuid": m["guid"], "link": m["uri"] or "", "name": name, "exists": False, "url": None, "candidates": []}
             if here and os.path.isfile(here):
-                entry.update(exists=True, url="/media/" + self._media.register(here), path=here)
+                entry.update(exists=True, url=self._media_url(here), path=here)
             else:
                 found = []
                 before = self._memory.lookup(m["uri"], s.name)
@@ -371,7 +379,7 @@ class Api:
             raise FlexError("E_MEDIA_FILE_MISSING", "the chosen file does not exist", {})
         if not mediafind.is_audio(path):
             raise FlexError("E_MEDIA_NOT_AUDIO", "the chosen file is not a recording this app can use", {"ext": os.path.splitext(path)[1]})
-        url = "/media/" + self._media.register(path)
+        url = self._media_url(path)
         try:
             self._memory.remember(link, path, s.name)
         except OSError:
@@ -485,7 +493,7 @@ class Api:
         for m in media:
             here = mediafind.link_path(m["uri"], lf)
             exists = bool(here) and os.path.isfile(here)
-            tracks.append({"uriGuid": m["guid"], "url": ("/media/" + self._media.register(here)) if exists else None, "exists": exists,
+            tracks.append({"uriGuid": m["guid"], "url": self._media_url(here) if exists else None, "exists": exists,
                            "name": mediafind.link_name(m["uri"])})
         return {"tracks": tracks}
 

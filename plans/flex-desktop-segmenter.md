@@ -1151,6 +1151,13 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
   here" is stamped on every open (`rec.flex.openedAt`). Remembered on the device: sort, direction and
   *show only* for all projects; the genre and the checked texts per project; the search is for now
   only. The order FLEx lists texts in is its own storage order (GUIDs), so it is not offered.
+- ⚠ **A project's state is read again whenever it matters** (2026-10-16; Seth: *"I still can't open for
+  writing..."*): on choosing a project, on coming back to the window, after closing a project, on
+  **Check again** beside the reasons, and after a failed open. It was read once at start-up, so FLEx closed,
+  sharing turned off or a copy marked afterwards changed nothing here and *Open for writing* stayed off
+  until a restart. Each reason shows on its own line (and on the button's tooltip); a refused open keeps
+  its message under the picker; the shell's console prints one line per project whenever its state
+  changes (`project 'X': read only — E_COPY_ONLY`) and every refused open or copy.
 - **The Segmenter's own list leaves FLEx texts to that section** (`hideFromList`; a FLEx record's id
   starts `flex-`): it showed each text again, once per project copy, with no project to tell them apart.
 - **In the Matcher**, a strip under its bar: *FLEx text* (· read-only), **Words in / Glosses in** — the

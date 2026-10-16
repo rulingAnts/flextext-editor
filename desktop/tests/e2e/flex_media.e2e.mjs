@@ -728,6 +728,30 @@ await page.uncheck('#flex-list-tools [data-only="opened"]');
 await page.selectOption('#flex-sort', 'title');
 ok(/Narrative/.test(await textRow('Text 10').innerText()), 'each row names its genres');
 
+// ── 13. a project's state is read again whenever it matters (Seth, 2026-10-16: "I still can't open for
+// writing..." — the list was read once at start-up, so FLEx closed afterwards changed nothing here) ────────
+await home();
+await rpc('close_project', []);
+await rpc('__lock', ['merge-write', true]);                      // FLEx opens the project
+await page.selectOption('#flex-project', 'merge-write');         // choosing it reads its state again
+await page.waitForFunction(() => /FieldWorks has this project open/.test((document.querySelector('#flex-reasons') || {}).innerText || ''), null, T(5000));
+ok(await page.locator('#flex-open-write').isDisabled() && await page.locator('#flex-reasons .flex-recheck').isVisible(),
+   'FLEx holding it: Open for writing is off, the reason says so, with Check again beside it');
+ok(/FieldWorks has this project open/.test(await page.getAttribute('#flex-open-write', 'title')), 'the button says why too');
+await shot('23-flex-holds');
+await rpc('__lock', ['merge-write', false]);                     // FLEx closed…
+await page.click('#flex-reasons .flex-recheck');                 // …Check again
+await page.waitForFunction(() => !document.querySelector('#flex-open-write').disabled, null, T(5000));
+ok(await page.locator('#flex-reasons').isHidden(), 'Check again: nothing stops it any more, and it is on');
+await rpc('__lock', ['merge-write', true]);
+await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+await page.waitForFunction(() => document.querySelector('#flex-open-write').disabled, null, T(5000));
+ok(true, 'coming back to this window reads it again (FLEx opened it meanwhile)');
+await rpc('__lock', ['merge-write', false]);
+await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+await page.waitForFunction(() => !document.querySelector('#flex-open-write').disabled, null, T(5000));
+ok(true, '…and again when FLEx has let go');
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

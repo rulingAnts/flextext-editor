@@ -43,14 +43,28 @@ def _err(e):
                                    "detail": {"trace": traceback.format_exc(limit=3)}}}
 
 
+# A refusal worth seeing in the console window (Seth runs the shell from one, and pastes what it says): why
+# a project did not open, or a copy was not made. Everything else refused is the page's to explain.
+_CONSOLE_REFUSALS = frozenset({"open_project", "make_copy"})
+
+
 def exposed(fn):
-    """Wrap a method: never raise into JS."""
+    """Wrap a method: never raise into JS. An unexpected failure (a bug, not a refusal) also goes to the
+    console with its trace — the page shows one line, and the VM's console is where a fix starts."""
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
         try:
             return _ok(fn(self, *args, **kwargs))
         except BaseException as e:   # noqa: BLE001
-            return _err(e)
+            out = _err(e)
+            try:
+                if not isinstance(e, FlexError):
+                    sys.stderr.write("[flexshell] %s failed: %s\n%s" % (fn.__name__, out["error"]["message"], traceback.format_exc()))
+                elif fn.__name__ in _CONSOLE_REFUSALS:
+                    sys.stderr.write("[flexshell] %s refused: %s — %s\n" % (fn.__name__, e.code, e))
+            except Exception:   # noqa: BLE001 — a console that cannot be written never costs the answer
+                pass
+            return out
     wrapper.__exposed__ = True
     return wrapper
 
@@ -131,7 +145,24 @@ class Api:
             r = prechecks.check_project(folder, name, info.get("modelVersion"), copy_only=self._copy_only, marker_ok=marker)
             r["disposableCopy"] = marker
             out.append(r)
+        self._report_projects(out)
         return out
+
+    def _report_projects(self, listing):
+        """One console line per project whose state changed since the last listing: whether it can be read
+        and written here, and what stops it — so "Open for writing is off" has its reason in the console
+        too (2026-10-16). This machine's project names, in this machine's console; nothing leaves it."""
+        now = {r["name"]: ("write" if r["writable"] else "read" if r["readable"] else "none", tuple(r["reasons"])) for r in listing}
+        last = getattr(self, "_listed", {})
+        try:
+            for name, (can, why) in sorted(now.items()):
+                if last.get(name) != (can, why):
+                    sys.stderr.write("[flexshell] project %r: %s%s\n" % (name, {"write": "read and write", "read": "read only",
+                                                                                 "none": "cannot open"}[can],
+                                                                           (" — " + ", ".join(why)) if why else ""))
+        except Exception:   # noqa: BLE001
+            pass
+        self._listed = now
 
     @exposed
     def open_project(self, name, mode="read"):

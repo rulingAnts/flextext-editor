@@ -203,6 +203,13 @@ def start(tmp):
                 out = {"ok": True, "result": picker.calls}
             elif method == "__clipboard":
                 out = {"ok": True, "result": clip.text}
+            elif method == "__lock":                     # FLEx opens (True) or closes (False) a project: its lock file
+                lock = projects / args[0] / (args[0] + ".fwdata.lock")
+                if args[1]:
+                    lock.write_text(json.dumps({"PID": os.getpid(), "ProcessName": "FieldWorks"}), encoding="utf-8")
+                elif lock.exists():
+                    lock.unlink()
+                out = {"ok": True}
             elif method == "__flexEdit":                 # FLEx edits a text while the shell has let go of it
                 out = {"ok": True, "result": flex_edit(str(projects), *args)}
             elif method == "__slow":                     # the test makes one shell method slow (or fast again)

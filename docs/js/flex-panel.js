@@ -109,7 +109,7 @@ function renderHome() {
     </div>
     <ul id="flex-texts" class="doc-list" hidden></ul>`;
   view.insertBefore(box, view.firstChild);
-  $('#flex-project', box).addEventListener('change', onProjectPick);
+  $('#flex-project', box).addEventListener('change', () => { onProjectPick(); refreshProjects(); });
   $('#flex-open-read', box).addEventListener('click', () => openProject('read'));
   $('#flex-open-write', box).addEventListener('click', () => openProject('write'));
   $('#flex-close', box).addEventListener('click', closeProject);
@@ -127,23 +127,51 @@ async function loadProjects() {
   try { projects = await flex.listProjects(); } catch (e) { fail(e); return; }
   const sel = $('#flex-project');
   if (!sel) return;
-  for (const o of [...sel.options]) if (o.value) o.remove();   // a reload (a copy just made) starts clean
+  const keep = sel.value;
+  for (const o of [...sel.options]) if (o.value) o.remove();   // a reload starts clean, keeping the choice
   for (const p of projects) {
     const o = document.createElement('option');
     o.value = p.name;
     o.textContent = p.name + (p.writable ? '' : ' · ' + T('flex.readOnlyTag'));
     sel.appendChild(o);
   }
+  if (keep && projects.some((p) => p.name === keep)) sel.value = keep;
+}
+/* ⚠ A PROJECT'S STATE CHANGES OUTSIDE THIS WINDOW, so it is read again whenever it matters — on choosing
+ * a project, on coming back to this window, after closing a project, on "Check again" — never trusted
+ * from when the shell started. It was: the list was read once at start-up, so FLEx closed, sharing turned
+ * off or a marker added afterwards changed nothing here, and "Open for writing" stayed off until a
+ * restart (Seth, 2026-10-16: "I still can't open for writing..."). list_projects reads only the
+ * filesystem, so this is cheap. */
+let refreshing = null;
+function refreshProjects() {
+  if (project || !$('#flex-project')) return Promise.resolve();
+  if (!refreshing) refreshing = loadProjects().then(onProjectPick).finally(() => { refreshing = null; });
+  return refreshing;
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => { if (isFlexShell()) refreshProjects(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && isFlexShell()) refreshProjects(); });
 }
 function onProjectPick() {
   const p = projects.find((x) => x.name === $('#flex-project').value);
   $('#flex-open-read').disabled = !p || !p.readable;
   $('#flex-open-write').disabled = !p || !p.writable;
-  const r = $('#flex-reasons');
-  r.hidden = !p || !p.reasons.length;
-  if (p && p.reasons.length) r.textContent = p.reasons.map((c) => T('flex.err.' + c)).join(' ');
+  // every reason writing (or reading) is off, one per line, each saying what to do — and a way to look again
+  const why = p ? p.reasons.map((c) => T('flex.err.' + c)) : [];
+  showReasons(why);
+  $('#flex-open-write').title = why.join('\n');
   // this build writes only to a marked copy: the way to one, right where it says so
   $('#flex-make-copy').hidden = !p || !!project || !p.reasons.includes('E_COPY_ONLY');
+}
+function showReasons(lines) {
+  const r = $('#flex-reasons');
+  if (!r) return;
+  r.hidden = !lines.length;
+  r.innerHTML = lines.map((w) => `<span class="flex-reason">${esc(w)}</span>`).join('')
+    + (lines.length && !project ? ` <button class="link-btn flex-recheck">${esc(T('flex.recheck'))}</button>` : '');
+  const b = r.querySelector('.flex-recheck');
+  if (b) b.addEventListener('click', () => refreshProjects());
 }
 async function openProject(mode) {
   const name = $('#flex-project').value;
@@ -153,7 +181,15 @@ async function openProject(mode) {
     try {
       const r = await flex.openProject(name, mode);
       project = { name, writable: r.writable, ws: r.ws, printViewConfig: r.printViewConfig, texts: await flex.listTexts() };
-    } catch (e) { done(); fail(e); return; }
+    } catch (e) {
+      done();
+      fail(e);
+      await refreshProjects();                // what stopped it may be news to this window too
+      // …and the refusal stays in view, first, above whatever else the project's state says
+      const p = projects.find((x) => x.name === name);
+      showReasons([...new Set([failMessage(e), ...(p ? p.reasons.map((c) => T('flex.err.' + c)) : [])])]);
+      return;
+    }
     flexHist.done = []; flexHist.undone = [];
     await showOpenProject();
   } finally { done(); }
@@ -183,6 +219,7 @@ async function closeProject() {
   $('#flex-texts').hidden = true;
   $('#flex-project-actions').hidden = true;
   onProjectPick();
+  await refreshProjects();   // its lock is gone now, and the others may have changed meanwhile
 }
 
 /* ---- Make a copy to write to (plan §12.3) -------------------------------------------------------------
@@ -1226,6 +1263,10 @@ async function importFlextext() {
 
 /* ---- errors: stable codes → translated messages; a poisoned session says exactly what happened ---- */
 function fail(e, afterWrite = false) {
+  H.toast(failMessage(e, afterWrite), 12000);
+  console.warn('[flex]', (e && e.code) || 'E_INTERNAL', e);
+}
+function failMessage(e, afterWrite = false) {
   const code = (e && e.code) || 'E_INTERNAL';
   let msg = T('flex.err.' + code, (e && e.detail) || undefined);
   if (msg === 'flex.err.' + code) msg = T('flex.err.E_INTERNAL');
@@ -1235,6 +1276,5 @@ function fail(e, afterWrite = false) {
     msg = T('flex.nothingWritten') + ' ' + msg;
   }
   if (e && e.message && code === 'E_INTERNAL') msg += ' (' + e.message + ')';
-  H.toast(msg, 12000);
-  console.warn('[flex]', code, e);
+  return msg;
 }

@@ -560,13 +560,27 @@ class Api:
 
 
 def _engine_version(root):
+    """The staged engine's version: the stamp stage_engine writes (engine-version.json), else the
+    engine's own ENGINE_VERSION. The engine is staged at <root>/flextext-editor/ — reading <root>/js/
+    found nothing, and hello() always answered None."""
+    import json
+    import re
     try:
-        with open(os.path.join(root, "js", "i18n.js"), "r", encoding="utf-8") as f:
-            import re
-            m = re.search(r"ENGINE_VERSION\s*=\s*['\"]([^'\"]+)['\"]", f.read())
-            return m.group(1) if m else None
-    except (OSError, TypeError):
-        return None
+        with open(os.path.join(root, "engine-version.json"), "r", encoding="utf-8") as f:
+            v = json.load(f).get("engineVersion")
+            if v:
+                return v
+    except (OSError, TypeError, ValueError, AttributeError):
+        pass
+    for rel in (("flextext-editor", "js", "i18n.js"), ("js", "i18n.js")):
+        try:
+            with open(os.path.join(root, *rel), "r", encoding="utf-8") as f:
+                m = re.search(r"ENGINE_VERSION\s*=\s*['\"]([^'\"]+)['\"]", f.read())
+                if m:
+                    return m.group(1)
+        except (OSError, TypeError):
+            continue
+    return None
 
 
 def _print_view_config(folder):

@@ -68,6 +68,8 @@ def main(argv=None):
 
     window = webview.create_window("FlexText Segmenter for FLEx", srv.origin + "/", js_api=api,
                                    width=1280, height=860, text_select=True)
+    from . import webview_hooks
+    webview_hooks.trace_lifecycle(window)   # shown / page loaded / closing / closed, in the console
 
     def install_guard():
         # Runs in pywebview's own thread as soon as the GUI loop starts, before the window exists;
@@ -84,6 +86,7 @@ def main(argv=None):
     # private_mode=False + storage_path: pywebview's default private mode would wipe IndexedDB on exit.
     # gui='edgechromium' only: refuse any other backend (plan §2.2 item 3).
     webview.start(install_guard, gui="edgechromium", private_mode=False, storage_path=storage_path(), debug=False)
+    trace.LOG.info("the window is gone; the shell exits")
     return 0
 
 

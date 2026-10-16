@@ -341,3 +341,14 @@ def test_a_failed_open_releases_the_project_and_a_second_open_is_refused_while_o
     r2 = api.open_project("copy-api", "read")
     assert r2["ok"] is False and r2["error"]["code"] == "E_ALREADY_OPEN", r2
     ok(api.close_project())
+
+
+def test_hello_names_the_staged_engines_version(tmp_path):
+    """The engine is staged at <root>/flextext-editor/; hello() looked in <root>/js/ and always said None."""
+    from flexshell.api import _engine_version
+    (tmp_path / "flextext-editor" / "js").mkdir(parents=True)
+    (tmp_path / "flextext-editor" / "js" / "i18n.js").write_text("export const ENGINE_VERSION = 'v700';\n", encoding="utf-8")
+    assert _engine_version(str(tmp_path)) == "v700"
+    (tmp_path / "engine-version.json").write_text('{"engineVersion": "v719", "source": "abc1234"}', encoding="utf-8")
+    assert _engine_version(str(tmp_path)) == "v719", "the stage stamp first"
+    assert _engine_version(str(tmp_path / "nowhere")) is None

@@ -20,12 +20,15 @@ and we cancel that follow-up navigation because the new-window decision already 
 [unverified] on real WebView2 (V-10, desktop/vm/test_navguard_e2e.py).
 """
 
+import logging
 import ntpath
 import os
 import threading
 import time
 
 from . import navguard
+
+LOG = logging.getLogger("flexshell.webview")   # trace.py: what the window and its browser did
 
 RECENT_NEW_WINDOW_S = 2.0   # a NewWindowRequested URL is remembered this long (see attach())
 
@@ -69,6 +72,7 @@ def attach(core, port, opener=None, release=True, chooser=None, now=time.monoton
             args.Cancel = True      # pywebview's load_url() after a NewWindowRequested we already handled
             return
         d = navguard.decide(url, navguard.KIND_TOP, port)
+        _quietly(LOG.debug, "navigation to %s: %s", url[:200], d)
         if d == navguard.ALLOW:
             return
         args.Cancel = True
@@ -100,13 +104,63 @@ def attach(core, port, opener=None, release=True, chooser=None, now=time.monoton
         else:
             args.Cancel = True
 
+    def on_process_failed(sender, args):
+        # a WebView2 browser or renderer process died: the console says which, and why, before anything
+        # else happens to the window (2026-10-16: a shell that ended with no line said nothing at all)
+        _quietly(LOG.error, "WebView2 process failed: %s, reason %s, exit code %s%s", _get(args, "ProcessFailedKind"),
+                 _get(args, "Reason"), _get(args, "ExitCode"),
+                 (" (%s)" % _get(args, "ProcessDescription")) if _get(args, "ProcessDescription") else "")
+
     core.NavigationStarting += on_nav
     core.FrameNavigationStarting += on_frame_nav
     core.NewWindowRequested += on_new_window
     core.DownloadStarting += on_download
+    if hasattr(core, "ProcessFailed"):
+        core.ProcessFailed += on_process_failed
     if not release and hasattr(core, "OpenDevToolsWindow"):
         core.OpenDevToolsWindow()   # F12 and the context menu stay off even in dev mode: this is the only way in
     return {"nav": on_nav, "frame": on_frame_nav, "new_window": on_new_window, "download": on_download}
+
+
+def _get(obj, name):
+    """A .NET event argument's property, or None: an older WebView2 runtime lacks the newer ones."""
+    try:
+        return getattr(obj, name, None)
+    except Exception:   # noqa: BLE001 — a throwing CLR getter
+        return None
+
+
+def _quietly(log, *args):
+    try:
+        log(*args)
+    except Exception:   # noqa: BLE001 — a console line never costs the window
+        pass
+
+
+def trace_lifecycle(window):
+    """Say in the console when the window is shown, loads its page, is asked to close and has closed. A
+    shell that ends after "closing" was closed (its close button, Alt+F4, Windows); one that ends with
+    neither line, or after "WebView2 process failed", died under it — so a vanished window is never a
+    guess (2026-10-16). pywebview's events take `+=`; a handler returning None never cancels a close."""
+    events = getattr(window, "events", None)
+    if events is None:
+        return []
+    done = []
+    for name, said in (("shown", "window shown"), ("loaded", "window: page loaded"),
+                       ("closing", "window closing (its close button, Alt+F4, or Windows asked it to)"),
+                       ("closed", "window closed")):
+        ev = getattr(events, name, None)
+        if ev is None or not hasattr(ev, "__iadd__"):
+            continue
+
+        def handler(*_a, _said=said, **_k):
+            _quietly(LOG.info, _said)
+        try:
+            ev += handler
+            done.append(name)
+        except Exception:   # noqa: BLE001
+            pass
+    return done
 
 
 def install(window, port, opener=None, release=True, timeout=30.0):

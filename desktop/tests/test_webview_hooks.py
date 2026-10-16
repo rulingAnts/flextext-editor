@@ -227,3 +227,55 @@ def test_dev_mode_opens_devtools_itself_release_does_not():
     r = DevCore()
     webview_hooks.attach(r, PORT, release=True)
     assert r.opened == 0 and r.Settings.AreDevToolsEnabled is False
+
+
+# ---- the console says what the window did (2026-10-16: a shell that ended with no line said nothing) ----
+
+def test_a_failed_webview2_process_is_reported_with_its_reason(caplog):
+    import logging
+    core = Core()
+    core.ProcessFailed = Event()
+    webview_hooks.attach(core, PORT, release=True)
+    with caplog.at_level(logging.ERROR, logger="flexshell.webview"):
+        core.ProcessFailed.fire(core, Args(ProcessFailedKind="BrowserProcessExited", Reason="Crashed", ExitCode=-1073741819,
+                                           ProcessDescription=None))
+    assert "WebView2 process failed: BrowserProcessExited, reason Crashed, exit code -1073741819" in caplog.text
+    # an older runtime's arguments lack the newer properties: still one line, never an exception
+    with caplog.at_level(logging.ERROR, logger="flexshell.webview"):
+        core.ProcessFailed.fire(core, Args(ProcessFailedKind="RenderProcessExited"))
+    assert "RenderProcessExited, reason None" in caplog.text
+
+
+def test_a_core_without_process_failed_still_attaches():
+    assert set(webview_hooks.attach(Core(), PORT, release=True)) == {"nav", "frame", "new_window", "download"}
+
+
+class PwEvent:
+    """pywebview's Event: `+=` appends, set() calls each handler — a False answer from a closing handler cancels."""
+    def __init__(self):
+        self.items = []
+
+    def __iadd__(self, fn):
+        self.items.append(fn)
+        return self
+
+    def set(self, *a):
+        return False in {fn(*a) for fn in self.items}
+
+
+def test_the_window_lifecycle_is_traced_and_never_cancels_a_close(caplog):
+    import logging
+    import types
+    events = types.SimpleNamespace(shown=PwEvent(), loaded=PwEvent(), closing=PwEvent(), closed=PwEvent())
+    win = types.SimpleNamespace(events=events)
+    assert webview_hooks.trace_lifecycle(win) == ["shown", "loaded", "closing", "closed"]
+    with caplog.at_level(logging.INFO, logger="flexshell.webview"):
+        events.shown.set()
+        events.loaded.set()
+        cancelled = events.closing.set()
+        events.closed.set()
+    assert cancelled is False, "tracing a close never cancels it"
+    assert [r.getMessage() for r in caplog.records if r.name == "flexshell.webview"] == [
+        "window shown", "window: page loaded", "window closing (its close button, Alt+F4, or Windows asked it to)", "window closed"]
+    assert webview_hooks.trace_lifecycle(types.SimpleNamespace()) == []
+    assert webview_hooks.trace_lifecycle(FakeWindow(FakeNative(FakeControl()))) == [], "a threading.Event is not a pywebview event"

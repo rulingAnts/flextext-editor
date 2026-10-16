@@ -102,8 +102,10 @@ when `hello()` answers. Set `FLEXSHELL_DEVTOOLS=1` to run with DevTools on.
 **The console is very verbose, for now** (Seth, 2026-10-16). The window the shell was started from
 prints every call the page makes and its answer, every job, every call into FLEx with its arguments and
 timing, each step of a save (backup, unit of work, the checks and the counts they compared, the disk
-read-back by class), any .NET exception whole — type, message, inner exceptions, stack — and the page's
-own warnings and errors. When something fails, that console text is the report: paste it (it may name
+read-back by class), any .NET exception whole — type, message, inner exceptions, stack — the page's
+own warnings and errors, and what the window did: shown, page loaded, closing, closed, and a WebView2
+process failure with its reason and exit code. A run that ends after "window closing" was closed; one
+that ends without it died underneath, and the last lines say where. When something fails, that console text is the report: paste it (it may name
 your project and texts, so share it only where you would share those). `FLEXSHELL_DEBUG=0` quiets it to
 warnings and errors.
 

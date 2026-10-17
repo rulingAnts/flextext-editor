@@ -265,6 +265,13 @@ class Session:
                 section["counted"] = True
         order = [p["guid"] for p in t["paragraphs"]]
         merged_end = {}                     # paragraph → index of the last paragraph a join merged into it
+        absorbed = {}                       # paragraph → the paragraphs this save's joins merge into it
+        split_from = {}                     # a paragraph this save makes → the paragraph it is split from
+        # every segment in document order: the n-th phrase.join on a segment absorbs the n-th one after it
+        # (a paragraph join first puts the next paragraph's segments right after it, in the same order)
+        flat = [s for p in t["paragraphs"] for s in p["segments"]]
+        at = {s["guid"]: i for i, s in enumerate(flat)}
+        joins_on = {}
         for op in ops:
             kind = op.get("op")
             if kind not in allowed_ops:
@@ -317,10 +324,22 @@ class Session:
                 writes_section()
                 summary.append({"kind": kind, "seg": sg})
             elif kind == "phrase.join":
+                # A HARD LINE BREAK (U+2028, its own label segment in LCM) is not a § boundary: no recipe here
+                # removes one, and join_phrases would refuse it half-way through the save. Said now, by name.
+                if sg in at:
+                    n = joins_on.get(sg, 0)
+                    joins_on[sg] = n + 1
+                    k = at[sg]
+                    nxt = flat[k + 1 + n] if k + 1 + n < len(flat) else None
+                    if flat[k]["isLabel"] or (nxt is not None and nxt["isLabel"]):
+                        raise FlexError("E_SCOPE", "a line break from FLEx sits between these phrases; remove it in FLEx to join them",
+                                        {"seg": sg, "lineBreak": True})
                 deltas["Segment"] -= 1
                 summary.append({"kind": kind, "seg": sg})
             elif kind in ("para.split", "phrase.toPara"):
                 deltas["StTxtPara"] += 1
+                if op.get("newPara"):
+                    split_from[op["newPara"]] = pg
                 summary.append({"kind": kind, "para": pg})
             elif kind in ("para.join", "para.toPhrase"):
                 deltas["StTxtPara"] -= 1
@@ -334,6 +353,7 @@ class Session:
                     # "untouched" paragraph is exactly what the invariant check refuses
                     if end + 1 < len(order):
                         touched_paras.add(order[end + 1])
+                        absorbed.setdefault(pg, set()).add(order[end + 1])
                         S.require_not_fragile(self.port, t["paragraphs"][end + 1])
                 summary.append({"kind": kind, "para": pg})
             elif kind == "word.split":
@@ -430,10 +450,29 @@ class Session:
         if not isinstance(post_state, (dict, type(None))):
             raise FlexError("E_SCOPE", "post_state must be an object", {})
         post_state = model.normalize_post_state(post_state)
+
+        def kept_label(pg, ph):
+            """A label segment FLEx already has — a hard line break (U+2028), a line of only punctuation — sent back
+            as it is, in its own paragraph or one this save merges into it. It has no letters and never had: D4 is
+            about a phrase the ENGINE would make empty, and refusing this one refused every edit anywhere in a
+            paragraph holding a line break (2026-10-17)."""
+            hit = segs.get(ph.get("segGuid"))
+            if not hit or not hit[1]["isLabel"]:
+                return False
+            p, s = hit
+            # its paragraph, one merged into it, or — for a paragraph this save splits off — the one it comes from
+            home, q, seen = {pg} | set(absorbed.get(pg, ())), pg, set()
+            while q in split_from and q not in seen:
+                seen.add(q)
+                q = split_from[q]
+                home |= {q} | set(absorbed.get(q, ()))
+            if p["guid"] not in home:
+                return False
+            return [w.get("txt") or "" for w in ph.get("words") or []] == [model.word_form(a, text_ws["vern"]) for a in s["analyses"]]
         for pg, phrases in (post_state or {}).items():
             for ph in phrases:
                 txt = ph.get("text") or ""
-                if not any(is_word_forming(c) for c in txt):
+                if not any(is_word_forming(c) for c in txt) and not kept_label(pg, ph):
                     blockers.append({"code": "E_EMPTY_PHRASE", "para": pg, "seg": ph.get("segGuid"),
                                      "note": "a phrase with no letters cannot be a FLEx segment (D4)"})
                 core = txt.rstrip().rstrip("".join(S.CLOSERS))

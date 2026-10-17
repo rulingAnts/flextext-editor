@@ -217,8 +217,10 @@ ok(/player\?\.clearSpan\?\.\(\)/.test(split), 'the span watcher is cleared: the 
 console.log('\ncommitting collapses to the index-locked model the rest of the suite reads');
 const commit = asyncFn(app, 'mgCommit');
 ok(!!commit, 'mgCommit exists');
-ok(/const sp = MG\.spans\[i\];/.test(commit) && /const out = \{ start: sp\.start, end: sp\.end \};/.test(commit),
+ok(/const sp = rowSpans\[i\];/.test(commit) && /const out = \{ start: sp\.start, end: sp\.end \};/.test(commit),
    'row i\'s line takes row i\'s span, exactly — one piece of audio per line, by position');
+ok(/let rowSpans = MG\.spans;/.test(commit) && /if \(rec\.doc\.flex\) \{ const u = unfoldFlexBreakLines\(lines, MG\.spans\); lines\.splice\(0, lines\.length, \.\.\.u\.lines\); rowSpans = u\.spans; \}/.test(commit),
+   '…the spans as the Matcher held them, a FLEx text\'s line breaks back as rows first, each with its own (2026-10-17)');
 ok(/if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, \.\.\.\(sp && Array\.isArray\(sp\.fileTimes\))/.test(commit),
    'a row with no real audio is written timePending (holding the file\'s own times, if it had them — v718 review, P4)');
 ok(/if \(Array\.isArray\(sp\.guess\)\) \{ out\.guess = sp\.guess\.slice\(0, 2\);/.test(commit) && /else if \(sp\.timeEstimated\) out\.timeEstimated = true;/.test(commit),
@@ -298,7 +300,7 @@ console.log('\nPAIRING IS THE ROW NUMBER — nothing is picked, nothing is linke
   // 2026-10-16: on a FLEx text Done padded a blank line for the audio after its last line, and Save to FLEx
   // then refused "a line added here" that nobody had added. FLEx makes its lines from its own text.
   ok(/rec\.doc\.flex \? 0 :/.test(commit), 'NEVER on a FLEx text: the audio after its last line stays without a line');
-  ok(/const sp = MG\.spans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, )/.test(commit),
+  ok(/const sp = rowSpans\[i\];\s*\n\s*if \(!sp \|\| sp\.timePending\) return \{ start: 0, end: 0, timePending: true(?: \}|, )/.test(commit),
      'a line past the last piece of audio is written timePending — the engine\'s own word for it');
   ok(/blankAdded/.test(commit) && /mg\.committedLeftover/.test(commit),
      'both are REPORTED after the save — padded is fine, padded silently is not');
@@ -584,10 +586,10 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
      'researcher-settable, on when working alone — the same shape as allowBlankLinesOn');
   const draw = fn(app, 'mgDraw');
   ok(/const editable = allowTextEditOn\(\);/.test(draw) && /mgWordStack\(ln, w, wi, editable\)/.test(draw), 'every pair is built by one helper that knows whether it is editable');
-  ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
-     'a blank line gets one empty pair, so there is somewhere to type');
+  ok(/if \(editable && !txt\.words\.length && !breakRow\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
+     'a blank line gets one empty pair, so there is somewhere to type — but not a row that IS a line break (its GUID is the break\'s)');
   // v704: …and only when the row shown IS this device's language (another language's free translation is read-only).
-  ok(/if \(editable && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', frows\[0\]\.lang\)/.test(draw), 'the free translation too, in the language it shows — but not while a cut is armed (the gaps are buttons then)');
+  ok(/if \(editable && !breakRow && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', frows\[0\]\.lang\)/.test(draw), 'the free translation too, in the language it shows — but not while a cut is armed (the gaps are buttons then), nor on a line break');
   const wire = fn(app, 'mgWireEditable');
   ok(/el\.contentEditable = 'plaintext-only'/.test(wire) && /el\.contentEditable = 'true'/.test(wire), 'plaintext where the browser has it, plain elsewhere');
   ok(/if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); el\.blur\(\); return; \}/.test(wire), 'Enter commits');

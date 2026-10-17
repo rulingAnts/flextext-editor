@@ -15,7 +15,7 @@
  *
  * Format-module rule: imports nothing but format modules, no DOM, no i18n. Node-testable. */
 
-import { isBoundaryMarker, flexPhraseWarnings, FLEX_EOS, wordGlosses, phraseFrees, setGlossIn, setFreeIn } from './flextext.js';
+import { isBoundaryMarker, flexPhraseWarnings, FLEX_EOS, wordGlosses, phraseFrees, setGlossIn, setFreeIn, isFlexBreakPhrase } from './flextext.js';
 
 const SECTION = '§';
 
@@ -272,6 +272,11 @@ export function diffFlexDoc(base, cur, opts = {}) {
     for (let j = k + 1; j < baseOrder.length && !curIndexOf.has(segGuid(baseOrder[j])); j++) run.push(baseOrder[j]);
     if (!run.length) continue;
     const now = cur.paragraphs[curIndexOf.get(segGuid(s))].segments[0];
+    // a hard line break between them (its own segment in LCM, never a §): FLEx's to remove, not this app's
+    if ([s, ...run].some(isFlexBreakPhrase)) {
+      unsupported.push({ why: 'lineBreak', segGuid: segGuid([s, ...run].find(isFlexBreakPhrase)), paraGuid: groupOf(s).key });
+      continue;
+    }
     if (lexForms(now).join('\u0001') !== [s, ...run].flatMap(lexForms).join('\u0001')) {
       run.forEach((v) => unsupported.push({ why: 'phraseRemoved', segGuid: segGuid(v), paraGuid: groupOf(v).key }));
       continue;
@@ -567,6 +572,10 @@ export function flexBlockers(cur, touched) {
     const pg = paraOf(ln);
     if (touched && !touched.has(pg)) return;
     const seg = ln.segments[0];
+    /* A label segment FLEx already has — a hard line break, a line of only punctuation (model.py `readOnly`) —
+     * has no letters and never had: FLEx made it, and refusing it refused every save that touched its paragraph.
+     * One the user has typed words into is judged like any phrase. */
+    if (seg && seg.readOnly && !wordsOf(seg).some((w) => !w.punct)) return;
     // judged on the WORDS when the phrase has any: word-level views edit words and rebuild the baseline
     // from them, so a stale baseline must not hide an emptied phrase (or report a filled one)
     const probe = seg.words && seg.words.length ? { ...seg, baseline: seg.words.map((w) => w.txt || '').join(' ') } : seg;

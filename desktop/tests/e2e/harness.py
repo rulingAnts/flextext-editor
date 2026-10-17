@@ -255,6 +255,20 @@ def start(tmp):
     b.commit(h)
     b.save()
     b.close_project()
+    # FLEx's hard line break (2026-10-17): Shift+Enter after a sentence — a segment of its own, with no words — in a
+    # paragraph whose phrases are timed; a marked disposable copy, so writes are allowed
+    MockLcm.create_project(str(projects), "break-write", texts=[{"title": "Break text", "paragraphs": ["aaa bbb.\u2028ccc ddd", "eee fff"], "media": [in_lf]}])
+    (projects / "break-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("break-write", write=True)
+    t = b.read_text(b.list_texts()[0]["guid"])
+    h = b.begin_uow("fixture", "fixture")
+    for seg, (t0, t1) in zip([x for p in t["paragraphs"] for x in p["segments"] if not x["isLabel"]], [(0, 1500), (1600, 3000), (3100, 4500)]):
+        b.set_segment_times(seg["guid"], t0, t1)
+        b.set_segment_media(seg["guid"], t["media"][0]["guid"])
+    b.commit(h)
+    b.save()
+    b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
     clip = Clipboard()

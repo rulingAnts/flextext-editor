@@ -247,9 +247,24 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
     paragraph (`breaksBefore`), or on the one before it at a paragraph's end (`breaksAfter`), and the
     writer puts it back where it was, with its own GUID and nothing added. Joining the lines on either
     side removes it, as in FLEx; a split keeps it at the outer end it was on. A paragraph of nothing but
-    breaks keeps them as its lines. The Segmenter marks one with ↵. (A text stored before this keeps its
-    break lines as lines; re-import it from FLEx. The FLEx shell, `doc.flex`, is not folded — its model
-    reads a break as a label line.)
+    breaks keeps them as its lines. The Segmenter marks one with ↵. A text stored before this keeps its
+    break lines as lines (re-import it from FLEx to fold them); joining one away there keeps every GUID,
+    because `mergePhrases` never lets a break be the survivor — one before or after the text parts rides
+    on the merge, one between them goes — and such a line takes no typing in the Matcher.
+  - **A FLEx text in the desktop shell is STORED as the shell reads it** (`desktop/flexshell/model.py`): a
+    break is a line of its own, `readOnly`, no words, an empty baseline — the diff, the post-state and
+    the three-way merge all walk the shell's segments, so nothing about a record changes. Only the
+    Matcher, where row i is audio i, folds them while it is open (`foldFlexBreakLines`, also on a
+    resumed draft) and puts each back on Done (`unfoldFlexBreakLines`): beside its line, with its own
+    guid and span, in the paragraph it now sits in (a ¶ made at the line after a break leaves the break
+    at the end of the paragraph before, where FLEx's own split keeps it). A join across a break is
+    refused there (`mg.joinLineBreak`) and by the diff (`unsupported: lineBreak`): a break is FLEx's to
+    remove. Both Save checks accept a label segment FLEx already has — the engine's `flexBlockers` skips
+    a `readOnly` phrase with no lexical word; the shell's `kept_label` accepts one only while it is
+    unchanged and in its own paragraph (or one this save merges or splits it into). `paragraph_to_phrase`
+    writes the § it joins at BEFORE a paragraph's trailing breaks. ⚠ The mock's breaker used to fold a
+    break after a full stop into the sentence — the commonest place for one — so no test could see any
+    of this; `desktop/tests/test_line_breaks.py` and the e2e's scenario 18 pin it now.
   - **A split keeps the GUID on the first piece; a merge keeps the first phrase's** (LCM
     `AnalysisAdjuster`), in the Matcher's ✂ and join and in the text box's reconcile alike.
   - **Every edit names its language.** `free`/`freeLang` and a word's `gls`/`glsLang` are a SLOT: the

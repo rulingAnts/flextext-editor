@@ -5,7 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, reconcileBaselineWithOrigins, readLegacyEstimates, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets, spansForExport,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords, foldLineBreaks, mediaGuidsOf,
+  mergePhrases, baselineFromWords, foldLineBreaks, mediaGuidsOf, isFlexBreakPhrase, foldFlexBreakLines, unfoldFlexBreakLines,
   // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
   splitWordAt, insertWordAt, joinWordsAt, isBoundaryMarker, markBoundaryMarkers,
   hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
@@ -10281,6 +10281,12 @@ function mgLoad(rec) {
     selSpan: null, selLine: null,
     baseSig: mgBaseSig(rec.doc),   // what a draft of this session is made from (v718, case 22)
   };
+  /* ⚠ A FLEx TEXT'S HARD LINE BREAKS ARE NOT ROWS (2026-10-17). Each is a segment of its own in FLEx, with no
+   * words, and the shell gives it a line like any segment — so here it was a blank row, paired with audio like
+   * any row, and joining it away to get past it could not be saved (and took a GUID with it). Folded onto the
+   * line beside it, drawn as ↵, and put back as its own line on Done (flextext.js foldFlexBreakLines): the
+   * record is stored exactly as the shell gave it. A .flextext's breaks are folded once, on import. */
+  if (rec.doc && rec.doc.flex) Object.assign(MG, foldFlexBreakLines(MG.lines, MG.spans));
   if (!MG.spans.some((sp) => !sp.timePending)) MG.spans = [];
 }
 /* WHAT A DRAFT WAS MADE FROM (v718, case 22): the text's lines and its stored times, hashed. A draft
@@ -11307,8 +11313,12 @@ function mgSectionChip(ln, site) {
 function mgJoinLine(id) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i <= 0) return;
-  mgCapture();
   const prev = MG.lines[i - 1], cur = MG.lines[i];
+  /* ⚠ NOT ACROSS A FLEx LINE BREAK in a FLEx text: the break is a segment of its own in FLEx, which a join here
+   * cannot remove (the shell joins only at a §), so the save would be refused. Said now, before anything moves.
+   * (In a .flextext a join across one removes it, as deleting the break does in FLEx — flextext.js mergePhrases.) */
+  if (mgIsFlexText() && mgBreakBetween(prev, cur)) { toast(t('mg.joinLineBreak'), 7000); return; }
+  mgCapture();
   /* The merged line takes the FIRST line's paragraph. If the two were in different paragraphs the
    * break between them is exactly what the user just removed, so losing it is the point — and if
    * that leaves the second paragraph's remaining lines non-consecutive, serializeFlextext detects it
@@ -11323,6 +11333,13 @@ function mgJoinLine(id) {
   MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf,
     phrases: [mergePhrases([...prev.phrases, ...cur.phrases], { prim: mgPrimaryLang() })] });
   mgDraw();
+}
+
+// A hard line break between two rows: on the first's end, the second's start, or a row that is one.
+function mgBreakBetween(a, b) {
+  const pa = a.phrases[a.phrases.length - 1], pb = b.phrases[0];
+  return !!((pa && pa.breaksAfter && pa.breaksAfter.length) || (pb && pb.breaksBefore && pb.breaksBefore.length)
+    || a.phrases.some(isFlexBreakPhrase) || b.phrases.some(isFlexBreakPhrase));
 }
 
 /* Collapse back to the index-locked model the rest of the suite reads.
@@ -11366,6 +11383,9 @@ async function mgCommit() {
     if (!(last && last.paraOf != null)) applyNewLineBreak(lines, lines.length - 1, breakKindSetting());   // no paragraph yet: the break kind decides
   }
   const blankAdded = lines.length - MG.lines.length;
+  // A FLEx text's line breaks are rows again, each beside its line, in its own paragraph (unfoldFlexBreakLines)
+  let rowSpans = MG.spans;
+  if (rec.doc.flex) { const u = unfoldFlexBreakLines(lines, MG.spans); lines.splice(0, lines.length, ...u.lines); rowSpans = u.spans; }
   /* ⚠ WRITE doc.segments, NOT rec.segments — the same field mgLoad reads and the only one anything
    * else does. A top-level rec.segments is read by nothing in this suite, so a whole matching
    * session written there would have been silently discarded: the toast said "saved", the record
@@ -11373,7 +11393,7 @@ async function mgCommit() {
   rec.doc.segments = withGuesses(lines.map((l, i) => {
     /* A row that held the file's own times and still has none of its own gives them back (v718 review,
      * P4); the export writes them only while its line's phrase still carries exactly them. */
-    const sp = MG.spans[i];
+    const sp = rowSpans[i];
     if (!sp || sp.timePending) return { start: 0, end: 0, timePending: true, ...(sp && Array.isArray(sp.fileTimes) ? { fileTimes: sp.fileTimes.slice(0, 2) } : {}) };
     // An estimated time stays labelled as one all the way through: exports and the archive care
     // whether a boundary was measured or guessed, and the matcher is not what turns one into the other.
@@ -11423,7 +11443,9 @@ async function mgCommit() {
     try { await uploadDocById(rec.id); if (Sync.reportNow) Sync.reportNow(); }
     catch (e) { toast(t('upload.error', { msg: e.message }), 9000); }
   }
-  const noAudio = rec.doc.segments.filter((x) => !isPlaced(x)).length;   // placeholders are lines without audio too
+  // placeholders are lines without audio too; a line break is not a line (it never had audio to miss)
+  const isBreakRow = (k) => isFlexBreakPhrase(((rec.doc.paragraphs[k] || {}).segments || [])[0]);
+  const noAudio = rec.doc.segments.filter((x, k) => !isPlaced(x) && !isBreakRow(k)).length;
   // Closed during the send (above): its exit already ran. A draft left behind equals what was just
   // committed — reopening merely resumes it; clearing it now could race the delete and put it back.
   if (!MG || MG.docId !== id) return;
@@ -11433,7 +11455,7 @@ async function mgCommit() {
    * with nothing stored in its place, though the dialog had promised that choice lost nothing. It stays,
    * and the next visit asks again. */
   if (!MG.holdDraft) await mgClearDraft(MG.docId);   // committed: the draft has served its purpose
-  toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
+  toast(t('mg.committed').replace('{n}', rec.doc.segments.filter((x, k) => !isBreakRow(k)).length));
   // Said AFTER the save and separately: what Done added or left without audio is not a failure,
   // but it must not be a surprise either.
   if (blankAdded || noAudio) {
@@ -11678,11 +11700,15 @@ function mgDraw() {
     sites.filter((x) => x.final).forEach((x) => wbox.appendChild(mgSectionChip(ln, x)));
     /* ↵ where FLEx has a hard line break beside this line (flextext.js foldLineBreaks): it is not a line, so
      * it pairs with no audio, but it is there — and joining across it removes it, as it does in FLEx. */
-    const breakMark = () => { const m = document.createElement('span'); m.className = 'mg-lb'; m.textContent = '↵'; m.title = t('mg.lineBreak'); return m; };
+    const breakMark = () => { const m = document.createElement('span'); m.className = 'mg-lb'; m.textContent = '↵'; m.title = t(mgIsFlexText() ? 'mg.lineBreakFlex' : 'mg.lineBreak'); return m; };
+    // a row that IS a break (a paragraph of nothing else, one with a time of its own, a text stored before
+    // breaks were folded) is drawn as one, and takes no typing: words typed there would become a phrase wearing the break's GUID
+    const breakRow = ln.phrases.length > 0 && ln.phrases.every(isFlexBreakPhrase);
+    if (breakRow) wbox.appendChild(breakMark());
     if (ln.phrases.some((p) => p.breaksBefore && p.breaksBefore.length)) wbox.prepend(breakMark());
     if (ln.phrases.some((p) => p.breaksAfter && p.breaksAfter.length)) wbox.appendChild(breakMark());
     // A blank line (from +) has nowhere to type until it has a word: give it one empty pair.
-    if (editable && !txt.words.length) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
+    if (editable && !txt.words.length && !breakRow) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
     const ftbox = li.querySelector('.mg-ft');
     const pend = MG.pendingWordCut && MG.pendingWordCut.line === ln.id ? MG.pendingWordCut : null;
     const cutRows = pend ? mgCutRows(ln) : [];
@@ -11706,11 +11732,11 @@ function mgDraw() {
         ftbox.dataset.lang = frows[0].lang;
         ftbox.title = every ? t('mg.langEdit', { lang: frows[0].lang }) : t('mg.langAlt', { lang: frows[0].lang, prim: mgPrimaryLang() });
       }
-      if (editable && (frows[0].primary || every)) mgWireEditable(ftbox, ln, -1, 'free', frows[0].lang);   // in the language it shows
+      if (editable && !breakRow && (frows[0].primary || every)) mgWireEditable(ftbox, ln, -1, 'free', frows[0].lang);   // in the language it shows
       for (const r of frows.slice(1)) {
         const el = mgAltRow('div', 'mg-ft mg-ft-alt', r);
         ftbox.parentElement.appendChild(el);
-        if (editable && every) mgWireEditable(el, ln, -1, 'free', r.lang);
+        if (editable && every && !breakRow) mgWireEditable(el, ln, -1, 'free', r.lang);
       }
     }
     const cell = document.createElement('div');
@@ -12115,6 +12141,8 @@ async function mgOpen(id) {
     if (resume) {
       MG.spans = withGuesses(draft.spans);   // a draft an older build saved: its flags per edge, as mgLoad's
       MG.lines = draft.lines;
+      // a FLEx text's line breaks, folded as mgLoad folds them — a draft an older build saved holds them as rows
+      if (rec.doc && rec.doc.flex) Object.assign(MG, foldFlexBreakLines(MG.lines, MG.spans));
       MG.resumed = draft.at || Date.now();
     } else MG.holdDraft = true;
   }

@@ -358,7 +358,12 @@ needs ride along and are ignored by the web build:
 - `boundaryMarker: true` on a phrase-final `§` punctuation item (§6.3): the engine hides it and
   never offers it for editing.
 - `readOnly: true` on label segments (`IsLabel`, which includes the one-character U+2028
-  hard-line-break segments).
+  hard-line-break segments). ⚠ Until 2026-10-17 nothing in the engine read it: a break was an empty row
+  in the Matcher, paired with audio like any row, and both Save checks refused every save that touched
+  its paragraph ("a phrase with no letters"); joining it away rolled back. Now the record keeps the shape
+  above, the Matcher folds breaks while it is open and puts them back on Done (flextext.js
+  `foldFlexBreakLines` / `unfoldFlexBreakLines`), a join across one is refused, and the engine's
+  `flexBlockers` and the shell's preview accept an unchanged label (DEVELOPERS.md §4).
 - Paragraph structure is preserved as paragraphs (the engine must not flatten paragraphs into a
   phrase list when the doc came from FLEx).
 

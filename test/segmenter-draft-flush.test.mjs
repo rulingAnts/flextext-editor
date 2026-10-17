@@ -42,7 +42,7 @@ function matcher(store) {
   const held = [];   // gets made while db.hold is set, waiting to be answered (each with what it read)
   const api = new Function('env', `
     const { FT, SEG, store, log, held, storableRecord, lineHasOffsets } = env;
-    const { makeSegment, mergePhrases, readLegacyEstimates, applyNewLineBreak, freeIn, setFreeIn } = FT;
+    const { makeSegment, mergePhrases, readLegacyEstimates, applyNewLineBreak, freeIn, setFreeIn, isFlexBreakPhrase, foldFlexBreakLines, unfoldFlexBreakLines } = FT;
     const mgPrimaryLang = () => 'en';   // the text's analysis language: a free translation is set in it (mgEditFree)
     const breakKindSetting = () => 'sentence';   // the device's line-break kind for a line added at a paragraph's edge
     const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, isPlaceholder, spreadUntimed, edgeGuessed } = SEG;
@@ -88,6 +88,7 @@ function matcher(store) {
     ${liftAll(APP, ['docStats', 'cheapHash', 'mgLoad', 'mgBaseSig', 'mgSeedSpans', 'mgSpreadSpans', 'mgDraftTimer', 'mgSaveDraft', 'mgDraftWrites', 'mgDraftCallOffs',
       'mgWriteDraft', 'mgFlushDraft', 'mgCallOffDraft', 'mgClearDraft', 'MG_UNDO_MAX', 'mgSnap', 'mgCapture',
       'mgInsertLine', 'mgLinePhrase', 'mgEditFree', 'mgSame', 'mgCommit', 'mgClose', 'mgStartOver', 'mgOpen',
+      'mgJoinLine', 'mgBreakBetween', 'mgIsFlexText',
       'deleteUploadedDoc', 'userDeleteDoc'])}
     async function settle() {   // every draft write asked for has landed, and what follows each has run
       for (let p = null; p !== mgDraftWrites;) { p = mgDraftWrites; await p; }
@@ -98,7 +99,7 @@ function matcher(store) {
       pending: () => timers.filter(Boolean).length,
       fire() { timers.forEach((f, i) => { if (f) { timers[i] = null; f(); } }); },
       open: (id) => mgOpen(id), back: () => mgClose(), startOver: () => mgStartOver(), commit: () => mgCommit(),
-      insertLine: (after) => mgInsertLine(after), editFree: (id, v) => mgEditFree(id, v),
+      insertLine: (after) => mgInsertLine(after), editFree: (id, v) => mgEditFree(id, v), join: (id) => mgJoinLine(id),
       remoteDelete: (id) => deleteUploadedDoc(id), userDelete: (id) => userDeleteDoc(id, id),
       sig: (doc) => mgBaseSig(doc),
     };
@@ -372,4 +373,65 @@ test('v718: the draft Back writes carries the session\'s baseSig', async () => {
   s.api.back();
   await s.api.settle();
   assert.equal(store.a.matchDraft.baseSig, sig, 'or a later visit could not tell the text had changed under it (case 22)');
+});
+
+/* A FLEx TEXT'S HARD LINE BREAKS (2026-10-17). The desktop shell gives each U+2028 segment a line of its own (readOnly,
+ * no words, an empty baseline), and the record keeps it so. Here, through the Matcher's own open and Done: folded while
+ * it is open, rows again on Done, the record exactly as the shell gave it — which is also what lets the code be rolled
+ * back with nothing to do to any record. (flex-line-breaks.test.mjs has the pure halves; test_line_breaks.py the shell's.) */
+function flexRec(id) {
+  const w = (txt, i, sg) => ({ guid: 'an-' + txt + ':' + i, txt, punct: false, phrase: false, gls: '', preservedXML: [], flex: { analysisGuid: 'an-' + txt, index: i, seg: sg } });
+  const seg = (g, words, extra = {}) => ({ attrs: { guid: g }, baseline: words.join(' '), words: words.map((x, i) => w(x, i, g)), free: '', freeLang: null,
+    preItemsXML: [], postItemsXML: [], txtLang: 'qaa', flex: { segGuid: g, notes: [] }, ...extra });
+  const line = (sg, para) => ({ guid: 'ln-' + sg.attrs.guid, paraOf: para, segments: [sg] });
+  const doc = { title: id, vernLang: 'qaa', analLang: 'en', languages: [], timeEdges: true, flex: { textGuid: 'T', anals: ['en'] },
+    paragraphs: [line(seg('A', ['aa']), 'P1'), line(seg('B1', [], { readOnly: true }), 'P1'), line(seg('C', ['cc']), 'P1'), line(seg('D', ['dd']), 'P2')],
+    segments: [{ start: 0, end: 900 }, { start: 0, end: 0, timePending: true }, { start: 1000, end: 1900 }, { start: 2000, end: 2900 }] };
+  return storableRecord({ id, title: id, created: 1, modified: 1, doc });
+}
+
+test('a FLEx text: its line break is no row while the Matcher is open, and a row again on Done — the record as the shell gave it', async () => {
+  const store = { f: flexRec('f') };
+  const before = JSON.parse(JSON.stringify(store.f.doc));
+  const s = matcher(store);
+  await opened(s, 'f');
+  assert.deepEqual(s.api.MG.lines.map((l) => l.phrases[0].attrs.guid), ['A', 'C', 'D'], 'three rows for three lines of text');
+  assert.deepEqual(s.api.MG.lines[1].phrases[0].breaksBefore.map((b) => b.attrs.guid), ['B1'], 'the break rides on C, drawn as ↵');
+  assert.equal(s.api.MG.spans.length, 3, 'and its empty audio row went with it: row i is audio i');
+  await s.api.commit();
+  await s.api.settle();
+  assert.deepEqual(store.f.doc.paragraphs.map((p) => [p.guid, p.paraOf, p.segments]), before.paragraphs.map((p) => [p.guid, p.paraOf, p.segments]),
+    'every line back, the break its own again, with its own guid and paragraph — nothing hung on C');
+  assert.deepEqual(store.f.doc.segments.map((x) => (x.timePending ? null : [x.start, x.end])), [[0, 900], null, [1000, 1900], [2000, 2900]]);
+});
+
+test('a FLEx text: a join across its line break is refused, and a free translation beside it saves with the break in place', async () => {
+  const store = { f: flexRec('f') };
+  const s = matcher(store);
+  await opened(s, 'f');
+  s.api.join(s.api.MG.lines[1].id);                  // C onto A, across B1
+  assert.equal(s.api.MG.lines.length, 3, 'refused');
+  assert.ok(s.log.toasts.includes('mg.joinLineBreak'), 'and said why');
+  s.api.editFree(s.api.MG.lines[1].id, 'the third line');
+  await s.api.commit();
+  await s.api.settle();
+  const segs = store.f.doc.paragraphs.map((p) => p.segments[0]);
+  assert.deepEqual(segs.map((x) => x.attrs.guid), ['A', 'B1', 'C', 'D']);
+  assert.equal(FT.freeIn(segs[2], 'en', 'en'), 'the third line');
+  assert.ok(!segs.some((x) => x.breaksBefore || x.breaksAfter || x.flexLine), 'no fold left in the record');
+});
+
+test('a FLEx text: a draft an older build saved holds the break as a row — resumed, it is folded the same way', async () => {
+  const store = { f: flexRec('f') };
+  const s0 = matcher(store);
+  const sig = s0.api.sig(store.f.doc);
+  const d = store.f.doc;
+  store.f.matchDraft = { at: 5, baseSig: sig,
+    lines: d.paragraphs.map((p, i) => ({ id: 'ln' + i, phrases: p.segments, guid: p.guid, paraOf: p.paraOf })),
+    spans: d.segments.map((x, i) => ({ id: 'sp' + i, ...x })) };
+  const s = matcher(store);
+  await opened(s, 'f');
+  assert.equal(s.api.MG.resumed, 5, 'the draft was resumed');
+  assert.deepEqual(s.api.MG.lines.map((l) => l.phrases[0].attrs.guid), ['A', 'C', 'D'], 'its break row folded as mgLoad folds one');
+  assert.equal(s.api.MG.spans.length, 3);
 });

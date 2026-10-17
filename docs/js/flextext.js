@@ -262,6 +262,29 @@ export function mergePhrases(segs, opts = {}) {
   const parts = (segs || []).filter(Boolean);
   if (!parts.length) return makeSegment('', []);
   if (parts.length === 1) return parts[0];
+  /* ⚠ A HARD LINE BREAK IS NEVER THE SURVIVOR. A text stored before breaks were folded (foldLineBreaks) still
+   * holds each as a line of its own, and joining it away is the only way past it — which gave the next phrase
+   * the break's GUID (bug 1 of the FLEx round-trip report) and lost the break. So a break part rides on the
+   * merge where it stood: before the first text part, or after the last; one BETWEEN two text parts goes, as a
+   * merge across a break does in FLEx. Parts that are all breaks stay breaks: the first, the rest after it. */
+  if (parts.some(isLineBreakPhrase)) {
+    const texts = parts.filter((p) => !isLineBreakPhrase(p));
+    const flat = (p) => [...(p.breaksBefore || []), bare(p), ...(p.breaksAfter || [])];
+    if (!texts.length) {
+      const [head, ...rest] = parts;
+      return { ...bare(head), ...(head.breaksBefore ? { breaksBefore: head.breaksBefore.slice() } : {}),
+        breaksAfter: [...(head.breaksAfter || []), ...rest.flatMap(flat)] };
+    }
+    const i0 = parts.indexOf(texts[0]), i1 = parts.lastIndexOf(texts[texts.length - 1]);
+    const lead = parts.slice(0, i0).flatMap(flat), tail = parts.slice(i1 + 1).flatMap(flat);
+    // one text part: a copy, its lists too — the phrase it was may be an undo step's, or the record's
+    const one = texts[0];
+    const seg = texts.length > 1 ? mergePhrases(texts, opts)
+      : { ...one, words: (one.words || []).slice(), preItemsXML: (one.preItemsXML || []).slice(), postItemsXML: (one.postItemsXML || []).slice() };
+    if (lead.length) seg.breaksBefore = [...lead, ...(seg.breaksBefore || [])];
+    if (tail.length) seg.breaksAfter = [...(seg.breaksAfter || []), ...tail];
+    return seg;
+  }
   const [first] = parts, last = parts[parts.length - 1];
   // A slot with no tag is in the document's language. A caller that cannot say which (no `prim`) gets the
   // older reading: the first tag any part names, else en (setFreeIn's default).
@@ -383,6 +406,93 @@ export function foldLineBreaks(doc) {
     changed = true;
   }
   return changed;
+}
+
+/* ---- FLEx's hard line breaks in the Matcher (2026-10-17) ----------------------------------------------------
+ * Shift+Enter in FLEx inserts U+2028, and LCM makes every one its own label segment, with no words. The shell
+ * reads it as it reads any segment (desktop/flexshell/model.py: one line, `readOnly`, an empty baseline — the
+ * break itself is whitespace there) and the record keeps it so: the diff, the post-state and the three-way merge
+ * all walk the shell's segments, so a FLEx text is STORED exactly as the shell gave it. Only the Matcher, where
+ * row i is audio i, folds the breaks out while it is open — each rides on the line beside it in its paragraph,
+ * drawn as ↵, as a .flextext's are (foldLineBreaks, above) — and puts them back as their own lines on Done.
+ * A break that has a time of its own stays a row: that time is somebody's, and folding it away would drop it. */
+export function isFlexBreakPhrase(seg) {
+  return !!seg && !(seg.words || []).length && (isLineBreakPhrase(seg) || (!!seg.readOnly && !String(seg.baseline || '').trim()));
+}
+const rowPara = (line) => (line && line.paraOf != null ? String(line.paraOf) : null);
+const timedSpan = (sp) => !!sp && !sp.timePending && Number(sp.end) > Number(sp.start);
+// A copy of a phrase without the breaks a fold hung on it.
+const bare = (ph) => { const { breaksBefore, breaksAfter, ...rest } = ph; return rest; };
+
+/* The Matcher's rows (`lines`, each { id, phrases, guid, paraOf }) and their index-paired `spans` with every untimed
+ * break folded onto a neighbour IN ITS OWN PARAGRAPH: onto the next line as `breaksBefore`, or, at the paragraph's
+ * end, onto the one before it as `breaksAfter`. A paragraph of nothing but breaks keeps them as rows. Each folded
+ * break is a copy carrying `flexLine` — its row's guid, paragraph and span — so unfoldFlexBreakLines can put it
+ * back exactly. Pure: nothing passed in is changed. Idempotent: rows already folded have no breaks to fold. */
+export function foldFlexBreakLines(lines, spans) {
+  const L = lines || [], S = Array.isArray(spans) ? spans : [];
+  const isBreakRow = (i) => L[i].phrases && L[i].phrases.length === 1 && isFlexBreakPhrase(L[i].phrases[0]) && !timedSpan(S[i]);
+  const outL = [], outS = [];
+  for (let a = 0; a < L.length;) {
+    let b = a;
+    while (b < L.length && rowPara(L[b]) === rowPara(L[a]) && rowPara(L[a]) !== null) b++;
+    if (b === a) b = a + 1;                                     // a row with no paragraph: on its own
+    const rows = [];
+    for (let i = a; i < b; i++) rows.push(i);
+    const texts = rows.filter((i) => !isBreakRow(i));
+    if (!texts.length || texts.length === rows.length) {
+      for (const i of rows) { outL.push(L[i]); if (i < S.length) outS.push(S[i]); }
+      a = b;
+      continue;
+    }
+    let pending = [];
+    const take = (i) => ({ ...L[i].phrases[0], flexLine: { guid: L[i].guid, paraOf: L[i].paraOf ?? null, ...(i < S.length ? { span: S[i] } : {}) } });
+    for (const i of rows) {
+      if (isBreakRow(i)) { pending.push(take(i)); continue; }
+      const ph = L[i].phrases.slice();
+      if (pending.length) { ph[0] = { ...ph[0], breaksBefore: [...(ph[0].breaksBefore || []), ...pending] }; pending = []; }
+      outL.push({ ...L[i], phrases: ph });
+      if (i < S.length) outS.push(S[i]);
+    }
+    if (pending.length) {
+      const last = outL[outL.length - 1], ph = last.phrases.slice(), k = ph.length - 1;
+      ph[k] = { ...ph[k], breaksAfter: [...(ph[k].breaksAfter || []), ...pending] };
+      outL[outL.length - 1] = { ...last, phrases: ph };
+    }
+    a = b;
+  }
+  return { lines: outL, spans: S.length ? outS : S };
+}
+
+/* Done's way back: every folded break is its own row again, beside the line that carried it — before it, or
+ * after it — with its own guid and span, and the carrying phrases as they were. Its paragraph is where it now
+ * SITS: a break after a line is that line's; a break before a line is that line's too, unless the line now opens
+ * a paragraph and the break was read in the paragraph before — a ¶ made at the line after a break leaves the
+ * break at the end of the paragraph before, which is where FLEx's own split keeps it (segmentation.py
+ * phrase_to_paragraph). A row past the paired spans gets none, as it had none. Pure. */
+export function unfoldFlexBreakLines(lines, spans) {
+  const L = lines || [], S = Array.isArray(spans) ? spans : [];
+  const outL = [], outS = [];
+  let n = 0;
+  const put = (br, carrier, para, paired) => {
+    const { flexLine, ...ph } = br;
+    const fl = flexLine || {};
+    outL.push({ id: carrier.id + '~lb' + (n++), guid: fl.guid || ('ln-' + ((ph.attrs && ph.attrs.guid) || newGuid())), phrases: [bare(ph)], ...(para == null ? {} : { paraOf: para }) });
+    if (paired) outS.push(fl.span || { id: 'lb' + n, start: 0, end: 0, timePending: true, timeEstimated: false });
+  };
+  L.forEach((l, i) => {
+    const ph = l.phrases || [], paired = i < S.length;
+    const before = outL[outL.length - 1], prevPara = before ? rowPara(before) : null;
+    const opens = rowPara(l) !== prevPara;
+    for (const br of (ph[0] && ph[0].breaksBefore) || []) {
+      const read = br.flexLine && br.flexLine.paraOf != null ? String(br.flexLine.paraOf) : null;
+      put(br, l, opens && prevPara !== null && read === prevPara ? before.paraOf : l.paraOf, paired);
+    }
+    outL.push({ ...l, phrases: ph.map(bare) });
+    if (paired) outS.push(S[i]);
+    for (const br of (ph[ph.length - 1] && ph[ph.length - 1].breaksAfter) || []) put(br, l, l.paraOf, paired);
+  });
+  return { lines: outL, spans: S.length ? outS : S };
 }
 
 /* The phrases' item lists as one: a top-level <item type="gls"|"lit" lang=…> (a free or literal
@@ -979,7 +1089,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     head.forEach((x, k) => { if (freeBefore && k === at.at) lines.push('            ' + free); lines.push(indentFragment(x, '            ')); });
     if (freeBefore && at.at >= head.length) lines.push('            ' + free);
     // a phrase FLEx wrote with no <words> (a hard line break) goes back without one while it has none
-    if (!(seg.noWords && !(seg.words || []).length && !inWords.length)) {
+    if (!((seg.noWords || isLineBreakPhrase(seg)) && !(seg.words || []).length && !inWords.length)) {
       lines.push('            <words>');
       for (const xml of inWords) lines.push(indentFragment(xml, '              '));
       for (const w of seg.words) {
@@ -1670,7 +1780,9 @@ function reconcileLines(doc, paragraphTexts, opts = {}) {
      * every side (mergePhrases' rule) — that path is untouched here. */
     const isSplit = !!(plan && plan.wordSlice);
     const firstPiece = isSplit && plan.wordSlice[0] === 0;
-    const attrs = old ? { ...(old.attrs || {}) } : undefined;
+    // a join's first line may be a break stored as a line (mergePhrases): the line keeps the first TEXT line's GUID
+    const keeper = joined && isLineBreakPhrase(old) ? (plan.olds.find((o) => !isLineBreakPhrase(o)) || old) : old;
+    const attrs = keeper ? { ...(keeper.attrs || {}) } : undefined;
     if (attrs && isSplit) {
       if (!firstPiece) attrs.guid = newGuid();
       delete attrs['begin-time-offset'];
@@ -1687,7 +1799,12 @@ function reconcileLines(doc, paragraphTexts, opts = {}) {
     /* FLEx's hard line breaks beside it (foldLineBreaks): a split's first piece keeps the one before the line,
      * its last piece the one after; a join keeps the first line's before and the last line's after — the ones
      * between the joined lines go with the join, as in FLEx. */
-    if (plan) {
+    if (joined && plan.olds.some(isLineBreakPhrase)) {
+      // the breaks this join folded are written as their own phrases: their character is not the line's text too
+      seg.baseline = String(seg.baseline || '').replace(/\u2028/g, ' ').trim();
+      if (joined.breaksBefore) seg.breaksBefore = joined.breaksBefore.slice();
+      if (joined.breaksAfter) seg.breaksAfter = joined.breaksAfter.slice();
+    } else if (plan) {
       const lastOld = plan.olds[plan.olds.length - 1];
       const lastPiece = !isSplit || plan.wordSlice[1] >= (old.words || []).length;
       if ((!isSplit || firstPiece) && old.breaksBefore && old.breaksBefore.length) seg.breaksBefore = old.breaksBefore.slice();

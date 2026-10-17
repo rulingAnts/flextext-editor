@@ -43,7 +43,7 @@ function segmenter(store, extra = {}) {
   const api = new Function('env', `
     const { SEG, ft, store, log, storableRecord, lineHasOffsets, extra, state } = env;
     const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, isPlaceholder, spreadUntimed, splitSpanAt, mergeSpanPair, dragSeam, edgeGuessed } = SEG;
-    const { makeSegment, mergePhrases, readLegacyEstimates } = ft;
+    const { makeSegment, mergePhrases, readLegacyEstimates, isFlexBreakPhrase, foldFlexBreakLines, unfoldFlexBreakLines } = ft;
     const MIN_SEGMENT_MS = SEG.MIN_SEGMENT_MS;
     let mgLangClaim = null, mgLangOwn = null;   // the FLEx shell's per-text language (app.js mgLangClaim)
     let MG = null, current = null, mgUndoStack = [], mgRedoStack = [], mgDraftTimer = 0;

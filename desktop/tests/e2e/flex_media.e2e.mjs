@@ -923,6 +923,35 @@ ok(undone17.length === 1 && C(undone17[0].ft) === C({ en: 'one two three', id: '
 await page.click('#flex-redo');
 await rowLacks('.flex-save-text');
 
+// ── 18. FLEx's hard line breaks (2026-10-17): Shift+Enter is a segment of its own in FLEx, with no words. In the
+// Matcher it is no row — a ↵ beside the line after it — so row i is still audio i; a join across it is refused and
+// says why; and a save beside it goes through (it was refused: "a phrase with no letters cannot be saved"). ──
+await home();
+await openProject('break-write', 'write');
+await textRow('Break text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+ok(await lines().count() === 3 && await spans().count() === 3, 'three rows of text and three of audio — none for the break: ' + await lines().count() + '/' + await spans().count());
+ok(await page.locator('#view-matcher .mg-lb').count() === 1, 'the break is a ↵ beside the line after it');
+await lines().nth(1).locator('.mg-join').click();
+await page.waitForFunction(() => /line break from FLEx sits between/.test(document.body.innerText), null, T(5000));
+ok(await lines().count() === 3, 'a join across it is refused, and says why');
+const ft18 = lines().nth(1).locator('.mg-ft').first();
+await ft18.click(); await ft18.fill('beside the break'); await ft18.press('Enter');
+await shot('27-line-break');
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+await textRow('Break text').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+const pv18 = await page.locator('.flex-preview').innerText();
+ok(!/no letters/i.test(pv18), 'the preview has nothing to refuse');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after18 = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
+ok(after18.length === 4 && after18[1].words.length === 0 && after18[2].ft.en === 'beside the break' && !after18[1].ft.en,
+   'FLEx: the break still its own segment, the translation on the line after it: ' + JSON.stringify(after18.map((p) => [p.words.length, p.ft])));
+
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();
 if (failed) { console.error(`\n${failed} FAILED`); process.exit(1); }

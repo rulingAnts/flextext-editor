@@ -31,6 +31,7 @@
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { withGuesses, isPlaced } from '../docs/js/segments.js';
+import { isFlexBreakPhrase, unfoldFlexBreakLines } from '../docs/js/flextext.js';
 
 const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 const fn = (src, name) => (src.match(new RegExp(`\\nfunction ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`)) || [''])[0];
@@ -344,6 +345,7 @@ test('#90 review: matcher steps that await, with the delete landing in the middl
       const mergePhrases = (p) => p[0];
       const withGuesses = env.withGuesses;   // the real one (segments.js) — mgCommit settles the spans through it since v717
       const isPlaced = env.isPlaced;         // …and counts what it wrote by it since v718 (a placeholder is not audio)
+      const { isFlexBreakPhrase, unfoldFlexBreakLines } = env;   // a FLEx text's line breaks, back as rows (2026-10-17)
       const docStats = () => ({});
       const Sync = { workerUploadTarget: () => true, reportNow() {} };
       async function uploadDocById(id) { calls.push('uploadDocById:' + id); if (env.during === 'upload') remoteDelete(); }
@@ -357,7 +359,7 @@ test('#90 review: matcher steps that await, with the delete landing in the middl
     return { h, threw };
   };
   const open = () => ({ MG: { docId: 'A', spans: [{ start: 0, end: 1000 }], lines: [{ id: 'l1', guid: 'g1', phrases: [{ words: [] }] }] },
-                        current: { id: 'A', stale: true }, withGuesses, isPlaced });
+                        current: { id: 'A', stale: true }, withGuesses, isPlaced, isFlexBreakPhrase, unfoldFlexBreakLines });
 
   console.log('\nDone with nothing in the way (paired) — unchanged');
   {

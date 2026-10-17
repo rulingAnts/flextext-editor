@@ -37,7 +37,7 @@ function segmenter(store, extra = {}) {
   const api = new Function('env', `
     const { SEG, ft, store, log, storableRecord, lineHasOffsets, extra } = env;
     const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, isPlaceholder, spreadUntimed, splitSpanAt, mergeSpanPair, edgeGuessed } = SEG;
-    const { makeSegment, mergePhrases, readLegacyEstimates } = ft;
+    const { makeSegment, mergePhrases, readLegacyEstimates, isFlexBreakPhrase, foldFlexBreakLines, unfoldFlexBreakLines } = ft;
     let mgLangClaim = null, mgLangOwn = null;   // the FLEx shell's per-text language (app.js mgLangClaim)
     let MG = null, current = null, mgUndoStack = [], mgRedoStack = [], player = null, mgDraftTimer = 0;
     const clone = (x) => JSON.parse(JSON.stringify(x));

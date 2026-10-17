@@ -53,8 +53,8 @@ test('the primary row stays editable; every other language is read-only and tagg
   assert.match(stack, /const el = mgAltRow\('span', 'mg-g mg-g-alt', r\); stack\.appendChild\(el\);/);
   assert.match(APP, /function mgEveryLangEditable\(\) \{ return !!mgLangOwn; \}/, 'every language editable exactly where the shell owns the view (a FLEx text)');
   assert.match(APP, /const frows = analysisRows\(mgLineFrees\(ln\), mgLangMode\(\), mgPrimaryLang\(\), mgRowLangs\(\)\);/);
-  assert.match(APP, /if \(editable && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', frows\[0\]\.lang\);/);
-  assert.match(APP, /if \(editable && every\) mgWireEditable\(el, ln, -1, 'free', r\.lang\);/);
+  assert.match(APP, /if \(editable && !breakRow && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', frows\[0\]\.lang\);/);
+  assert.match(APP, /if \(editable && every && !breakRow\) mgWireEditable\(el, ln, -1, 'free', r\.lang\);/, 'and not on a row that is a line break');
   assert.doesNotMatch(fn(APP, 'mgAltRow'), /mgWireEditable|contentEditable/, 'an alt row is never wired for editing by itself — only where its language is editable');
   assert.match(fn(APP, 'mgEditWord'), /const gl = field === 'gls' \? \(lang \|\| mgPrimaryLang\(\)\) : null;[\s\S]*if \(gl\) setGlossIn\(ph\.words\[k\], gl, value, mgPrimaryLang\(\)\);/,
     'a gloss typed in one language is set in that language only — the primary when none is named, never "the slot"');

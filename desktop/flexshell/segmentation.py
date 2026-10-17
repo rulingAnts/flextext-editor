@@ -6,7 +6,7 @@ Offsets are in the NFD contents string LCM holds; the engine's NFC text is conve
 """
 
 from .errors import FlexError
-from .lcm_mock import EOS_CHARS, CLOSERS, is_word_forming, tokenize, SECTION
+from .lcm_mock import EOS_CHARS, CLOSERS, is_word_forming, tokenize, SECTION, LINE_SEP
 from .port import lcm_diff, nfd
 
 INVARIANT_MSG = "segment offsets disagree with the breaker"
@@ -153,6 +153,9 @@ def join_phrases(port, text_guid, para_guid, seg_guid, new_end_time=None):
     if k is None or k + 1 >= len(p["segments"]):
         raise FlexError("E_NOT_FOUND", "no following segment to join", {"seg": seg_guid})
     seg, nxt = p["segments"][k], p["segments"][k + 1]
+    if seg["isLabel"] or nxt["isLabel"]:
+        # a hard line break (U+2028) is a label segment of its own, not a § to delete (protocol.preview says so first)
+        raise FlexError("E_SCOPE", "a line break from FLEx sits here; remove it in FLEx to join these phrases", {"seg": seg_guid, "lineBreak": True})
     toks = word_token_ends(p, seg)
     if not toks or toks[-1][2] != SECTION:
         raise FlexError("E_SCOPE", "this boundary is real punctuation; change the text explicitly instead", {"seg": seg_guid})
@@ -269,8 +272,14 @@ def paragraph_to_phrase(port, text_guid, para_guid):
     expect_segs = [s["guid"] for s in p["segments"]] + [s["guid"] for s in q["segments"]]
     if p["segments"] and not _ends_with_eos(p["contents"]):
         old = p["contents"]
-        ins = (" " if old and not old[-1].isspace() else "") + SECTION + " "
-        _assign(port, p, old + ins, (len(old), len(ins), 0))
+        # A paragraph that ends in hard line breaks (U+2028, each its own label segment): the § goes BEFORE them, on
+        # the last phrase with words. After them it was a segment of its own and the join rolled back (2026-10-17).
+        cut = len(old)
+        while cut > 0 and old[cut - 1] == LINE_SEP:
+            cut -= 1
+        head = old[:cut]
+        ins = (" " if head and not head[-1].isspace() else "") + SECTION + (" " if cut == len(old) else "")
+        _assign(port, p, head + ins + old[cut:], (cut, len(ins), 0))
         p = assert_invariant(port, text_guid, para_guid)
         if [s["guid"] for s in p["segments"]] != expect_segs[:len(p["segments"])]:
             raise FlexError("E_INVARIANT", "appending § changed P's segments", {"para": para_guid})

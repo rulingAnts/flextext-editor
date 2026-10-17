@@ -113,7 +113,11 @@ def segment_breaker(text, extra_word_chars=()):
                 j = i + 1
                 while j < n and chars[j] in CLOSERS:
                     j += 1
-                while j < n and chars[j].isspace():
+                # the space after a stop stays with its sentence — but not a hard line break, which is
+                # always its own segment, after a stop too (liblcm SegmentBreaker: "Hard line break, always its
+                # own segment"). "word.\u2028Word" came out here as one segment ending in the break, so no test
+                # built on this mock could see a line break in the most common place for one.
+                while j < n and chars[j].isspace() and chars[j] != LINE_SEP:
                     j += 1
                 if later_word(j):
                     out.append((start, j))

@@ -31,7 +31,7 @@ export function matcher(doc, { breakKind = 'clause' } = {}) {
   return new Function('env', `
     const { FT, lines, prim, breakKind } = env;
     const { makeSegment, makeWord, mergePhrases, baselineFromWords, newGuid, normalizeBreakKind, applyNewLineBreak,
-            setFreeIn, freeIn, setGlossIn, glossIn } = FT;
+            setFreeIn, freeIn, setGlossIn, glossIn, isFlexBreakPhrase } = FT;
     const freesOfPhrase = FT.phraseFrees;
     let MG = { docId: 'd', spans: [], lines, selSpan: null, selLine: null, pendingWordCut: null, edited: false, holdDraft: false };
     let mgUndoStack = [], mgRedoStack = [], player = null, current = null;
@@ -39,7 +39,8 @@ export function matcher(doc, { breakKind = 'clause' } = {}) {
     const $ = () => null, t = (k) => k, toast = () => {};
     const mgDraw = () => {}, mgSaveDraft = () => {}, mgGuessOf = () => null;
     const mgPrimaryLang = () => prim;
-    ${liftAll(APP, ['MG_UNDO_MAX', 'mgSnap', 'mgCapture', 'breakKindSetting', 'mgSplitLine', 'mgSplitSource', 'mgJoinLine',
+    const mgIsFlexText = () => env.flex;   // a FLEx text (desktop shell): a join never crosses its line breaks
+    ${liftAll(APP, ['MG_UNDO_MAX', 'mgSnap', 'mgCapture', 'breakKindSetting', 'mgSplitLine', 'mgSplitSource', 'mgJoinLine', 'mgBreakBetween',
                     'mgLinePhrase', 'mgRealIndex', 'mgEditWord', 'mgEditFree', 'mgSame', 'mgAdoptGuess'])}
     return { get MG() { return MG; }, depth: () => mgUndoStack.length, mgSplitLine, mgJoinLine, mgEditWord, mgEditFree,
       lineOf: (guid) => MG.lines.find((l) => l.phrases.some((p) => p.attrs.guid === guid)).id,
@@ -48,5 +49,5 @@ export function matcher(doc, { breakKind = 'clause' } = {}) {
           segments: l.phrases.length > 1 ? [mergePhrases(l.phrases, { prim })] : l.phrases, ...(l.paraOf == null ? {} : { paraOf: l.paraOf }) }));
         doc.segments = [];
       } };
-  `)({ FT, lines, prim, breakKind });
+  `)({ FT, lines, prim, breakKind, flex: !!doc.flex });
 }

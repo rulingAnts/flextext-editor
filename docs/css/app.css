@@ -3753,6 +3753,8 @@ input.needs-split, .free-input.needs-split { text-shadow: 0 0 1px rgba(230,81,0,
 /* The two split points. The scissors sits IN the gap it would cut, so there is nothing to explain;
    the translation gaps only appear once a scissors is armed, so the second click is never
    ambiguous about which line it belongs to. */
+/* a hard line break FLEx has beside the line (app.js breakMark): there, but not a line and not a control */
+.mg-lb{align-self:center;color:var(--muted,#667);font-size:.85rem;cursor:help;user-select:none}
 .mg-scissors{border:0;background:none;cursor:pointer;opacity:.35;font-size:.85rem;padding:0 .1rem}
 .mg-scissors:hover{opacity:1;color:var(--rust,#b4472b)}
 .mg-scissors.mg-armed{opacity:1;color:var(--rust,#b4472b);font-weight:700}

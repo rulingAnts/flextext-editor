@@ -82,7 +82,7 @@ test('wiring: the guess is drawn in FLEx\'s blue in the empty rows, and typing a
   assert.match(stack, /const guess = mgGuessOf\(w\.src\);/);
   assert.match(stack, /el\.dataset\.ph = g;\n\s*el\.classList\.add\('mg-guess'\);\n\s*el\.title = t\('mg\.flexGuess', \{ g \}\);/, 'shown as the placeholder, never as the word\'s text');
   assert.match(stack, /if \(g && !el\.textContent && el\.classList\.contains\('mg-edit'\)\)/, 'only in an empty row that can be typed into');
-  assert.match(fn(APP, 'mgEditWord'), /const adopted = field === 'gls' && value \? mgAdoptGuess\(ph\.words\[k\], inLang \? lang : mgPrimaryLang\(\)\) : null;\n\s*if \(inLang\) setGlossIn/,
+  assert.match(fn(APP, 'mgEditWord'), /const adopted = gl && value \? mgAdoptGuess\(ph\.words\[k\], gl\) : null;\n\s*if \(gl\) setGlossIn/,
     'adopted before the typed gloss is set, inside the same captured (undoable) edit');
   assert.match(fn(APP, 'mgCommitEdit'), /const adopted = mgEditWord\(ln\.id, wi, field, value, lang\);\n\s*if \(adopted\) mgShowAdopted\(el, adopted\);/,
     'and the word\'s rows show it as its own at once — no row left looking like a guess');

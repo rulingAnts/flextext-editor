@@ -143,7 +143,7 @@ console.log('ELAN .pfsx — the tiers must open VERNACULAR-FIRST, not alphabetic
 console.log('flextext — timestamps in notes + native offsets, never the baseline');
 {
   const doc = segDoc();
-  const xml = serializeFlextext(doc, { vernLang: 'fau', analLang: 'id' }, { mediaName: 'story.wav' });
+  const xml = serializeFlextext(doc, { vernLang: 'fau', analLang: 'id' }, { mediaName: 'story.wav', timeNotes: true });
   ok(xml.includes('begin-time-offset="0" end-time-offset="2000"'), 'native phrase offsets emitted (ms)');
   ok(xml.includes('<item type="note" lang="id">audio 0:00.000–0:02.000</item>'), 'note item carries the timestamps');
   ok(xml.includes('audio ~0:04.000–0:06.000'), "estimated boundary marked with '~' in the note");
@@ -154,7 +154,7 @@ console.log('flextext — timestamps in notes + native offsets, never the baseli
   const doc2 = segDoc();
   doc2.paragraphs[0].segments[0].attrs = { 'begin-time-offset': '999', 'end-time-offset': '1999' };
   doc2.paragraphs[0].segments[0].postItemsXML = ['<item type="note" lang="id">audio 0:00.999–0:01.999</item>'];
-  const xml2 = serializeFlextext(doc2, { vernLang: 'fau', analLang: 'id' }, { mediaName: 'story.wav' });
+  const xml2 = serializeFlextext(doc2, { vernLang: 'fau', analLang: 'id' }, { mediaName: 'story.wav', timeNotes: true });
   const firstPhrase = xml2.slice(xml2.indexOf('<phrase'), xml2.indexOf('</phrase>'));
   ok((firstPhrase.match(/begin-time-offset=/g) || []).length === 1, 'stale imported offsets are replaced, not duplicated');
   ok((firstPhrase.match(/type="note"[^>]*>audio /g) || []).length === 1, 'stale imported timestamp note is replaced, not duplicated');
@@ -185,7 +185,7 @@ console.log('flextext — timestamps in notes + native offsets, never the baseli
   // along and flags its own guess): still an estimate, never laundered into a measured time.
   const rolled = segDoc();
   rolled.segments[2] = { start: 4000, end: 6000, guess: [null, null], timeEstimated: true };
-  ok(/>audio ~0:04\.000/.test(serializeFlextext(rolled, { vernLang: 'fau', analLang: 'id' })), 'an older build\'s flag beside [null, null] still goes out with `~`');
+  ok(/>audio ~0:04\.000/.test(serializeFlextext(rolled, { vernLang: 'fau', analLang: 'id' }, { timeNotes: true })), 'an older build\'s flag beside [null, null] still goes out with `~`');
 }
 
 console.log('flextext IMPORT — segmentsFromOffsets (flextext as THE segmentation format, no sidecar)');

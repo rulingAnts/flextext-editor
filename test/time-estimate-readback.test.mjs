@@ -141,13 +141,13 @@ test('round trip: export → import → export keeps every `~`, and the instruct
   for (const name of ['e78', 'l29-damaged', 'e19']) {
     const doc = loadFixture(name);
     const before = doc.segments.map((s) => [s.start, s.end, edgeGuessed(s, 0), edgeGuessed(s, 1)]);
-    const x1 = serializeFlextext(doc, SET);
+    const x1 = serializeFlextext(doc, SET, { timeNotes: true });
     const tildes = (x) => (x.match(/>audio ~/g) || []).length;
     assert.equal(tildes(x1), est(doc.segments), `${name}: one \`~\` per estimate`);
     assert.match(x1, /\n {4}<\?flextext-editor v="2" time-estimates="[^"]+"\?>\n {4}<languages>/, `${name}: the instruction sits inside <interlinear-text>`);
     const again = openXml(x1);
     assert.deepEqual(again.segments.map((s) => [s.start, s.end, edgeGuessed(s, 0), edgeGuessed(s, 1)]), before, `${name}: re-import is identical, edge for edge`);
-    assert.equal(serializeFlextext(again, SET), x1, `${name}: and the second export is byte-identical to the first`);
+    assert.equal(serializeFlextext(again, SET, { timeNotes: true }), x1, `${name}: and the second export is byte-identical to the first`);
   }
   // With the notes switched off (the device setting segTimeNotes), the instruction alone carries it.
   const doc = loadFixture('l29-damaged');

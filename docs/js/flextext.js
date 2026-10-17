@@ -245,12 +245,27 @@ export function makeSegment(baselineText, words, opts = {}) {
  * them, and are dropped when only one does: half an extent is not an extent.
  *
  * (Named for PHRASES: in this suite "segments" are the audio spans, and segments.js already owns a
- * mergeSegments for those — app.js imports both, so the names cannot collide.) */
-export function mergePhrases(segs) {
+ * mergeSegments for those — app.js imports both, so the names cannot collide.)
+ *
+ * ⚠ EACH FREE TRANSLATION BY ITS OWN LANGUAGE (Seth's FLEx round-trip report, 2026-10-17). The editable
+ * slot (`free`/`freeLang`) holds ONE language, chosen at import by the DEVICE's analysis language — so two
+ * phrases' slots can be in different languages. Joining the slots as one text under the first tag that
+ * named one put "the older sibling … tree," (an English slot with no tag of its own) and "helping his
+ * younger sister …" (English, an item beside an empty Indonesian slot) together as: Indonesian = the first
+ * phrase's English, English = the second's alone. Now every language's text is the parts' texts in THAT
+ * language, joined in order; the slot keeps the language of the first part that has one. `opts.prim` is
+ * the document's analysis language — the language a slot with no tag of its own is in.
+ *
+ * And a hard line break (foldLineBreaks) BETWEEN the parts is gone — a merge across it removes it, as in
+ * FLEx — while the first part's break before it and the last part's after it stay where they were. */
+export function mergePhrases(segs, opts = {}) {
   const parts = (segs || []).filter(Boolean);
   if (!parts.length) return makeSegment('', []);
   if (parts.length === 1) return parts[0];
-  const [first] = parts;
+  const [first] = parts, last = parts[parts.length - 1];
+  // A slot with no tag is in the document's language. A caller that cannot say which (no `prim`) gets the
+  // older reading: the first tag any part names, else en (setFreeIn's default).
+  const prim = opts.prim || parts.map((s) => s.freeLang).find((l) => l) || 'en';
   const words = parts.flatMap((s) => s.words || []);
   const attrs = { ...(first.attrs || { guid: newGuid() }) };
   const begins = parts.map((s) => parseInt(s.attrs && s.attrs['begin-time-offset'], 10)).filter(Number.isFinite);
@@ -267,14 +282,15 @@ export function mergePhrases(segs) {
     words,
     {
       attrs,
-      free: parts.map((s) => (s.free || '').trim()).filter(Boolean).join(' '),
-      freeLang: parts.map((s) => s.freeLang).find((l) => l) ?? null,
       // a translation in one language is ONE item, the phrases' texts joined as FLEx joins them (LCM
       // joins every free and literal translation of two segments with a space); notes and anything
       // else ride along from both, as before
       preItemsXML: foldLangItems(parts.map((s) => s.preItemsXML || [])),
       postItemsXML: foldLangItems(parts.map((s) => s.postItemsXML || [])),
     });
+  mergeFrees(seg, parts, prim);
+  if (first.breaksBefore && first.breaksBefore.length) seg.breaksBefore = first.breaksBefore.slice();
+  if (last.breaksAfter && last.breaksAfter.length) seg.breaksAfter = last.breaksAfter.slice();
   const txtLang = parts.map((s) => s.txtLang).find((l) => l);
   if (txtLang) seg.txtLang = txtLang;
   // a FLEx text's ride-alongs: the first phrase's identity, and its translations by language, joined
@@ -287,6 +303,88 @@ export function mergePhrases(segs) {
   }
   return seg;
 }
+/* The free translations of `parts`, joined language by language, into `seg` — whose item lists are the
+ * parts' folded (foldLangItems), so an item there already holds the parts' ITEMS in its language; what it
+ * lacks is the text a part kept in its slot. Each language's text is the parts' texts in it, in order (a
+ * part's first, the one freeIn reads). The slot takes the language of the first part that has a slot; an
+ * item in that language is folded into the slot. Any other language goes into its item, in place — or a new
+ * one after the words, empty when every part's was (FLEx writes one for each writing system of the line). */
+function mergeFrees(seg, parts, prim) {
+  const langOf = (s) => s.freeLang || prim;
+  const owner = parts.find((s) => s.free || s.freeLang) || parts[0];
+  const slotLang = langOf(owner);
+  seg.freeLang = owner.freeLang ?? null;
+  const texts = new Map();   // lang -> [text, …] in part order
+  for (const s of parts) {
+    const seen = new Set();
+    for (const f of phraseFrees(s)) {
+      const l = f.lang || prim;
+      if (seen.has(l)) continue;
+      seen.add(l);
+      if (!texts.has(l)) texts.set(l, []);
+      const t = String(f.text || '').trim();
+      if (t) texts.get(l).push(t);
+    }
+  }
+  const isGlsIn = (xml, l) => { const g = glsOfItemXml(xml); return !!g && g.lang === l; };
+  for (const [l, list] of texts) {
+    const text = list.join(' ');
+    if (l === slotLang) {
+      seg.free = text;
+      seg.preItemsXML = seg.preItemsXML.filter((x) => !isGlsIn(x, l));
+      seg.postItemsXML = seg.postItemsXML.filter((x) => !isGlsIn(x, l));
+      continue;
+    }
+    let done = false;
+    for (const k of ['preItemsXML', 'postItemsXML']) {
+      const i = seg[k].findIndex((x) => isGlsIn(x, l));
+      if (i < 0) continue;
+      seg[k][i] = langItemXml('gls', l, text);
+      done = true;
+      break;
+    }
+    if (!done && l) seg.postItemsXML.push(langItemXml('gls', l, text));
+  }
+}
+
+/* ⚠ A HARD LINE BREAK IS NOT A LINE (Seth's FLEx round-trip report, 2026-10-17). Shift+Enter in FLEx's
+ * Baseline tab inserts U+2028, and LCM makes every one its own one-character segment (liblcm
+ * SegmentBreaker: "Hard line break, always its own segment"), which FLEx exports as a <phrase> whose txt is
+ * that one character, with no <words> and no segnum. Read as a line, it was an empty line with no audio in
+ * every view — U+2028 is whitespace to trim() and \s — and in the Audio Segmenter, where line i pairs with
+ * audio i, the only way past one was to join it away. A join keeps the FIRST phrase's GUID, so each text
+ * phrase after a break came out wearing the break's GUID, and the break itself was gone (13 breaks, 11 GUIDs).
+ *
+ * So, where a .flextext becomes a stored doc (app.js normalizePhraseLines), a line-break phrase stops being
+ * a line and rides on its neighbour in the same paragraph: on the phrase after it (`breaksBefore`), or, at
+ * the end of the paragraph, on the phrase before it (`breaksAfter`). The writer puts each back where it was —
+ * its own GUID, its txt, no words. A split leaves it in place (the first piece keeps `breaksBefore`, the
+ * last `breaksAfter`); a merge ACROSS it removes it, as in FLEx (mergePhrases). A paragraph of nothing but
+ * line breaks keeps them as lines: there is no text phrase to carry them. */
+export const LINE_BREAK = '\u2028';
+export function isLineBreakPhrase(seg) {
+  return !!seg && seg.baseline === LINE_BREAK && !(seg.words || []).length;
+}
+// → whether anything moved. Run before a doc's paragraphs are flattened to one phrase per line.
+export function foldLineBreaks(doc) {
+  let changed = false;
+  for (const p of (doc && doc.paragraphs) || []) {
+    const segs = p.segments || [];
+    if (!segs.some(isLineBreakPhrase) || segs.every(isLineBreakPhrase)) continue;
+    const out = [];
+    let pending = [];
+    for (const s of segs) {
+      if (isLineBreakPhrase(s)) { pending.push(s); continue; }
+      if (pending.length) { s.breaksBefore = [...(s.breaksBefore || []), ...pending]; pending = []; }
+      out.push(s);
+    }
+    if (pending.length) { const prev = out[out.length - 1]; prev.breaksAfter = [...(prev.breaksAfter || []), ...pending]; }
+    p.segments = out;
+    changed = true;
+  }
+  return changed;
+}
+
 /* The phrases' item lists as one: a top-level <item type="gls"|"lit" lang=…> (a free or literal
  * translation in another language) whose language an earlier item already holds is joined into it with
  * a space; everything else is kept in order. */
@@ -526,6 +624,8 @@ function parsePhrase(phEl, doc, prefs = {}) {
   const freeEl = pickByLang(afterWords.length ? afterWords : glsKids, prefs.analLang);
 
   let seenWords = false;
+  // A phrase FLEx wrote with no <words> (a hard line break, LINE_BREAK) is written back without one.
+  if (wordsIdx < 0) seg.noWords = true;
   for (const child of kids) {
     if (child.tagName === 'words') {
       seenWords = true;
@@ -537,7 +637,11 @@ function parsePhrase(phEl, doc, prefs = {}) {
       const type = child.getAttribute('type');
       const lang = child.getAttribute('lang') || '';
       if (child === txtEl) { seg.baseline = child.textContent; seg.txtLang = lang; }
-      else if (child === freeEl) { seg.free = child.textContent; seg.freeLang = lang; }
+      else if (child === freeEl) {
+        seg.free = child.textContent; seg.freeLang = lang;
+        // where it stood among the phrase's other items, so it is written back there (FREE_AT)
+        seg.freeAt = { post: seenWords, at: (seenWords ? seg.postItemsXML : seg.preItemsXML).length };
+      }
       /* segnum is DROPPED on read and never emitted on write — and nothing here may depend on it,
        * because it cannot be relied on to exist (Seth: "we can't count on it existing in flextext
        * files"). The spec makes it optional and 27 of the 95 texts in the corpus carry none. The
@@ -583,7 +687,8 @@ function parseWord(wEl, doc, prefs = {}) {
   for (const child of kids) {
     if (child === punctEl) { w.txt = child.textContent; w.punct = true; w.txtLang = child.getAttribute('lang') || ''; }
     else if (child === txtEl) { w.txt = child.textContent; w.txtLang = child.getAttribute('lang') || ''; }
-    else if (child === glsEl) { w.gls = child.textContent; w.glsLang = child.getAttribute('lang') || ''; }
+    // glsAt: where it stood among the word's other items, so it is written back there (FREE_AT)
+    else if (child === glsEl) { w.gls = child.textContent; w.glsLang = child.getAttribute('lang') || ''; w.glsAt = w.preservedXML.length; }
     else w.preservedXML.push(serializeEl(child)); // morphemes, pos, cf, hn, msa, other-lang lines...
   }
   // Word with morphemes but no top-level txt item: derive txt from morphs for display.
@@ -647,6 +752,14 @@ export function baselineFromWords(words) {
 function indentFragment(xml, pad) {
   // Reindent a serialized fragment one line at a time (best effort).
   return xml.split('\n').map(l => pad + l.trim()).join('\n');
+}
+// A kept fragment that is an <item> (a phrase's item, from before or after its <words>), not another element.
+function isItemXml(xml) { return /^\s*<item\b/.test(String(xml || '')); }
+// The guids of the <media> elements a doc's <media-files> blocks name, in order.
+export function mediaGuidsOf(blocks) {
+  const out = [];
+  for (const xml of blocks || []) for (const m of String(xml).matchAll(/<media\b[^>]*?\bguid="([^"]+)"/g)) out.push(m[1]);
+  return out;
 }
 
 /* ⚠ WHICH TIMES ARE ESTIMATES, IN THE FILE ITSELF (v717 — plans/time-gaps-and-estimates.md D5/D6).
@@ -767,8 +880,17 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const estimates = [];   // TIME_ESTIMATES_PI entries, one per estimated phrase that has a guid
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
   const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
-  const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
-    ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
+  /* ⚠ EVERY TIMED PHRASE NAMES ITS MEDIA (Seth's FLEx round-trip report, 2026-10-17). FLEx imports a phrase's
+   * begin/end only through `media-file`, the guid of a <media> in the text's <media-files>
+   * (BIRDInterlinearImporter, AddELANInfoToSegment), and its exporter writes times only for segments linked
+   * that way. This linked phrases only to a guid minted HERE, and minted none while the doc had a block of
+   * its own — which the app writes the moment audio is attached (app.js ensureMediaRef). So every phrase
+   * went out with times and no link, and FLEx would import none of them. Now the media is the doc's own (the
+   * first <media> its blocks name, FLEx's or the app's), else one minted here for `opts.mediaName`; every
+   * timed phrase points at it, unless its own link names another <media> the doc carries. */
+  const fileMedia = mediaGuidsOf(doc.mediaXML);
+  const minted = hasSpans && !fileMedia.length && !!opts.mediaName;
+  const mediaGuid = !hasSpans ? null : fileMedia.length ? fileMedia[0] : minted ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
   /* ⚠ REGROUP ONLY WHAT WAS DELIBERATELY GROUPED, AND FAIL SAFE TO FLAT.
    *
    * The engine holds one line per PHRASE. Emitting one <paragraph> per line is the DEFAULT and is
@@ -801,85 +923,118 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const canGroup = tagged.length === new Set(tagged).size;
   const emit = canGroup ? runs : doc.paragraphs.map((para, i) => ({ guid: para.guid, lines: [i] }));
 
-  let pi = -1;
-  for (const run of emit) {
-    lines.push(`      <paragraph guid="${esc(run.guid)}">`);
-    lines.push('        <phrases>');
-    for (const li of run.lines) {
-    const para = doc.paragraphs[li];
-    pi = li;
-    for (const seg of para.segments) {
-      const own = liveModel && para.segments.length === 1;
-      const span = own ? spans[pi] : null;
-      const timed = isAligned(span);   // a placeholder arrives here pending (spansForExport, v718): untimed
-      // D8: the live span says "no time" — so does the file, unless these are the file's own, untouched.
-      const untimed = own && !timed && !heldFileTimes(span, seg.attrs);
-      if (timed && isEstimate(span) && seg.attrs && seg.attrs.guid) {
-        estimates.push({ guid: seg.attrs.guid, start: span.start, end: span.end, gs: edgeGuessed(span, 0), ge: edgeGuessed(span, 1) });
-      }
-      // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
-      // the stale copies or the phrase would carry the attribute twice (invalid XML). media-file
-      // is filtered ONLY when we mint our own guid: an imported doc keeps its media-files block
-      // (mediaGuid null), so its phrases must keep their original media-file references too —
-      // filtering unconditionally silently unlinked every phrase from its media (audit find).
-      const pAttrs = Object.entries(seg.attrs || {})
-        .filter(([k]) => !((timed || untimed) && (k === 'begin-time-offset' || k === 'end-time-offset'))
-          && !(timed && k === 'media-file' && mediaGuid))
-        .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
-        + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
-      lines.push(`          <phrase${pAttrs}>`);
-      lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
-      /* ⚠ NO segnum ITEM. We used to mint one — a plain running integer — for every phrase, and it
-       * was wrong in three ways at once.
-       *
-       *   1. FLEx does not want it. "There is an OPTIONAL item with type 'segnum'. This is the
-       *      segment number which in FLEx is CALCULATED AUTOMATICALLY based on paragraph and segment
-       *      numbers" (Technical Notes on FLEx Text Interlinear, Ken Zook, 2026-05-04). FLEx
-       *      recomputes it on import, so ours was overwritten at best.
-       *   2. Ours was the wrong shape anyway: a running integer, where FLEx derives par.phr (1.1,
-       *      1.2, 2.1). We would have been supplying a number that disagreed with FLEx's own.
-       *   3. It broke round-trip fidelity for files that had none. 27 of 95 texts in Seth's corpus
-       *      carry no segnum; we added one to every phrase regardless.
-       *
-       * And nothing here needs it: the parser already DISCARDS it on read (see parsePhrase,
-       * "regenerated on export"), and the interlinear view numbers its own lines for display.
-       * Seth: "I think we actually don't need segnum, and if we can do without it, that's better."
-       *
-       * ⚠ ONE SIDE EFFECT WORTH KNOWING: segnum carried lang=<analysis WS>, so it was one of the
-       * places the analysis writing system appeared in our output. `gls` items still carry it
-       * wherever there are glosses or free translations; a document with neither has no analysis
-       * content to declare in the first place. */
+  /* One <phrase>. `span` is its line's live span when it has one (`own`), else null — and a hard line break
+   * (foldLineBreaks) never has one: it goes out exactly as it came in. */
+  const writePhrase = (seg, own, span) => {
+    const timed = isAligned(span);   // a placeholder arrives here pending (spansForExport, v718): untimed
+    // D8: the live span says "no time" — so does the file, unless these are the file's own, untouched.
+    const untimed = own && !timed && !heldFileTimes(span, seg.attrs);
+    if (timed && isEstimate(span) && seg.attrs && seg.attrs.guid) {
+      estimates.push({ guid: seg.attrs.guid, start: span.start, end: span.end, gs: edgeGuessed(span, 0), ge: edgeGuessed(span, 1) });
+    }
+    // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter the stale
+    // copies or the phrase would carry the attribute twice (invalid XML). The link is written afresh with
+    // them: the phrase's own when it names a <media> the doc carries, else the doc's (mediaGuid).
+    const ownLink = seg.attrs && seg.attrs['media-file'];
+    const link = timed ? (ownLink && fileMedia.includes(ownLink) ? ownLink : mediaGuid) : null;
+    const pAttrs = Object.entries(seg.attrs || {})
+      .filter(([k]) => !((timed || untimed) && (k === 'begin-time-offset' || k === 'end-time-offset'))
+        && !(timed && k === 'media-file'))
+      .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+      + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${link ? ` media-file="${esc(link)}"` : ''}` : '');
+    lines.push(`          <phrase${pAttrs}>`);
+    lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
+    /* ⚠ NO segnum ITEM. We used to mint one — a plain running integer — for every phrase, and it
+     * was wrong in three ways at once.
+     *
+     *   1. FLEx does not want it. "There is an OPTIONAL item with type 'segnum'. This is the
+     *      segment number which in FLEx is CALCULATED AUTOMATICALLY based on paragraph and segment
+     *      numbers" (Technical Notes on FLEx Text Interlinear, Ken Zook, 2026-05-04). FLEx
+     *      recomputes it on import, so ours was overwritten at best.
+     *   2. Ours was the wrong shape anyway: a running integer, where FLEx derives par.phr (1.1,
+     *      1.2, 2.1). We would have been supplying a number that disagreed with FLEx's own.
+     *   3. It broke round-trip fidelity for files that had none. 27 of 95 texts in Seth's corpus
+     *      carry no segnum; we added one to every phrase regardless.
+     *
+     * And nothing here needs it: the parser already DISCARDS it on read (see parsePhrase,
+     * "regenerated on export"), and the interlinear view numbers its own lines for display.
+     * Seth: "I think we actually don't need segnum, and if we can do without it, that's better."
+     *
+     * ⚠ ONE SIDE EFFECT WORTH KNOWING: segnum carried lang=<analysis WS>, so it was one of the
+     * places the analysis writing system appeared in our output. `gls` items still carry it
+     * wherever there are glosses or free translations; a document with neither has no analysis
+     * content to declare in the first place. */
+    /* ⚠ EACH ITEM WHERE IT STOOD (FREE_AT). The parser keeps a phrase's items from before <words> (another
+     * vernacular's txt, a free translation there — v332) and the non-word elements inside <words>
+     * (scrMilestone) in one list; the first go back before <words>, the second inside it — every one of
+     * them used to go inside, which is not where FLEx looks for a phrase's items. The editable free
+     * translation goes back at its own place among the others (seg.freeAt), and so does a word's gloss
+     * (w.glsAt): FLEx writes a word's glosses id-then-en and a phrase's en-then-id in the same file. Order
+     * is not identity — FLEx reads an item by type and lang — but the file should come back as it went. */
+    const pre = seg.preItemsXML || [];
+    const head = pre.filter(isItemXml), inWords = pre.filter((x) => !isItemXml(x));
+    const free = (seg.free || seg.freeLang) ? `<item type="gls" lang="${esc(seg.freeLang || anal)}">${esc(seg.free)}</item>` : null;
+    const at = seg.freeAt;
+    const freeBefore = !!(free && at && !at.post);
+    head.forEach((x, k) => { if (freeBefore && k === at.at) lines.push('            ' + free); lines.push(indentFragment(x, '            ')); });
+    if (freeBefore && at.at >= head.length) lines.push('            ' + free);
+    // a phrase FLEx wrote with no <words> (a hard line break) goes back without one while it has none
+    if (!(seg.noWords && !(seg.words || []).length && !inWords.length)) {
       lines.push('            <words>');
-      for (const xml of seg.preItemsXML || []) lines.push(indentFragment(xml, '              '));
+      for (const xml of inWords) lines.push(indentFragment(xml, '              '));
       for (const w of seg.words) {
         const wType = w.phrase ? ' type="phrase"' : '';
-        lines.push(`              <word guid="${esc(w.guid)}"${wType}>`);
+        // A <word> guid is FLEx's analysis object (InterlinearExporter); punctuation has none and FLEx writes
+        // it with none — one minted on import is the engine's own (Seth's FLEx round-trip report, bug 7).
+        lines.push(`              <word${w.punct ? '' : ` guid="${esc(w.guid)}"`}${wType}>`);
         if (w.punct) {
           lines.push(`                <item type="punct" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
         } else {
           if (!w.derivedTxt) {
             lines.push(`                <item type="txt" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
           }
-          for (const xml of w.preservedXML || []) lines.push(indentFragment(xml, '                '));
-          if (w.gls) {
-            lines.push(`                <item type="gls" lang="${esc(w.glsLang || anal)}">${esc(w.gls)}</item>`);
-          }
+          // the editable gloss, empty included when the file had it (glsLang): FLEx writes one per writing system
+          const gls = (w.gls || w.glsLang) ? `<item type="gls" lang="${esc(w.glsLang || anal)}">${esc(w.gls)}</item>` : null;
+          const kept = w.preservedXML || [];
+          const gAt = gls && Number.isInteger(w.glsAt) ? Math.min(w.glsAt, kept.length) : kept.length;
+          kept.forEach((xml, k) => { if (gls && k === gAt) lines.push('                ' + gls); lines.push(indentFragment(xml, '                ')); });
+          if (gls && gAt >= kept.length) lines.push('                ' + gls);
         }
         lines.push('              </word>');
       }
       lines.push('            </words>');
-      if (seg.free || seg.freeLang) {
-        lines.push(`            <item type="gls" lang="${esc(seg.freeLang || anal)}">${esc(seg.free)}</item>`);
-      }
-      // The human-visible timestamps (never in the baseline): a note item FLEx displays on its
-      // own Note line. '~' marks an estimated boundary the transcriber has not confirmed by ear.
-      // opts.timeNotes === false keeps the ATTRIBUTES and drops the note (the device setting
-      // segTimeNotes, Seth 2026-09-04) — the times still round-trip; FLEx just shows no Note line.
-      if (timed && opts.timeNotes !== false) {
-        lines.push(`            <item type="note" lang="${esc(anal)}">audio ${isEstimate(span) ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
-      }
-      for (const xml of (seg.postItemsXML || []).filter((x) => !((timed || untimed) && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
-      lines.push('          </phrase>');
+    }
+    /* The human-visible timestamps (never in the baseline): a note item FLEx shows on its own Note line, `~`
+     * before an estimated time. OFF unless asked for (opts.timeNotes === true, the device setting
+     * segTimeNotes; Seth's FLEx round-trip report, 2026-10-17): FLEx imports each as a segment Note, and
+     * they say again what the times on the phrase already say — which FLEx reads now that every timed phrase
+     * names its media. Our own notes from an earlier export are dropped either way when times are written. */
+    const note = timed && opts.timeNotes === true
+      ? `<item type="note" lang="${esc(anal)}">audio ${isEstimate(span) ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>` : null;
+    const post = seg.postItemsXML || [];
+    const ins = free && !freeBefore ? (at && at.post ? Math.min(at.at, post.length) : 0) : 0;
+    const ours = [free && !freeBefore ? free : null, note].filter(Boolean);
+    post.forEach((xml, k) => {
+      if (k === ins) for (const x of ours) lines.push('            ' + x);
+      if (!((timed || untimed) && OUR_NOTE.test(xml))) lines.push(indentFragment(xml, '            '));
+    });
+    if (ins >= post.length) for (const x of ours) lines.push('            ' + x);
+    lines.push('          </phrase>');
+  };
+
+  let pi = -1;
+  for (const run of emit) {
+    lines.push(`      <paragraph guid="${esc(run.guid)}">`);
+    lines.push('        <phrases>');
+    for (const li of run.lines) {
+      const para = doc.paragraphs[li];
+      pi = li;
+      for (const seg of para.segments) {
+        const own = liveModel && para.segments.length === 1;
+        // FLEx's hard line breaks ride on the phrase beside them (foldLineBreaks) and go back where they were
+        for (const lb of seg.breaksBefore || []) writePhrase(lb, false, null);
+        writePhrase(seg, own, own ? spans[pi] : null);
+        for (const lb of seg.breaksAfter || []) writePhrase(lb, false, null);
       }
     }
     lines.push('        </phrases>');
@@ -923,9 +1078,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   }
   lines.push('    </languages>');
   // flextext's native media reference: phrases point at this guid via media-file. Emitted only
-  // when WE minted the guid (authored docs with no imported media-files block of their own).
-  if (mediaGuid) {
-    lines.push('    <media-files offset-type="">');
+  // when WE minted the guid (a doc with no media-files block of its own), in milliseconds, as FLEx writes it.
+  if (minted) {
+    lines.push('    <media-files offset-type="milliseconds">');
     lines.push(`      <media guid="${esc(mediaGuid)}" location="${esc(opts.mediaName)}"/>`);
     lines.push('    </media-files>');
   }
@@ -1496,9 +1651,15 @@ function reconcileLines(doc, paragraphTexts, opts = {}) {
       : plan.wordSlice ? (old.words || []).slice(plan.wordSlice[0], plan.wordSlice[1])
         : plan.olds.flatMap((o) => o.words || []);
     const words = plan ? carryWords(source, tokens) : tokens.map(t => makeWord(t.txt, { punct: t.punct }));
+    /* ⚠ A JOIN TAKES EVERY SIDE'S TRANSLATIONS, EACH IN ITS OWN LANGUAGE (Seth's FLEx round-trip report,
+     * 2026-10-17). It joined the slots as one text whatever language each held, and kept the first line's
+     * items only — another language's translation, or a note, on the line joined in was dropped, though the
+     * comment below has always promised mergePhrases' rule. Now it is mergePhrases', and the doc's analysis
+     * language says what a slot with no tag of its own is in. */
+    const joined = plan && !plan.wordSlice && plan.olds.length > 1 ? mergePhrases(plan.olds, { prim: doc.analLang || '' }) : null;
     const free = !plan ? ''
       : plan.wordSlice ? (plan.takesFree ? old.free : '')
-        : plan.olds.map((o) => o.free).filter(Boolean).join(' ');
+        : joined ? joined.free : old.free;
     /* ⚠ EACH PIECE OF A SPLIT IS ITS OWN PHRASE. attrs used to be passed BY REFERENCE, so every piece
      * of a split line shared one object — one GUID for two phrases in the FLExText, and the old
      * begin/end offsets (the whole line's) on both. The first piece keeps the line's GUID (it IS the
@@ -1517,11 +1678,21 @@ function reconcileLines(doc, paragraphTexts, opts = {}) {
     }
     const carriesItems = !isSplit || plan.takesFree;
     const seg = makeSegment(ns.text, words, old ? {
-      free, freeLang: old.freeLang,
-      preItemsXML: carriesItems ? old.preItemsXML : [], postItemsXML: carriesItems ? old.postItemsXML : [],
+      free, freeLang: joined ? joined.freeLang : old.freeLang,
+      preItemsXML: joined ? joined.preItemsXML : carriesItems ? (old.preItemsXML || []).slice() : [],
+      postItemsXML: joined ? joined.postItemsXML : carriesItems ? (old.postItemsXML || []).slice() : [],
       attrs,
     } : {});
     if (old && old.txtLang) seg.txtLang = old.txtLang;
+    /* FLEx's hard line breaks beside it (foldLineBreaks): a split's first piece keeps the one before the line,
+     * its last piece the one after; a join keeps the first line's before and the last line's after — the ones
+     * between the joined lines go with the join, as in FLEx. */
+    if (plan) {
+      const lastOld = plan.olds[plan.olds.length - 1];
+      const lastPiece = !isSplit || plan.wordSlice[1] >= (old.words || []).length;
+      if ((!isSplit || firstPiece) && old.breaksBefore && old.breaksBefore.length) seg.breaksBefore = old.breaksBefore.slice();
+      if (lastPiece && lastOld.breaksAfter && lastOld.breaksAfter.length) seg.breaksAfter = lastOld.breaksAfter.slice();
+    }
     return { seg, para: ns.para };
   });
 

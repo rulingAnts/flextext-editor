@@ -5,7 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, reconcileBaselineWithOrigins, readLegacyEstimates, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets, spansForExport,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords,
+  mergePhrases, baselineFromWords, foldLineBreaks, mediaGuidsOf,
   // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
   splitWordAt, insertWordAt, joinWordsAt, isBoundaryMarker, markBoundaryMarkers,
   hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
@@ -1761,7 +1761,11 @@ function healFlatSegments(doc) {
  * Returns whether anything changed, so the caller can decide about persisting. */
 function normalizePhraseLines(doc) {
   if (!doc || !doc.paragraphs) return false;
-  let changed = false;
+  /* FLEx's hard line breaks (U+2028 phrases) are not lines: each rides on the phrase beside it, in its own
+   * paragraph, and is written back where it was (flextext.js foldLineBreaks). Before the flattening below,
+   * which is the only place a paragraph's phrases are still together. A FLEx-shell text is read from LCM,
+   * not from a file, and keeps its own shape (desktop/flexshell model.py). */
+  let changed = !doc.flex && foldLineBreaks(doc);
   /* ⚠ FLATTEN MULTI-PHRASE PARAGRAPHS — one phrase per paragraph, each phrase KEEPING its own
    * offsets (v322; the "gloss join collapsed ALL segments on the first line" field bug).
    *
@@ -2980,8 +2984,10 @@ function getPlayer() {
         playerReadyFor = null;   // the decoded buffer no longer corresponds to ANY stored audio
         delete current.pendingAudio;
         delete current.audioSource;
+        // the app's own <media-files> goes with the recording; one the text came with stays (ensureMediaRef)
+        const ownMedia = current.mediaGuid;
         delete current.mediaGuid;
-        current.doc.mediaXML = [];
+        current.doc.mediaXML = (current.doc.mediaXML || []).filter((x) => !ownMedia || !mediaGuidsOf([x]).includes(ownMedia));
         await persist();
         refreshPlayer();
       },
@@ -3107,8 +3113,14 @@ async function refreshPlayer() {
   }
 }
 
-// Ensure the exported flextext references the attached audio.
+/* Ensure the exported flextext references the attached audio.
+ * ⚠ A <media-files> block the text came with stays exactly as it came: its location is FLEx's full path,
+ * and its phrases point at its guid (Seth's FLEx round-trip report, 2026-10-17: "Preserve the media location
+ * exactly"). This used to replace it with the app's own — a new guid and the attached file's bare name — and
+ * every phrase's link then named nothing. Only the app's own block (rec.mediaGuid) is written or rewritten;
+ * the writer links every timed phrase to the doc's media (serializeFlextext). */
 function ensureMediaRef(rec, name, sourceUrl) {
+  if (mediaGuidsOf(rec.doc.mediaXML).some((g) => g !== rec.mediaGuid)) return;
   if (!rec.mediaGuid) rec.mediaGuid = mkGuid();
   const location = sourceUrl && isProbablyUrl(sourceUrl) ? sourceUrl : (name || 'audio');
   rec.doc.mediaXML = [
@@ -6497,7 +6509,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() });
+  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes === true, producedBy: producedBy() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -6690,7 +6702,7 @@ function serializeDocBlob(rec, mediaName) {
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
-  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() })], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes === true, producedBy: producedBy() })], { type: 'application/xml' });
 }
 
 function docFilename(rec) {
@@ -8049,7 +8061,7 @@ function deviceSetupValues() {
      * then SAVE a false, which is exactly how a paired device lost the mode on its first push
      * (Seth, 2026-08-12). One default, three surfaces. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
-    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;
+    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes === true;   // off unless set (the FLEx round-trip report, 2026-10-17)
     else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
     else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
     else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;
@@ -10748,6 +10760,9 @@ function mgSplitLine(id, wordIdx, cut) {
   const b = makeSegment(baselineFromWords(right), right, { freeLang: ph0.freeLang ?? null });
   if (ph0.txtLang) { a.txtLang = ph0.txtLang; b.txtLang = ph0.txtLang; }
   if (ph0.flex) a.flex = { ...ph0.flex };
+  // FLEx's hard line breaks beside the line stay where they were: the one before it on the first half, the one after on the second
+  if (ph0.breaksBefore && ph0.breaksBefore.length) a.breaksBefore = ph0.breaksBefore.slice();
+  if (ph0.breaksAfter && ph0.breaksAfter.length) b.breaksAfter = ph0.breaksAfter.slice();
   // a FLEx text's ride-along maps by language: the first half's are the phrase's own, the second's start empty
   for (const key of ['frees', 'lits']) if (ph0[key] && typeof ph0[key] === 'object') { a[key] = { ...ph0[key] }; b[key] = {}; }
   // each translation at its own point; the one each language SHOWS (its first), as mgCutRows draws it
@@ -10781,7 +10796,7 @@ function mgSplitLine(id, wordIdx, cut) {
 // The line as ONE phrase, the line left as it is: one an older draft left holding two is split as their
 // join (mgLinePhrase merges in place; a split replaces the line, so it need not).
 function mgSplitSource(line) {
-  return line.phrases.length > 1 ? mergePhrases(line.phrases) : (line.phrases[0] || makeSegment('', []));
+  return line.phrases.length > 1 ? mergePhrases(line.phrases, { prim: mgPrimaryLang() }) : (line.phrases[0] || makeSegment('', []));
 }
 /* The translations a split has to place: every language the line has a free translation in, whichever the
  * view shows, the primary first (a FLEx text: in FLEx's order). Each language's text is the one mgSplitLine
@@ -10936,7 +10951,7 @@ function mgWordStack(ln, w, wi, editable) {
   const alts = rows.slice(1).map((r) => { const el = mgAltRow('span', 'mg-g mg-g-alt', r); stack.appendChild(el); return el; });
   if (editable) {
     mgWireEditable(we, ln, wi, 'txt');
-    if (rows[0].primary || every) mgWireEditable(ge, ln, wi, 'gls', every ? rows[0].lang : null);
+    if (rows[0].primary || every) mgWireEditable(ge, ln, wi, 'gls', rows[0].lang);   // edited in the language it shows
     if (every) alts.forEach((el, k) => mgWireEditable(el, ln, wi, 'gls', rows[k + 1].lang));
     /* FLEx'S GUESS for a word this text has not analysed (a FLEx text; blue in FLEx's interlinear): shown in
      * each empty row it has a gloss for — never as the word's own gloss. Typing into the word adopts it
@@ -11059,7 +11074,7 @@ function mgCommitEdit(el, ln, wi, field, lang = null) {
 // One phrase per line is the shape everything here assumes; a legacy draft's two-phrase line is
 // merged the first time it is edited, exactly as Done would merge it.
 function mgLinePhrase(line) {
-  if (line.phrases.length > 1) line.phrases = [mergePhrases(line.phrases)];
+  if (line.phrases.length > 1) line.phrases = [mergePhrases(line.phrases, { prim: mgPrimaryLang() })];
   if (!line.phrases.length) line.phrases = [makeSegment('', [])];
   return line.phrases[0];
 }
@@ -11078,7 +11093,13 @@ function mgEditWord(id, wi, field, value, lang = null) {
   const line = MG && MG.lines.find((l) => l.id === id);
   if (!line) return;
   const ph = mgLinePhrase(line);
-  const inLang = field === 'gls' && !!lang;
+  /* ⚠ A GLOSS IS SET IN ITS LANGUAGE — the row's, the primary when none is named — never into "the slot"
+   * (w.gls), which holds whichever language the DEVICE's analysis language picked when the file was read
+   * (Seth's FLEx round-trip report, 2026-10-17: the device was on Indonesian, the text's primary English,
+   * so an English gloss typed into the English row was saved as Indonesian, and a click in and out of the
+   * row copied the English shown over the Indonesian kept). Compared in that language too, whitespace
+   * aside, so looking is never an edit. */
+  const gl = field === 'gls' ? (lang || mgPrimaryLang()) : null;
   let k = mgRealIndex(ph.words, wi);
   if (k < 0) {
     if (!value) return;                         // the blank line's empty pair, left empty
@@ -11086,26 +11107,29 @@ function mgEditWord(id, wi, field, value, lang = null) {
     ph.words.push(makeWord('', {}));
     k = ph.words.length - 1;
   } else {
-    if ((inLang ? glossIn(ph.words[k], lang, mgPrimaryLang()) : (ph.words[k][field] || '')) === value) return;
+    if (mgSame(gl ? glossIn(ph.words[k], gl, mgPrimaryLang()) : ph.words[k][field], value)) return;
     mgCapture();
   }
-  const adopted = field === 'gls' && value ? mgAdoptGuess(ph.words[k], inLang ? lang : mgPrimaryLang()) : null;
-  if (inLang) setGlossIn(ph.words[k], lang, value, mgPrimaryLang());
+  const adopted = gl && value ? mgAdoptGuess(ph.words[k], gl) : null;
+  if (gl) setGlossIn(ph.words[k], gl, value, mgPrimaryLang());
   else ph.words[k][field] = value;
   if (field === 'txt') ph.baseline = baselineFromWords(ph.words);
   mgSaveDraft();
   return adopted;
 }
+// A free translation is set in its language, as a gloss is (mgEditWord): the row's, else the primary.
 function mgEditFree(id, value, lang = null) {
   const line = MG && MG.lines.find((l) => l.id === id);
   if (!line) return;
   const ph = mgLinePhrase(line);
-  if ((lang ? freeIn(ph, lang, mgPrimaryLang()) : (ph.free || '')) === value) return;
+  const fl = lang || mgPrimaryLang();
+  if (mgSame(freeIn(ph, fl, mgPrimaryLang()), value)) return;
   mgCapture();
-  if (lang) setFreeIn(ph, lang, value, mgPrimaryLang());
-  else ph.free = value;
+  setFreeIn(ph, fl, value, mgPrimaryLang());
   mgSaveDraft();
 }
+// The same text, as a box shows it (its whitespace runs are one space, its ends trimmed).
+function mgSame(stored, value) { return String(stored ?? '').replace(/\s+/g, ' ').trim() === value; }
 function mgInsertWord(id, wi, where) {
   const line = MG && MG.lines.find((l) => l.id === id);
   if (!line) return;
@@ -11297,7 +11321,7 @@ function mgJoinLine(id) {
    * the suite reads as one line; see it for what it keeps. (Not segments.js's mergeSegments —
    * that one joins two AUDIO spans, which is the ⤴ on the other pane.) */
   MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf,
-    phrases: [mergePhrases([...prev.phrases, ...cur.phrases])] });
+    phrases: [mergePhrases([...prev.phrases, ...cur.phrases], { prim: mgPrimaryLang() })] });
   mgDraw();
 }
 
@@ -11370,7 +11394,7 @@ async function mgCommit() {
    * whatever wrote it. */
   rec.doc.paragraphs = lines.map((l) => ({
     guid: l.guid || newGuid(),
-    segments: l.phrases.length > 1 ? [mergePhrases(l.phrases)] : l.phrases,
+    segments: l.phrases.length > 1 ? [mergePhrases(l.phrases, { prim: rec.doc.analLang || settings.analLang })] : l.phrases,
     ...(l.paraOf == null ? {} : { paraOf: l.paraOf }),
   }));
   // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the
@@ -11652,6 +11676,11 @@ function mgDraw() {
     });
     chipsBefore(txt.words.length);
     sites.filter((x) => x.final).forEach((x) => wbox.appendChild(mgSectionChip(ln, x)));
+    /* ↵ where FLEx has a hard line break beside this line (flextext.js foldLineBreaks): it is not a line, so
+     * it pairs with no audio, but it is there — and joining across it removes it, as it does in FLEx. */
+    const breakMark = () => { const m = document.createElement('span'); m.className = 'mg-lb'; m.textContent = '↵'; m.title = t('mg.lineBreak'); return m; };
+    if (ln.phrases.some((p) => p.breaksBefore && p.breaksBefore.length)) wbox.prepend(breakMark());
+    if (ln.phrases.some((p) => p.breaksAfter && p.breaksAfter.length)) wbox.appendChild(breakMark());
     // A blank line (from +) has nowhere to type until it has a word: give it one empty pair.
     if (editable && !txt.words.length) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
     const ftbox = li.querySelector('.mg-ft');
@@ -11677,7 +11706,7 @@ function mgDraw() {
         ftbox.dataset.lang = frows[0].lang;
         ftbox.title = every ? t('mg.langEdit', { lang: frows[0].lang }) : t('mg.langAlt', { lang: frows[0].lang, prim: mgPrimaryLang() });
       }
-      if (editable && (frows[0].primary || every)) mgWireEditable(ftbox, ln, -1, 'free', every ? frows[0].lang : null);
+      if (editable && (frows[0].primary || every)) mgWireEditable(ftbox, ln, -1, 'free', frows[0].lang);   // in the language it shows
       for (const r of frows.slice(1)) {
         const el = mgAltRow('div', 'mg-ft mg-ft-alt', r);
         ftbox.parentElement.appendChild(el);
@@ -14467,7 +14496,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes !== false, producedBy: producedBy() }); },
+  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled(), timeNotes: settings.segTimeNotes === true, producedBy: producedBy() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

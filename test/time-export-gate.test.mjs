@@ -13,6 +13,7 @@ import { serializeEaf, buildFxpa, buildSegPreviewHtml } from '../docs/js/seg-exp
 
 const { serializeFlextext } = ft;
 const SET = { vernLang: 'fau', analLang: 'id' };
+const NOTES = { timeNotes: true };   // the audio notes, asked for: off by default since the FLEx round-trip report (2026-10-17)
 const phrasesOf = (xml) => [...xml.matchAll(/<phrase\b([^>]*)>([\s\S]*?)<\/phrase>/g)].map((m) => {
   const b = /begin-time-offset="(\d+)"/.exec(m[1]), e = /end-time-offset="(\d+)"/.exec(m[1]);
   return { b: b ? +b[1] : null, e: e ? +e[1] : null, notes: (m[2].match(/>audio [^<]*</g) || []).length };
@@ -24,7 +25,7 @@ test('D8: a line whose live span is pending is written with no offsets and no au
   const stale = doc.paragraphs[4].segments[0];
   assert.ok(stale.attrs['begin-time-offset'] && stale.postItemsXML.some((x) => />audio /.test(x)), 'the phrase still carries its imported offsets and note');
   doc.segments[4] = { timePending: true };            // e.g. the Segmenter's Done left this line without audio
-  const ph = phrasesOf(serializeFlextext(doc, SET));
+  const ph = phrasesOf(serializeFlextext(doc, SET, NOTES));
   assert.deepEqual([ph[4].b, ph[4].e, ph[4].notes], [null, null, 0], 'no stale times, no stale note');
   assert.ok(ph.every((p, k) => k === 4 || (p.b != null && p.notes === 1)), 'every other line is written with its time');
   assert.equal(stale.attrs['begin-time-offset'] != null, true, 'the doc itself is not touched by exporting it');
@@ -82,7 +83,7 @@ test('the estimate flag in every export comes from isEstimate, per edge', () => 
   doc.segments = withGuesses(doc.segments);
   placeSeam(doc.segments, 2, 5900, 'seam');
   assert.equal(buildFxpa(doc, {}).lines.filter((l) => l.timeEstimated).length, 6, 'placing the guessed seam of one nudged pair makes that pair real');
-  assert.equal((serializeFlextext(doc, SET).match(/>audio ~/g) || []).length, 6);
+  assert.equal((serializeFlextext(doc, SET, NOTES).match(/>audio ~/g) || []).length, 6);
 });
 
 test('with segTimes off, and for a doc with no live spans, offsets pass through exactly as in v714', () => {

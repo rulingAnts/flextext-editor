@@ -29,7 +29,7 @@ function lift(src, name) {
   return src.slice(i + 1, k + 1);
 }
 export const normalizePhraseLines = new Function('ft',
-  `const { segmentsFromOffsets, makeSegment, newGuid } = ft; ${lift(APP, 'normalizePhraseLines')}; return normalizePhraseLines;`)(ft);
+  `const { segmentsFromOffsets, makeSegment, newGuid, foldLineBreaks } = ft; ${lift(APP, 'normalizePhraseLines')}; return normalizePhraseLines;`)(ft);
 
 /** A parsed (and, by default, opened) doc — the import path's shape. */
 export function openXml(xml, { open = true } = {}) {

@@ -259,7 +259,7 @@ test('a record stored by v714–v716 exports its `~` and the instruction, whatev
   for (const [name, n] of [['e78', 78], ['e19', 19], ['l29-13aug', 8]]) {
     const doc = storedByV716(name);
     const before = JSON.stringify(doc.segments);
-    const xml = serializeFlextext(doc, SET);
+    const xml = serializeFlextext(doc, SET, { timeNotes: true });   // the `~` is counted in the notes
     assert.equal(phrasesOf(xml).filter((p) => p.tilde).length, n, `${name}: ${n} lines go out marked — never opened, never read back on a tab`);
     assert.match(xml, /<\?flextext-editor v="2" time-estimates=/);
     assert.equal(JSON.stringify(doc.segments), before, 'exporting reads back on a copy; the record is untouched');
@@ -286,7 +286,7 @@ test('after a rollback to v716 and back, v716\'s guesses are still guesses (expo
   doc.paragraphs.splice(11, 0, structuredClone(doc.paragraphs[10]));
   doc.paragraphs[11].segments[0].attrs = { guid: 'piece' };
   assert.ok(isEstimate(doc.segments[10]) && isEstimate(doc.segments[11]), 'read as estimates (the first v717 read them as real)');
-  const xml = serializeFlextext(doc, SET);
+  const xml = serializeFlextext(doc, SET, { timeNotes: true });
   assert.ok(phrasesOf(xml)[11].tilde, 'exported with `~`');
   assert.match(xml, /piece@~21140-/, 'and the seam between the pieces is listed as a guess');
 });

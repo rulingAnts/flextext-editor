@@ -31,21 +31,21 @@ console.log('\nthe timing NOTE is a setting; the attributes never were');
   const doc = makeDoc({ vernLang: 'fau', analLang: 'en' }, 'T');
   doc.paragraphs = [{ guid: 'p1', segments: [makeSegment('a b', [makeWord('a'), makeWord('b')])] }];
   doc.segments = [{ start: 1000, end: 2500 }];
-  const on = serializeFlextext(doc, {}, { segTimes: true });
-  const off = serializeFlextext(doc, {}, { segTimes: true, timeNotes: false });
+  const on = serializeFlextext(doc, {}, { segTimes: true, timeNotes: true });
+  const off = serializeFlextext(doc, {}, { segTimes: true });
   ok(/begin-time-offset="1000" end-time-offset="2500"/.test(on) && /begin-time-offset="1000" end-time-offset="2500"/.test(off),
      'the begin/end attributes are written either way');
-  ok(/<item type="note" lang="en">audio 0:01\.000–0:02\.500<\/item>/.test(on), 'the note rides by default (every export so far)');
-  ok(!/type="note"/.test(off), 'and is left out with timeNotes:false — attributes only');
-  ok((app.match(/timeNotes: settings\.segTimeNotes !== false/g) || []).length === 3,
-     'all three of the app\'s serializeFlextext call sites read the device setting');
+  ok(/<item type="note" lang="en">audio 0:01\.000–0:02\.500<\/item>/.test(on), 'the note rides when asked for (timeNotes: true)');
+  ok(!/type="note"/.test(off), 'and not by default: FLEx imports each as a segment Note, and the times say it already (the FLEx round-trip report, 2026-10-17)');
+  ok((app.match(/timeNotes: settings\.segTimeNotes === true/g) || []).length === 3,
+     'all three of the app\'s serializeFlextext call sites read the device setting, off unless set');
 }
 
 console.log('\nthe setting exists once, in three places that share one key');
 ok(/\{ k: 'segTimeNotes', type: 'checkbox', note: 'panel\.f\.segTimeNotesNote' \}/.test(app), 'the device form (SETUP_GROUPS, segmentation group)');
 ok(/\{ k: 'segTimeNotes', type: 'checkbox' \}/.test(panel), 'the panel\'s segmentation section');
-ok(/v\.segTimeNotes = s\.segTimeNotes !== false/.test(app) && /v\.segTimeNotes = s\.segTimeNotes !== false/.test(panel),
-   'both prefill an UNSET one as ticked, so the box never lies about the default');
+ok(/v\.segTimeNotes = s\.segTimeNotes === true/.test(app) && /v\.segTimeNotes = s\.segTimeNotes === true/.test(panel),
+   'both prefill an UNSET one as unticked, so the box never lies about the default (off)');
 for (const k of ['panel.f.segTimeNotes', 'panel.f.segTimeNotesNote']) ok(both(k), `${k} in both languages`);
 
 console.log('\nthe segmenter\'s Settings tab is the editor\'s form, filtered — not a second form');

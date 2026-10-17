@@ -488,13 +488,13 @@ console.log('\ntext ⤴ joins PHRASES into one — two phrases in a paragraph is
    * to re-derive them — with no per-phrase time attributes to derive from. The join AND the whole
    * alignment were gone, and persist() wrote the wipe. */
   const join = fn(app, 'mgJoinLine');
-  ok(/phrases: \[mergePhrases\(\[\.\.\.prev\.phrases, \.\.\.cur\.phrases\]\)\]/.test(join),
+  ok(/phrases: \[mergePhrases\(\[\.\.\.prev\.phrases, \.\.\.cur\.phrases\], \{ prim: mgPrimaryLang\(\) \}\)\]/.test(join),
      'the merged line holds ONE phrase, built by mergePhrases (segments.js\'s mergeSegments joins AUDIO spans)');
   ok(!/phrases: \[\.\.\.prev\.phrases, \.\.\.cur\.phrases\]/.test(join),
      '⚠ and never the two side by side');
   /* A draft autosaved by v567 still holds the lines IT joined as two phrases (Seth's first real
    * text carried nine). The join fix cannot reach a draft that already exists; Done can. */
-  ok(/segments: l\.phrases\.length > 1 \? \[mergePhrases\(l\.phrases\)\] : l\.phrases/.test(asyncFn(app, 'mgCommit')),
+  ok(/segments: l\.phrases\.length > 1 \? \[mergePhrases\(l\.phrases, \{ prim: rec\.doc\.analLang \|\| settings\.analLang \}\)\] : l\.phrases/.test(asyncFn(app, 'mgCommit')),
      'and Done merges a two-phrase line that an older draft may still carry');
   const split = fn(app, 'mgSplitLine');
   ok(/if \(flat\[k\]\.punct\) continue;/.test(split),
@@ -587,7 +587,7 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(/if \(editable && !txt\.words\.length\) wbox\.appendChild\(mgWordStack\(ln, \{ txt: '', gls: '' \}, 0, true\)\)/.test(draw),
      'a blank line gets one empty pair, so there is somewhere to type');
   // v704: …and only when the row shown IS this device's language (another language's free translation is read-only).
-  ok(/if \(editable && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', every \? frows\[0\]\.lang : null\)/.test(draw), 'the free translation too — but not while a cut is armed (the gaps are buttons then)');
+  ok(/if \(editable && \(frows\[0\]\.primary \|\| every\)\) mgWireEditable\(ftbox, ln, -1, 'free', frows\[0\]\.lang\)/.test(draw), 'the free translation too, in the language it shows — but not while a cut is armed (the gaps are buttons then)');
   const wire = fn(app, 'mgWireEditable');
   ok(/el\.contentEditable = 'plaintext-only'/.test(wire) && /el\.contentEditable = 'true'/.test(wire), 'plaintext where the browser has it, plain elsewhere');
   ok(/if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); el\.blur\(\); return; \}/.test(wire), 'Enter commits');
@@ -604,13 +604,13 @@ console.log('\nedit in place — tap a word, a gloss or the translation; Space a
   ok(['mgInsertWord', 'mgSplitWord', 'mgJoinWord', 'mgDeleteWord'].every((f) => new RegExp('reshape\\(\\(\\) => ' + f + '\\(').test(wire)),
      'every reshaping keystroke goes through it');
   const edit = fn(app, 'mgEditWord');
-  ok(/if \(\(inLang \? glossIn\(ph\.words\[k\], lang, mgPrimaryLang\(\)\) : \(ph\.words\[k\]\[field\] \|\| ''\)\) === value\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write) — in whichever language it is');
+  ok(/if \(mgSame\(gl \? glossIn\(ph\.words\[k\], gl, mgPrimaryLang\(\)\) : ph\.words\[k\]\[field\], value\)\) return;/.test(edit), 'an unchanged value is not an edit (no undo step, no draft write) — in whichever language it is');
   ok(/mgCapture\(\);/.test(edit) && !/mgDraw\(\)/.test(edit) && /mgSaveDraft\(\);/.test(edit),
      'a changed one captures for undo and autosaves WITHOUT redrawing — Tab keeps walking the line');
   ok(/if \(field === 'txt'\) ph\.baseline = baselineFromWords\(ph\.words\);/.test(edit), 'the phrase baseline follows the words');
   ok(/mgDraw\(\);\s*\n\s*mgFocusWord\(id, where === 'before' \? wi : wi \+ 1\);/.test(fn(app, 'mgInsertWord')), 'adding a pair redraws and puts the caret in the new word');
   ok(/if \(\(w\.txt \|\| ''\) \|\| \(w\.gls \|\| ''\)\) return false;/.test(fn(app, 'mgDeleteWord')), 'only an empty pair can be removed with Backspace');
-  ok(/if \(line\.phrases\.length > 1\) line\.phrases = \[mergePhrases\(line\.phrases\)\];/.test(fn(app, 'mgLinePhrase')), 'a legacy two-phrase line is merged before it is edited');
+  ok(/if \(line\.phrases\.length > 1\) line\.phrases = \[mergePhrases\(line\.phrases, \{ prim: mgPrimaryLang\(\) \}\)\];/.test(fn(app, 'mgLinePhrase')), 'a legacy two-phrase line is merged before it is edited');
   ok(/\{ k: 'allowBlankLines', type: 'checkbox' \},\s*\n\s*\{ k: 'allowTextEdit', type: 'checkbox' \}/.test(read('docs/js/researcher-panel.js')),
      'the panel has BOTH switches (blank lines had a gate but no checkbox)');
   for (const k of ['mg.editTip', 'mg.tapWord', 'mg.tapGloss', 'mg.tapFree', 'panel.f.allowTextEdit', 'panel.f.allowBlankLines']) {

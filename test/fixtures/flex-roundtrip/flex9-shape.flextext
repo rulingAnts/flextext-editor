@@ -1,0 +1,202 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<document version="3">
+  <interlinear-text guid="ffffffff-0000-4000-8000-000000000001">
+    <item type="title" lang="en">Round trip</item>
+    <item type="comment" lang="en">Made up, for the tests.</item>
+    <item type="genre" guid="ffffffff-0000-4000-8000-000000000002" lang="en">Narrative</item>
+    <paragraphs>
+      <paragraph guid="cccccccc-0000-4000-8000-000000000001">
+        <phrases>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000001">
+            <item type="txt" lang="qaa-fonipa-x-tst">kaa tii: moo </item>
+            <item type="segnum" lang="en">1</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000001">
+                <item type="txt" lang="qaa-fonipa-x-tst">kaa</item>
+                <morphemes>
+                  <morph type="stem" guid="dddddddd-0000-4000-8000-000000000001">
+                    <item type="txt" lang="qaa-fonipa-x-tst">kaa</item>
+                    <item type="cf" lang="qaa-fonipa-x-tst">kaa</item>
+                    <item type="hn" lang="qaa">
+                      1
+                    </item>
+                    <item type="gls" lang="en">K-en</item>
+                    <item type="gls" lang="id">K-id</item>
+                    <item type="msa" lang="en">v</item>
+                  </morph>
+                </morphemes>
+                <item type="gls" lang="id">K-id</item>
+                <item type="gls" lang="en">K-en</item>
+                <item type="pos" lang="en">v</item>
+              </word>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000002">
+                <item type="txt" lang="qaa-fonipa-x-tst">tii</item>
+                <item type="gls" lang="id">T-id</item>
+                <item type="gls" lang="en">T-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+              <word>
+                <item type="punct" lang="qaa-fonipa-x-tst">:</item>
+              </word>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000003">
+                <item type="txt" lang="qaa-fonipa-x-tst">moo</item>
+                <item type="gls" lang="id"></item>
+                <item type="gls" lang="en"></item>
+              </word>
+            </words>
+            <item type="gls" lang="en">one two three four</item>
+            <item type="gls" lang="id">satu dua tiga empat</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cccccccc-0000-4000-8000-000000000002">
+        <phrases>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000002">
+            <item type="txt" lang="qaa-fonipa-x-tst">rua sen </item>
+            <item type="segnum" lang="en">2.1</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000004">
+                <item type="txt" lang="qaa-fonipa-x-tst">rua</item>
+                <item type="gls" lang="id">R-id</item>
+                <item type="gls" lang="en">R-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000005">
+                <item type="txt" lang="qaa-fonipa-x-tst">sen</item>
+                <item type="gls" lang="id">S-id</item>
+                <item type="gls" lang="en">S-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+            </words>
+            <item type="gls" lang="en">five six</item>
+            <item type="gls" lang="id"></item>
+          </phrase>
+          <phrase guid="eeeeeeee-0000-4000-8000-000000000001">
+            <item type="txt" lang="qaa-fonipa-x-tst"> </item>
+          </phrase>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000003">
+            <item type="txt" lang="qaa-fonipa-x-tst">tau </item>
+            <item type="segnum" lang="en">2.3</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000006">
+                <item type="txt" lang="qaa-fonipa-x-tst">tau</item>
+                <item type="gls" lang="id">T2-id</item>
+                <item type="gls" lang="en">T2-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+            </words>
+            <item type="gls" lang="en">seven</item>
+            <item type="gls" lang="id"></item>
+          </phrase>
+          <phrase guid="eeeeeeee-0000-4000-8000-000000000002">
+            <item type="txt" lang="qaa-fonipa-x-tst"> </item>
+          </phrase>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000004">
+            <item type="txt" lang="qaa-fonipa-x-tst">vio nam </item>
+            <item type="segnum" lang="en">2.5</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000007">
+                <item type="txt" lang="qaa-fonipa-x-tst">vio</item>
+                <item type="gls" lang="id">V-id</item>
+                <item type="gls" lang="en">V-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000008">
+                <item type="txt" lang="qaa-fonipa-x-tst">nam</item>
+                <item type="gls" lang="id">N-id</item>
+                <item type="gls" lang="en">N-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+            </words>
+            <item type="gls" lang="en">eight nine</item>
+            <item type="gls" lang="id">delapan sembilan</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cccccccc-0000-4000-8000-000000000003">
+        <phrases>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000005">
+            <item type="txt" lang="qaa-fonipa-x-tst">lio </item>
+            <item type="segnum" lang="en">3.1</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000009">
+                <item type="txt" lang="qaa-fonipa-x-tst">lio</item>
+                <item type="gls" lang="id">L-id</item>
+                <item type="gls" lang="en">L-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+            </words>
+            <item type="gls" lang="en">ten</item>
+            <item type="gls" lang="id">sepuluh</item>
+          </phrase>
+          <phrase guid="eeeeeeee-0000-4000-8000-000000000003">
+            <item type="txt" lang="qaa-fonipa-x-tst"> </item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cccccccc-0000-4000-8000-000000000004">
+        <phrases>
+          <phrase guid="eeeeeeee-0000-4000-8000-000000000004">
+            <item type="txt" lang="qaa-fonipa-x-tst"> </item>
+          </phrase>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000006">
+            <item type="txt" lang="qaa-fonipa-x-tst">pae </item>
+            <item type="segnum" lang="en">4.2</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000010">
+                <item type="txt" lang="qaa-fonipa-x-tst">pae</item>
+                <item type="gls" lang="id">P-id</item>
+                <item type="gls" lang="en">P-en</item>
+                <item type="pos" lang="en">n</item>
+              </word>
+            </words>
+            <item type="gls" lang="en">eleven</item>
+            <item type="gls" lang="id"></item>
+          </phrase>
+        </phrases>
+      </paragraph>
+      <paragraph guid="cccccccc-0000-4000-8000-000000000005">
+        <phrases>
+          <phrase guid="aaaaaaaa-0000-4000-8000-000000000007">
+            <item type="txt" lang="qaa-fonipa-x-tst">kaa zoe </item>
+            <item type="segnum" lang="en">5</item>
+            <words>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000011">
+                <item type="txt" lang="qaa-fonipa-x-tst">kaa</item>
+                <morphemes>
+                  <morph type="stem" guid="dddddddd-0000-4000-8000-000000000001">
+                    <item type="txt" lang="qaa-fonipa-x-tst">kaa</item>
+                    <item type="cf" lang="qaa-fonipa-x-tst">kaa</item>
+                    <item type="hn" lang="qaa">
+                      1
+                    </item>
+                    <item type="gls" lang="en">K-en</item>
+                    <item type="gls" lang="id">K-id</item>
+                    <item type="msa" lang="en">v</item>
+                  </morph>
+                </morphemes>
+                <item type="gls" lang="id">K-id</item>
+                <item type="gls" lang="en">K-en</item>
+                <item type="pos" lang="en">v</item>
+              </word>
+              <word guid="bbbbbbbb-0000-4000-8000-000000000012">
+                <item type="txt" lang="qaa-fonipa-x-tst">zoe</item>
+                <item type="gls" lang="id">Z-id</item>
+                <item type="gls" lang="en"></item>
+                <item type="pos" lang="en">n</item>
+              </word>
+            </words>
+            <item type="gls" lang="en">twelve</item>
+            <item type="gls" lang="id">dua belas</item>
+          </phrase>
+        </phrases>
+      </paragraph>
+    </paragraphs>
+    <languages>
+      <language lang="en" font="Charis SIL" />
+      <language lang="qaa-fonipa-x-tst" font="Charis SIL" vernacular="true" />
+      <language lang="qaa" font="Charis SIL" vernacular="true" />
+      <language lang="id" font="Charis SIL" />
+    </languages>
+  </interlinear-text>
+</document>

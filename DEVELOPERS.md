@@ -239,6 +239,31 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
   damaged by construction.
 - **Round-trip policy** (`flextext.js` header): anything the app doesn't edit (morphemes, notes,
   unknown items/attrs, media-files) is preserved as XML fragments and re-emitted.
+- **A FLEx text goes back by GUID and by language (Seth's FLEx round-trip report, 2026-10-17).** What
+  LCM does, the engine does:
+  - **A hard line break is not a line.** Shift+Enter in FLEx inserts U+2028, LCM makes each one its own
+    segment, and FLEx exports it as a `<phrase>` holding only that txt — no `<words>`, no segnum. On
+    import `normalizePhraseLines` → `foldLineBreaks` hangs each on the text phrase after it in its
+    paragraph (`breaksBefore`), or on the one before it at a paragraph's end (`breaksAfter`), and the
+    writer puts it back where it was, with its own GUID and nothing added. Joining the lines on either
+    side removes it, as in FLEx; a split keeps it at the outer end it was on. A paragraph of nothing but
+    breaks keeps them as its lines. The Segmenter marks one with ↵. (A text stored before this keeps its
+    break lines as lines; re-import it from FLEx. The FLEx shell, `doc.flex`, is not folded — its model
+    reads a break as a label line.)
+  - **A split keeps the GUID on the first piece; a merge keeps the first phrase's** (LCM
+    `AnalysisAdjuster`), in the Matcher's ✂ and join and in the text box's reconcile alike.
+  - **Every edit names its language.** `free`/`freeLang` and a word's `gls`/`glsLang` are a SLOT: the
+    value in the language the device's analysis language picked when the file was read, every other
+    language kept as its own item. The Matcher's rows are languages, so `mgEditWord`/`mgEditFree` write
+    through `setGlossIn`/`setFreeIn` with the row's language (the text's primary when none) and compare
+    in that language first — a click in and out of a box is never an edit. `mergePhrases(segs, { prim })`
+    joins each language's free translation in that language (`mergeFrees`), whatever the slots held.
+  - **Each item goes back where it stood.** `seg.freeAt` and `w.glsAt` record where the slot's item was
+    among its neighbours (FLEx writes a word's `gls id` before `gls en` and a phrase's the other way
+    round); a phrase's own items from before `<words>` stay before it; an empty slot gloss is written
+    back; a punctuation word has no GUID, as FLEx writes it.
+  - `test/flextext-roundtrip.test.mjs` holds Seth's five acceptance tests on a made-up file in FLEx 9's
+    shape; `node tools/flextext-roundtrip.mjs <file>` runs the same on a real one, locally (§8).
 - **Estimates are per EDGE (v717, `plans/time-gaps-and-estimates.md` §2).** `guess` holds the value
   of each edge that is a guess (nudged, interpolated, ✨, or read back from a file); an edge stays a
   guess only while it still holds that value, so placing it clears it. `timeEstimated` is a derived
@@ -300,8 +325,14 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
 
 **`.flextext` is the canonical time-alignment carrier** — phrase `begin/end-time-offset`
 attributes + `media-files` (the FLEx/ELAN interop mechanism) on export, `segmentsFromOffsets()` on
-import. There is no proprietary sidecar. Timestamps also emit as visible `note` items
-(`audio 0:01.234–0:05.678`, `~` = estimated) because FLEx has no display line for the raw offsets.
+import. There is no proprietary sidecar. Every timed phrase names its recording, `media-file="<guid>"`
+of a `<media>` in the text's `<media-files>`: FLEx's importer sets a segment's times only then
+(`BIRDInterlinearImporter`, `AddELANInfoToSegment`). A file's own block — FLEx writes the recording's
+full path in `location` — goes back exactly as it came and the times link to its media; the app writes
+a block of its own (`ensureMediaRef`) only for a text that has none. Timestamps can also emit as visible
+`note` items (`audio 0:01.234–0:05.678`, `~` = estimated), because FLEx has no display line for the raw
+offsets — but only on a device with `segTimeNotes` on (off by default since 2026-10-17: FLEx imports
+each as a segment Note, one on every phrase repeating its times).
 Since v717 the `~` is read back on import, and every estimated phrase is also listed, per edge, in a
 `<?flextext-editor v="2" time-estimates="GUID@~S-E …"?>` processing instruction (written whenever
 times are, notes on or off; matched back by guid AND times; passed through by a device with
@@ -595,6 +626,16 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
   inside its own room and shared evenly, no timed line moved, nothing stored or exported as a time, amber
   exactly while untimed lines are at most half. The fixtures include U60, an all-untimed FLEx export
   (60 phrases in one paragraph).
+- **A FLEx export through the Audio Segmenter (2026-10-17).** `node tools/flextext-roundtrip.mjs
+  <file.flextext>…` runs Seth's five round-trip acceptance tests on a real FLEx export, on a device set
+  to each of its analysis languages: an untouched export says what the file said (every GUID, every
+  item by type, lang and value, every hard line break, no notes); a split keeps the first GUID and
+  edits land in the primary language only; a merge across a line break keeps the first GUID and joins
+  each language in that language; a word-gloss edit changes that one item; every timed phrase names a
+  `<media>` the file has. It prints PASS/FAIL and counts only (`--paths` adds the file paths) and
+  writes nothing. The Matcher's verbs are lifted from app.js (`test/lib/segmenter-roundtrip.mjs`), the
+  comparison is `test/lib/flextext-semantic.mjs`; the committed run is `flextext-roundtrip.test.mjs`,
+  on `test/fixtures/flex-roundtrip/`, which is made up.
 - **Before your first push: `./install-hooks.sh`.** It installs `hooks/pre-push`, which refuses a
   push carrying a credential (`./check-secrets.sh`), one that touches `.github/workflows/`
   (billable), or one aimed at a production branch. The first has no override on purpose; the other

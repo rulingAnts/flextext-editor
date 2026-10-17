@@ -42,7 +42,8 @@ function matcher(store) {
   const held = [];   // gets made while db.hold is set, waiting to be answered (each with what it read)
   const api = new Function('env', `
     const { FT, SEG, store, log, held, storableRecord, lineHasOffsets } = env;
-    const { makeSegment, mergePhrases, readLegacyEstimates, applyNewLineBreak } = FT;
+    const { makeSegment, mergePhrases, readLegacyEstimates, applyNewLineBreak, freeIn, setFreeIn } = FT;
+    const mgPrimaryLang = () => 'en';   // the text's analysis language: a free translation is set in it (mgEditFree)
     const breakKindSetting = () => 'sentence';   // the device's line-break kind for a line added at a paragraph's edge
     const { withGuesses, seedsToPending, storableSegments, isAligned, isPlaced, isPlaceholder, spreadUntimed, edgeGuessed } = SEG;
     const newGuid = () => 'g' + Math.random().toString(16).slice(2);
@@ -86,7 +87,7 @@ function matcher(store) {
     function mgDraw() { if (!MG) return; MG.spans = mgSpreadSpans(MG.spans, peaksDurationMs(MG.docId)); mgSaveDraft(); }
     ${liftAll(APP, ['docStats', 'cheapHash', 'mgLoad', 'mgBaseSig', 'mgSeedSpans', 'mgSpreadSpans', 'mgDraftTimer', 'mgSaveDraft', 'mgDraftWrites', 'mgDraftCallOffs',
       'mgWriteDraft', 'mgFlushDraft', 'mgCallOffDraft', 'mgClearDraft', 'MG_UNDO_MAX', 'mgSnap', 'mgCapture',
-      'mgInsertLine', 'mgLinePhrase', 'mgEditFree', 'mgCommit', 'mgClose', 'mgStartOver', 'mgOpen',
+      'mgInsertLine', 'mgLinePhrase', 'mgEditFree', 'mgSame', 'mgCommit', 'mgClose', 'mgStartOver', 'mgOpen',
       'deleteUploadedDoc', 'userDeleteDoc'])}
     async function settle() {   // every draft write asked for has landed, and what follows each has run
       for (let p = null; p !== mgDraftWrites;) { p = mgDraftWrites; await p; }

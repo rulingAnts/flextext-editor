@@ -502,11 +502,16 @@ Gloss tab gets per-line mini waves, join buttons, and Enter-split on gloss field
 real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 stopped writing SILENT lines (no words, no text, no translation) to the .flextext and the EAFs; that was UNDONE in v714 (Seth, 2026-10-10) — it made texts moved between devices lose their untranscribed segments (#111). Every line is written again, blank ones as an empty phrase with its times. The v709–v713 line of work is parked on a feature branch, to be rethought after 2026-10-11.
 
 - **`flextext` IS the segmentation format — no proprietary sidecar.** Aligned spans export as
-  FLEx-native phrase `begin/end-time-offset` attributes (+ a `media-files` block) AND as visible
-  `note` items (`audio 0:00.000–0:02.000`, `~` = estimated) — NEVER into the baseline text.
+  FLEx-native phrase `begin/end-time-offset` attributes, each timed phrase with `media-file` naming a
+  `<media>` of the text's `media-files` block — FLEx's importer sets times ONLY then, so v716's times
+  never reached FLEx; a file's own block goes back exactly as it came (FLEx writes a full path in
+  `location`), and the app writes one only for a text that has none (`ensureMediaRef`). Visible `note`
+  items (`audio 0:00.000–0:02.000`, `~` = estimated) are written ONLY on a device with `segTimeNotes`
+  on — off by default since 2026-10-17 (Seth's FLEx round-trip report: FLEx imports each as a segment
+  Note, one on every phrase). NEVER into the baseline text.
   `segmentsFromOffsets()` (flextext.js) derives spans back on open, clamped monotonic. FLEx stores
   the offsets on its Segment objects (ELAN interop); it has no interlinear line for them, so the
-  note line is the visible carrier — that's why both are written. ⚠ Since v717 estimates are per
+  note line is the visible carrier when it is on. ⚠ Since v717 estimates are per
   EDGE (`guess`, segments.js), the `~` is READ BACK on import, a `time-estimates` processing
   instruction carries the guessed edges whatever the note setting (OUR round trips only — FLEx drops
   it, so through FLEx the `~` note is the carrier), and a line whose live span has no time is written
@@ -568,6 +573,21 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   `<orig>.converted-NOT-ARCHIVAL.wav`, `derived:true`) because AAC priming makes decode and
   playback disagree by ~44ms. The ORIGINAL is never touched; the derived copy exported in bundles
   carries a BWF `bext` chunk naming its lossy origin (honesty that survives renaming).
+- **A FLEx text goes back by GUID and by language (Seth's FLEx round-trip report, 2026-10-17).** A FLEx
+  9 export went through the Segmenter (v716) and lost its 13 hard line breaks, gave their GUIDs to the
+  phrases after them, put a new GUID on every split piece, saved an English gloss and two free
+  translations as Indonesian, and wrote times FLEx could not import. Now, as LCM does it: a U+2028
+  phrase (Shift+Enter in FLEx; its own segment, no `<words>`) is NOT A LINE — `foldLineBreaks` hangs it
+  on the phrase beside it in its paragraph and the writer puts it back with its own GUID; a split keeps
+  the GUID on its first piece and a merge keeps the first phrase's; **every edit names its language**
+  (`setGlossIn`/`setFreeIn` with the row's language, compared in it first so looking is never an edit —
+  never a write into the device-language SLOT, `gls`/`free`); `mergePhrases(segs, { prim })` joins each
+  language in that language; each item goes back where it stood (`freeAt`, `glsAt`); punctuation has
+  no GUID. ⚠ Empty audio-only phrases are still written (v714's rule, #111) — Seth, 2026-10-17: *"We
+  tried that before and it caused problems. Major problems."* Untranscribed audio is the segment-gaps
+  plan's business (`plans/segment-gaps-drag.md` on `segment-gaps`), not the exporter's. Tests:
+  `test/flextext-roundtrip.test.mjs` on a made-up file; `node tools/flextext-roundtrip.mjs <file>` on a
+  real one, locally, printing no text. DEVELOPERS.md §4.
 - **⚠ Traps that already bit once — do not "simplify" these away:**
   - `applyBaseline` is gated on DOM truth (`#baseline-text` hidden ⇒ skip), NOT on
     `segmentationEnabled()` — during a live settings flip the setting changes before the DOM, and

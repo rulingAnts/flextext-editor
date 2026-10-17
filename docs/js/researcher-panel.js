@@ -10673,7 +10673,7 @@ function toFormValues(s) {
      * the basic editor until the researcher toggled the box (Seth, 2026-08-12). Only an explicit
      * false stays false. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
-    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes !== false;   // default on, so an unset one shows ticked
+    else if (f.k === 'segTimeNotes') v.segTimeNotes = s.segTimeNotes === true;   // default OFF (2026-10-17), so an unset one shows unticked
     else if (f.k === 'uiScale') v.uiScale = String(s.uiScale || '1');
     else if (f.k === 'headerLabels') v.headerLabels = s.headerLabels || 'auto';
     else if (f.k === 'glossIcon') v.glossIcon = GLOSS_ICONS[s.glossIcon] ? s.glossIcon : GLOSS_ICON_DEFAULT;

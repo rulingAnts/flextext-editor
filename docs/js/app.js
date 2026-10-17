@@ -10701,8 +10701,19 @@ function mgJoinSpan(id) {
 /* Splitting a text line takes TWO points, and that is not a UI flourish: an interlinear line is a
  * word/gloss run plus a free translation, and the FT is prose that does not align word by word. So
  * where the words break tells you nothing about where the translation breaks, and the user has to
- * say both — a scissors position in the word run, and a space in the free translation. */
-function mgSplitLine(id, wordIdx, ftCharIdx) {
+ * say both — a scissors position in the word run, and a space in the free translation.
+ *
+ * ⚠ AND A POINT IN EVERY TRANSLATION THE LINE HAS (Seth, 2026-10-17: "if there are TWO free translation
+ * lines … they both display and are both incorporated in the split"). The second point used to be a
+ * space in the slot's translation only. A translation in another language (a second analysis language,
+ * or the one the view was switched to) was not drawn while the point was chosen, so it looked deleted,
+ * and a line with nothing to click stayed armed. The split then gave the second half none of it; before
+ * desktop-flex it was dropped from BOTH halves, with the slot's language tag (Seth: "sometimes the free
+ * translation disappears when I click scissors"). So `cut` is { lang: offset }, an offset into that
+ * language's text: 0 sends it all to the second half, its length keeps it all on the first, anything
+ * between splits it there. A language `cut` does not name stays whole on the first half, as FLEx keeps
+ * a split segment's translations. A number is the slot language's offset (older callers). */
+function mgSplitLine(id, wordIdx, cut) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i < 0) return;
   const line = MG.lines[i];
@@ -10719,35 +10730,145 @@ function mgSplitLine(id, wordIdx, ftCharIdx) {
   }
   if (wordIdx <= 0 || at < 0) { toast(t('mg.badSplit')); return; }
   mgCapture();   // after the refusal, or a split that did nothing still left an undo step behind
-  const ft = mgLineText(line).free;
-  const left = ft.slice(0, ftCharIdx).trim(), right = ft.slice(ftCharIdx).trim();
+  const prim = mgPrimaryLang();
+  const ph0 = mgSplitSource(line);
+  const cuts = typeof cut === 'number' ? { [ph0.freeLang || prim]: cut } : (cut || {});
+  /* THE FIRST HALF IS THE PHRASE THAT WAS SPLIT, the second a new one — as FLEx itself splits a segment
+   * (the first keeps its GUID, notes and other items; plans/flex-desktop-segmenter.md §6). Two fresh
+   * phrases told a FLEx-bound save that a phrase had vanished, and joining the halves back could not
+   * bring its GUID back. Its time offsets do not ride: half an extent is not an extent. Built as new
+   * objects, item lists copied: the phrase the line held is the undo step's, and may be the record's. */
+  const attrs = { ...(ph0.attrs || {}) };
+  delete attrs['begin-time-offset'];
+  delete attrs['end-time-offset'];
+  if (!attrs.guid) attrs.guid = newGuid();
+  const left = flat.slice(0, at), right = flat.slice(at);
+  const a = makeSegment(baselineFromWords(left), left, { attrs, free: ph0.free || '', freeLang: ph0.freeLang ?? null,
+    preItemsXML: (ph0.preItemsXML || []).slice(), postItemsXML: (ph0.postItemsXML || []).slice() });
+  const b = makeSegment(baselineFromWords(right), right, { freeLang: ph0.freeLang ?? null });
+  if (ph0.txtLang) { a.txtLang = ph0.txtLang; b.txtLang = ph0.txtLang; }
+  if (ph0.flex) a.flex = { ...ph0.flex };
+  // a FLEx text's ride-along maps by language: the first half's are the phrase's own, the second's start empty
+  for (const key of ['frees', 'lits']) if (ph0[key] && typeof ph0[key] === 'object') { a[key] = { ...ph0[key] }; b[key] = {}; }
+  // each translation at its own point; the one each language SHOWS (its first), as mgCutRows draws it
+  const slotFirst = !!(ph0.free || ph0.freeLang), done = new Set();
+  freesOfPhrase(ph0).forEach((f, n) => {
+    const lang = f.lang || prim, text = String(f.text || '');
+    if (done.has(lang)) return;
+    done.add(lang);
+    const k = cuts[lang];
+    if (typeof k !== 'number' || k >= text.length || !text.trim()) return;   // whole, on the first half
+    const head = text.slice(0, Math.max(0, k)).trim(), tail = text.slice(Math.max(0, k)).trim();
+    /* The slot is set where it stands: setFreeIn would also drop an item in the slot's language, which a
+     * file carrying the translation both sides of <words> has (parsePhrase: after-words wins), and which
+     * nothing on screen shows. */
+    if (n === 0 && slotFirst) {
+      a.free = head;
+      if (a.frees) { if (head) a.frees[lang] = head; else delete a.frees[lang]; }
+    } else setFreeIn(a, lang, head, prim);
+    if (tail) setFreeIn(b, lang, tail, prim);
+  });
   // Both halves belong to the paragraph the line came from — a split inside a sentence does not
   // make a new sentence. (Seth: "as close as possible to where it originally was".)
   // ⚠ The suffix is EXPLICIT. It used to come from which half a free translation matched, so with
   // no free translation both halves were '…a' — two lines, one id, and a map that could only ever
   // reach the first of them.
-  const mk = (words, free, sfx, opts) => ({
-    id: line.id + sfx,
-    guid: newGuid(),
-    paraOf: line.paraOf,
-    phrases: [makeSegment(baselineFromWords(words), words, { free, ...opts })],
-  });
-  /* THE FIRST HALF IS THE PHRASE THAT WAS SPLIT, the second a new one — as FLEx itself splits a segment
-   * (the first keeps its GUID, notes and other items; plans/flex-desktop-segmenter.md §6). Two fresh
-   * phrases told a FLEx-bound save that a phrase had vanished, and joining the halves back could not
-   * bring its GUID back. Its time offsets do not ride: half an extent is not an extent. */
-  const ph0 = line.phrases[0] || {};
-  const attrs = { ...(ph0.attrs || {}) };
-  delete attrs['begin-time-offset'];
-  delete attrs['end-time-offset'];
-  const keep = { attrs, freeLang: ph0.freeLang ?? null, preItemsXML: ph0.preItemsXML || [], postItemsXML: ph0.postItemsXML || [] };
-  const a = mk(flat.slice(0, at), left, 'a', attrs.guid ? keep : {});
-  const b = mk(flat.slice(at), right, 'b', { freeLang: ph0.freeLang ?? null });
-  if (ph0.txtLang) { a.phrases[0].txtLang = ph0.txtLang; b.phrases[0].txtLang = ph0.txtLang; }
-  if (attrs.guid && ph0.flex) a.phrases[0].flex = { ...ph0.flex };
-  MG.lines.splice(i, 1, a, b);
+  const mk = (ph, sfx) => ({ id: line.id + sfx, guid: newGuid(), paraOf: line.paraOf, phrases: [ph] });
+  MG.lines.splice(i, 1, mk(a, 'a'), mk(b, 'b'));
   applyNewLineBreak(MG.lines, i + 1, breakKindSetting());   // the new boundary is a Sentence or a Clause break (Seth, 2026-10-14)
   mgDraw();
+}
+// The line as ONE phrase, the line left as it is: one an older draft left holding two is split as their
+// join (mgLinePhrase merges in place; a split replaces the line, so it need not).
+function mgSplitSource(line) {
+  return line.phrases.length > 1 ? mergePhrases(line.phrases) : (line.phrases[0] || makeSegment('', []));
+}
+/* The translations a split has to place: every language the line has a free translation in, whichever the
+ * view shows, the primary first (a FLEx text: in FLEx's order). Each language's text is the one mgSplitLine
+ * cuts, so an offset chosen in a row is an offset into it. */
+function mgCutRows(line) {
+  const prim = mgPrimaryLang(), seen = new Set(), rows = [];
+  for (const f of freesOfPhrase(mgSplitSource(line))) {
+    const lang = f.lang || prim;
+    if (seen.has(lang)) continue;
+    seen.add(lang);
+    if (String(f.text || '').trim()) rows.push({ lang, text: String(f.text) });
+  }
+  const order = mgRowLangs() || [];
+  const rank = (l) => (l === prim ? -1 : order.indexOf(l) < 0 ? order.length : order.indexOf(l));
+  return rows.map((r, n) => ({ ...r, n })).sort((x, y) => rank(x.lang) - rank(y.lang) || x.n - y.n).map(({ n, ...r }) => r);
+}
+/* ✂ between two words, the first point. Pressed again it is put down (so is Escape). A line with no
+ * translation to place has no second point: the ✂ is the whole split. */
+function mgArmCut(id, wi) {
+  const line = MG && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const pend = MG.pendingWordCut;
+  if (pend && pend.line === id && pend.at === wi) { mgPutCutDown(); return; }
+  const rows = mgCutRows(line);
+  if (!rows.length) { mgPutCutDown(false); mgSplitLine(id, wi, {}); return; }
+  // another ✂ on the same line moves the first point and keeps the translation points already chosen
+  MG.pendingWordCut = { line: id, at: wi, ft: pend && pend.line === id ? { ...(pend.ft || {}) } : {} };
+  mgDraw();
+  mgCutPrompt(rows.length > 1 ? t('mg.nowPickFts', { n: rows.length }) : t('mg.nowPickFt'));
+}
+/* An armed ✂ is put down (Escape, the same ✂ again, or its split made): and its prompt with it, rather than
+ * telling the user for another two seconds to click a point that is no longer there to click. */
+function mgPutCutDown(redraw = true) {
+  if (!MG) return;
+  MG.pendingWordCut = null;
+  const el = $('#toast');
+  if (el && !el.hidden && MG.cutPrompt && el.textContent === MG.cutPrompt) el.hidden = true;
+  MG.cutPrompt = null;
+  if (redraw) mgDraw();
+}
+function mgCutPrompt(msg) { MG.cutPrompt = msg; toast(msg); }
+/* The second point, in one translation. The line splits once every translation has its point; until then
+ * it stays armed, each point chosen so far marked, and a click elsewhere in a row moves that row's. */
+function mgPickFtCut(id, lang, at) {
+  const pend = MG && MG.pendingWordCut;
+  const line = pend && pend.line === id && MG.lines.find((l) => l.id === id);
+  if (!line) return;
+  const ft = { ...(pend.ft || {}), [lang]: at };
+  const todo = mgCutRows(line).filter((r) => typeof ft[r.lang] !== 'number');
+  if (todo.length) {
+    MG.pendingWordCut = { ...pend, ft };
+    mgDraw();
+    mgCutPrompt(t('mg.nowPickNext', { lang: todo[0].lang }));
+    return;
+  }
+  mgPutCutDown(false);
+  const n = MG.lines.length;
+  mgSplitLine(id, pend.at, ft);
+  if (MG && MG.lines.length === n) mgDraw();   // refused (its words were edited under the ✂): drawn put down
+}
+// One translation while the second point is chosen: its words, with a target in every space and at both ends.
+function mgCutTargets(el, ln, row, pend) {
+  const text = row.text;
+  const chosen = pend.ft ? pend.ft[row.lang] : undefined;
+  const gap = (at, title) => {
+    const b = document.createElement('button');
+    b.className = 'mg-ftgap' + (chosen === at ? ' mg-chosen' : '');
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.dataset.at = String(at);
+    b.onclick = () => mgPickFtCut(ln.id, row.lang, at);
+    el.appendChild(b);
+  };
+  gap(0, t('mg.ftAllSecond'));
+  let pos = 0;
+  for (const piece of text.split(/(\s+)/)) {
+    if (!piece) continue;
+    if (/^\s+$/.test(piece)) {
+      if (pos > 0 && pos + piece.length < text.length) gap(pos, t('mg.splitHere'));   // a space at either end is that end
+    } else {
+      const s = document.createElement('span');
+      s.textContent = piece;
+      el.appendChild(s);
+    }
+    pos += piece.length;
+  }
+  gap(text.length, t('mg.ftAllFirst'));
 }
 
 /* INSERT A BLANK TEXT LINE (researcher setting allowBlankLines, default on with no researcher
@@ -11520,8 +11641,11 @@ function mgDraw() {
         cut.className = 'mg-scissors';
         cut.textContent = '✂';
         cut.title = t('mg.cutHere');
-        cut.onclick = () => { MG.pendingWordCut = { line: ln.id, at: wi }; mgDraw(); toast(t('mg.nowPickFt')); };
-        if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id && MG.pendingWordCut.at === wi) cut.classList.add('mg-armed');
+        cut.onclick = () => mgArmCut(ln.id, wi);
+        if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id && MG.pendingWordCut.at === wi) {
+          cut.classList.add('mg-armed');
+          cut.title = t('mg.cutCancel');
+        }
         wbox.appendChild(cut);
       }
       wbox.appendChild(mgWordStack(ln, w, wi, editable));
@@ -11531,24 +11655,17 @@ function mgDraw() {
     // A blank line (from +) has nowhere to type until it has a word: give it one empty pair.
     if (editable && !txt.words.length) wbox.appendChild(mgWordStack(ln, { txt: '', gls: '' }, 0, true));
     const ftbox = li.querySelector('.mg-ft');
-    if (MG.pendingWordCut && MG.pendingWordCut.line === ln.id) {
-      // Second point: a space in the free translation. Every space is a target.
-      const ft = txt.free;
-      let last = 0;
-      ft.split(/(\s+)/).forEach((piece) => {
-        if (/^\s+$/.test(piece)) {
-          const b = document.createElement('button');
-          b.className = 'mg-ftgap';
-          b.title = t('mg.splitHere');
-          const at = last;
-          b.onclick = () => { const w = MG.pendingWordCut.at; MG.pendingWordCut = null; mgSplitLine(ln.id, w, at); };
-          ftbox.appendChild(b);
-        } else {
-          const s = document.createElement('span');
-          s.textContent = piece;
-          ftbox.appendChild(s);
-        }
-        last += piece.length;
+    const pend = MG.pendingWordCut && MG.pendingWordCut.line === ln.id ? MG.pendingWordCut : null;
+    const cutRows = pend ? mgCutRows(ln) : [];
+    if (cutRows.length) {
+      // Second point: where each translation breaks — every one the line has, in each of its languages,
+      // tagged when there is more than one (mgCutRows). A space is a target, and so is either end.
+      const many = cutRows.length > 1 || cutRows[0].lang !== mgPrimaryLang();
+      cutRows.forEach((r, ri) => {
+        const el = ri ? ftbox.parentElement.appendChild(document.createElement('div')) : ftbox;
+        el.className = 'mg-ft mg-ft-cut';
+        if (many) el.dataset.lang = r.lang;
+        mgCutTargets(el, ln, r, pend);
       });
     } else {
       // The free translation(s) for the language(s) chosen — same rule as the gloss rows.
@@ -12049,6 +12166,7 @@ function setupSegmenterMode() {
     // Never steal it from a field the user is typing in (the speaker box, a future text input).
     if (el && (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName || ''))) return;
     const k = (e.key || '').toLowerCase();
+    if (e.key === 'Escape' && MG.pendingWordCut) { e.preventDefault(); mgPutCutDown(); return; }
     // Enter cuts at the playhead, as on the Cut tab — but not when a button has focus, where Enter
     // is that button's own click (wirePlaybackKeys already swallows it on the play controls).
     if (e.key === 'Enter' && !(el && /^button$/i.test(el.tagName || ''))) { e.preventDefault(); mgSplitAtPlayhead(); return; }

@@ -862,6 +862,14 @@ the adjuster merge segments in between. Ship only after VM test V-14.
   as `ft.set` on the guid the engine gave it. The shell accepts ops naming a phrase or paragraph that
   the same save creates, and nothing else it does not know. Times ride on the split when every piece
   has one, else each piece's are set (or cleared) outright.
+  **Every translation is split, each at its own point (2026-10-17).** After the ✂ between two words,
+  the Matcher draws every free translation the line has, in every language and whichever the view
+  shows, each tagged and with a target in every space and at both ends (`mgCutRows` / `mgCutTargets`).
+  The line splits once each has its point; an end keeps that translation whole on one side. Before
+  this, only the slot's translation was drawn, so one in another language looked deleted and had no
+  point to click. The split gave the second half none of it, and the production engine (v716) dropped it
+  from both halves. So `ft.set` now arrives for each writing system on each half. Escape, or the
+  same ✂ again, puts an armed ✂ down; a line with no translation splits on the ✂ alone. e2e scenario 17.
 - **⤴ a line into the one above**: `phrase.join` across a `§`; across a paragraph break,
   `para.toPhrase` first — only when the joined line opens its paragraph and the rest of that
   paragraph now sits in the survivor's (else refused: join the paragraphs first with ¶). The

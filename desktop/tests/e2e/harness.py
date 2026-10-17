@@ -238,6 +238,23 @@ def start(tmp):
     b.commit(h)
     b.save()
     b.close_project()
+    # a line translated in both analysis writing systems (Seth, 2026-10-17: "if there are TWO free translation
+    # lines … they both display and are both incorporated in the split"), timed 0–3 s of the 5 s recording
+    MockLcm.create_project(str(projects), "split-write", texts=[{"title": "Two translations", "paragraphs": ["aaa bbb ccc"], "media": [in_lf]}],
+                           anal_wss=("en", "id"), ws_names=WS_NAMES)
+    (projects / "split-write" / "flextext-disposable-copy.txt").write_text("disposable copy for the e2e test")
+    b = MockLcm(str(projects))
+    b.open("split-write", write=True)
+    t = b.read_text(b.list_texts()[0]["guid"])
+    s0 = t["paragraphs"][0]["segments"][0]
+    h = b.begin_uow("fixture", "fixture")
+    b.set_free_translation(s0["guid"], "en", "one two three")
+    b.set_free_translation(s0["guid"], "id", "ka kb kc")
+    b.set_segment_times(s0["guid"], 0, 3000)
+    b.set_segment_media(s0["guid"], t["media"][0]["guid"])
+    b.commit(h)
+    b.save()
+    b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
     clip = Clipboard()

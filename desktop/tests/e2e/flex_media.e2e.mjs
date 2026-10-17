@@ -252,7 +252,7 @@ await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-wa
 // ✂ text line 1 between aaa and bbb, its translation after "the free"; ✂ the first piece of audio too
 await lines().first().locator('.mg-scissors').first().click();
 await page.waitForSelector('#view-matcher .mg-ftgap', T(5000));
-await lines().first().locator('.mg-ftgap').nth(1).click();
+await lines().first().locator('.mg-ftgap[data-at="8"]').click();   // the space after "the free" (a target at each end too)
 await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line').length === 4, null, T(5000));
 await spans().first().locator('.mg-split').click();
 await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-wave').length === 4, null, T(5000));
@@ -875,6 +875,53 @@ const after16 = (await rpc('__flexRead', ['guess-write', 'Guessed here'])).resul
 ok(after16[1].words[0].kind === 'gloss' && C(after16[1].words[0].gloss) === C({ en: 'N-en', id: 'N-id' }),
    'nnn: the Indonesian typed in the older build, FLEx\'s English beside it: ' + C(after16[1].words[0].gloss));
 ok(C(after16[0].words[0].gloss) === C({ en: 'K-en', id: 'K-id' }), 'line 1 as the save before left it');
+
+// ── 17. a text-line ✂ with two free translations (Seth, 2026-10-17: "sometimes the free translation disappears
+// when I click scissors"; "if there are TWO free translation lines … they both display and are both incorporated
+// in the split"). The view shows English only: the Indonesian is offered while the point is chosen all the same. ──
+await home();
+await openProject('split-write', 'write');
+await textRow('Two translations').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+await page.selectOption('#flex-ws-anal', 'en');
+await page.waitForFunction(() => /one two three/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+ok(!/ka kb kc/.test(await mtxt()), 'the view is English only');
+await lines().first().locator('.mg-scissors').first().click();
+await page.waitForSelector('#view-matcher .mg-ft-cut[data-lang="id"]', T(5000));
+const rows17 = await page.evaluate(() => [...document.querySelectorAll('#view-matcher .mg-line .mg-ft-cut')]
+  .map((r) => r.dataset.lang + ':' + [...r.querySelectorAll('span')].map((s) => s.textContent).join(' ')));
+ok(rows17.join(' / ') === 'en:one two three / id:ka kb kc', 'while the point is chosen, BOTH translations are drawn, tagged: ' + rows17.join(' / '));
+ok(await page.locator('#view-matcher .mg-ft-cut[data-lang="en"] .mg-ftgap').count() === 4, 'four targets in English: each end and each space');
+await page.click('#view-matcher .mg-ft-cut[data-lang="en"] .mg-ftgap[data-at="3"]');
+await page.waitForFunction(() => !!document.querySelector('#view-matcher .mg-ft-cut[data-lang="en"] .mg-ftgap.mg-chosen'), null, T(5000));
+ok(await lines().count() === 1 && /the id translation/.test(await toasts()), 'one point chosen: not split yet, and it asks for the Indonesian');
+await shot('26a-split-choosing');
+await page.click('#view-matcher .mg-ft-cut[data-lang="id"] .mg-ftgap[data-at="2"]');
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line').length === 2, null, T(5000));
+ok(!(await page.locator('#view-matcher .mg-ft-cut').count()), 'split: the line is no longer armed');
+await page.selectOption('#flex-ws-anal', 'all');
+await page.waitForFunction(() => /kb kc/.test(document.querySelector('#view-matcher').innerText), null, T(5000));
+const ft17 = (li) => page.evaluate((k) => [...document.querySelectorAll('#view-matcher .mg-line')[k].querySelectorAll('.mg-ft')].map((x) => x.innerText.trim()).join(' / '), li);
+ok(await ft17(0) === 'one / ka' && await ft17(1) === 'two three / kb kc', 'each half shows its part of each translation: ' + await ft17(0) + ' | ' + await ft17(1));
+await shot('26-split-two-translations');
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+await textRow('Two translations').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+ok(/Splits a phrase/.test(await page.locator('.flex-preview').innerText()), 'the preview names the split');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after17 = (await rpc('__flexRead', ['split-write', 'Two translations'])).result;
+ok(after17.length === 2 && C(after17[0].ft) === C({ en: 'one', id: 'ka' }) && C(after17[1].ft) === C({ en: 'two three', id: 'kb kc' }),
+   'FLEx: two phrases, each with its part of the English AND the Indonesian: ' + after17.map((p) => C(p.ft)).join(' | '));
+await page.click('#flex-undo');
+await rowHas('.flex-save-text');
+const undone17 = (await rpc('__flexRead', ['split-write', 'Two translations'])).result;
+ok(undone17.length === 1 && C(undone17[0].ft) === C({ en: 'one two three', id: 'ka kb kc' }), 'one Undo in FLEx: one phrase, both translations whole');
+await page.click('#flex-redo');
+await rowLacks('.flex-save-text');
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();

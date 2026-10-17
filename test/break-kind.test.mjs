@@ -123,7 +123,8 @@ console.log('\nthe Matcher, lifted: split, insert and the padding at Done honour
   const APP = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
   const matcher = (lines, kind) => new Function('env', `
     const { FT, lines, kind } = env;
-    const { makeSegment, makeWord, mergePhrases, baselineFromWords, newGuid, normalizeBreakKind, applyNewLineBreak } = FT;
+    const { makeSegment, makeWord, mergePhrases, baselineFromWords, newGuid, normalizeBreakKind, applyNewLineBreak, setFreeIn } = FT;
+    const freesOfPhrase = FT.phraseFrees, mgPrimaryLang = () => 'en';
     let MG = { docId: 'd', spans: [], lines, selSpan: null, selLine: null, pendingWordCut: null };
     let mgUndoStack = [], mgRedoStack = [], player = null;
     const settings = { breakKind: kind };
@@ -132,7 +133,7 @@ console.log('\nthe Matcher, lifted: split, insert and the padding at Done honour
     const mgLineText = (line) => ({ words: line.phrases.flatMap((p) => p.words).filter((w) => !w.punct).map((w) => ({ txt: w.txt })), free: '' });
     const { sectionBreakSites, resolveSectionBreak, replaceSectionBreaks } = FT;
     const mgLinePhrase = (line) => line.phrases[0];
-    ${liftAll(APP, ['MG_UNDO_MAX', 'mgSnap', 'mgCapture', 'mgUndoOnce', 'mgApply', 'breakKindSetting', 'mgSplitLine', 'mgInsertLine',
+    ${liftAll(APP, ['MG_UNDO_MAX', 'mgSnap', 'mgCapture', 'mgUndoOnce', 'mgApply', 'breakKindSetting', 'mgSplitLine', 'mgSplitSource', 'mgInsertLine',
                     'mgSectionSites', 'mgNewSectionLine', 'mgResolveSection', 'mgResolveAllSections'])}
     return { get MG() { return MG; }, mgSplitLine, mgInsertLine, mgResolveSection, mgResolveAllSections, mgSectionSites, undo: mgUndoOnce, depth: () => mgUndoStack.length };
   `)({ FT, lines, kind });

@@ -64,12 +64,17 @@ def sg(line):
 
 
 @pytest.mark.parametrize("para", ["aaa bbb" + LB + "ccc ddd.", "aaa bbb." + LB + "ccc ddd."])
-def test_a_break_opens_as_a_line_of_its_own_with_no_words_and_read_only(tmp_path, para):
+def test_a_break_opens_as_a_line_of_its_own_read_only_its_one_word_the_break(tmp_path, para):
+    """LCM gives a hard line break ONE analysis, a PunctuationForm whose form is U+2028 (Seth's FLEx direct-write
+    notes, 2026-10-17: [source; ran]) — the mock gave it none, and the engine's fold, built on the mock, never saw
+    a break as FLEx shows it."""
     port, s, tg, o = world(tmp_path, [para, "eee fff"])
     lines = o["doc"]["paragraphs"]
-    assert [len(l["segments"][0]["words"]) for l in lines][:3] == [len(lines[0]["segments"][0]["words"]), 0, 3]
     br = lines[1]["segments"][0]
-    assert br.get("readOnly") is True and br["baseline"] == "" and br["words"] == []
+    assert br.get("readOnly") is True and br["baseline"] == ""
+    assert [(w["txt"], w["punct"]) for w in br["words"]] == [(LB, True)]
+    seg = port.read_text(tg)["paragraphs"][0]["segments"][1]
+    assert seg["isLabel"] and [(a["kind"], a["form"]) for a in seg["analyses"]] == [("punct", LB)]
     assert shape(port, tg)[0][1] == "↵"
 
 

@@ -385,7 +385,10 @@ function flexRec(id) {
     preItemsXML: [], postItemsXML: [], txtLang: 'qaa', flex: { segGuid: g, notes: [] }, ...extra });
   const line = (sg, para) => ({ guid: 'ln-' + sg.attrs.guid, paraOf: para, segments: [sg] });
   const doc = { title: id, vernLang: 'qaa', analLang: 'en', languages: [], timeEdges: true, flex: { textGuid: 'T', anals: ['en'] },
-    paragraphs: [line(seg('A', ['aa']), 'P1'), line(seg('B1', [], { readOnly: true }), 'P1'), line(seg('C', ['cc']), 'P1'), line(seg('D', ['dd']), 'P2')],
+    paragraphs: [line(seg('A', ['aa']), 'P1'),
+      // as LCM has a break: readOnly, an empty baseline, ONE analysis — a PunctuationForm whose form is U+2028
+      line(seg('B1', [], { readOnly: true, words: [{ guid: 'pf:0', txt: '\u2028', punct: true, phrase: false, gls: '', preservedXML: [], flex: { analysisGuid: 'pf', index: 0, seg: 'B1' } }] }), 'P1'),
+      line(seg('C', ['cc']), 'P1'), line(seg('D', ['dd']), 'P2')],
     segments: [{ start: 0, end: 900 }, { start: 0, end: 0, timePending: true }, { start: 1000, end: 1900 }, { start: 2000, end: 2900 }] };
   return storableRecord({ id, title: id, created: 1, modified: 1, doc });
 }

@@ -137,7 +137,9 @@ def tokenize(text, extra=()):
     i, n = 0, len(text)
     while i < n:
         c = text[i]
-        if c.isspace():
+        # U+2028 is whitespace to Python, but LCM analyses a hard line break as a PunctuationForm of its own
+        # (IsHardLineBreak: its label segment's ONE analysis) — the token the branch below makes
+        if c.isspace() and c != LINE_SEP:
             i += 1
             continue
         j = i

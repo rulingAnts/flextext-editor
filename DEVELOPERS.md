@@ -252,7 +252,8 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
     because `mergePhrases` never lets a break be the survivor — one before or after the text parts rides
     on the merge, one between them goes — and such a line takes no typing in the Matcher.
   - **A FLEx text in the desktop shell is STORED as the shell reads it** (`desktop/flexshell/model.py`): a
-    break is a line of its own, `readOnly`, no words, an empty baseline — the diff, the post-state and
+    break is a line of its own, `readOnly`, an empty baseline, its ONE word the break itself (LCM analyses
+    it as a PunctuationForm of U+2028, `IsHardLineBreak`; FLEx's .flextext export writes no `<words>` for it) — the diff, the post-state and
     the three-way merge all walk the shell's segments, so nothing about a record changes. Only the
     Matcher, where row i is audio i, folds them while it is open (`foldFlexBreakLines`, also on a
     resumed draft) and puts each back on Done (`unfoldFlexBreakLines`): beside its line, with its own

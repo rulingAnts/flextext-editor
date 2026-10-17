@@ -949,7 +949,7 @@ ok(!/no letters/i.test(pv18), 'the preview has nothing to refuse');
 await page.click('.flex-preview [data-ok]');
 await rowLacks('.flex-save-text');
 const after18 = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
-ok(after18.length === 4 && after18[1].words.length === 0 && after18[2].ft.en === 'beside the break' && !after18[1].ft.en,
+ok(after18.length === 4 && after18[1].words.length === 1 && after18[1].words[0].kind === 'punct' && after18[2].ft.en === 'beside the break' && !after18[1].ft.en,
    'FLEx: the break still its own segment, the translation on the line after it: ' + JSON.stringify(after18.map((p) => [p.words.length, p.ft])));
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));

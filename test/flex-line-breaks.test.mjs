@@ -25,7 +25,8 @@ const L = (n) => `eeeeeeee-0000-4000-8000-${String(n).padStart(12, '0')}`;
 // A FLEx text as the shell gives it (desktop/flexshell/model.py): one line per segment, a break a readOnly empty line.
 const word = (txt, i, sg) => ({ guid: 'an-' + txt + ':' + i, txt, punct: false, phrase: false, gls: '', preservedXML: [], flex: { analysisGuid: 'an-' + txt, analysisKind: 'wordform', index: i, seg: sg } });
 const text = (g, words) => ({ attrs: { guid: g }, baseline: words.join(' '), words: words.map((w, i) => word(w, i, g)), free: '', freeLang: null, frees: {}, lits: {}, preItemsXML: [], postItemsXML: [], txtLang: 'qaa', flex: { paraGuid: null, segGuid: g, notes: [] } });
-const brk = (g) => ({ ...text(g, []), readOnly: true });
+// as LCM has it: ONE analysis, a PunctuationForm whose form is U+2028 (IsHardLineBreak) — a punctuation word here
+const brk = (g) => ({ ...text(g, []), readOnly: true, words: [{ guid: 'pf-lb:0', txt: '\u2028', punct: true, phrase: false, gls: '', preservedXML: [], flex: { analysisGuid: 'pf-lb', analysisKind: 'punct', index: 0, seg: g } }] });
 const line = (seg, para) => ({ guid: 'ln-' + seg.attrs.guid, paraOf: para, segments: [seg], flex: { paraGuid: para, segGuid: seg.attrs.guid } });
 function flexDoc() {
   return { title: 't', vernLang: 'qaa', analLang: 'en', languages: [], appAuthored: false, timeEdges: true, flex: { textGuid: 'T', anals: ['en'] },
@@ -37,7 +38,9 @@ const spansOf = (doc) => doc.segments.map((s, i) => ({ id: 'sp' + i, ...s }));
 const ids = (list) => (list || []).map((b) => b.attrs.guid);
 
 test('which phrases are breaks: the shell\'s (readOnly, empty) and a .flextext\'s (U+2028) — not a label with words, not a blank line', () => {
-  assert.ok(FT.isFlexBreakPhrase(brk('B')));
+  assert.ok(FT.isFlexBreakPhrase(brk('B')), 'as the shell reads LCM: one punctuation word, the break itself');
+  assert.ok(FT.isFlexBreakPhrase({ ...brk('B'), words: [] }), 'and with none (an older record)');
+  assert.ok(!FT.isFlexBreakPhrase({ ...brk('B'), words: [{ txt: '*', punct: true }] }), 'a label of other punctuation is not a break');
   assert.ok(FT.isFlexBreakPhrase(FT.makeSegment('\u2028', [], { attrs: { guid: 'b' } })));
   assert.ok(!FT.isFlexBreakPhrase({ ...text('S', []), readOnly: true, words: [{ txt: '***', punct: true }] }), 'a line of only punctuation is a label with a word: it stays a line');
   assert.ok(!FT.isFlexBreakPhrase(FT.makeSegment('', [])), 'a blank line typed here is a line');

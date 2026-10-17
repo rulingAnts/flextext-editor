@@ -588,8 +588,9 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   plan's business (`plans/segment-gaps-drag.md` on `segment-gaps`), not the exporter's. Tests:
   `test/flextext-roundtrip.test.mjs` on a made-up file; `node tools/flextext-roundtrip.mjs <file>` on a
   real one, locally, printing no text. DEVELOPERS.md §4.
-  - **In the desktop shell a FLEx text is STORED as the shell reads it** — a break is a `readOnly` line with
-    no words — and only the Matcher folds them (`foldFlexBreakLines` on open and on a resumed draft,
+  - **In the desktop shell a FLEx text is STORED as the shell reads it** — a break is a `readOnly` line whose
+    one word is the break itself (LCM's PunctuationForm of U+2028; the mock gave it none until 2026-10-17, so
+    the engine's test for a break never matched real FLEx) — and only the Matcher folds them (`foldFlexBreakLines` on open and on a resumed draft,
     `unfoldFlexBreakLines` on Done), so no record ever changes shape and rolling the code back needs
     nothing done to data. A join across a break is refused (FLEx's to remove); both Save checks accept an
     unchanged label segment. Before this, ANY edit in a paragraph holding a break could not be saved. The

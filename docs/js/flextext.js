@@ -410,14 +410,19 @@ export function foldLineBreaks(doc) {
 
 /* ---- FLEx's hard line breaks in the Matcher (2026-10-17) ----------------------------------------------------
  * Shift+Enter in FLEx inserts U+2028, and LCM makes every one its own label segment, with no words. The shell
- * reads it as it reads any segment (desktop/flexshell/model.py: one line, `readOnly`, an empty baseline — the
- * break itself is whitespace there) and the record keeps it so: the diff, the post-state and the three-way merge
+ * reads it as it reads any segment (desktop/flexshell/model.py: one line, `readOnly`, an empty baseline, and one
+ * punctuation word — the break, which LCM analyses as a PunctuationForm of its own) and the record keeps it so: the diff, the post-state and the three-way merge
  * all walk the shell's segments, so a FLEx text is STORED exactly as the shell gave it. Only the Matcher, where
  * row i is audio i, folds the breaks out while it is open — each rides on the line beside it in its paragraph,
  * drawn as ↵, as a .flextext's are (foldLineBreaks, above) — and puts them back as their own lines on Done.
  * A break that has a time of its own stays a row: that time is somebody's, and folding it away would drop it. */
 export function isFlexBreakPhrase(seg) {
-  return !!seg && !(seg.words || []).length && (isLineBreakPhrase(seg) || (!!seg.readOnly && !String(seg.baseline || '').trim()));
+  if (!seg) return false;
+  /* LCM gives a hard line break ONE analysis: a PunctuationForm whose form is U+2028 (IsLabel and IsHardLineBreak
+   * both true — Seth's FLEx direct-write notes, 2026-10-17, [source; ran]); the shell reads it as a punctuation word.
+   * FLEx's .flextext export writes it with no <words> at all. Either way, nothing but the break itself. */
+  if (!(seg.words || []).every((w) => w && w.punct && String(w.txt || '') === LINE_BREAK)) return false;
+  return isLineBreakPhrase(seg) || (!!seg.readOnly && !String(seg.baseline || '').trim());
 }
 const rowPara = (line) => (line && line.paraOf != null ? String(line.paraOf) : null);
 const timedSpan = (sp) => !!sp && !sp.timePending && Number(sp.end) > Number(sp.start);

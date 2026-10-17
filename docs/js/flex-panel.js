@@ -32,7 +32,7 @@ import { printViewTsv } from './printview-tsv.js';
 import { esc } from './flextext.js';
 
 let H = null;      // hooks from app.js: { db, t, toast, confirmDialog, docStats, busyScrim, getCurrent, openRecord, reopenRecord,
-                  //   matcherEdited, forgetRecord, selectedSegGuid, hideFromList, claimLangView, langView, setLangView, fetchMedia }
+                  //   matcherEdited, forgetRecord, selectedSegGuid, hideFromList, exportRecord, claimLangView, langView, setLangView, fetchMedia }
 // project.ws = FLEx's writing systems, { vern: [{ id, name, abbr, isDefault }], anal: [...] } (open_project)
 let project = null;   // { name, writable, ws, printViewConfig, texts: [...] } while a project is open in the shell
 
@@ -390,7 +390,8 @@ function textRow(r) {
         ${proj.writable && todo.relink ? `<button class="link-btn flex-fix-link">${esc(T('flex.relink'))}</button>` : ''}
         <button class="link-btn flex-ws-text">${esc(T('flex.ws.button'))}</button>
         ${rec ? `<button class="link-btn flex-reset-text" title="${esc(T('flex.resetTip'))}">${esc(T('flex.reset'))}</button>` : ''}
-        ${rec ? `<button class="link-btn flex-export-text">${esc(T('flex.export'))}</button>` : ''}
+        ${rec ? `<button class="link-btn flex-download-text" title="${esc(T('flex.downloadTip'))}">${esc(T('flex.download'))}</button>` : ''}
+        ${rec ? `<button class="link-btn flex-export-text" title="${esc(T('flex.exportTip'))}">${esc(T('flex.export'))}</button>` : ''}
         <button class="secondary-btn flex-open-text">${esc(T('flex.openText'))}</button>
       </div>`;
   li.querySelector('.doc-name').textContent = tx.title;   // titles reach the UI only, never a log
@@ -406,6 +407,12 @@ function textRow(r) {
   if (sv) sv.addEventListener('click', () => saveTextToFlex(tx));
   const fx = li.querySelector('.flex-fix-link');
   if (fx) fx.addEventListener('click', () => fixLink(tx));
+  /* Download… is THIS APP'S copy, the work done here in it — the Segmenter's own download, the file FLEx's own
+   * exporter would write for it (flextext.js flexExportDoc). Seth, 2026-10-17, of a text worked on in a read-only
+   * session: "Can you give me a way to export my app's flextext copy … I'd rather not have to REDO all the hours".
+   * Export FLEx's copy… is what FLEx has, from FLEx's exporter; the two used to be one button that said neither. */
+  const dl = li.querySelector('.flex-download-text');
+  if (dl && H.exportRecord) dl.addEventListener('click', () => H.exportRecord(id));
   const ex = li.querySelector('.flex-export-text');
   if (ex) ex.addEventListener('click', () => exportBundle(tx));
   li.querySelector('.flex-ws-text').addEventListener('click', () => chooseWs(tx));

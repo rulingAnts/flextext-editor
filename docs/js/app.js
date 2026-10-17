@@ -5,7 +5,7 @@ import {
   getBaselineParagraphs, reconcileBaseline, reconcileBaselineWithOrigins, readLegacyEstimates, segmentText, tokenize,
   canMerge, canSplitBefore, mergeWords, breakPhrase, newGuid, segmentsFromOffsets, spansForExport,
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
-  mergePhrases, baselineFromWords, foldLineBreaks, mediaGuidsOf, isFlexBreakPhrase, foldFlexBreakLines, unfoldFlexBreakLines,
+  mergePhrases, baselineFromWords, foldLineBreaks, mediaGuidsOf, isFlexBreakPhrase, foldFlexBreakLines, unfoldFlexBreakLines, flexExportDoc,
   // seg-word-split: word split/insert, the § boundary marker, paragraph groups on flat lines
   splitWordAt, insertWordAt, joinWordsAt, isBoundaryMarker, markBoundaryMarkers,
   hasParagraphStructure, paragraphBreakBefore, breakParagraphBefore, joinParagraphBefore,
@@ -6700,7 +6700,9 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
 // mediaName (optional) lets aligned segments reference their audio via flextext's native
 // media-files block; timestamps ride as begin/end offsets + note items either way.
 function serializeDocBlob(rec, mediaName) {
-  const doc = rec.doc;
+  // A FLEx text (the desktop shell's record) goes out as FLEx writes it, with the work done here in it — on a
+  // copy: the record keeps the shell's shape (flextext.js flexExportDoc)
+  const doc = rec.doc && rec.doc.flex ? flexExportDoc(rec.doc, rec.flex || {}) : rec.doc;
   doc.title = rec.title || doc.title || 'Untitled';
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
@@ -13303,6 +13305,8 @@ if (SEGMENTER_MODE) {
         return (seg && seg.attrs && seg.attrs.guid) || null;
       },
       hideFromList: (fn) => { sgListHide = fn; sgRenderList(); },
+      // the Segmenter's own download (satExport) on a FLEx text's row: the list it lives on hides FLEx texts
+      exportRecord: (id) => satExport(id),
       fetchMedia: async (docId, url, name) => {
         const res = await fetch(url);
         if (!res.ok) throw new Error('media ' + res.status);

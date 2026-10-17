@@ -14,8 +14,10 @@ engine* as the web app from `http://127.0.0.1:8017/` and adds the FLEx features 
 sense beside a local FieldWorks: open a FLEx text in the Segmenter's **Matcher** (cut the recording,
 match it to the lines, split or join lines), **Save to FLEx** from the text's row (preview → verified
 backup → one atomic unit of work → disk read-back), find a recording whose link points nowhere and fix
-the link, import a `.flextext` with FLEx's own importer, export a text as an editor bundle, copy a
-line as FLEx's Print view. Everything outside FLEx is identical to the web app (plan §11.1).
+the link, import a `.flextext` with FLEx's own importer, **Download…** this app's copy of a text (the work
+done here, read-only sessions included: a `.flextext` with FLEx's own ids that FLEx can import, the ELAN
+`.eaf`, or everything with the recording), **Export FLEx's copy…** (FLEx's own exporter), copy a line as
+FLEx's Print view. Everything outside FLEx is identical to the web app (plan §11.1).
 
 ## Layout
 

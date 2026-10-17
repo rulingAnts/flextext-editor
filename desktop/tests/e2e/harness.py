@@ -269,6 +269,22 @@ def start(tmp):
     b.commit(h)
     b.save()
     b.close_project()
+    # this app's copy, downloaded (2026-10-17): a project like Seth's own, NOT a marked copy, so this build only reads
+    # it — a text translated in both analysis writing systems, one word glossed in both, a hard line break, untimed,
+    # and a link that resolves
+    MockLcm.create_project(str(projects), "export-main", texts=[{"title": "Export text", "paragraphs": ["aaa bbb ccc", "ddd eee\u2028fff ggg"], "media": [in_lf]}],
+                           anal_wss=("en", "id"), ws_names=WS_NAMES)
+    b = MockLcm(str(projects))
+    b.open("export-main", write=True)
+    t = b.read_text(b.list_texts()[0]["guid"])
+    segs = [s for p in t["paragraphs"] for s in p["segments"] if not s["isLabel"]]
+    h = b.begin_uow("fixture", "fixture")
+    b.set_free_translation(segs[0]["guid"], "en", "one two three")
+    b.set_free_translation(segs[1]["guid"], "id", "empat lima")
+    b.set_analysis(segs[0]["guid"], 0, b.create_gloss(b.create_trivial_analysis(segs[0]["analyses"][0]["wordformGuid"]), {"en": "A-en", "id": "A-id"}))
+    b.commit(h)
+    b.save()
+    b.close_project()
     engine = stage_engine.stage(str(tmp / "engine"), "audio-segmenter", os.path.join(REPO, "docs"))
     picker = Picker()
     clip = Clipboard()

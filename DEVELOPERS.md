@@ -251,6 +251,13 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
     break lines as lines (re-import it from FLEx to fold them); joining one away there keeps every GUID,
     because `mergePhrases` never lets a break be the survivor — one before or after the text parts rides
     on the merge, one between them goes — and such a line takes no typing in the Matcher.
+  - **A FLEx text in the desktop shell goes OUT as FLEx writes it** (`flexExportDoc`, every export of the record —
+    the row's Download…): the record holds the shell's model, and a file made from it as it is would not import
+    (each word id was `<analysis guid>:<index>`). The text's guid; FLEx's paragraph and phrase guids; a word's
+    analysis guid only where its form and every gloss are still FLEx's (`postStateOf`'s rule), none otherwise;
+    FLEx's own media links at FLEx's own locations (a merging FLEx import writes each location back); every
+    writing system declared; line breaks as FLEx writes them; literal translations. Morphemes and notes are not in
+    it — the shell never reads them, and FLEx keeps them. On a copy: the record is untouched.
   - **A FLEx text in the desktop shell is STORED as the shell reads it** (`desktop/flexshell/model.py`): a
     break is a line of its own, `readOnly`, an empty baseline, its ONE word the break itself (LCM analyses
     it as a PunctuationForm of U+2028, `IsHardLineBreak`; FLEx's .flextext export writes no `<words>` for it) — the diff, the post-state and

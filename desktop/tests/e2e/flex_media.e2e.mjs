@@ -6,7 +6,7 @@
  * only on Windows; here window.pywebview.api forwards to the harness's test-only RPC port through
  * Playwright's exposeFunction (outside the page, so the page's own CSP holds). */
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -967,6 +967,66 @@ await page.click('.flex-preview [data-ok]');
 await rowLacks('.flex-save-text');
 const after18b = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
 ok(after18b.length === 4 && after18b[1].words[0].kind === 'punct', 'FLEx: the same four segments — the blank line was never FLEx\'s: ' + after18b.length);
+
+// ── 19. this app's copy, downloaded (Seth, 2026-10-17: "Can you give me a way to export my app's flextext copy … I'd
+// rather not have to REDO all the hours I just put into audio segmenting/matching" — in a READ-ONLY session, which
+// Save to FLEx can never write, and "Export bundle…" was FLEx's copy, without the work). Download… on the row is the
+// Segmenter's own download; its .flextext is the file FLEx's own exporter writes, with the work in it. ──
+await home();
+await openProject('export-main', 'read');
+const before19 = (await rpc('__flexRead', ['export-main', 'Export text'])).result;
+const tx19 = await flexText('Export text');
+const od19 = (await rpc('open_text', [tx19.guid])).result.doc;
+await textRow('Export text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+await page.selectOption('#flex-ws-anal', 'en');
+ok(await lines().count() === 3, 'three rows of text: the break is a ↵, not a row');
+await page.click('#mg-guess');
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-wave').length === 3, null, T(10000));
+await lines().first().locator('.mg-scissors').first().click();       // ✂ between aaa and bbb, the translation after "one"
+await page.waitForSelector('#view-matcher .mg-ftgap', T(5000));
+await lines().first().locator('.mg-ftgap[data-at="3"]').click();
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line').length === 4, null, T(5000));
+await spans().first().locator('.mg-split').click();
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-wave').length === 4, null, T(5000));
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-download-text');
+ok(!(await textRow('Export text').locator('.flex-save-text').count()), 'read-only: no Save to FLEx on the row');
+ok((await textRow('Export text').locator('.flex-export-text').innerText()) === 'Export FLEx\'s copy…', 'FLEx\'s exporter says whose copy it writes');
+await textRow('Export text').locator('.flex-download-text').click();
+await page.waitForSelector('[data-confirm-dialog] [data-x="flextext"]', T(5000));
+const [dl19] = await Promise.all([page.waitForEvent('download', T(20000)), page.click('[data-confirm-dialog] [data-x="flextext"]')]);
+ok(dl19.suggestedFilename() === 'Export text.flextext', 'Download… → .flextext only: ' + dl19.suggestedFilename());
+const x19 = readFileSync(await dl19.path(), 'utf8');
+const at19 = (el) => [...x19.matchAll(new RegExp(`<${el}(?=[\\s/>])([^>]*)>`, 'g'))].map((m) => Object.fromEntries([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map((a) => [a[1], a[2]])));
+const GUID19 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ids19 = ['interlinear-text', 'paragraph', 'phrase', 'word', 'media'].flatMap((el) => at19(el).filter((a) => 'guid' in a).map((a) => a.guid));
+ok(ids19.length > 10 && ids19.every((g) => GUID19.test(g)), 'every id in the file is a GUID FLEx\'s importer can read (no `<guid>:<index>`): ' + ids19.filter((g) => !GUID19.test(g)).slice(0, 3));
+ok(at19('interlinear-text')[0].guid === tx19.guid, 'the text\'s own guid');
+const segs19 = od19.paragraphs.map((l) => l.segments[0].attrs.guid);
+const ph19 = at19('phrase');
+ok(ph19.length === 5 && ph19[0].guid === segs19[0] && !segs19.includes(ph19[1].guid) && ph19.slice(2).map((a) => a.guid).join() === segs19.slice(1).join(),
+   'FLEx\'s phrase guids, the break\'s included; the phrase made by the ✂ has its own: ' + ph19.map((a) => a.guid.slice(0, 4)).join(' '));
+const link19 = od19.flex.media[0];
+const timed19 = ph19.filter((a) => a['begin-time-offset'] != null);
+ok(timed19.length === 4 && timed19.every((a) => a['media-file'] === link19.uriGuid), 'all four lines timed, each on FLEx\'s own link: ' + timed19.length);
+ok(JSON.stringify(at19('media')) === JSON.stringify([{ guid: link19.uriGuid, location: link19.uri }]), 'the media is FLEx\'s link at FLEx\'s location, nothing minted');
+const an19 = Object.fromEntries(od19.paragraphs.flatMap((l) => l.segments[0].words).filter((w) => !w.punct).map((w) => [w.txt, w.flex.analysisGuid]));
+const w19 = [...x19.matchAll(/<word\b([^>]*)>\s*<item type="txt"[^>]*>([^<]*)</g)].map((m) => [m[2], (m[1].match(/guid="([^"]*)"/) || [])[1]]);
+ok(w19.length === 7 && w19.every(([t, g]) => g === an19[t]), 'every word carries the analysis FLEx has for it: ' + JSON.stringify(w19.filter(([t, g]) => g !== an19[t])));
+ok(/<item type="txt" lang="[^"]+">\u2028<\/item>\s*<\/phrase>/.test(x19), 'the hard line break is written as FLEx writes one');
+ok(/<language lang="en" \/>/.test(x19) && /<language lang="id" \/>/.test(x19), 'both analysis writing systems declared');
+ok(/>one<\/item>/.test(x19) && />two three<\/item>/.test(x19) && />empat lima<\/item>/.test(x19) && />A-id<\/item>/.test(x19), 'the translations, split and whole, and the gloss in both languages');
+// Everything: the zip — the same .flextext, the ELAN file, the recording
+await textRow('Export text').locator('.flex-download-text').click();
+await page.waitForSelector('[data-confirm-dialog] [data-x="all"]', T(5000));
+const [zip19] = await Promise.all([page.waitForEvent('download', T(30000)), page.click('[data-confirm-dialog] [data-x="all"]')]);
+const z19 = readFileSync(await zip19.path()).toString('latin1');
+ok(/\.zip$/.test(zip19.suggestedFilename()) && z19.includes('Export text.flextext') && z19.includes('Export text.eaf') && /Export text\.wav/i.test(z19),
+   'Everything: one zip with the .flextext, the ELAN .eaf and the recording: ' + zip19.suggestedFilename());
+ok(JSON.stringify((await rpc('__flexRead', ['export-main', 'Export text'])).result) === JSON.stringify(before19), 'FLEx is untouched: the project was only read');
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();

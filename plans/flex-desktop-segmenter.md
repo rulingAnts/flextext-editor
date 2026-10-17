@@ -33,8 +33,8 @@ local FieldWorks install:
 | **Save to FLEx** — change preview → backup → one atomic write → disk read-back | yes |
 | Relink a recording whose file is missing | yes (via Save to FLEx) |
 | Import a `.flextext` into FLEx (explicit File action, FLEx's own importer) | yes (creates a text) |
-| Export a FLEx text as an editor bundle (audio + generated `.flextext`) | no |
-| Export a FLEx text as an ELAN bundle (`.eaf` + audio) | no |
+| Export a FLEx text as FLEx has it (FLEx's own exporter: `.flextext` + audio) | no |
+| Download this app's copy of a FLEx text — the work done here in it (`.flextext` FLEx can import, `.eaf`, `.fxpa`, listening page, or all with the audio) | no |
 | Copy the current line as FLEx Print-view TSV | no |
 
 Edit scope, enforced in Python (not just hidden in the UI):
@@ -1207,6 +1207,26 @@ app, and later (once we add write to FLEx capability), it should fix the media f
   audio comes from the media link (or the bundle says it is missing).
 - **ELAN bundle** (`.eaf` + audio): open the text in the engine and use the engine's existing EAF
   exporter (FLEx has no EAF writer). No new Python.
+- **This app's copy — Download…** (2026-10-17; Seth, of hours of matching in a read-only session: *"Can you give
+  me a way to export my app's flextext copy … I'd rather not have to REDO all the hours"*, then *"a solution that
+  has both data integrity AND avoids losing my work"*). The row's **Export bundle…** was the editor bundle above:
+  FLEx's copy, with none of the work, and the Segmenter's own download lived on its own list, which leaves FLEx
+  texts to this section. So the row has both, named for whose copy each writes: **Download…** (the Segmenter's
+  own `satExport`, through the `exportRecord` hook) and **Export FLEx's copy…**. The record holds the shell's
+  model, which the writer used to take for a parsed file: every word id was `<analysis guid>:<index>` (FLEx's
+  importer calls `new Guid()` on it — one such word fails the import), the times named no `<media>` FLEx has (the
+  writer minted its own), one analysis writing system of several was declared, and a hard line break was an empty
+  phrase with a word in it. `flexExportDoc` (flextext.js, on a copy — the record keeps the shell's shape) writes
+  what FLEx's own exporter writes, with the work in it: the text's guid; FLEx's paragraph and phrase guids (a
+  phrase made here, its own); a word's analysis guid **only** where the word is still the occurrence FLEx has —
+  same form, same glosses in every writing system, `postStateOf`'s rule — so nothing reading the file can take a
+  gloss changed here for an edit of a gloss FLEx has (which other words may share); FLEx's own media links at
+  FLEx's locations (a *merging* FLEx import writes the location back into FLEx: any other path would relink the
+  recording — `SetTextMetaAndMergeMedia`); a recording chosen here for a text with no link, at its path; every
+  writing system declared; each line break as FLEx writes one; literal translations. Not in it, because the shell
+  never reads them, so FLEx keeps them as they are: morphemes and notes. FLEx's importer re-finds a word's
+  analysis by its guid and its glosses (`FindOrCreateWfiAnalysis`), so an unchanged word comes back to the same
+  analysis, morphemes and all. `test/flex-export.test.mjs`; e2e §19 downloads one from a read-only session.
 
 ---
 
@@ -1282,7 +1302,7 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
   paragraphs · phrases · timed · the recording's state · *matching in progress* (a Matcher draft) ·
   *changes not in FLEx yet*. Actions: **Save to FLEx…** (writable, and the work committed here differs
   from FLEx — judged by the diff Save would make, never by timestamps), **Fix FLEx's recording
-  link…** (writable, a relink pending), **Writing systems…**, **Reset…** (§8.4), **Export bundle…**,
+  link…** (writable, a relink pending), **Writing systems…**, **Reset…** (§8.4), **Download…** (this app's copy, §9.2), **Export FLEx's copy…**,
   **Open**; beside Close project, **Reset all texts…**.
 - **Sort and filter** (Seth, 2026-10-16: *"sorting options for texts, including open/pending edits, most
   recently opened/edited (in this app, in FLEx), alphabetical, date created, etc. Also ability to filter

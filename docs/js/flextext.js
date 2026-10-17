@@ -500,6 +500,83 @@ export function unfoldFlexBreakLines(lines, spans) {
   return { lines: outL, spans: S.length ? outS : S };
 }
 
+/* ⚠ A FLEx TEXT GOES OUT AS FLEx WRITES IT (Seth, 2026-10-17: "a way to export my app's flextext copy … a
+ * solution that has both data integrity AND avoids losing my work"). The desktop shell's record of a FLEx text
+ * holds the shell's model (desktop/flexshell/model.py to_engine_doc), not a parsed file, and the writer took it
+ * for one:
+ *   - each word's id was the shell's occurrence key, `<analysis guid>:<index>` — and FLEx's importer reads a
+ *     word's id with `new Guid(…)` (BIRDInterlinearImporter, FindOrCreateWfiAnalysis): one word, and the whole
+ *     import fails;
+ *   - the times named no <media> FLEx has: the writer minted a link of its own, which an import makes a second
+ *     recording of;
+ *   - one analysis writing system of several was declared, and a hard line break went out as an empty phrase
+ *     with a word in it.
+ * This is the record as FLEx's own exporter (InterlinearExporter, mode elan) writes the text, with the work done
+ * here in it: the text's guid; FLEx's paragraph and phrase guids (a phrase made here has its own); a word's guid,
+ * FLEx's analysis, ONLY where the word is still the occurrence FLEx has — the same form, the same glosses in
+ * every writing system (flex-ops.js postStateOf's rule) — so nothing that reads the file can take a gloss
+ * changed here for an edit of the gloss FLEx has, which other words may share; FLEx's own media links, each
+ * location as FLEx has it (a merging import writes the location back into FLEx: any other path would relink
+ * the recording); every writing system declared; each hard line break as FLEx writes one; literal translations.
+ * NOT in it, because the shell never reads them, so FLEx keeps them as they are: morphemes, notes.
+ * `state` is the record's `flex` (`base`: the text as read from FLEx, `recording`, `mediaFix`). Pure. */
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function flexExportDoc(doc, state = {}) {
+  const fx = (doc && doc.flex) || {};
+  const prim = doc.analLang || 'en';
+  const base = state.base || null;
+  const basePrim = (base && base.analLang) || prim;
+  const nfc = (s) => String(s ?? '').normalize('NFC');
+  const glosses = (w, lang) => {
+    const out = {};
+    for (const g of wordGlosses(w)) { const l = g.lang || lang, t = nfc(g.text); if (t && !(l in out)) out[l] = t; }
+    return out;
+  };
+  const same = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => a[k] === b[k]);
+  // each word as FLEx has it, by the occurrence it was read as (model.py stamps flex.seg + flex.index)
+  const occ = new Map();
+  for (const ln of (base && base.paragraphs) || []) for (const seg of ln.segments || []) for (const w of seg.words || []) {
+    const f = w.flex || {};
+    if (!w.punct && f.seg != null && f.index != null) occ.set(f.seg + '#' + f.index, w);
+  }
+  const word = (w) => {
+    if (w.punct) return w;
+    const f = w.flex || {};
+    const b = f.seg != null && f.index != null ? occ.get(f.seg + '#' + f.index) : null;
+    const still = !!b && nfc(b.txt) === nfc(w.txt) && same(glosses(b, basePrim), glosses(w, prim)) && GUID_RE.test(String(f.analysisGuid || ''));
+    return { ...w, guid: still ? f.analysisGuid : '' };
+  };
+  const lineBreak = (seg) => (isFlexBreakPhrase(seg) ? { ...seg, baseline: LINE_BREAK, words: [] } : seg);
+  const phrase = (seg) => {
+    if (isFlexBreakPhrase(seg)) return lineBreak(seg);
+    const out = { ...seg, words: (seg.words || []).map(word) };
+    const has = new Set([...(seg.preItemsXML || []), ...(seg.postItemsXML || [])].map(langItemOf).filter((it) => it && it.type === 'lit').map((it) => it.lang));
+    const lits = Object.entries(seg.lits || {}).filter(([l, v]) => l && nfc(v).trim() && !has.has(l)).map(([l, v]) => langItemXml('lit', l, nfc(v)));
+    if (lits.length) out.postItemsXML = [...(seg.postItemsXML || []), ...lits];
+    if (seg.breaksBefore) out.breaksBefore = seg.breaksBefore.map(lineBreak);
+    if (seg.breaksAfter) out.breaksAfter = seg.breaksAfter.map(lineBreak);
+    return out;
+  };
+  /* The recording's link first: a line timed here is timed on THAT recording (the writer links every newly timed
+   * phrase to the first <media>). A text FLEx has no link for gets one for the file chosen here, at its path. */
+  const links = (fx.media || []).filter((m) => m && GUID_RE.test(String(m.uriGuid || '')));
+  const used = (state.recording && state.recording.uriGuid) || (state.mediaFix && state.mediaFix.uriGuid) || null;
+  const media = [...links.filter((m) => m.uriGuid === used), ...links.filter((m) => m.uriGuid !== used)].map((m) => ({ guid: m.uriGuid, location: m.uri || '' }));
+  const path = (state.recording && state.recording.path) || (state.mediaFix && state.mediaFix.path) || '';
+  if (!media.length && path) media.push({ guid: doc.mediaGuid || newGuid(), location: path });
+  const mediaXML = media.length
+    ? [['<media-files offset-type="milliseconds">', ...media.map((m) => `  <media guid="${esc(m.guid)}" location="${esc(m.location)}"/>`), '</media-files>'].join('\n')]
+    : (doc.mediaXML || []);
+  const langs = [{ lang: doc.vernLang, vernacular: true }, ...[...new Set([prim, ...(fx.anals || [])])].map((lang) => ({ lang }))].filter((l) => l.lang);
+  return {
+    ...doc,
+    textAttrs: { ...(doc.textAttrs || {}), ...(GUID_RE.test(String(fx.textGuid || '')) ? { guid: fx.textGuid } : {}) },
+    languages: langs,
+    mediaXML,
+    paragraphs: (doc.paragraphs || []).map((ln) => ({ ...ln, segments: (ln.segments || []).map(phrase) })),
+  };
+}
+
 /* The phrases' item lists as one: a top-level <item type="gls"|"lit" lang=…> (a free or literal
  * translation in another language) whose language an earlier item already holds is joined into it with
  * a space; everything else is kept in order. */
@@ -1100,8 +1177,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       for (const w of seg.words) {
         const wType = w.phrase ? ' type="phrase"' : '';
         // A <word> guid is FLEx's analysis object (InterlinearExporter); punctuation has none and FLEx writes
-        // it with none — one minted on import is the engine's own (Seth's FLEx round-trip report, bug 7).
-        lines.push(`              <word${w.punct ? '' : ` guid="${esc(w.guid)}"`}${wType}>`);
+        // it with none — one minted on import is the engine's own (Seth's FLEx round-trip report, bug 7). A word
+        // with no guid (flexExportDoc: a word changed here) is written with none, as FLEx writes one it has no object for.
+        lines.push(`              <word${w.punct || !w.guid ? '' : ` guid="${esc(w.guid)}"`}${wType}>`);
         if (w.punct) {
           lines.push(`                <item type="punct" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
         } else {

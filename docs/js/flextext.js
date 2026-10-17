@@ -2269,6 +2269,8 @@ export function resolveSectionBreak(doc, li, wi, kind, opts = {}) {
   seg.baseline = baselineFromWords(left);
   const seg2 = makeSegment(baselineFromWords(right), right);
   seg2.txtLang = seg.txtLang;
+  // a hard line break after the line (foldLineBreaks) still ends it: it goes with the second half, as a ✂ split's does
+  if (seg.breaksAfter && seg.breaksAfter.length) { seg2.breaksAfter = seg.breaksAfter; delete seg.breaksAfter; }
   const nl = opts.newLine ? opts.newLine(seg2, line) : { guid: newGuid(), segments: [seg2] };
   lines.splice(li + 1, 0, nl);
   if (Array.isArray(doc.segments)) { const segs = doc.segments.slice(); segs.splice(li + 1, 0, { start: 0, end: 0, timePending: true }); doc.segments = segs; }

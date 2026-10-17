@@ -161,6 +161,16 @@ test('a merge never makes a break the survivor: before, after, between, and brea
   assert.deepEqual([one.words.length, one.postItemsXML.length], [1, 0], 'the part it came from is not changed through it');
 });
 
+test('a § inside a line that ends in a line break: resolved, the break stays at the end — on the second half', () => {
+  const w = (t, p = false) => FT.makeWord(t, { punct: p });
+  const seg = FT.makeSegment('aa § bb', [w('aa'), w('§', true), w('bb')], { attrs: { guid: 'S' } });
+  seg.breaksAfter = [FT.makeSegment('\u2028', [], { attrs: { guid: 'LB' } })];
+  const doc = { paragraphs: [{ guid: 'P', segments: [seg], paraOf: 'Q' }], segments: [] };
+  assert.ok(FT.resolveSectionBreak(doc, 0, 1, 'clause', { newLine: (s, line) => ({ guid: 'N', segments: [s], paraOf: line.paraOf }) }).split);
+  const [a, b] = doc.paragraphs.map((p) => p.segments[0]);
+  assert.deepEqual([a.breaksAfter, ids(b.breaksAfter)], [undefined, ['LB']], 'was: left on the first half, between the two');
+});
+
 test('a stored break is written as FLEx writes one: its txt, no <words>', () => {
   const doc = { analLang: 'en', paragraphs: [{ guid: 'P', segments: [FT.makeSegment('\u2028', [], { attrs: { guid: 'L' } })] }], segments: [] };
   const out = FT.serializeFlextext(doc, { analLang: 'en', vernLang: 'qaa' }, {});

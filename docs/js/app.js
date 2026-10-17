@@ -5456,11 +5456,13 @@ function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete ===
 // Researcher-controlled: may this device add a blank text line in the matcher? Same shape and
 // default as the two below — on when there is no researcher session.
 function allowBlankLinesOn() { return !Sync.hasSession() || settings.allowBlankLines === true; }
-/* A FLEx text (the FLEx shell, desktop/) in the Matcher: FLEx makes its lines from its own text, so this
- * screen invents none — no + rows, and Done gives leftover audio no blank line (2026-10-16: Done padded
- * one for the audio after the last line, and Save to FLEx then refused a line nobody had added). */
+/* A FLEx text (the FLEx shell, desktop/) in the Matcher: Done gives leftover audio no blank line of its own
+ * (2026-10-16: Done padded one for the audio after the last line, and Save to FLEx then refused a line nobody
+ * had added). The + rows are there all the same (Seth, 2026-10-17: "I lost the plus button between lines to add
+ * empty lines. We still want that."): a blank line pairs a piece of audio with no text, kept here — FLEx holds no
+ * line without words, so Save to FLEx leaves every blank line out (flex-ops stripFlexPadding, `everywhere`). */
 function mgIsFlexText() { return !!(current && current.doc && current.doc.flex); }
-function mgBlankLinesOn() { return allowBlankLinesOn() && !mgIsFlexText(); }
+function mgBlankLinesOn() { return allowBlankLinesOn(); }
 /* Researcher-controlled: may this device REMOVE a text's recording (the ✕ on the player dock)?
  * Same shape and same default as allowDeleteOn — unpaired means working alone, so it is on, and a
  * PAIRED device has it off unless the researcher says otherwise (Seth, 2026-09-08: "we don't want

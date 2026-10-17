@@ -166,19 +166,27 @@ function analysisIndex(seg, lexIndex) {
  * take one, so they are this app's padding, not work: dropped (with the time spans they carried) before any
  * diff, merge or "not in FLEx yet", so the work beside them saves. Only at the end and only while blank: a
  * line typed into, or one added in the middle, is still the user's to resolve (flex.unsupported.addedLine). */
-export function stripFlexPadding(base, doc) {
+/* `opts.everywhere` — for Save to FLEx, and the "not in FLEx yet" mark that predicts it: a blank line ANYWHERE is
+ * left out the same way. The Matcher's + rows are on FLEx texts again (Seth, 2026-10-17), and a blank line pairs a
+ * piece of audio that has no text; FLEx holds no line without words, so it is kept here and never written there.
+ * Without the option (re-opening, hasLocalWork) a blank line in the middle still counts as work, so a text opened
+ * read-only keeps the lines and times made with it. */
+export function stripFlexPadding(base, doc, opts = {}) {
   if (!base || !doc || !Array.isArray(doc.paragraphs)) return doc;
   const prim = doc.analLang || base.analLang || 'en';
   const known = new Set((base.paragraphs || []).map((l) => segGuid((l.segments || [])[0])).filter(Boolean));
+  const blank = (line) => {
+    const segs = (line && line.segments) || [];
+    return !segs.some((sg) => known.has(segGuid(sg))) && !segs.some((sg) => wordsOf(sg).length || Object.keys(freeMap(sg, prim)).length);
+  };
   const paras = doc.paragraphs;
-  let n = paras.length;
-  while (n > 0) {
-    const line = paras[n - 1];
-    const segs = line.segments || [];
-    if (segs.some((sg) => known.has(segGuid(sg)))) break;
-    if (segs.some((sg) => wordsOf(sg).length || Object.keys(freeMap(sg, prim)).length)) break;
-    n--;
+  if (opts.everywhere) {
+    const keep = paras.map((l) => !blank(l));
+    if (keep.every(Boolean)) return doc;
+    return { ...doc, paragraphs: paras.filter((_, i) => keep[i]), ...(Array.isArray(doc.segments) ? { segments: doc.segments.filter((_, i) => i >= keep.length || keep[i]) } : {}) };
   }
+  let n = paras.length;
+  while (n > 0 && blank(paras[n - 1])) n--;
   if (n === paras.length) return doc;
   return { ...doc, paragraphs: paras.slice(0, n), ...(Array.isArray(doc.segments) ? { segments: doc.segments.slice(0, n) } : {}) };
 }

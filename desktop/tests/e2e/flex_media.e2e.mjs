@@ -829,7 +829,7 @@ ok(await page.locator('#view-matcher .mg-line').nth(0).locator('.mg-wstack').nth
 const status15 = await page.locator('#mg-status').innerText();
 ok(/1 more audio than lines\. FLEx makes its lines from its own text, so Done leaves the extra audio without a line/.test(status15),
    'the recording runs past the last line: said, and no blank line promised: ' + status15);
-ok(await page.locator('#view-matcher .mg-insert').count() === 0, 'no + rows on a FLEx text');
+ok(await page.locator('#view-matcher .mg-insert').count() > 0, 'the + rows are on a FLEx text (Seth, 2026-10-17: "We still want that")');
 await type14(gloss14(0, 0, 'id'), 'K-id');              // Indonesian typed into the word FLEx guesses English for
 ok(await gloss14(0, 0, 'en').innerText() === 'K-en', 'typing adopted the guess: the English is the word\'s own now');
 await shot('25-guess');
@@ -951,6 +951,22 @@ await rowLacks('.flex-save-text');
 const after18 = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
 ok(after18.length === 4 && after18[1].words.length === 1 && after18[1].words[0].kind === 'punct' && after18[2].ft.en === 'beside the break' && !after18[1].ft.en,
    'FLEx: the break still its own segment, the translation on the line after it: ' + JSON.stringify(after18.map((p) => [p.words.length, p.ft])));
+// a + in the middle of a FLEx text: a blank line for audio with no text, kept here — the save leaves it out
+await textRow('Break text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+await page.locator('#view-matcher .mg-insert').nth(1).click();     // after the first line
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line').length === 4, null, T(5000));
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+await textRow('Break text').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+ok(!/a line added here/.test(await toasts()), 'the blank line does not block the save');
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after18b = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
+ok(after18b.length === 4 && after18b[1].words[0].kind === 'punct', 'FLEx: the same four segments — the blank line was never FLEx\'s: ' + after18b.length);
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();

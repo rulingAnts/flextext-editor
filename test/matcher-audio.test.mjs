@@ -394,8 +394,8 @@ console.log('\nblank lines, for audio that deserves a line but has no words yet'
   ok(/mgCapture\(\);/.test(ins), 'and it is undoable');
   ok(/if \(mgBlankLinesOn\(\)\)/.test(fn(app, 'mgDraw')) && !/allowBlankLinesOn\(\)/.test(fn(app, 'mgDraw')),
      'the + rows appear only when allowed');
-  ok(/function mgBlankLinesOn\(\) \{ return allowBlankLinesOn\(\) && !mgIsFlexText\(\); \}/.test(app),
-     'and never on a FLEx text, which can take no line FLEx does not have');
+  ok(/function mgBlankLinesOn\(\) \{ return allowBlankLinesOn\(\); \}/.test(app),
+     'on a FLEx text too (Seth, 2026-10-17: "We still want that") — FLEx takes no line without words, so a save leaves them out');
 }
 
 console.log('\na matched pair scrolls and highlights together');

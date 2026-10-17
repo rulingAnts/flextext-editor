@@ -421,7 +421,8 @@ function textRow(r) {
 function notInFlex(rec) {
   let save;
   try {
-    const d = diffFlexDoc(rec.flex.base, stripFlexPadding(rec.flex.base, rec.doc), { ws: rec.doc.analLang });
+    // what a save would write: blank lines (the Matcher's +, Done's old padding) never go to FLEx
+    const d = diffFlexDoc(rec.flex.base, stripFlexPadding(rec.flex.base, rec.doc, { everywhere: true }), { ws: rec.doc.analLang });
     save = d.ops.length > 0 || d.unsupported.length > 0;
   } catch { save = true; }   // cannot tell: say the work may not be in FLEx
   return { save, relink: !!pendingMediaFix(rec.flex).relink };
@@ -968,8 +969,8 @@ async function saveSteps(tx, id, rec, spin) {
    * changed the text since, the work goes onto FLEx's text as it is NOW (mergeFlexDocs) and the diff is
    * against THAT — so only the changes made here are written, and FLEx's own stay as they are. Where both
    * changed the same thing the user says which to keep, first. */
-  // blank lines an earlier Done added after FLEx's last line are this app's padding, never FLEx's (stripFlexPadding)
-  const mine = stripFlexPadding(rec.flex.base, rec.doc);
+  // a blank line — the Matcher's +, or an earlier Done's padding — pairs audio here and is never FLEx's (stripFlexPadding)
+  const mine = stripFlexPadding(rec.flex.base, rec.doc, { everywhere: true });
   let base = rec.flex.base, work = mine, baseRev = rec.flex.baseRev, merged = null;
   if (opened.baseRev !== rec.flex.baseRev) {
     merged = mergeFlexDocs(rec.flex.base, mine, opened.doc);

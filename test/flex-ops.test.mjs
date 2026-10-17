@@ -261,6 +261,12 @@ console.log('\nDone\'s blank line after a FLEx text\'s last line is padding, nev
   const mid = clone(b); mid.paragraphs.splice(1, 0, { guid: 'ln+mid', paraOf: 'P1', segments: [{ attrs: { guid: 'eng-mid' }, baseline: '', words: [], free: '' }] });
   mid.segments.splice(1, 0, { start: 0, end: 0, timePending: true });
   ok(stripFlexPadding(b, mid).paragraphs.length === 4, 'a blank line in the middle (a + someone pressed) is not padding');
+  // …but a save leaves every blank line out, wherever it is (the + is back on FLEx texts, 2026-10-17)
+  const ev = stripFlexPadding(b, mid, { everywhere: true });
+  ok(ev.paragraphs.length === 3 && ev.segments.length === 3 && ev.paragraphs.every((p) => p.guid !== 'ln+mid'), 'everywhere: the blank line and its span go, in step');
+  ok(diffFlexDoc(b, ev).unsupported.length === 0, 'so it never blocks a save');
+  ok(stripFlexPadding(b, typed, { everywhere: true }).paragraphs.length === 4, 'one typed into is still work, and still refused');
+  ok(stripFlexPadding(b, b, { everywhere: true }) === b, 'nothing blank: the same object back');
   const all = clone(b); all.paragraphs.push(clone(c.paragraphs[3]), { guid: 'ln+end4', segments: [] }); all.segments.push({ start: 0, end: 0 }, { start: 0, end: 0 });
   ok(stripFlexPadding(b, all).paragraphs.length === 3, 'several at the end, a line with no phrase at all among them: all padding');
   // a record whose only difference is the padding has no work of its own: re-opening reads FLEx again

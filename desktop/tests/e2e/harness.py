@@ -274,6 +274,9 @@ def start(tmp):
     # and a link that resolves
     MockLcm.create_project(str(projects), "export-main", texts=[{"title": "Export text", "paragraphs": ["aaa bbb ccc", "ddd eee\u2028fff ggg"], "media": [in_lf]}],
                            anal_wss=("en", "id"), ws_names=WS_NAMES)
+    # …and under Send/Receive, as a team's project is: a Mercurial store whose files a Send/Receive rewrites
+    (projects / "export-main" / ".hg" / "store").mkdir(parents=True)
+    (projects / "export-main" / ".hg" / "store" / "00changelog.i").write_bytes(b"c" * 64)
     b = MockLcm(str(projects))
     b.open("export-main", write=True)
     t = b.read_text(b.list_texts()[0]["guid"])
@@ -316,6 +319,10 @@ def start(tmp):
                     lock.write_text(json.dumps({"PID": os.getpid(), "ProcessName": "FieldWorks"}), encoding="utf-8")
                 elif lock.exists():
                     lock.unlink()
+                out = {"ok": True}
+            elif method == "__hgTouch":                  # a Send/Receive: the project's Mercurial store changes
+                f = projects / args[0] / ".hg" / "store" / "00changelog.i"
+                f.write_bytes(f.read_bytes() + b"cc")
                 out = {"ok": True}
             elif method == "__flexEdit":                 # FLEx edits a text while the shell has let go of it
                 out = {"ok": True, "result": flex_edit(str(projects), *args)}

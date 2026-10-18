@@ -63,6 +63,8 @@ STRUCTURAL = ("para.toPhrase", "para.join", "phrase.toPara", "para.split", "phra
               "phrase.moveBoundary", "word.split", "word.join", "word.insert", "baseline.replace")
 # ops that write a paragraph's words: only from a view of the words in the paragraph's own writing system
 WORD_EDITS = ("word.split", "word.join", "word.insert", "baseline.replace")
+# the ops that rewrite a paragraph's Contents or remake its segments — what a chart cell or text tag refers to
+REWRITES = WORD_EDITS + ("phrase.split", "phrase.join", "phrase.moveBoundary", "phrase.toPara", "para.toPhrase", "para.split", "para.join")
 
 
 def op_order(op):
@@ -263,6 +265,7 @@ class Session:
             if section["new"] and not section["counted"]:
                 deltas["PunctuationForm"] += 1
                 section["counted"] = True
+        refs = self.port.paragraph_refs(text_guid)   # paragraphs a chart cell or a text tag refers to (E_CHART_REFS)
         order = [p["guid"] for p in t["paragraphs"]]
         merged_end = {}                     # paragraph → index of the last paragraph a join merged into it
         absorbed = {}                       # paragraph → the paragraphs this save's joins merge into it
@@ -305,6 +308,11 @@ class Session:
             if pg in paras:
                 touched_paras.add(pg)
                 S.require_not_fragile(self.port, paras[pg])
+                if kind in REWRITES and pg in refs:
+                    # a discourse chart or a text tag points into this paragraph's segments and words: a rewrite
+                    # leaves that to LCM's AnalysisAdjuster, which Seth's notes (2026-10-17) saw get 7 of 876 wrong
+                    raise FlexError("E_CHART_REFS", "a discourse chart or text tag refers to this paragraph; make this change in FLEx",
+                                    {"para": pg, **refs[pg]})
             if sg is not None and sg not in segs and sg not in new_phrases:
                 raise FlexError("E_SCOPE", "phrase not in this text", {"seg": sg})
             if sg in new_phrases and sg not in segs and kind not in ("phrase.split", "phrase.toPara", "ft.set", "times.set"):

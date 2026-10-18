@@ -1040,6 +1040,31 @@ class MockLcm(FlexPort):
     def has_punct_form(self, form):
         return any(o.cls == "PunctuationForm" and o["Form"] == nfd(form) for o in self.store.values())
 
+    def paragraph_refs(self, text_guid):
+        """As liblcm's StTxtPara.GetChartCellRefs / GetTags count them: a cell or tag whose segments (either
+        end) are this paragraph's."""
+        out = {}
+        t = self.store.get(text_guid)
+        st = self.store[t["Contents"]]
+        for pg in st["Paragraphs"]:
+            segs = set(self.store[pg]["Segments"])
+            charts = sum(1 for o in self.store.values() if o.cls == "ConstChartWordGroup"
+                         and (o.get("BeginSegment") or o.get("EndSegment"))
+                         and (not o.get("BeginSegment") or o["BeginSegment"] in segs) and (not o.get("EndSegment") or o["EndSegment"] in segs))
+            tags = sum(1 for o in self.store.values() if o.cls == "TextTag" and o.get("BeginSegment") in segs and o.get("EndSegment") in segs)
+            if charts or tags:
+                out[pg] = {"charts": charts, "tags": tags}
+        return out
+
+    def add_chart_cell(self, seg_guid, end_seg_guid=None, tag=False):
+        """Test fixture: a discourse-chart cell (or, `tag`, a text tag) over a segment, as FLEx's Text Chart
+        / Text Tagging tools make them. Written to the file on the next save."""
+        o = Obj("TextTag" if tag else "ConstChartWordGroup", owner=self._lp, BeginSegment=seg_guid, EndSegment=end_seg_guid or seg_guid,
+                BeginAnalysisIndex=0, EndAnalysisIndex=0)
+        self.store[o.guid] = o
+        self._dirty.add(o.guid)
+        return o.guid
+
     def has_wordform(self, form, ws=None):
         return self.find_wordform(form, ws) is not None
 

@@ -164,12 +164,21 @@ flexicon's `CloseProject()`, which saves), the suspect `.fwdata` is renamed `.fw
 (never deleted), and the user is offered `.bak` or FLEx ▸ File ▸ Restore. Undo Save to FLEx / Redo
 Save to FLEx are the shell's own buttons; the Segmenter's own Undo never writes to FLEx.
 
-## Copy-only builds
+## Writing to the team's project (2026-10-18) — and the copy-only lock-down
 
-Every build is copy-only until Seth lifts it: write mode refuses unless the project folder carries
-`flextext-disposable-copy.txt`. The flag is read like `electron/src/flags.js` — anything but an
-exact `release-stamp.json` holding `{"copyOnlyLifted": true}` beside the executable means copy-only.
-Read-only features work on any project.
+A build writes to any project. For the **team's project** (one without the disposable-copy marker) Open for
+writing shows a checklist first — Send/Receive in FLEx (the dialog shows when the project's Send/Receive store
+last moved), then close FLEx and every other program using the project, confirm both — and takes a verified
+**snapshot** of the `.fwdata` into `%LOCALAPPDATA%\FlexTextSegmenterFLEx\snapshots\` before anything is
+written. Every protection a save already has stays (lock check, FLEx's verified backup zip, one unit of work,
+disk read-back, Undo Save to FLEx). **Recover…** on the project row puts the snapshot back if the project
+turns out broken: it refuses once a Send/Receive has happened since (the written data is the team's then),
+sets the current file aside, and gives the app's records their work back marked as not in FLEx. **Check the
+project in FLEx BEFORE your next Send/Receive** — Recover is clean only between the two. A paragraph a
+discourse chart or text tag refers to takes no split, join or word edit from here (`E_CHART_REFS`).
+
+The copy-only stamp is the lock-down now: `release-stamp.json` holding exactly `{"copyOnly": true}` beside the
+engine makes a build write only to marked copies again. Plan §12.3–12.4.
 
 **Making a disposable copy (FLEx closed):** copy the project folder under FLEx's projects folder to
 a new name, rename the `.fwdata` inside to match, add `flextext-disposable-copy.txt`, take a

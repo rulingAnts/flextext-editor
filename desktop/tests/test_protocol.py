@@ -155,6 +155,36 @@ def test_w1_fragile_paragraph_is_refused(world):
     assert ei.value.code == "E_FRAGILE_PARAGRAPH"
 
 
+def test_a_paragraph_a_chart_or_tag_refers_to_takes_no_rewrite(world):
+    """Seth's FLEx notes (2026-10-17): a paragraph rewrite left 7 of 876 chart references wrong, with no repair.
+    A chart cell or a text tag on a paragraph refuses the ops that remake its words or segments — by name, before
+    anything is written — and leaves a translation, a gloss or a time alone: those touch neither."""
+    w, s, port = world, world["s"], world["port"]
+    pg = w["doc"]["paragraphs"][0]["paraOf"]
+    seg = w["doc"]["paragraphs"][0]["segments"][0]
+    port.add_chart_cell(seg["attrs"]["guid"])
+    port.save()
+    s.texts[w["tg"]]["baseRev"] = model.base_rev(port.read_text(w["tg"]))
+    rev = s.texts[w["tg"]]["baseRev"]
+    assert port.paragraph_refs(w["tg"]) == {pg: {"charts": 1, "tags": 0}}
+    split = {"op": "phrase.split", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "afterWordIndex": 0, "newPhrase": "eng-n1", "times": None}
+    with pytest.raises(FlexError) as ei:
+        s.preview(w["tg"], rev, [split], {})
+    assert ei.value.code == "E_CHART_REFS" and ei.value.detail == {"para": pg, "charts": 1, "tags": 0}
+    ops = [ft_op(w, "fine")]
+    pv = s.preview(w["tg"], rev, ops, post_for(w, ops))   # a translation: not a rewrite
+    assert len(pv["summary"]) == 1
+    other = w["doc"]["paragraphs"][-1]   # the second FLEx paragraph (lines 0–2 are one paragraph's three phrases)
+    split2 = {"op": "phrase.split", "paraGuid": other["paraOf"], "segGuid": other["segments"][0]["attrs"]["guid"], "afterWordIndex": 0, "newPhrase": "eng-n2", "times": None}
+    assert s.preview(w["tg"], rev, [split2], {})["summary"], "the other paragraph is free"
+    port.add_chart_cell(other["segments"][0]["attrs"]["guid"], tag=True)
+    port.save()
+    s.texts[w["tg"]]["baseRev"] = rev = model.base_rev(port.read_text(w["tg"]))
+    with pytest.raises(FlexError) as ei:
+        s.preview(w["tg"], rev, [split2], {})
+    assert ei.value.code == "E_CHART_REFS" and ei.value.detail["tags"] == 1
+
+
 def test_w1_warnings_internal_eos_and_times_without_media(world):
     w, s = world, world["s"]
     seg = w["doc"]["paragraphs"][1]["segments"][0]

@@ -530,7 +530,13 @@ after an exception. So the shell **never calls `CloseProject()` on a poisoned se
   installed FLEx → else `E_MODEL_NEWER` / `E_MODEL_OLDER` ("open it in FLEx first"). Data
   migration is never run by the shell.
 - **B5 disk space.** Free space ≥ 3 × `.fwdata` size (tmp + bak + backup zip).
-- **B6 copy-only guard** (dev builds only, §12.3).
+- **B6 copy-only guard** — the lock-down stamp only, since 2026-10-18 (§12.3); a TEAM project (not a marked copy) goes
+  through the before-write checklist and a verified snapshot of its `.fwdata` instead (§12.4). `E_SHARING_ON` is
+  covered by the checklist's "FLEx and every other program closed" (prechecks `CONFIRMABLE`); C4 still refuses a peer.
+- **B7 chart / tag guard** (2026-10-18): `port.paragraph_refs(text)` — `IStTxtPara.GetChartCellRefs()` / `GetTags()` —
+  and the preview refuses (`E_CHART_REFS`) any op that rewrites such a paragraph's words or segments (`REWRITES`);
+  translations, glosses and times still go. Seth's notes saw LCM's AnalysisAdjuster get 7 of 876 chart references
+  wrong on a rewrite, with no repair; the shell does not try.
 
 **C — open:**
 
@@ -1381,18 +1387,62 @@ segmenting/matching is what I want loading in this … app."* A FLEx text opens 
 - The service worker: the shell serves no `sw.js` (404) so no stale engine is cached across shell
   upgrades; M1 confirms the engine tolerates that.
 
+### 12.4 Writing to the team's project (teamwrite.py, 2026-10-18)
+
+Seth: *"Have it remind the user to send and receive and confirm that they have BEFORE it starts the attempted
+write operation … Close FLEx and any other apps using the database … make a throwaway snapshot copy of their
+database (not the backup/restore function) and then if the user says 'RECOVER!', ask them to confirm that they
+did a send/receive before the changes and haven't done anything else since."* And: *"Using all the undo
+protection, etc first."* — so every protection a save already has stays in front (the lock check, FLEx's own
+verified backup zip, one unit of work, the disk read-back, Undo Save to FLEx), and this goes AROUND them.
+Where the filesystem can answer, it is verified, not asked.
+
+- **Open for writing** on a project that is not a marked copy (`team`), or has sharing on, shows the
+  **checklist** first (`write_plan` → `teamChecklist`): Send/Receive in FLEx — with *Last Send/Receive on this
+  computer: …* read from the `.hg` store's files, red when over an hour ago; close FLEx and every other program
+  using the project (sharing on: this is what the lock file cannot see, so it is said); the snapshot. Both boxes
+  ticked → `open_project(name, 'write', {sentReceived, appsClosed})`. The shell FAILS CLOSED: a team project
+  without both confirmations is `E_NEEDS_CONFIRM` whatever the page did; `E_SHARING_ON` is covered only by
+  `appsClosed`, and C4 (`AreMultipleApplicationsConnected`) still refuses a peer after the open.
+- **The snapshot** (`take_snapshot`): the `.fwdata` — the ONE file a save writes — copied verbatim into the
+  shell's own folder (`%LOCALAPPDATA%\FlexTextSegmenterFLEx\snapshots\<project>\<stamp>\`, never inside the
+  project folder, which Send/Receive and FLEx's backups both walk), hashed, with the `.hg` store's state
+  beside it; the newest three kept. A snapshot that does not match the file refuses the write session
+  (`E_BACKUP_FAILED`) rather than skipping. Every write of the session (save, undo, redo, import) notes the
+  file's hash afterwards (`note_write`), so RECOVER can tell this shell's writes from FLEx's later edits.
+- **RECOVER** (`Recover…` on the project row while a snapshot exists, project closed here): `recover_plan`
+  first, which REFUSES (`E_RECOVER_SENT_RECEIVED`, no dialog, the reason in words) when the `.hg` store changed
+  since the snapshot — the written data is the team's then, and an old file put back would make the next
+  Send/Receive revert the team's changes too; refuses while FLEx holds the project; says *already there* when
+  the file IS the snapshot. Otherwise the dialog: when the snapshot was taken, how many times this app wrote
+  after it, a red warning when the `.fwdata` changed after the last write here (FLEx edits since — lost too) or
+  when nothing was written here at all, Seth's two confirmations, RECOVER. `recover_snapshot` sets the current
+  file aside as `<name>.fwdata.before-recover-<stamp>` (never deleted), copies the snapshot in, verifies the
+  hash, and puts the set-aside file back if anything fails: the project is never without a `.fwdata`.
+- **The work stays** (`keepBeforeSave`): the first save of a write session stores the record's pre-save doc,
+  base and revision on the record under the snapshot's id; RECOVER gives those records their work back, marked
+  not in FLEx, so Save to FLEx offers it again once the project is right. Nothing of the hours of matching is
+  lost by recovering.
+- **The order after a save, which the toast says**: open the project in FLEx and check it BEFORE the next
+  Send/Receive. RECOVER is clean only between the two.
+- Pins: `desktop/tests/test_teamwrite.py` (the module and the bridge), e2e §20 (checklist → save → RECOVER with
+  the work kept → the refusal after a Send/Receive). [unverified] on real FLEx: `.hg` file names Chorus touches on
+  a Send/Receive (`HG_FILES`: changelog, manifest, dirstate, undo — the first real Send/Receive is the check).
+
 ### 12.2 Relationship to `electron/`
 
 The existing Electron shell (archival audio capture, loads the live site) is untouched. Merging
 the two shells is a later question (risk R7).
 
-### 12.3 Copy-only dev builds
+### 12.3 Copy-only dev builds — lifted 2026-10-18
 
-Until Seth signs off on the VM results, every build is **copy-only**: write mode refuses
-(`E_COPY_ONLY`) unless the project folder contains a marker file `flextext-disposable-copy.txt`
-created by the copy script, and the project name is not in a protected list. The flag is read
-like `electron/src/flags.js`: anything but an explicit release stamp means copy-only (fail
-closed). Read-only features work on any project.
+Until 2026-10-18 every build was **copy-only**: write mode refused (`E_COPY_ONLY`) unless the project
+folder carried `flextext-disposable-copy.txt`, with an exact release stamp the only way out. Seth,
+2026-10-18, deciding the team's project is to be written: *"Instead of only writing to a throwaway copy,
+what should happen is it should write a throwaway copy as a backup with a 'reverse/recover' button if the
+database turns out to be broken."* So a build writes to any project now — a team project through §12.4, a
+marked copy as before. The stamp is kept as the LOCK-DOWN: `release-stamp.json` holding exactly
+`{"copyOnly": true}` beside the engine makes a build copy-only again; anything else means writable.
 
 **Make a copy to write to…** (2026-10-16; Seth: *"So far audio segmenter can't write at all yet. Now's
 the time to start changing that."*) — beside the copy-only reason, for a project this build may not
@@ -1461,11 +1511,9 @@ copy, before writing: the confirmation says so).
 ## 14. Decisions for Seth
 
 - **Shared projects (Seth, 2026-10-14): "Eventually, we want it to work with shared projects
-  successfully. But for now, safe is what we want."** So E_SHARING_ON keeps refusing WRITES while
-  "Share project contents with programs on this computer" is on; reading works with sharing on
-  (and is the only way to read while FLEx holds the project). Writing to a shared project is a later
-  milestone with its own verification (peer schema guard, `AreMultipleApplicationsConnected`, the
-  conflicting-save path), not a flag to flip.
+  successfully. But for now, safe is what we want."** Decided 2026-10-18: the team's project IS written,
+  through §12.4 (the checklist, the snapshot, RECOVER); E_SHARING_ON is covered by the checklist's "every
+  program closed" and C4 (`AreMultipleApplicationsConnected`) still refuses a peer that is there after all.
 
 | # | Question | Recommendation |
 |---|---|---|

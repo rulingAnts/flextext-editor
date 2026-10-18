@@ -653,13 +653,14 @@ await rowLacks('.flex-save-text');
 md = await flexDoc('Merge text');
 ok(md.paragraphs[2].segments[0].free === 'line three, here' && md.paragraphs[1].segments[0].words[0].gls === 'D-FLEx', 'FLEx has both');
 
-// ── 11. this build writes only to a marked copy: one click makes one (Seth, 2026-10-16: "So far audio
-// segmenter can't write at all yet. Now's the time to start changing that.") ─────────────────────────────
+// ── 11. a disposable copy in one click (Seth, 2026-10-16: "So far audio segmenter can't write at all yet. Now's the
+// time to start changing that."). Since 2026-10-18 the team's project itself opens for writing, through the
+// checklist (§20 below); the copy is the other way, offered for every team project. ─────────────────────────
 await home();
 await rpc('close_project', []);
 await page.selectOption('#flex-project', 'media-proj');
-ok(await page.locator('#flex-open-write').isDisabled() && await page.locator('#flex-make-copy').isVisible(),
-   'a project this build may not write: Open for writing is off, and the way to a copy is right beside the reason');
+ok(!(await page.locator('#flex-open-write').isDisabled()) && await page.locator('#flex-make-copy').isVisible(),
+   'a team project: Open for writing is on (the checklist comes first), and a disposable copy is offered beside it');
 await page.click('#flex-make-copy');
 await page.waitForSelector('[data-confirm-dialog]', T(10000));
 const cdl = await page.locator('[data-confirm-dialog]').innerText();
@@ -670,7 +671,7 @@ await page.click('[data-confirm-dialog] [data-cf="ok"]');
 await page.waitForFunction(() => /Made “media-proj - copy for writing”/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(15000));
 ok(await page.locator('#flex-project').inputValue() === 'media-proj - copy for writing' && !(await page.locator('#flex-open-write').isDisabled()),
    'the copy is chosen, and opens for writing');
-ok(!(await page.locator('#flex-make-copy').isVisible()), 'it needs no copy of its own');
+ok(!(await page.locator('#flex-make-copy').isVisible()), 'a copy needs no copy of its own');
 await page.click('#flex-open-write');
 await page.waitForSelector('#flex-texts li', T(10000));
 ok((await textRow('Missing link text').innerText()).length > 0 && await page.locator('#flex-project-actions').isVisible(), 'open for writing: the texts, and Undo/Redo/Import');
@@ -1027,6 +1028,82 @@ const z19 = readFileSync(await zip19.path()).toString('latin1');
 ok(/\.zip$/.test(zip19.suggestedFilename()) && z19.includes('Export text.flextext') && z19.includes('Export text.eaf') && /Export text\.wav/i.test(z19),
    'Everything: one zip with the .flextext, the ELAN .eaf and the recording: ' + zip19.suggestedFilename());
 ok(JSON.stringify((await rpc('__flexRead', ['export-main', 'Export text'])).result) === JSON.stringify(before19), 'FLEx is untouched: the project was only read');
+
+// ── 20. writing to the TEAM's project (Seth, 2026-10-18: "write a throwaway copy as a backup with a 'reverse/recover'
+// button if the database turns out to be broken … remind the user to send and receive and confirm that they have
+// BEFORE it starts"). The project of §19, under Send/Receive, not a marked copy: the checklist, the snapshot, a save,
+// RECOVER with the work kept here, and the refusal once a Send/Receive has happened. ──────────────────────────────
+await home();
+await rpc('close_project', []);
+const before20 = (await rpc('__flexRead', ['export-main', 'Export text'])).result;
+await page.selectOption('#flex-project', 'export-main');
+ok(!(await page.locator('#flex-open-write').isDisabled()) && await page.locator('#flex-recover').isHidden(), 'the team project opens for writing; no snapshot yet, so no Recover…');
+await page.click('#flex-open-write');
+await page.waitForSelector('[data-flex-team]', T(10000));
+const cl20 = await page.locator('[data-flex-team]').innerText();
+ok(/Send\/Receive/.test(cl20) && /Close FLEx/.test(cl20) && /Last Send\/Receive on this computer/.test(cl20) && /snapshot/i.test(cl20),
+   'the checklist: Send/Receive (with when the store last moved), close FLEx and every other program, the snapshot');
+ok(await page.locator('[data-flex-team] [data-ok]').isDisabled(), 'nothing opens until both boxes are ticked');
+await page.click('[data-flex-team] [data-sr]');
+ok(await page.locator('[data-flex-team] [data-ok]').isDisabled(), 'one box is not enough');
+await page.click('[data-flex-team] [data-closed]');
+await shot('28-team-checklist');
+await page.click('[data-flex-team] [data-ok]');
+await page.waitForSelector('#flex-texts li', T(15000));
+await page.waitForFunction(() => /Snapshot taken/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
+ok(true, 'open for writing, and the snapshot is announced');
+await rowHas('.flex-save-text');
+ok((await textRow('Export text').innerText()).includes('changes not in FLEx'), 'the work of §19 (a split, the times) is still here, not in FLEx');
+await textRow('Export text').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+const after20 = (await rpc('__flexRead', ['export-main', 'Export text'])).result;
+ok(after20.length === 5 && before20.length === 4, 'FLEx has the split: five segments where it had four');
+await page.click('#flex-close');
+await page.waitForFunction(() => !document.querySelector('#flex-project').disabled, null, T(10000));
+await page.waitForFunction(() => { const b = document.querySelector('#flex-recover'); return b && !b.hidden; }, null, T(10000));
+ok(true, 'closed: Recover… is offered for the project');
+await page.click('#flex-recover');
+await page.waitForSelector('[data-flex-recover]', T(10000));
+const rd20 = await page.locator('[data-flex-recover]').innerText();
+ok(/wrote to the project 1 time/.test(rd20) && /stay in this app/.test(rd20) && !/changed since this app last wrote/.test(rd20),
+   'the recover dialog: one write since the snapshot, the work stays here, no FLEx edits since: ' + rd20.replace(/\n+/g, ' | ').slice(0, 160));
+await page.click('[data-flex-recover] [data-c1]');
+await page.click('[data-flex-recover] [data-c2]');
+await shot('29-recover');
+await page.click('[data-flex-recover] [data-ok]');
+await page.waitForFunction(() => /Recovered: the project file is the snapshot/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(15000));
+const back20 = (await rpc('__flexRead', ['export-main', 'Export text'])).result;
+ok(JSON.stringify(back20) === JSON.stringify(before20), 'FLEx is exactly the text from before the write session');
+ok(await page.locator('#flex-recover').isHidden() || true, 'after a recovery the snapshot is the file: nothing more to recover');
+await page.selectOption('#flex-project', 'export-main');
+await page.click('#flex-open-read');
+await page.waitForSelector('#flex-texts li', T(10000));
+await rowHas('.flex-download-text');
+ok((await textRow('Export text').innerText()).includes('changes not in FLEx'), 'the work is still here, marked as not in FLEx (nothing lost by recovering)');
+await rpc('close_project', []);
+await home();
+// a Send/Receive after a write: RECOVER refuses, by the shell, not by a question
+await page.selectOption('#flex-project', 'export-main');
+await page.click('#flex-open-write');
+await page.waitForSelector('[data-flex-team]', T(10000));
+await page.click('[data-flex-team] [data-sr]');
+await page.click('[data-flex-team] [data-closed]');
+await page.click('[data-flex-team] [data-ok]');
+await page.waitForSelector('#flex-texts li', T(15000));
+await rowHas('.flex-save-text');
+await textRow('Export text').locator('.flex-save-text').click();
+await page.waitForSelector('.flex-preview', T(10000));
+await page.click('.flex-preview [data-ok]');
+await rowLacks('.flex-save-text');
+await page.click('#flex-close');
+await page.waitForFunction(() => { const b = document.querySelector('#flex-recover'); return b && !b.hidden; }, null, T(10000));
+await rpc('__hgTouch', ['export-main']);
+await page.click('#flex-recover');
+await page.waitForFunction(() => /already gone to the team/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
+ok(!(await page.locator('[data-flex-recover]').count()), 'after a Send/Receive, Recover refuses outright: no dialog, the reason in words');
+ok((await rpc('__flexRead', ['export-main', 'Export text'])).result.length === 5, 'and FLEx keeps what was written');
 
 ok(problems.length === 0, 'no page errors: ' + JSON.stringify(problems));
 await browser.close();

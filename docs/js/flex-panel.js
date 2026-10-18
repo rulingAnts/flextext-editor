@@ -87,7 +87,10 @@ function renderHome() {
       <button id="flex-reset-all" class="link-btn" hidden>${esc(T('flex.resetAll'))}</button>
     </div>
     <p id="flex-reasons" class="flex-reasons" hidden></p>
-    <button id="flex-make-copy" class="secondary-btn" hidden>${esc(T('flex.copy.make'))}</button>
+    <div class="flex-row">
+      <button id="flex-make-copy" class="secondary-btn" hidden>${esc(T('flex.copy.make'))}</button>
+      <button id="flex-recover" class="secondary-btn" hidden title="${esc(T('flex.recover.title'))}">${esc(T('flex.recover'))}</button>
+    </div>
     <div class="flex-row" id="flex-project-actions" hidden>
       <button id="flex-undo" class="secondary-btn" title="${esc(T('flex.undoTip'))}" disabled>${esc(T('flex.undo'))}</button>
       <button id="flex-redo" class="secondary-btn" disabled>${esc(T('flex.redo'))}</button>
@@ -115,6 +118,7 @@ function renderHome() {
   $('#flex-close', box).addEventListener('click', closeProject);
   $('#flex-reset-all', box).addEventListener('click', resetAll);
   $('#flex-make-copy', box).addEventListener('click', makeCopy);
+  $('#flex-recover', box).addEventListener('click', recoverProject);
   wireListTools(box);
   $('#flex-undo', box).addEventListener('click', () => undoRedo('undo'));
   $('#flex-redo', box).addEventListener('click', () => undoRedo('redo'));
@@ -156,13 +160,17 @@ if (typeof window !== 'undefined') {
 function onProjectPick() {
   const p = projects.find((x) => x.name === $('#flex-project').value);
   $('#flex-open-read').disabled = !p || !p.readable;
-  $('#flex-open-write').disabled = !p || !p.writable;
+  // the team's project opens for writing through the before-write checklist (teamwrite.py), which also covers
+  // sharing being on; a marked copy opens as it always did
+  $('#flex-open-write').disabled = !p || !(p.writable || p.writableWithChecklist);
   // every reason writing (or reading) is off, one per line, each saying what to do — and a way to look again
-  const why = p ? p.reasons.map((c) => T('flex.err.' + c)) : [];
+  const why = p ? p.reasons.filter((c) => !(c === 'E_SHARING_ON' && p.writableWithChecklist)).map((c) => T('flex.err.' + c)) : [];
   showReasons(why);
   $('#flex-open-write').title = why.join('\n');
-  // this build writes only to a marked copy: the way to one, right where it says so
-  $('#flex-make-copy').hidden = !p || !!project || !p.reasons.includes('E_COPY_ONLY');
+  // a disposable copy is a choice for a team project, no longer the only way to write
+  $('#flex-make-copy').hidden = !p || !!project || !p.team;
+  // RECOVER: while a snapshot of this project exists (a write session opened it), with nothing open here
+  $('#flex-recover').hidden = !p || !!project || !p.snapshot;
 }
 function showReasons(lines) {
   const r = $('#flex-reasons');
@@ -176,11 +184,22 @@ function showReasons(lines) {
 async function openProject(mode) {
   const name = $('#flex-project').value;
   if (!name) return;
+  const p = projects.find((x) => x.name === name);
+  let confirm = null;
+  if (mode === 'write' && p && (p.team || p.reasons.includes('E_SHARING_ON'))) {
+    let plan;
+    const reading = working(T('flex.reading'));
+    try { plan = await flex.writePlan(name); } catch (e) { reading(); fail(e); return; } finally { reading(); }
+    confirm = await teamChecklist(plan);
+    if (!confirm) return;
+  }
   const done = working(T('flex.openingProject', { p: name }));   // the list of texts is part of the wait
   try {
     try {
-      const r = await flex.openProject(name, mode);
-      project = { name, writable: r.writable, ws: r.ws, printViewConfig: r.printViewConfig, texts: await flex.listTexts() };
+      const r = await flex.openProject(name, mode, confirm);
+      project = { name, writable: r.writable, ws: r.ws, printViewConfig: r.printViewConfig, texts: await flex.listTexts(),
+        team: !!r.team, snapshot: r.snapshot || null };
+      if (r.writable && r.snapshot) H.toast(T('flex.team.snapshotNote', { t: new Date(r.snapshot.takenAt).toLocaleTimeString() }), 12000);
     } catch (e) {
       done();
       fail(e);
@@ -201,6 +220,7 @@ async function showOpenProject() {
   $('#flex-reset-all').hidden = false;   // read-only too: it changes nothing in FLEx
   $('#flex-list-tools').hidden = false;
   $('#flex-make-copy').hidden = true;    // a copy is made with nothing open here
+  $('#flex-recover').hidden = true;      // and so is a recovery
   $('#flex-open-read').disabled = $('#flex-open-write').disabled = true;
   $('#flex-reasons').hidden = true;
   $('#flex-project-actions').hidden = !project.writable;
@@ -220,6 +240,136 @@ async function closeProject() {
   $('#flex-project-actions').hidden = true;
   onProjectPick();
   await refreshProjects();   // its lock is gone now, and the others may have changed meanwhile
+}
+
+/* ---- writing to the TEAM's project (desktop/flexshell/teamwrite.py; Seth, 2026-10-18) ------------------------
+ * "it should write a throwaway copy as a backup with a 'reverse/recover' button if the database turns out to be
+ * broken. Have it remind the user to send and receive and confirm that they have BEFORE it starts the attempted
+ * write operation … Close FLEx and any other apps using the database." Every protection a save already has stays:
+ * the checklist and the snapshot go AROUND them. What the filesystem can answer is shown, not asked: when the
+ * project's Send/Receive store last moved; and RECOVER is refused by the shell, not the user, once a Send/Receive
+ * has happened since the snapshot (the written data is the team's then). */
+function agoText(ms) {
+  const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  if (m < 90) return T('flex.ago.minutes', { n: m });
+  if (m < 36 * 60) return T('flex.ago.hours', { n: Math.round(m / 60) });
+  return T('flex.ago.days', { n: Math.round(m / 1440) });
+}
+const AN_HOUR = 60 * 60 * 1000;
+/* → { sentReceived: true, appsClosed: true } or null (Cancel). Both boxes must be ticked; a Send/Receive long ago
+ * is said in red beside the box, and the dialog is where the user comes back to after doing one. */
+function teamChecklist(plan) {
+  return new Promise((resolve) => {
+    const sr = plan.sendReceive || {};
+    const srLine = !sr.present ? T('flex.team.lastSRNone')
+      : T('flex.team.lastSR', { when: sr.lastActivity ? new Date(sr.lastActivity).toLocaleString() + ' (' + agoText(sr.lastActivity) + ')' : '?' });
+    const old = sr.present && (!sr.lastActivity || Date.now() - sr.lastActivity > AN_HOUR);
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.flexTeam = '1';
+    wrap.innerHTML = `<div class="modal-card flex-ws-card" role="dialog" aria-modal="true">
+      <h3>${esc(T('flex.team.title', { p: plan.name }))}</h3>
+      <p>${esc(T('flex.team.intro'))}</p>
+      <ol class="flex-team-steps">
+        <li>${esc(T('flex.team.step1'))} <span class="flex-media-note">${esc(srLine)}</span>${old ? ' <span class="flex-reset-lose">' + esc(T('flex.team.lastSROld')) + '</span>' : ''}</li>
+        <li>${esc(T('flex.team.step2'))}${plan.sharing ? ' <span class="flex-media-note">' + esc(T('flex.team.sharingNote')) + '</span>' : ''}</li>
+        <li>${esc(T('flex.team.step3', { s: sizeText(plan.fwdataBytes || 0) }))}</li>
+      </ol>
+      <label class="flex-reset-media"><input type="checkbox" data-sr> <span>${esc(T('flex.team.confirmSR'))}</span></label>
+      <label class="flex-reset-media"><input type="checkbox" data-closed> <span>${esc(T('flex.team.confirmClosed'))}</span></label>
+      <div class="flex-row">
+        <button class="secondary-btn" data-cancel>${esc(T('share.cancel'))}</button>
+        <button class="primary-btn" data-ok disabled>${esc(T('flex.team.ok'))}</button>
+      </div>
+    </div>`;
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    const boxes = [wrap.querySelector('[data-sr]'), wrap.querySelector('[data-closed]')];
+    const okBtn = wrap.querySelector('[data-ok]');
+    boxes.forEach((b) => b.addEventListener('change', () => { okBtn.disabled = !boxes.every((x) => x.checked); }));
+    okBtn.addEventListener('click', () => { if (boxes.every((x) => x.checked)) done({ sentReceived: true, appsClosed: true }); });
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(null));
+    wrap.querySelector('[data-cancel]').focus();
+  });
+}
+/* The work a save is about to put into FLEx, kept on the record with the snapshot's id (`beforeSave`), so RECOVER
+ * — which takes FLEx back to the snapshot — can give the record its work back, marked as not in FLEx. Once per
+ * snapshot: the first save of a write session is the one whose "before" is the snapshot's state. */
+function keepBeforeSave(rec) {
+  const snap = project && project.team && project.snapshot;
+  if (!snap || !rec || !rec.flex) return;
+  if (rec.flex.beforeSave && rec.flex.beforeSave.snapshotId === snap.id) return;
+  rec.flex.beforeSave = { snapshotId: snap.id, at: Date.now(), doc: clone(rec.doc), base: clone(rec.flex.base), baseRev: rec.flex.baseRev,
+    dirty: !!rec.flex.dirty, mediaFix: rec.flex.mediaFix ? clone(rec.flex.mediaFix) : null, linkOk: !!rec.flex.linkOk };
+}
+function recoverDialog(plan) {
+  return new Promise((resolve) => {
+    const snap = plan.snapshot;
+    const warn = [plan.warnings.includes('fwdataChangedSinceWrite') ? T('flex.recover.warnFlexEdits') : '',
+      plan.warnings.includes('nothingWrittenHere') ? T('flex.recover.warnNothing') : ''].filter(Boolean);
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.flexRecover = '1';
+    wrap.innerHTML = `<div class="modal-card flex-ws-card" role="dialog" aria-modal="true">
+      <h3>${esc(T('flex.recover.title'))}</h3>
+      <p>${esc(T('flex.recover.body', { p: plan.project, t: new Date(snap.takenAt).toLocaleString(), n: snap.saves }))}</p>
+      ${warn.map((w) => '<p class="flex-reset-lose">' + esc(w) + '</p>').join('')}
+      <p class="flex-media-note">${esc(T('flex.recover.workKept'))}</p>
+      <label class="flex-reset-media"><input type="checkbox" data-c1> <span>${esc(T('flex.recover.confirm1'))}</span></label>
+      <label class="flex-reset-media"><input type="checkbox" data-c2> <span>${esc(T('flex.recover.confirm2'))}</span></label>
+      <div class="flex-row">
+        <button class="secondary-btn" data-cancel>${esc(T('share.cancel'))}</button>
+        <button class="primary-btn" data-ok disabled>${esc(T('flex.recover.ok'))}</button>
+      </div>
+    </div>`;
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    const boxes = [wrap.querySelector('[data-c1]'), wrap.querySelector('[data-c2]')];
+    const okBtn = wrap.querySelector('[data-ok]');
+    boxes.forEach((b) => b.addEventListener('change', () => { okBtn.disabled = !boxes.every((x) => x.checked); }));
+    okBtn.addEventListener('click', () => { if (boxes.every((x) => x.checked)) done(true); });
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(false));
+    wrap.querySelector('[data-cancel]').focus();
+  });
+}
+async function recoverProject() {
+  if (busy || project) return;
+  const name = $('#flex-project').value;
+  if (!name) return;
+  let plan;
+  const reading = working(T('flex.reading'));
+  try { plan = await flex.recoverPlan(name); } catch (e) { reading(); fail(e); return; } finally { reading(); }
+  if (plan.alreadyThere) { H.toast(T('flex.recover.already'), 8000); return; }
+  if (plan.refusal) { H.toast(T('flex.err.' + plan.refusal), 15000); return; }
+  if (!await recoverDialog(plan)) return;
+  busy = true;
+  const done = working(T('flex.reading'));
+  try {
+    const r = await flex.recoverSnapshot(name, plan.snapshot.id);
+    // the records of this project that a save of that write session put into FLEx: their work comes back, not in FLEx
+    const docs = await H.db.listDocs().catch(() => []);
+    for (const d of docs) {
+      if (!isFlexDocOf(d.id, name)) continue;
+      const rec = await H.db.getDoc(d.id).catch(() => null);
+      const b = rec && rec.flex && rec.flex.beforeSave;
+      if (!b || b.snapshotId !== plan.snapshot.id) continue;
+      rec.doc = b.doc; rec.title = b.doc.title || rec.title;
+      rec.flex.base = b.base; rec.flex.baseRev = b.baseRev; rec.flex.dirty = true;
+      rec.flex.mediaFix = b.mediaFix; rec.flex.linkOk = b.linkOk;
+      delete rec.flex.beforeSave;
+      rec.modified = Date.now();
+      Object.assign(rec, H.docStats(rec.doc));
+      await H.db.putDoc(rec);
+    }
+    done();
+    if (r.restored) H.toast(T('flex.recover.done', { t: new Date(plan.snapshot.takenAt).toLocaleString(), f: baseName(r.setAside || '') }), 15000);
+    else H.toast(T('flex.recover.already'), 8000);
+  } catch (e) { done(); fail(e); } finally { done(); busy = false; }
+  await refreshProjects();
 }
 
 /* ---- Make a copy to write to (plan §12.3) -------------------------------------------------------------
@@ -1020,6 +1170,7 @@ async function saveSteps(tx, id, rec, spin) {
   done();
   const kept = merged && merged.theirs ? T(merged.theirs === 1 ? 'flex.merge.kept1' : 'flex.merge.keptN', { n: merged.theirs }) : '';
   if (!await showPreview(preview, blockers, flexBlockers(work, diff.touched).filter((b) => !b.blocking), kept)) return;
+  keepBeforeSave(rec);   // RECOVER's way back for this text's work: before anything of it reaches FLEx
   const prog = progressModal(T('flex.saving'));
   try {
     const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
@@ -1105,6 +1256,7 @@ async function fixLinkNow(tx) {
     const preview = await flex.relinkPreview(tx.guid, fix.uriGuid, fix.path);
     done();
     if (!await showPreview(preview, [], [])) return;
+    keepBeforeSave(rec);
     const prog = progressModal(T('flex.saving'));
     try {
       const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);

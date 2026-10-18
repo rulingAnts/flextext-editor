@@ -3874,6 +3874,8 @@ a.offsite-off, area.offsite-off {
 /* Reset… (plan §8.4): what goes is said first; Cancel is the default */
 .flex-reset-lose{color:#b91c1c;font-weight:600}
 .flex-reset-media{display:flex;gap:.5rem;align-items:flex-start;margin:.6rem 0;font-size:.9rem}
+.flex-team-steps{padding-left:1.3rem;margin:.4rem 0;text-align:left}
+.flex-team-steps li{margin:.35rem 0}
 .flex-reset-media input{margin-top:.2rem}
 /* check-in with a merge (plan §4.5): where both sides changed the same thing, and what FLEx changed that stays */
 .flex-merge-list{max-height:40vh;overflow:auto;text-align:left;padding-left:1.2rem}

@@ -55,7 +55,7 @@ def wait(api, job):
 
 def test_hello_is_pure(api):
     h = ok(api.hello())
-    assert h["contract"] == FLEX_CONTRACT and h["copyOnly"] is True and h["engineVersion"] == "v999"
+    assert h["contract"] == FLEX_CONTRACT and h["copyOnly"] is False and h["engineVersion"] == "v999"
     assert h["capabilities"]["offsiteAuth"] is False and h["modelVersion"] == 7000072
     assert api._session is None and api._factory.last is None, "no LCM work"
 
@@ -84,8 +84,10 @@ def test_list_projects_is_filesystem_only(api):
     projects = {p["name"]: p for p in ok(api.list_projects())}
     assert set(projects) == {"copy-api", "prod", "shared"}
     assert projects["copy-api"]["writable"] and projects["copy-api"]["disposableCopy"]
-    assert projects["prod"]["reasons"] == ["E_COPY_ONLY"] and projects["prod"]["readable"]
-    assert projects["shared"]["sharing"] and "E_SHARING_ON" in projects["shared"]["reasons"]
+    assert projects["prod"]["reasons"] == [] and projects["prod"]["readable"] and projects["prod"]["writable"] and projects["prod"]["team"]
+    assert projects["prod"]["sendReceive"] == {"present": False, "lastActivity": None} and projects["prod"]["snapshot"] is None
+    assert projects["shared"]["sharing"] and "E_SHARING_ON" in projects["shared"]["reasons"] and projects["shared"]["writableWithChecklist"]
+    assert not projects["copy-api"]["team"]
     assert api._factory.last is None, "never opens a project"
 
 
@@ -98,7 +100,7 @@ def test_make_a_copy_to_write_to_through_the_bridge(api, tmp_path):
     assert st["state"] == "done" and st["result"] == {"name": "prod - copy for writing"}, st
     listed = {p["name"]: p for p in ok(api.list_projects())}
     assert listed["prod - copy for writing"]["writable"] and listed["prod - copy for writing"]["disposableCopy"]
-    assert listed["prod"]["reasons"] == ["E_COPY_ONLY"], "the original is as it was"
+    assert listed["prod"]["reasons"] == [] and listed["prod"]["team"], "the original is as it was"
     ok(api.open_project("prod - copy for writing", "write"))
     assert len(ok(api.list_texts())) == len(TEXTS)
     ok(api.close_project())
@@ -125,12 +127,19 @@ def test_open_write_read_close_lifecycle(api):
     assert len(texts) == 1 and texts[0]["title"] == "api text" and texts[0]["segs"] == 3
     assert ok(api.close_project()) == {"saved": False}
     assert err(api.list_texts())["code"] == "E_NOT_FOUND"
-    # production-like project: copy-only refuses write, allows read
-    assert err(api.open_project("prod", "write"))["code"] == "E_COPY_ONLY"
+    # the team's project (no marker): the before-write checklist is required, fail closed (teamwrite.py)
+    assert err(api.open_project("prod", "write"))["code"] == "E_NEEDS_CONFIRM"
+    assert err(api.open_project("prod", "write", {"sentReceived": True}))["code"] == "E_NEEDS_CONFIRM"
+    assert err(api.open_project("prod", "write", {"sentReceived": "yes", "appsClosed": True}))["code"] == "E_NEEDS_CONFIRM", "a truthy string is not a confirmation"
     r = ok(api.open_project("prod", "read"))
-    assert r["writable"] is False
+    assert r["writable"] is False and r["snapshot"] is None, "reading takes no snapshot"
     ok(api.close_project())
+    # sharing on: the lock file cannot tell who holds the project; closing every program and saying so covers it
     assert err(api.open_project("shared", "write"))["code"] == "E_SHARING_ON"
+    assert err(api.open_project("shared", "write", {"sentReceived": True}))["code"] == "E_SHARING_ON"
+    r = ok(api.open_project("shared", "write", {"sentReceived": True, "appsClosed": True}))
+    assert r["writable"] and r["team"] and r["snapshot"]["saves"] == 0
+    ok(api.close_project())
     ok(api.open_project("shared", "read"))
     ok(api.close_project())
     assert err(api.open_project("../etc", "read"))["code"] == "E_NOT_FOUND"

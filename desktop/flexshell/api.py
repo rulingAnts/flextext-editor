@@ -18,7 +18,7 @@ import time
 import traceback
 
 from . import FLEX_CONTRACT, SHELL_VERSION
-from . import copyonly, mediafind, prechecks, trace
+from . import copyonly, mediafind, prechecks, teamwrite, trace
 from .errors import FlexError
 from .protocol import Session
 from .server import MediaRegistry
@@ -99,6 +99,8 @@ class Api:
         self._engine_root = engine_root
         self._projects_dir = projects_dir or getattr(backend_factory, "projects_dir", None)
         self._copy_only = copyonly.is_copy_only(stamp_dir or engine_root)
+        self._state_dir = state_dir or default_state_dir()
+        self._snapshot = None   # teamwrite snapshot of the write session open now (a team project), else None
         self._media = MediaRegistry()
         self._worker = worker or Worker(name="flexshell-lcm")
         self._registry = ProjectRegistry()
@@ -167,6 +169,11 @@ class Api:
             marker = copyonly.project_is_disposable_copy(folder, name)
             r = prechecks.check_project(folder, name, info.get("modelVersion"), copy_only=self._copy_only, marker_ok=marker)
             r["disposableCopy"] = marker
+            # a TEAM project (not a marked copy) is written through the before-write checklist and a snapshot
+            # (teamwrite.py); the page shows the checklist first, and offers Recover… while a snapshot exists
+            r["team"] = not marker
+            r["sendReceive"] = teamwrite.send_receive_info(folder)
+            r["snapshot"] = teamwrite.summary(teamwrite.latest_snapshot(self._state_dir, name))
             out.append(r)
         self._report_projects(out)
         return out
@@ -188,7 +195,27 @@ class Api:
         self._listed = now
 
     @exposed
-    def open_project(self, name, mode="read"):
+    def write_plan(self, name):
+        """What opening a project for writing involves (teamwrite.py): whether it is the team's project or a
+        marked copy, its Send/Receive store and when it last moved, sharing, the snapshot it would take, and the
+        snapshot there already. Pure filesystem."""
+        folder = self._project_folder(name)
+        info = self._install_info()
+        marker = copyonly.project_is_disposable_copy(folder, name)
+        r = prechecks.check_project(folder, name, info.get("modelVersion"), copy_only=self._copy_only, marker_ok=marker)
+        fw = os.path.join(folder, name + ".fwdata")
+        return {"name": name, "team": not marker, "sharing": r["sharing"], "lock": r["lock"], "reasons": r["reasons"],
+                "writable": r["writable"], "writableWithChecklist": r["writableWithChecklist"],
+                "sendReceive": teamwrite.send_receive_info(folder),
+                "fwdataBytes": os.path.getsize(fw) if os.path.isfile(fw) else 0,
+                "free": prechecks.free_space(self._state_dir if os.path.isdir(self._state_dir) else folder),
+                "snapshot": teamwrite.summary(teamwrite.latest_snapshot(self._state_dir, name))}
+
+    @exposed
+    def open_project(self, name, mode="read", confirm=None):
+        """`confirm` (write mode, a team project or sharing on): {sentReceived: bool, appsClosed: bool} — the
+        before-write checklist the user confirmed (teamwrite.py). A team project opens for writing only with
+        both, and only after a verified snapshot of its .fwdata; a marked copy needs neither."""
         if mode not in ("read", "write"):
             raise FlexError("E_SCOPE", "mode must be read or write", {"mode": mode})
         if not isinstance(name, str) or not name or os.sep in name or "/" in name or name.startswith("."):
@@ -201,12 +228,28 @@ class Api:
         info = self._install_info()
         marker = copyonly.project_is_disposable_copy(folder, name)
         report = prechecks.check_project(folder, name, info.get("modelVersion"), copy_only=self._copy_only and mode == "write", marker_ok=marker)
+        confirm = confirm if isinstance(confirm, dict) else {}
+        confirmed = set()
         if mode == "write":
-            prechecks.require_write(report)
-            copyonly.check_write_allowed(folder, name, self._copy_only)   # B6, fail closed
+            team = not marker
+            if confirm.get("appsClosed") is True:
+                confirmed.add("E_SHARING_ON")   # FLEx and every other program closed: the lock file's blind spot, covered
+            prechecks.require_write(report, confirmed)
+            copyonly.check_write_allowed(folder, name, self._copy_only)   # B6: a locked-down build, marked copies only
+            if team and not (confirm.get("sentReceived") is True and confirm.get("appsClosed") is True):
+                # fail closed: the team's project is written only after the checklist, whatever the page did
+                raise FlexError("E_NEEDS_CONFIRM", "Send/Receive, then close FLEx and every other program using the project, and confirm both first",
+                                {"project": name, "team": True})
         else:
             prechecks.require_read(report)
         self._registry.claim(name)
+        snapshot = None
+        if mode == "write" and not marker:
+            try:
+                snapshot = teamwrite.take_snapshot(self._state_dir, folder, name)   # before anything is written; refuses rather than skips
+            except Exception:
+                self._registry.release()
+                raise
 
         def job(j):
             # EVERY port call on the worker thread, this read-back included: the eighth VM launch read
@@ -227,9 +270,44 @@ class Api:
         except Exception:
             self._registry.release()
             raise
+        self._snapshot = snapshot
         return {"session": name, "writable": mode == "write", "reasons": report["reasons"], "ws": ws,
                 "printViewConfig": _print_view_config(folder), "glossWsDefaults": [w["id"] for w in ws["anal"][:1]],
-                "versions": versions}
+                "versions": versions, "team": not marker, "snapshot": teamwrite.summary(snapshot)}
+
+    def _noted(self, s, what, fn, text_guid=None):
+        """A write job on a team project: after it, the file's hash goes into the snapshot's record, so RECOVER
+        can tell this shell's writes from FLEx's later edits (teamwrite.note_write)."""
+        snap, name, state_dir = self._snapshot, self._registry.open_name, self._state_dir
+
+        def run(j):
+            r = fn(j)
+            if snap:
+                try:
+                    teamwrite.note_write(state_dir, name, snap["id"], s.port.project_dir(), what, text_guid)
+                except Exception:   # noqa: BLE001 — the write succeeded; a missing note costs a warning at recover time
+                    pass
+            return r
+        return run
+
+    @exposed
+    def recover_plan(self, name):
+        """What RECOVER would do to a project, and what stops it (teamwrite.recover_plan). Reads only."""
+        folder = self._project_folder(name)
+        if self._session is not None and self._registry.open_name == name:
+            raise FlexError("E_ALREADY_OPEN", "close the project here first", {"open": name})
+        lock, _info = prechecks.read_lock(folder, name)
+        return teamwrite.recover_plan(self._state_dir, folder, name, lock)
+
+    @exposed
+    def recover_snapshot(self, name, snapshot_id):
+        """RECOVER: put the snapshot's .fwdata back (teamwrite.recover): only with the project closed here and in FLEx,
+        and only while no Send/Receive has happened since the snapshot."""
+        folder = self._project_folder(name)
+        if self._session is not None and self._registry.open_name == name:
+            raise FlexError("E_ALREADY_OPEN", "close the project here first", {"open": name})
+        lock, _info = prechecks.read_lock(folder, name)
+        return teamwrite.recover(self._state_dir, folder, name, str(snapshot_id or ""), lock)
 
     def _project_folder(self, name):
         if not isinstance(name, str) or not name or os.sep in name or "/" in name or name.startswith("."):
@@ -276,6 +354,7 @@ class Api:
             r = self._worker.run("close_project", lambda j: s.close())
         finally:
             self._session = None
+            self._snapshot = None
             self._registry.release()
             self._media.clear()
             with self._lock:
@@ -451,17 +530,17 @@ class Api:
     @exposed
     def save_to_flex(self, preview_token):
         s = self._need_session()
-        return self._job("save_to_flex", lambda j: s.save(preview_token, progress=lambda m: setattr(j, "progress", m)))
+        return self._job("save_to_flex", self._noted(s, "save", lambda j: s.save(preview_token, progress=lambda m: setattr(j, "progress", m))))
 
     @exposed
     def undo_flex(self):
         s = self._need_session()
-        return self._job("undo_flex", lambda j: s.undo_save(progress=lambda m: setattr(j, "progress", m)))
+        return self._job("undo_flex", self._noted(s, "undo", lambda j: s.undo_save(progress=lambda m: setattr(j, "progress", m))))
 
     @exposed
     def redo_flex(self):
         s = self._need_session()
-        return self._job("redo_flex", lambda j: s.redo_save(progress=lambda m: setattr(j, "progress", m)))
+        return self._job("redo_flex", self._noted(s, "redo", lambda j: s.redo_save(progress=lambda m: setattr(j, "progress", m))))
 
     @exposed
     def relink_preview(self, text_guid, uri_guid, new_path):
@@ -497,7 +576,7 @@ class Api:
     @exposed
     def import_flextext(self, preview_token):
         s = self._need_session()
-        return self._job("import_flextext", lambda j: s.import_flextext(preview_token, progress=lambda m: setattr(j, "progress", m)))
+        return self._job("import_flextext", self._noted(s, "import", lambda j: s.import_flextext(preview_token, progress=lambda m: setattr(j, "progress", m))))
 
     @exposed
     def recover(self, choice):

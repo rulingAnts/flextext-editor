@@ -144,6 +144,13 @@ class FlexPort(ABC):
     @abstractmethod
     def has_punct_form(self, form): ...
     @abstractmethod
+    def paragraph_refs(self, text_guid):
+        """{paraGuid: {"charts": n, "tags": n}} for every paragraph of the text that a discourse chart
+        cell (ConstChartWordGroup, by Begin/EndSegmentRA and analysis index) or a text tag (TextTag)
+        refers to — IStTxtPara.GetChartCellRefs() / GetTags() [source: liblcm StTxtPara.cs]. A rewrite of
+        such a paragraph is what LCM's AnalysisAdjuster repairs, and Seth's notes (2026-10-17) record 7 of
+        876 references coming out wrong; the shell refuses it instead (protocol.preview, E_CHART_REFS)."""
+    @abstractmethod
     def has_wordform(self, form, ws=None): ...
     @abstractmethod
     def find_wordform(self, form, ws=None): ...

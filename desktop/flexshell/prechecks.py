@@ -180,6 +180,8 @@ def check_project(folder, name, installed_model_version, pid_alive=None, process
             "lockInfo": {k: lockinfo.get(k) for k in ("PID", "ProcessName")} if isinstance(lockinfo, dict) else None,
             "crashedSave": bool(st["crashedSave"]), "localFixedDrive": local, "cloudSynced": cloud,
             "readOnlyFile": bool(st.get("readOnly")), "writable": not reasons, "reasons": reasons,
+            # writable once the before-write checklist is confirmed (every reason is one it covers)
+            "writableWithChecklist": all(r in CONFIRMABLE for r in reasons),
             # read mode is allowed with sharing on, and with a stale lock; everything else blocks it too
             "readable": st["fwdata"] and not st["crashedSave"] and lock not in (LOCK_FLEX, LOCK_OTHER, LOCK_BUSY)
                         and not any(r in reasons for r in ("E_MODEL_NEWER", "E_MODEL_OLDER"))}
@@ -202,8 +204,16 @@ MESSAGES = {
 }
 
 
-def require_write(report):
+# A reason the before-write checklist covers (teamwrite.py): sharing on means the lock file cannot tell whether
+# FLEx or another program holds the project, so the user closes them and says so — and C4 (peers connected,
+# checked once the project is open) still refuses when one is there after all.
+CONFIRMABLE = frozenset({"E_SHARING_ON"})
+
+
+def require_write(report, confirmed=()):
     for code in report["reasons"]:
+        if code in CONFIRMABLE and code in confirmed:
+            continue
         raise FlexError(code, MESSAGES.get(code, code), {"project": report["name"], "reasons": report["reasons"]})
 
 

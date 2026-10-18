@@ -572,6 +572,18 @@ class RealLcm(FlexPort):
     def has_wordform(self, form, ws=None):
         return self.find_wordform(form, ws) is not None
 
+    def paragraph_refs(self, text_guid):
+        """IStTxtPara.GetChartCellRefs() and GetTags() [source: InterfaceAdditions.cs; both on the interface].
+        [unverified] on real data: the first VM run over a charted text is the check (V-list)."""
+        self._t()
+        out = {}
+        for p in self._paras(self._text(text_guid)):
+            charts = len(list(p.GetChartCellRefs()))
+            tags = len(list(p.GetTags()))
+            if charts or tags:
+                out[str(p.Guid)] = {"charts": charts, "tags": tags}
+        return out
+
     def find_wordform(self, form, ws=None):
         self._t()
         from SIL.LCModel import IWfiWordformRepository   # type: ignore[import-not-found]

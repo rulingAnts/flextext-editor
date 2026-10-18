@@ -1,7 +1,11 @@
-"""Copy-only dev builds (plan §12.3). Until Seth signs off on the VM results, every build refuses
-write mode unless the project folder carries the disposable-copy marker — and the flag is read the
-way electron/src/flags.js reads its DevTools flag: anything but an explicit release stamp means
-copy-only. Fail closed."""
+"""Copy-only builds (plan §12.3) — LIFTED 2026-10-18. Until then every build refused write mode unless the
+project folder carried the disposable-copy marker, with an exact release stamp the only way out. Seth,
+2026-10-18, deciding the team project is to be written: "Instead of only writing to a throwaway copy, what
+should happen is it should write a throwaway copy as a backup with a 'reverse/recover' button". So a build
+writes to any project now, through teamwrite.py's checklist and snapshot (a team project) or as before (a
+marked copy, which has no Send/Receive and no team). The stamp is kept as the way to LOCK a build back
+down: `release-stamp.json` holding exactly {"copyOnly": true} beside the engine makes it copy-only again.
+Anything else — no stamp, another shape, the old {"copyOnlyLifted": true} — means writable."""
 
 import json
 import os
@@ -16,16 +20,16 @@ PROTECTED_NAMES = frozenset()   # filled per deployment from settings; the defau
 
 
 def is_copy_only(stamp_dir=None):
-    """True unless `<stamp_dir>/release-stamp.json` holds exactly {"copyOnlyLifted": true}."""
+    """True only when `<stamp_dir>/release-stamp.json` holds exactly {"copyOnly": true} (the lock-down)."""
     if not stamp_dir:
-        return True
+        return False
     p = os.path.join(stamp_dir, STAMP_FILE)
     try:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
-        return True
-    return not (isinstance(data, dict) and data.get("copyOnlyLifted") is True and len(data) == 1)
+        return False
+    return isinstance(data, dict) and data.get("copyOnly") is True and len(data) == 1
 
 
 def project_is_disposable_copy(project_dir, project_name=None, protected=PROTECTED_NAMES):

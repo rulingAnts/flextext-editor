@@ -1,4 +1,6 @@
-"""Copy-only builds fail closed (plan §12.3)."""
+"""Copy-only builds — lifted 2026-10-18 (Seth: the team project is to be written, through teamwrite.py's
+checklist and snapshot). The stamp is now the LOCK-DOWN: exactly {"copyOnly": true} makes a build copy-only
+again; anything else, the old lift stamp included, means writable."""
 import json
 
 import pytest
@@ -7,20 +9,21 @@ from flexshell import copyonly
 from flexshell.errors import FlexError
 
 
-def test_no_stamp_means_copy_only(tmp_path):
-    assert copyonly.is_copy_only(None) is True
-    assert copyonly.is_copy_only(str(tmp_path)) is True
-
-
-@pytest.mark.parametrize("content", ['{"copyOnlyLifted": "true"}', '{"copyOnlyLifted": 1}', 'true', '{"copyOnlyLifted": true, "x": 1}', 'not json', '{}'])
-def test_anything_but_the_exact_stamp_is_copy_only(tmp_path, content):
-    (tmp_path / copyonly.STAMP_FILE).write_text(content, encoding="utf-8")
-    assert copyonly.is_copy_only(str(tmp_path)) is True
-
-
-def test_the_exact_stamp_lifts_it(tmp_path):
-    (tmp_path / copyonly.STAMP_FILE).write_text(json.dumps({"copyOnlyLifted": True}), encoding="utf-8")
+def test_no_stamp_means_writable(tmp_path):
+    assert copyonly.is_copy_only(None) is False
     assert copyonly.is_copy_only(str(tmp_path)) is False
+
+
+@pytest.mark.parametrize("content", ['{"copyOnly": "true"}', '{"copyOnly": 1}', 'true', '{"copyOnly": true, "x": 1}', 'not json', '{}',
+                                     '{"copyOnlyLifted": true}'])
+def test_anything_but_the_exact_lock_down_stamp_is_writable(tmp_path, content):
+    (tmp_path / copyonly.STAMP_FILE).write_text(content, encoding="utf-8")
+    assert copyonly.is_copy_only(str(tmp_path)) is False
+
+
+def test_the_exact_lock_down_stamp_makes_it_copy_only(tmp_path):
+    (tmp_path / copyonly.STAMP_FILE).write_text(json.dumps({"copyOnly": True}), encoding="utf-8")
+    assert copyonly.is_copy_only(str(tmp_path)) is True
 
 
 def test_marker_file_allows_a_copy(tmp_path):

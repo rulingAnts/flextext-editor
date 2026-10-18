@@ -85,7 +85,7 @@ def test_list_projects_is_filesystem_only(api):
     assert set(projects) == {"copy-api", "prod", "shared"}
     assert projects["copy-api"]["writable"] and projects["copy-api"]["disposableCopy"]
     assert projects["prod"]["reasons"] == [] and projects["prod"]["readable"] and projects["prod"]["writable"] and projects["prod"]["team"]
-    assert projects["prod"]["sendReceive"] == {"present": False, "lastActivity": None} and projects["prod"]["snapshot"] is None
+    assert projects["prod"]["sendReceive"] == {"present": False, "lastActivity": None, "tip": None, "log": []} and projects["prod"]["snapshot"] is None
     assert projects["shared"]["sharing"] and "E_SHARING_ON" in projects["shared"]["reasons"] and projects["shared"]["writableWithChecklist"]
     assert not projects["copy-api"]["team"]
     assert api._factory.last is None, "never opens a project"

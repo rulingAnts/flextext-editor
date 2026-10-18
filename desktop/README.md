@@ -170,9 +170,10 @@ A build writes to any project. For the **team's project** (one without the dispo
 writing shows a checklist first — Send/Receive in FLEx (the dialog shows when the project's Send/Receive store
 last moved), then close FLEx and every other program using the project, confirm both — and takes a verified
 **snapshot** of the `.fwdata` into `%LOCALAPPDATA%\FlexTextSegmenterFLEx\snapshots\` before anything is
-written. Every protection a save already has stays (lock check, FLEx's verified backup zip, one unit of work,
-disk read-back, Undo Save to FLEx). **Recover…** on the project row puts the snapshot back if the project
-turns out broken: it refuses once a Send/Receive has happened since (the written data is the team's then),
+written, and another before every later write that follows a change (each with the project's Send/Receive log, for
+FLEx support if a project ever needs repair). Every protection a save already has stays (lock check, FLEx's verified
+backup zip, one unit of work, disk read-back, Undo Save to FLEx). **Recover…** on the project row puts a chosen
+snapshot back if the project turns out broken: it refuses once a Send/Receive has happened since (the written data is the team's then),
 sets the current file aside, and gives the app's records their work back marked as not in FLEx. **Check the
 project in FLEx BEFORE your next Send/Receive** — Recover is clean only between the two. A paragraph a
 discourse chart or text tag refers to takes no split, join or word edit from here (`E_CHART_REFS`).

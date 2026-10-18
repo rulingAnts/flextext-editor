@@ -172,7 +172,7 @@ class Api:
             # a TEAM project (not a marked copy) is written through the before-write checklist and a snapshot
             # (teamwrite.py); the page shows the checklist first, and offers Recover… while a snapshot exists
             r["team"] = not marker
-            r["sendReceive"] = teamwrite.send_receive_info(folder)
+            r["sendReceive"] = teamwrite.send_receive_info(folder, log=[])   # the log costs an hg run: write_plan has it
             r["snapshot"] = teamwrite.summary(teamwrite.latest_snapshot(self._state_dir, name))
             out.append(r)
         self._report_projects(out)
@@ -206,7 +206,7 @@ class Api:
         fw = os.path.join(folder, name + ".fwdata")
         return {"name": name, "team": not marker, "sharing": r["sharing"], "lock": r["lock"], "reasons": r["reasons"],
                 "writable": r["writable"], "writableWithChecklist": r["writableWithChecklist"],
-                "sendReceive": teamwrite.send_receive_info(folder),
+                "sendReceive": teamwrite.send_receive_info(folder, info.get("codeDir")),
                 "fwdataBytes": os.path.getsize(fw) if os.path.isfile(fw) else 0,
                 "free": prechecks.free_space(self._state_dir if os.path.isdir(self._state_dir) else folder),
                 "snapshot": teamwrite.summary(teamwrite.latest_snapshot(self._state_dir, name))}
@@ -246,7 +246,7 @@ class Api:
         snapshot = None
         if mode == "write" and not marker:
             try:
-                snapshot = teamwrite.take_snapshot(self._state_dir, folder, name)   # before anything is written; refuses rather than skips
+                snapshot = teamwrite.take_snapshot(self._state_dir, folder, name, code_dir=info.get("codeDir"))   # before anything is written; refuses rather than skips
             except Exception:
                 self._registry.release()
                 raise
@@ -276,28 +276,44 @@ class Api:
                 "versions": versions, "team": not marker, "snapshot": teamwrite.summary(snapshot)}
 
     def _noted(self, s, what, fn, text_guid=None):
-        """A write job on a team project: after it, the file's hash goes into the snapshot's record, so RECOVER
-        can tell this shell's writes from FLEx's later edits (teamwrite.note_write)."""
-        snap, name, state_dir = self._snapshot, self._registry.open_name, self._state_dir
+        """A write job on a team project: a snapshot of the file as it is NOW goes first — a new one whenever the file
+        changed since the last (so every write has its own way back, Seth, 2026-10-18: a second save of a text must
+        not cost the first its recovery), the last one reused when nothing changed — and afterwards the file's hash
+        goes into that snapshot's record, so RECOVER can tell this shell's writes from FLEx's later edits. The result
+        names the snapshot (`snapshot`), so the page can key the work it kept to it."""
+        name, state_dir = self._registry.open_name, self._state_dir
+        team = self._snapshot is not None
+        code_dir = self._install_info().get("codeDir") if team else None
 
         def run(j):
+            snap = self._snapshot
+            if team:
+                folder = s.port.project_dir()
+                fw = os.path.join(folder, name + ".fwdata")
+                if not snap or not os.path.isfile(fw) or teamwrite.sha256(fw) != snap["fwdata"]["sha256"]:
+                    snap = teamwrite.take_snapshot(state_dir, folder, name, code_dir=code_dir)   # refuses the write rather than skipping
+                    self._snapshot = snap
             r = fn(j)
             if snap:
+                noted = None
                 try:
-                    teamwrite.note_write(state_dir, name, snap["id"], s.port.project_dir(), what, text_guid)
+                    noted = teamwrite.note_write(state_dir, name, snap["id"], s.port.project_dir(), what, text_guid)
                 except Exception:   # noqa: BLE001 — the write succeeded; a missing note costs a warning at recover time
                     pass
+                if isinstance(r, dict):
+                    r = dict(r, snapshot=teamwrite.summary(noted or snap))
             return r
         return run
 
     @exposed
-    def recover_plan(self, name):
-        """What RECOVER would do to a project, and what stops it (teamwrite.recover_plan). Reads only."""
+    def recover_plan(self, name, snapshot_id=None):
+        """What RECOVER would do to a project, and what stops it (teamwrite.recover_plan) — for the newest snapshot,
+        or the one named; every snapshot is listed. Reads only (one hg run for the Send/Receive log)."""
         folder = self._project_folder(name)
         if self._session is not None and self._registry.open_name == name:
             raise FlexError("E_ALREADY_OPEN", "close the project here first", {"open": name})
         lock, _info = prechecks.read_lock(folder, name)
-        return teamwrite.recover_plan(self._state_dir, folder, name, lock)
+        return teamwrite.recover_plan(self._state_dir, folder, name, lock, snapshot_id=snapshot_id or None, code_dir=self._install_info().get("codeDir"))
 
     @exposed
     def recover_snapshot(self, name, snapshot_id):
@@ -307,7 +323,7 @@ class Api:
         if self._session is not None and self._registry.open_name == name:
             raise FlexError("E_ALREADY_OPEN", "close the project here first", {"open": name})
         lock, _info = prechecks.read_lock(folder, name)
-        return teamwrite.recover(self._state_dir, folder, name, str(snapshot_id or ""), lock)
+        return teamwrite.recover(self._state_dir, folder, name, str(snapshot_id or ""), lock, code_dir=self._install_info().get("codeDir"))
 
     def _project_folder(self, name):
         if not isinstance(name, str) or not name or os.sep in name or "/" in name or name.startswith("."):

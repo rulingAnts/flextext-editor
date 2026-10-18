@@ -1060,6 +1060,7 @@ await page.click('.flex-preview [data-ok]');
 await rowLacks('.flex-save-text');
 const after20 = (await rpc('__flexRead', ['export-main', 'Export text'])).result;
 ok(after20.length === 5 && before20.length === 4, 'FLEx has the split: five segments where it had four');
+ok(/check this save BEFORE saving more or doing a Send\/Receive/.test(await toasts()), 'the saved toast says: check in FLEx before more saves or a Send/Receive');
 await page.click('#flex-close');
 await page.waitForFunction(() => !document.querySelector('#flex-project').disabled, null, T(10000));
 await page.waitForFunction(() => { const b = document.querySelector('#flex-recover'); return b && !b.hidden; }, null, T(10000));
@@ -1069,6 +1070,7 @@ await page.waitForSelector('[data-flex-recover]', T(10000));
 const rd20 = await page.locator('[data-flex-recover]').innerText();
 ok(/wrote to the project 1 time/.test(rd20) && /stay in this app/.test(rd20) && !/changed since this app last wrote/.test(rd20),
    'the recover dialog: one write since the snapshot, the work stays here, no FLEx edits since: ' + rd20.replace(/\n+/g, ' | ').slice(0, 160));
+ok(await page.locator('[data-flex-recover] [data-snap] option').count() === 1, 'one write, one snapshot to go back to');
 await page.click('[data-flex-recover] [data-c1]');
 await page.click('[data-flex-recover] [data-c2]');
 await shot('29-recover');

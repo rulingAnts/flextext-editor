@@ -271,7 +271,7 @@ function teamChecklist(plan) {
       <h3>${esc(T('flex.team.title', { p: plan.name }))}</h3>
       <p>${esc(T('flex.team.intro'))}</p>
       <ol class="flex-team-steps">
-        <li>${esc(T('flex.team.step1'))} <span class="flex-media-note">${esc(srLine)}</span>${old ? ' <span class="flex-reset-lose">' + esc(T('flex.team.lastSROld')) + '</span>' : ''}</li>
+        <li>${esc(T('flex.team.step1'))} <span class="flex-media-note">${esc(srLine)}${sr.tip ? ' ' + esc(T('flex.team.lastCommit', { d: sr.tip.date || '', id: String(sr.tip.id || '').slice(0, 12) })) : ''}</span>${old ? ' <span class="flex-reset-lose">' + esc(T('flex.team.lastSROld')) + '</span>' : ''}</li>
         <li>${esc(T('flex.team.step2'))}${plan.sharing ? ' <span class="flex-media-note">' + esc(T('flex.team.sharingNote')) + '</span>' : ''}</li>
         <li>${esc(T('flex.team.step3', { s: sizeText(plan.fwdataBytes || 0) }))}</li>
       </ol>
@@ -297,25 +297,64 @@ function teamChecklist(plan) {
 /* The work a save is about to put into FLEx, kept on the record with the snapshot's id (`beforeSave`), so RECOVER
  * — which takes FLEx back to the snapshot — can give the record its work back, marked as not in FLEx. Once per
  * snapshot: the first save of a write session is the one whose "before" is the snapshot's state. */
+const BEFORE_SAVES_MAX = 12;
 function keepBeforeSave(rec) {
-  const snap = project && project.team && project.snapshot;
-  if (!snap || !rec || !rec.flex) return;
-  if (rec.flex.beforeSave && rec.flex.beforeSave.snapshotId === snap.id) return;
-  rec.flex.beforeSave = { snapshotId: snap.id, at: Date.now(), doc: clone(rec.doc), base: clone(rec.flex.base), baseRev: rec.flex.baseRev,
+  if (!(project && project.team) || !rec || !rec.flex) return null;
+  const entry = { snapshotId: null, at: Date.now(), doc: clone(rec.doc), base: clone(rec.flex.base), baseRev: rec.flex.baseRev,
     dirty: !!rec.flex.dirty, mediaFix: rec.flex.mediaFix ? clone(rec.flex.mediaFix) : null, linkOk: !!rec.flex.linkOk };
+  rec.flex.beforeSaves = [...(rec.flex.beforeSaves || []).slice(-(BEFORE_SAVES_MAX - 1)), entry];
+  delete rec.flex.beforeSave;   // the one-per-session form of 9eb919d
+  return entry;
 }
-function recoverDialog(plan) {
+// the write job answered: the snapshot the shell took before it is the one this entry is the way back from
+function stampBeforeSave(entry, r) {
+  if (entry && r && r.snapshot) { entry.snapshotId = r.snapshot.id; entry.snapshotAt = r.snapshot.takenAt; }
+}
+/* RECOVER took FLEx back to the snapshot taken at `takenAt`: every write from here after it is undone there, so each
+ * record gets back the state before its FIRST write after that moment; later entries go (their "before" is a FLEx
+ * that no longer exists). Entries are matched by the snapshot the shell named, else by time. */
+async function restoreRecordsAfter(name, snap, known) {
+  const at = (e) => (e.snapshotId && known.has(e.snapshotId) ? known.get(e.snapshotId) : (e.snapshotAt || e.at));
+  const docs = await H.db.listDocs().catch(() => []);
+  let n = 0;
+  for (const d of docs) {
+    if (!isFlexDocOf(d.id, name)) continue;
+    const rec = await H.db.getDoc(d.id).catch(() => null);
+    const list = (rec && rec.flex && (rec.flex.beforeSaves || (rec.flex.beforeSave ? [rec.flex.beforeSave] : []))) || [];
+    const after = list.filter((e) => at(e) >= snap.takenAt - 1000).sort((x, y) => at(x) - at(y));
+    if (!after.length) continue;
+    const b = after[0];
+    rec.doc = b.doc; rec.title = b.doc.title || rec.title;
+    rec.flex.base = b.base; rec.flex.baseRev = b.baseRev; rec.flex.dirty = true;
+    rec.flex.mediaFix = b.mediaFix; rec.flex.linkOk = b.linkOk;
+    rec.flex.beforeSaves = list.filter((e) => at(e) < snap.takenAt - 1000);
+    delete rec.flex.beforeSave;
+    rec.modified = Date.now();
+    Object.assign(rec, H.docStats(rec.doc));
+    await H.db.putDoc(rec);
+    n++;
+  }
+  return n;
+}
+/* → the chosen snapshot's plan, or null (Cancel). Every snapshot of the project is offered, newest first — one per
+ * write since 2026-10-18 — and the body follows the choice (a fresh plan from the shell for each). */
+function recoverDialog(plan0, name) {
   return new Promise((resolve) => {
-    const snap = plan.snapshot;
-    const warn = [plan.warnings.includes('fwdataChangedSinceWrite') ? T('flex.recover.warnFlexEdits') : '',
-      plan.warnings.includes('nothingWrittenHere') ? T('flex.recover.warnNothing') : ''].filter(Boolean);
+    let plan = plan0;
+    const warnOf = (p) => [p.warnings.includes('fwdataChangedSinceWrite') ? T('flex.recover.warnFlexEdits') : '',
+      p.warnings.includes('nothingWrittenHere') ? T('flex.recover.warnNothing') : ''].filter(Boolean);
+    const body = (p) => `<p data-body>${esc(T('flex.recover.body', { p: p.project, t: new Date(p.snapshot.takenAt).toLocaleString(), n: p.snapshot.saves }))}</p>
+      ${warnOf(p).map((w) => '<p class="flex-reset-lose">' + esc(w) + '</p>').join('')}
+      ${p.refusal ? '<p class="flex-reset-lose">' + esc(T('flex.err.' + p.refusal)) + '</p>' : ''}`;
+    const options = (plan0.snapshots || [plan0.snapshot]).map((s) =>
+      `<option value="${esc(s.id)}"${s.id === plan0.snapshot.id ? ' selected' : ''}>${esc(T('flex.recover.option', { t: new Date(s.takenAt).toLocaleString(), n: s.saves }))}</option>`).join('');
     const wrap = document.createElement('div');
     wrap.className = 'modal';
     wrap.dataset.flexRecover = '1';
     wrap.innerHTML = `<div class="modal-card flex-ws-card" role="dialog" aria-modal="true">
       <h3>${esc(T('flex.recover.title'))}</h3>
-      <p>${esc(T('flex.recover.body', { p: plan.project, t: new Date(snap.takenAt).toLocaleString(), n: snap.saves }))}</p>
-      ${warn.map((w) => '<p class="flex-reset-lose">' + esc(w) + '</p>').join('')}
+      <label class="flex-ws-row">${esc(T('flex.recover.pick'))} <select data-snap>${options}</select></label>
+      <div data-plan>${body(plan)}</div>
       <p class="flex-media-note">${esc(T('flex.recover.workKept'))}</p>
       <label class="flex-reset-media"><input type="checkbox" data-c1> <span>${esc(T('flex.recover.confirm1'))}</span></label>
       <label class="flex-reset-media"><input type="checkbox" data-c2> <span>${esc(T('flex.recover.confirm2'))}</span></label>
@@ -324,15 +363,22 @@ function recoverDialog(plan) {
         <button class="primary-btn" data-ok disabled>${esc(T('flex.recover.ok'))}</button>
       </div>
     </div>`;
-    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
     const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
     document.addEventListener('keydown', onKey, true);
     document.body.appendChild(wrap);
     const boxes = [wrap.querySelector('[data-c1]'), wrap.querySelector('[data-c2]')];
     const okBtn = wrap.querySelector('[data-ok]');
-    boxes.forEach((b) => b.addEventListener('change', () => { okBtn.disabled = !boxes.every((x) => x.checked); }));
-    okBtn.addEventListener('click', () => { if (boxes.every((x) => x.checked)) done(true); });
-    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(false));
+    const ready = () => { okBtn.disabled = !(boxes.every((x) => x.checked) && plan && !plan.refusal && !plan.alreadyThere); };
+    boxes.forEach((b) => b.addEventListener('change', ready));
+    wrap.querySelector('[data-snap]').addEventListener('change', async (e) => {
+      okBtn.disabled = true;
+      try { plan = await flex.recoverPlan(name, e.target.value); } catch (err) { fail(err); return; }
+      wrap.querySelector('[data-plan]').innerHTML = body(plan);
+      ready();
+    });
+    okBtn.addEventListener('click', () => { if (boxes.every((x) => x.checked) && plan && !plan.refusal) done(plan); });
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => done(null));
     wrap.querySelector('[data-cancel]').focus();
   });
 }
@@ -343,28 +389,19 @@ async function recoverProject() {
   let plan;
   const reading = working(T('flex.reading'));
   try { plan = await flex.recoverPlan(name); } catch (e) { reading(); fail(e); return; } finally { reading(); }
-  if (plan.alreadyThere) { H.toast(T('flex.recover.already'), 8000); return; }
-  if (plan.refusal) { H.toast(T('flex.err.' + plan.refusal), 15000); return; }
-  if (!await recoverDialog(plan)) return;
+  if (plan.alreadyThere && (plan.snapshots || []).length <= 1) { H.toast(T('flex.recover.already'), 8000); return; }
+  if (plan.refusal && plan.refusal !== 'E_NO_SNAPSHOT') { H.toast(T('flex.err.' + plan.refusal), 15000); return; }
+  if (plan.refusal === 'E_NO_SNAPSHOT' && !plan.snapshot) { H.toast(T('flex.err.E_NO_SNAPSHOT'), 8000); return; }
+  const chosen = await recoverDialog(plan, name);
+  if (!chosen) return;
+  plan = chosen;
   busy = true;
   const done = working(T('flex.reading'));
   try {
     const r = await flex.recoverSnapshot(name, plan.snapshot.id);
-    // the records of this project that a save of that write session put into FLEx: their work comes back, not in FLEx
-    const docs = await H.db.listDocs().catch(() => []);
-    for (const d of docs) {
-      if (!isFlexDocOf(d.id, name)) continue;
-      const rec = await H.db.getDoc(d.id).catch(() => null);
-      const b = rec && rec.flex && rec.flex.beforeSave;
-      if (!b || b.snapshotId !== plan.snapshot.id) continue;
-      rec.doc = b.doc; rec.title = b.doc.title || rec.title;
-      rec.flex.base = b.base; rec.flex.baseRev = b.baseRev; rec.flex.dirty = true;
-      rec.flex.mediaFix = b.mediaFix; rec.flex.linkOk = b.linkOk;
-      delete rec.flex.beforeSave;
-      rec.modified = Date.now();
-      Object.assign(rec, H.docStats(rec.doc));
-      await H.db.putDoc(rec);
-    }
+    // the records whose work a write after that snapshot put into FLEx: it comes back here, marked not in FLEx
+    const known = new Map((plan.snapshots || []).map((s) => [s.id, s.takenAt]));
+    await restoreRecordsAfter(name, plan.snapshot, known);
     done();
     if (r.restored) H.toast(T('flex.recover.done', { t: new Date(plan.snapshot.takenAt).toLocaleString(), f: baseName(r.setAside || '') }), 15000);
     else H.toast(T('flex.recover.already'), 8000);
@@ -1170,11 +1207,12 @@ async function saveSteps(tx, id, rec, spin) {
   done();
   const kept = merged && merged.theirs ? T(merged.theirs === 1 ? 'flex.merge.kept1' : 'flex.merge.keptN', { n: merged.theirs }) : '';
   if (!await showPreview(preview, blockers, flexBlockers(work, diff.touched).filter((b) => !b.blocking), kept)) return;
-  keepBeforeSave(rec);   // RECOVER's way back for this text's work: before anything of it reaches FLEx
+  const before = keepBeforeSave(rec);   // RECOVER's way back for this text's work: before anything of it reaches FLEx
   const prog = progressModal(T('flex.saving'));
   try {
     const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
     prog.close();
+    stampBeforeSave(before, r);
     if (diff.ops.some((o) => o.op === 'media.relink' || o.op === 'media.attach')) { rec.flex.mediaFix = null; rec.flex.linkOk = true; }
     /* FLEx now holds the work (and, after a merge, its own changes with it): this app's copy becomes FLEx's
      * text as read just now — FLEx's own shape (no § a join took out, LCM's guids for what the save made,
@@ -1192,7 +1230,7 @@ async function saveSteps(tx, id, rec, spin) {
     updateHistoryButtons();
     project.texts = await flex.listTexts().catch(() => project.texts);
     await renderTexts();
-    H.toast(T('flex.saved', { n: r.saved, b: (r.backup && r.backup.path || '').split(/[\\/]/).pop() }), 7000);
+    H.toast(T('flex.saved', { n: r.saved, b: (r.backup && r.backup.path || '').split(/[\\/]/).pop() }) + (project.team ? ' ' + T('flex.team.afterSave') : ''), project.team ? 14000 : 7000);
   } catch (e) {
     prog.close();
     fail(e, true);
@@ -1256,11 +1294,12 @@ async function fixLinkNow(tx) {
     const preview = await flex.relinkPreview(tx.guid, fix.uriGuid, fix.path);
     done();
     if (!await showPreview(preview, [], [])) return;
-    keepBeforeSave(rec);
+    const before = keepBeforeSave(rec);
     const prog = progressModal(T('flex.saving'));
     try {
       const r = await flexJobWithProgress('save_to_flex', preview.previewToken, prog.set);
       prog.close();
+      stampBeforeSave(before, r);
       rec.flex.mediaFix = null;
       rec.flex.linkOk = true;
       await refreshMediaList(rec, tx.guid);

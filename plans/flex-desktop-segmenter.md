@@ -1404,10 +1404,18 @@ Where the filesystem can answer, it is verified, not asked.
   ticked → `open_project(name, 'write', {sentReceived, appsClosed})`. The shell FAILS CLOSED: a team project
   without both confirmations is `E_NEEDS_CONFIRM` whatever the page did; `E_SHARING_ON` is covered only by
   `appsClosed`, and C4 (`AreMultipleApplicationsConnected`) still refuses a peer after the open.
-- **The snapshot** (`take_snapshot`): the `.fwdata` — the ONE file a save writes — copied verbatim into the
+- **The snapshot** (`take_snapshot`), ONE PER WRITE (Seth, 2026-10-18, on the first form's one-per-session limit:
+  a second save of a text must not cost the first its way back): the open takes one, and every write job
+  (`_noted`: save, undo, redo, import) takes another whenever the file changed since the last — the same one
+  serves when nothing did — and names it in its result. Each snapshot records the project's Send/Receive log
+  (`hg_log`: the last 25 commits' ids, dates, authors, first lines, through Chorus's own `hg.exe` under FLEx's
+  install folder [unverified path] or an `hg` on PATH; nothing when neither is there) — *"helpful data to report
+  to FLEx support if we need to recover a thoroughly broken project"* — and its tip is a second way to see a
+  Send/Receive (a moved tip refuses RECOVER even when the watched files kept their sizes and times). The
+  `.fwdata` — the ONE file a save writes — copied verbatim into the
   shell's own folder (`%LOCALAPPDATA%\FlexTextSegmenterFLEx\snapshots\<project>\<stamp>\`, never inside the
   project folder, which Send/Receive and FLEx's backups both walk), hashed, with the `.hg` store's state
-  beside it; the newest three kept. A snapshot that does not match the file refuses the write session
+  beside it; the newest eight kept. A snapshot that does not match the file refuses the write session
   (`E_BACKUP_FAILED`) rather than skipping. Every write of the session (save, undo, redo, import) notes the
   file's hash afterwards (`note_write`), so RECOVER can tell this shell's writes from FLEx's later edits.
 - **RECOVER** (`Recover…` on the project row while a snapshot exists, project closed here): `recover_plan`
@@ -1419,12 +1427,16 @@ Where the filesystem can answer, it is verified, not asked.
   when nothing was written here at all, Seth's two confirmations, RECOVER. `recover_snapshot` sets the current
   file aside as `<name>.fwdata.before-recover-<stamp>` (never deleted), copies the snapshot in, verifies the
   hash, and puts the set-aside file back if anything fails: the project is never without a `.fwdata`.
-- **The work stays** (`keepBeforeSave`): the first save of a write session stores the record's pre-save doc,
-  base and revision on the record under the snapshot's id; RECOVER gives those records their work back, marked
-  not in FLEx, so Save to FLEx offers it again once the project is right. Nothing of the hours of matching is
-  lost by recovering.
-- **The order after a save, which the toast says**: open the project in FLEx and check it BEFORE the next
-  Send/Receive. RECOVER is clean only between the two.
+- **The work stays** (`keepBeforeSave` / `restoreRecordsAfter`): every save stores the record's pre-save doc, base
+  and revision (`beforeSaves`, the last twelve), stamped with the snapshot the shell named for that write; the
+  Recover dialog offers every snapshot (*Go back to: the file as it was at … — n writes after it*, a fresh plan for
+  each choice), and RECOVER gives each record the state before its FIRST write after the chosen moment, marked
+  not in FLEx, so Save to FLEx offers the work again once the project is right. Nothing of the hours of matching
+  is lost by recovering, however many saves there were.
+- **The order after a save, which the saved toast says on a team project**: open the project in FLEx and check
+  the save BEFORE saving more or doing a Send/Receive (Seth: *"strongly recommend that the user test to make sure
+  the edit worked without causing damage … and then send and receive before trying to make more edits"*).
+  RECOVER is clean only until the Send/Receive.
 - Pins: `desktop/tests/test_teamwrite.py` (the module and the bridge), e2e §20 (checklist → save → RECOVER with
   the work kept → the refusal after a Send/Receive). [unverified] on real FLEx: `.hg` file names Chorus touches on
   a Send/Receive (`HG_FILES`: changelog, manifest, dirstate, undo — the first real Send/Receive is the check).

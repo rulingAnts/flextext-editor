@@ -30,12 +30,14 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import time
 
 from .errors import FlexError
 
 SNAPSHOTS = "snapshots"
-KEEP = 3                        # snapshots kept per project; older ones go
+KEEP = 8                        # snapshots kept per project (one per write since 2026-10-18); older ones go
+HG_LOG_N = 25                   # Send/Receive commits recorded with a snapshot, for FLEx support if a project ever needs repair
 # what a Send/Receive touches in the Mercurial store: a changeset arriving or leaving rewrites these
 HG_FILES = ("store/00changelog.i", "store/00manifest.i", "dirstate", "store/undo", "branch", "undo.dirstate")
 
@@ -73,9 +75,46 @@ def hg_state(folder):
     return {"present": True, "lastActivity": (newest // 1_000_000) if newest else None, "sig": sig}
 
 
-def send_receive_info(folder):
+def find_hg(code_dir=None):
+    """Chorus's own Mercurial, shipped with FieldWorks (`<RootCodeDir>\\Mercurial\\hg.exe` [unverified path]), else an
+    `hg` on PATH; None when neither is there — the log is then simply not recorded."""
+    cands = []
+    if code_dir:
+        cands += [os.path.join(code_dir, "Mercurial", "hg.exe"), os.path.join(code_dir, "Mercurial", "hg")]
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return shutil.which("hg")
+
+
+def hg_log(folder, code_dir=None, n=HG_LOG_N, hg=None):
+    """The project's Send/Receive history, newest first: [{id, date, user, desc}] — Seth, 2026-10-18: "if our app can
+    keep track of mercurial/Chorus edit commits/dates/times/IDs, that might help us have helpful data to report to
+    FLEx support if we need to recover a thoroughly broken project." Best effort: [] whenever hg is missing, slow, or
+    the folder is not a repository. Never raises."""
+    hg = hg or find_hg(code_dir)
+    if not hg or not os.path.isdir(os.path.join(folder, ".hg")):
+        return []
+    env = dict(os.environ, HGPLAIN="1", HGENCODING="utf-8")
+    try:
+        r = subprocess.run([hg, "-R", folder, "log", "-l", str(n), "--template", "{node}\t{date|isodatesec}\t{author}\t{desc|firstline}\n"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        parts = line.split("\t", 3)
+        if len(parts) == 4 and parts[0]:
+            out.append({"id": parts[0], "date": parts[1], "user": parts[2], "desc": parts[3]})
+    return out
+
+
+def send_receive_info(folder, code_dir=None, log=None):
     st = hg_state(folder)
-    return {"present": st["present"], "lastActivity": st["lastActivity"]}
+    log = hg_log(folder, code_dir) if log is None and st["present"] else (log or [])
+    return {"present": st["present"], "lastActivity": st["lastActivity"], "tip": (log[0] if log else None), "log": log[:5]}
 
 
 def snapshot_root(state_dir, name):
@@ -131,7 +170,7 @@ def summary(meta):
             "lastSaveAt": (meta["saves"][-1]["at"] if meta.get("saves") else None), "bytes": meta["fwdata"]["size"]}
 
 
-def take_snapshot(state_dir, folder, name, now=None):
+def take_snapshot(state_dir, folder, name, now=None, code_dir=None):
     """Copy `<folder>/<name>.fwdata` into the shell's state folder, verified by hash, with the Send/Receive
     store's state beside it. Refuses (E_BACKUP_FAILED) rather than leaving a snapshot that is not the file:
     the write session that would follow is then refused too (api.open_project)."""
@@ -157,8 +196,11 @@ def take_snapshot(state_dir, folder, name, now=None):
         shutil.copy2(fw, dst)
         if sha256(dst) != before or sha256(fw) != before:   # the copy is the file, and the file did not move under us
             raise FlexError("E_BACKUP_FAILED", "the snapshot does not match the project file", {"project": name})
+        hg = hg_state(folder)
+        log = hg_log(folder, code_dir) if hg["present"] else []
+        hg["tip"] = log[0]["id"] if log else None
         meta = {"id": os.path.basename(d), "project": name, "takenAt": int(t * 1000), "file": name + ".fwdata",
-                "fwdata": {"sha256": before, **_stat(fw)}, "hg": hg_state(folder), "saves": []}
+                "fwdata": {"sha256": before, **_stat(fw)}, "hg": hg, "hgLog": log, "saves": []}
         _write_meta(d, meta)
     except BaseException:
         shutil.rmtree(d, ignore_errors=True)
@@ -188,17 +230,23 @@ def note_write(state_dir, name, snap_id, folder, what, text_guid=None):
     return meta
 
 
-def recover_plan(state_dir, folder, name, lock, meta=None):
-    """What RECOVER would do, and what stops it. `lock` is prechecks.read_lock's state."""
-    meta = meta or latest_snapshot(state_dir, name)
-    out = {"project": name, "snapshot": summary(meta), "refusal": None, "warnings": [], "hgChanged": False,
-           "fwdataChangedSinceWrite": False, "alreadyThere": False, "sendReceive": send_receive_info(folder)}
+def recover_plan(state_dir, folder, name, lock, meta=None, snapshot_id=None, code_dir=None):
+    """What RECOVER would do, and what stops it. `lock` is prechecks.read_lock's state. `snapshot_id` picks one of
+    the project's snapshots (`snapshots` lists them all, newest first); the newest otherwise."""
+    all_snaps = list_snapshots(state_dir, name)
+    if meta is None:
+        meta = next((m for m in all_snaps if m["id"] == snapshot_id), None) if snapshot_id else (all_snaps[0] if all_snaps else None)
+    now_hg = hg_state(folder)
+    log = hg_log(folder, code_dir) if now_hg["present"] else []
+    out = {"project": name, "snapshot": summary(meta), "snapshots": [summary(m) for m in all_snaps], "refusal": None, "warnings": [],
+           "hgChanged": False, "fwdataChangedSinceWrite": False, "alreadyThere": False,
+           "sendReceive": send_receive_info(folder, code_dir, log), "hgLog": log[:5]}
     if not meta:
         out["refusal"] = "E_NO_SNAPSHOT"
         return out
     fw = os.path.join(folder, name + ".fwdata")
-    now_hg = hg_state(folder)
-    if meta["hg"].get("present") and now_hg["sig"] != meta["hg"].get("sig"):
+    tip_then, tip_now = meta["hg"].get("tip"), (log[0]["id"] if log else None)
+    if meta["hg"].get("present") and (now_hg["sig"] != meta["hg"].get("sig") or (tip_then and tip_now and tip_then != tip_now)):
         out["hgChanged"] = True
         out["refusal"] = "E_RECOVER_SENT_RECEIVED"
     if lock in ("flex", "other", "busy"):
@@ -217,7 +265,7 @@ def recover_plan(state_dir, folder, name, lock, meta=None):
     return out
 
 
-def recover(state_dir, folder, name, snap_id, lock, now=None):
+def recover(state_dir, folder, name, snap_id, lock, now=None, code_dir=None):
     """Put the snapshot's `.fwdata` back, verified by hash; the current file is set aside beside it as
     `<name>.fwdata.before-recover-<stamp>`, never deleted. Refuses as recover_plan says (the page asked
     the user with that plan in front of them; a refusal here is the world having changed since)."""
@@ -225,7 +273,7 @@ def recover(state_dir, folder, name, snap_id, lock, now=None):
     meta = metas.get(snap_id)
     if not meta:
         raise FlexError("E_NO_SNAPSHOT", "no such snapshot", {"project": name, "snapshot": snap_id})
-    plan = recover_plan(state_dir, folder, name, lock, meta)
+    plan = recover_plan(state_dir, folder, name, lock, meta, code_dir=code_dir)
     if plan["refusal"] and not plan["alreadyThere"]:
         raise FlexError(plan["refusal"], {"E_RECOVER_SENT_RECEIVED": "a Send/Receive happened since the snapshot: the written data has gone to the team",
                                           "E_FLEX_HOLDS_PROJECT": "FieldWorks has this project open. Close FLEx first.",
@@ -264,6 +312,7 @@ def recover(state_dir, folder, name, snap_id, lock, now=None):
     tmp = os.path.join(folder, name + ".tmp")
     if os.path.isfile(tmp):
         os.replace(tmp, tmp + ".before-recover-" + stamp)
-    meta.setdefault("recovered", []).append({"at": int(time.time() * 1000), "setAside": os.path.basename(aside) if aside else None})
+    meta.setdefault("recovered", []).append({"at": int(time.time() * 1000), "setAside": os.path.basename(aside) if aside else None,
+                                             "hgLog": plan.get("hgLog", [])})
     _write_meta(meta["dir"], {k: v for k, v in meta.items() if k != "dir"})
     return {"restored": True, "snapshot": snap_id, "setAside": aside}

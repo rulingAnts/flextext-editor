@@ -37,7 +37,62 @@ def test_send_receive_info_reads_the_store(tmp_path):
     info = teamwrite.send_receive_info(str(p))
     assert info["present"] is True and abs(info["lastActivity"] / 1000 - time.time()) < 400
     q = project(tmp_path, "alone", hg=False)
-    assert teamwrite.send_receive_info(str(q)) == {"present": False, "lastActivity": None}
+    assert teamwrite.send_receive_info(str(q)) == {"present": False, "lastActivity": None, "tip": None, "log": []}
+
+
+def fake_hg(tmp_path, lines):
+    """An `hg` that prints a log as Chorus's Mercurial would for our template."""
+    hg = tmp_path / "bin" / "hg"
+    hg.parent.mkdir(exist_ok=True)
+    hg.write_text("#!/bin/sh\nif [ \"$3\" = log ]; then printf '" + "".join(l + "\\n" for l in lines) + "'; fi\n", encoding="utf-8")
+    hg.chmod(0o755)
+    return str(hg)
+
+
+def test_the_send_receive_log_is_recorded_with_a_snapshot_and_its_tip_detects_a_send_receive(tmp_path):
+    """Seth, 2026-10-18: "if our app can keep track of mercurial/Chorus edit commits/dates/times/IDs, that might help
+    us have helpful data to report to FLEx support". Recorded with every snapshot; and the tip changing is a
+    Send/Receive even if the store's files kept their sizes and times."""
+    p = project(tmp_path, "team")
+    hg1 = fake_hg(tmp_path, ["aaaa1111\t2026-10-18 09:00:00 +0700\tsomeone\t[FLEx] Send/Receive", "bbbb2222\t2026-10-17 18:00:00 +0700\tsomeone\tolder"])
+    log = teamwrite.hg_log(str(p), hg=hg1)
+    assert [e["id"] for e in log] == ["aaaa1111", "bbbb2222"] and log[0]["date"].startswith("2026-10-18") and log[0]["desc"] == "[FLEx] Send/Receive"
+    assert teamwrite.hg_log(str(tmp_path / "nowhere"), hg=hg1) == [], "not a repository: no log, no error"
+    assert teamwrite.hg_log(str(p), hg="/no/such/hg") == []
+    state = tmp_path / "state"
+    import flexshell.teamwrite as tw
+    orig = tw.find_hg
+    tw.find_hg = lambda code_dir=None: hg1
+    try:
+        m = teamwrite.take_snapshot(str(state), str(p), "team")
+        assert m["hg"]["tip"] == "aaaa1111" and len(m["hgLog"]) == 2
+        (p / "team.fwdata").write_bytes(b"written")
+        teamwrite.note_write(str(state), "team", m["id"], str(p), "save")
+        assert teamwrite.recover_plan(str(state), str(p), "team", "free")["refusal"] is None
+        # a Send/Receive that moved the tip without touching the files we watch
+        tw.find_hg = lambda code_dir=None: fake_hg(tmp_path, ["cccc3333\t2026-10-18 10:00:00 +0700\tsomeone\tnewer", "aaaa1111\t2026-10-18 09:00:00 +0700\tsomeone\t[FLEx] Send/Receive"])
+        plan = teamwrite.recover_plan(str(state), str(p), "team", "free")
+        assert plan["hgChanged"] and plan["refusal"] == "E_RECOVER_SENT_RECEIVED" and plan["hgLog"][0]["id"] == "cccc3333"
+    finally:
+        tw.find_hg = orig
+
+
+def test_every_write_has_its_own_snapshot_and_an_earlier_one_can_be_chosen(tmp_path):
+    """A second save of a text must not cost the first its way back (Seth, 2026-10-18, #4)."""
+    p = project(tmp_path, "team", body=b"v0")
+    state = tmp_path / "state"
+    s0 = teamwrite.take_snapshot(str(state), str(p), "team", now=1_800_000_000)
+    (p / "team.fwdata").write_bytes(b"v1")
+    teamwrite.note_write(str(state), "team", s0["id"], str(p), "save")
+    s1 = teamwrite.take_snapshot(str(state), str(p), "team", now=1_800_000_100)   # before the second write: the file as v1
+    (p / "team.fwdata").write_bytes(b"v2")
+    teamwrite.note_write(str(state), "team", s1["id"], str(p), "save")
+    plan = teamwrite.recover_plan(str(state), str(p), "team", "free")
+    assert [x["id"] for x in plan["snapshots"]] == [s1["id"], s0["id"]] and plan["snapshot"]["id"] == s1["id"], "newest first, the newest by default"
+    plan0 = teamwrite.recover_plan(str(state), str(p), "team", "free", snapshot_id=s0["id"])
+    assert plan0["snapshot"]["id"] == s0["id"] and plan0["refusal"] is None
+    assert teamwrite.recover(str(state), str(p), "team", s1["id"], "free")["restored"] and (p / "team.fwdata").read_bytes() == b"v1", "the last write undone"
+    assert teamwrite.recover(str(state), str(p), "team", s0["id"], "free")["restored"] and (p / "team.fwdata").read_bytes() == b"v0", "both undone"
 
 
 def test_a_snapshot_is_the_file_verified_and_kept_outside_the_project(tmp_path):
@@ -240,6 +295,35 @@ def test_the_team_project_write_session_snapshot_save_close_recover(api, tmp_pat
     assert o["doc"]["paragraphs"][0]["segments"][0]["free"] == ""
     ok(api.close_project())
     assert ok(api.recover_plan("team"))["alreadyThere"]
+
+
+def test_two_saves_two_snapshots_through_the_bridge(api, tmp_path):
+    fw = tmp_path / "Projects" / "team" / "team.fwdata"
+    v0 = fw.read_bytes()
+    r = ok(api.open_project("team", "write", {"sentReceived": True, "appsClosed": True}))
+    first = r["snapshot"]["id"]
+    tx = ok(api.list_texts())[0]
+    def save(value):
+        o = ok(api.open_text(tx["guid"]))
+        ln = o["doc"]["paragraphs"][0]
+        seg = ln["segments"][0]
+        seg["free"], seg["freeLang"] = value, "en"
+        op = {"op": "ft.set", "paraGuid": ln["paraOf"], "segGuid": seg["attrs"]["guid"], "ws": "en", "value": value}
+        pv = ok(api.preview_save(tx["guid"], o["baseRev"], [op], model.post_state_of(o["doc"], {ln["paraOf"]})))
+        st = wait(api, ok(api.save_to_flex(pv["previewToken"])))
+        assert st["state"] == "done", st
+        return st["result"]
+    r1 = save("one")
+    assert r1["snapshot"]["id"] == first, "the file was unchanged since the open: the open's snapshot serves the first save"
+    v1 = fw.read_bytes()
+    r2 = save("two")
+    assert r2["snapshot"]["id"] != first and r2["snapshot"]["saves"] == 1, "the file changed: the second save gets a snapshot of its own"
+    ok(api.close_project())
+    plan = ok(api.recover_plan("team"))
+    assert [x["id"] for x in plan["snapshots"]] == [r2["snapshot"]["id"], first]
+    assert ok(api.recover_snapshot("team", r2["snapshot"]["id"]))["restored"] and fw.read_bytes() == v1
+    assert ok(api.recover_snapshot("team", first))["restored"] and fw.read_bytes() == v0
+    assert ok(api.recover_plan("team", first))["alreadyThere"]
 
 
 def test_a_send_receive_after_the_write_blocks_recover_through_the_bridge(api, tmp_path):

@@ -1437,6 +1437,15 @@ Where the filesystem can answer, it is verified, not asked.
   the save BEFORE saving more or doing a Send/Receive (Seth: *"strongly recommend that the user test to make sure
   the edit worked without causing damage … and then send and receive before trying to make more edits"*).
   RECOVER is clean only until the Send/Receive.
+- **NEXT (noted 2026-10-19, Seth): FwDataFixer as a check and a repair.** liblcm's `FwDataFixer`
+  (`SIL.LCModel.FixData`, what FLEx's own "Fix Data" / FixFwData.exe runs) validates the `.fwdata` — well-formed
+  XML, every object's class and owner, dangling references, the structural rules the disk read-back does not know —
+  and can repair what it finds. Two uses: (1) after every write, as one more post-write check beside W8, run it in
+  CHECK mode and refuse to call the save good while it reports anything; (2) when a project turns out broken, offer
+  the user a choice, never act alone: *attempt the repair* (FwDataFixer's own fixes, on a copy first, the report
+  shown, confirmation before the real file) or *restore* (RECOVER to a snapshot). To verify first: how FwDataFixer is
+  reached from pythonnet (the FixData assembly beside liblcm; whether flexicon or FlexTools wraps it), that it runs on
+  a closed project without a cache, and that its check mode writes nothing.
 - Pins: `desktop/tests/test_teamwrite.py` (the module and the bridge), e2e §20 (checklist → save → RECOVER with
   the work kept → the refusal after a Send/Receive). [unverified] on real FLEx: `.hg` file names Chorus touches on
   a Send/Receive (`HG_FILES`: changelog, manifest, dirstate, undo — the first real Send/Receive is the check).

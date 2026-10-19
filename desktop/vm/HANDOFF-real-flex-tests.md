@@ -79,6 +79,18 @@ Also verify, by running them on the copy from Python or through the shell:
 - `teamwrite.find_hg(code_dir)` — the assumed path is `<RootCodeDir>\Mercurial\hg.exe`. If it is not
   there, find where FieldWorks keeps Chorus's Mercurial and fix `find_hg`; then
   `teamwrite.hg_log(<folder with .hg>, code_dir)` must list commits.
+- **`check_data()` — FLEx's own file check (W8b), a GATE for Phases B–E.** `lcm_real.check_data` runs liblcm's
+  `FwDataFixer` (`SIL.LCModel.FixData`) over a temporary copy of the `.fwdata`. Unverified over pythonnet. On the
+  marked copy, project open in the shell: (a) it returns a list (`[]` on a healthy copy) rather than raising —
+  a raise means the assembly did not load or the delegates (`FwDataFixer.ErrorLogger`, `.ErrorCounter`) did not
+  bind; fix `lcm_real.check_data` until it runs; (b) NOTHING beside the temp copy is written: the project
+  folder's file list and the `.fwdata` hash are identical before and after, and no `-x`/`.bak` file appears
+  outside the temp folder (the console's `W8b FwDataFixer ran on a copy` line lists the temp folder's files);
+  (c) a save's console shows `W8b FwDataFixer: no problems` and the saved toast ends "FLEx's own file check
+  passed"; (d) a copy with a known fault — duplicate one `<rt …>` line in a throwaway copy's `.fwdata` by hand,
+  FLEx closed — makes `check_data` report it. ⚠ If (a) cannot be made to work, the saved toast will say the
+  check "could not run" on every save: that is the shell being honest, and it is a finding that STOPS the day
+  before Phase E — Seth asked for this check to be in place before any write to real data.
 
 ## 3. Phase B — every write recipe on the marked copy, through the shell's UI
 
@@ -146,7 +158,9 @@ real project.
 
 ## 6. Phase E — the team's project, with Seth, one text
 
-Seth does the Send/Receive in FLEx and closes FLEx and everything else; you do nothing to the real project
+Precondition: Phase A's `check_data` gate passed (FwDataFixer runs over pythonnet and writes nothing beside its
+copy), and every Phase B–D save's toast said "FLEx's own file check passed". Then: Seth does the Send/Receive in
+FLEx and closes FLEx and everything else; you do nothing to the real project
 except through the shell's UI, with Seth watching. One text → save → Seth opens FLEx, checks → closes FLEx
 → in the shell, Recover… ONLY if something is wrong (and before any Send/Receive) → otherwise Seth does the
 Send/Receive, and the next text begins. The toast says this order; follow it even when it feels slow.
@@ -155,5 +169,6 @@ Send/Receive, and the next text begins. The toast says this order; follow it eve
 
 - Per phase, per item: pass / fail, with console lines (codes, counts — no text) for failures.
 - Every fix: file, test, commit id.
-- Whether `hg.exe` was where `find_hg` looks, and whether `GetChartCellRefs` worked over pythonnet.
+- Whether `hg.exe` was where `find_hg` looks, whether `GetChartCellRefs` worked over pythonnet, and whether
+  `FwDataFixer` ran (and wrote nothing but its copy) — with the console's `W8b` lines.
 - Anything the shell asked, said or showed that was unclear to Seth: that is a finding too.

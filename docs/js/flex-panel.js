@@ -1230,11 +1230,21 @@ async function saveSteps(tx, id, rec, spin) {
     updateHistoryButtons();
     project.texts = await flex.listTexts().catch(() => project.texts);
     await renderTexts();
-    H.toast(T('flex.saved', { n: r.saved, b: (r.backup && r.backup.path || '').split(/[\\/]/).pop() }) + (project.team ? ' ' + T('flex.team.afterSave') : ''), project.team ? 14000 : 7000);
+    const dc = dataCheckText(r.disk && r.disk.dataCheck);
+    H.toast(T('flex.saved', { n: r.saved, b: (r.backup && r.backup.path || '').split(/[\\/]/).pop() }) + (dc ? ' ' + dc : '') + (project.team ? ' ' + T('flex.team.afterSave') : ''),
+      (project.team || (dc && dc.startsWith('⚠'))) ? 14000 : 7000);
   } catch (e) {
     prog.close();
     fail(e, true);
   }
+}
+/* W8b, FLEx's own file check (FwDataFixer) after a save: clean, could not run (said, never assumed
+ * clean), or problems that were in the project before this save — the shell's dataCheck record. */
+function dataCheckText(dc) {
+  if (!dc) return '';
+  if (dc.ran === false) return T('flex.dataCheck.skipped', { why: dc.why || '' });
+  if (dc.preExisting) return T('flex.dataCheck.preExisting', { n: dc.preExisting });
+  return T('flex.dataCheck.clean');
 }
 /* FLEx's media list for the text as it is now (a relink changes the path inside a media object, an
  * attach adds one) — the doc and its base keep what they hold otherwise. */
@@ -1352,7 +1362,8 @@ async function undoRedo(which) {
     updateHistoryButtons();
     project.texts = await flex.listTexts().catch(() => project.texts);
     await renderTexts();
-    H.toast(T(which === 'undo' ? 'flex.undone' : 'flex.redone', { l: r.label }), 6000);
+    const dc = dataCheckText(r.disk && r.disk.dataCheck);
+    H.toast(T(which === 'undo' ? 'flex.undone' : 'flex.redone', { l: r.label }) + (dc ? ' ' + dc : ''), dc && dc.startsWith('⚠') ? 12000 : 6000);
   } catch (e) { prog.close(); fail(e, true); }
   finally { busy = false; }
 }

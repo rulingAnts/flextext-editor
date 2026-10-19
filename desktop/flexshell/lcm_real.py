@@ -89,7 +89,8 @@ def _load_assemblies(code_dir):
     import sys
     if code_dir and code_dir not in sys.path:
         sys.path.append(code_dir)
-    for asm in ("SIL.LCModel", "SIL.LCModel.Core", "SIL.LCModel.Utils", "SIL.LCModel.Infrastructure", "SIL.LCModel.DomainServices"):
+    for asm in ("SIL.LCModel", "SIL.LCModel.Core", "SIL.LCModel.Utils", "SIL.LCModel.Infrastructure", "SIL.LCModel.DomainServices",
+                "SIL.LCModel.FixData"):   # FwDataFixer, for W8b (check_data); its absence surfaces there, not here
         try:
             clr.AddReference(asm)
         except Exception:   # noqa: BLE001 — some are folded into others depending on version
@@ -583,6 +584,43 @@ class RealLcm(FlexPort):
             if charts or tags:
                 out[str(p.Guid)] = {"charts": charts, "tags": tags}
         return out
+
+    def check_data(self, path=None):
+        """W8b — liblcm's FwDataFixer over a temporary COPY of the file [source: FwDataFixer.cs]:
+        `FwDataFixer(filename, IProgress, ErrorLogger(description, errorFixed), ErrorCounter)` scans the file
+        in its constructor; `FixErrorsAndSave()` runs every fixer, logging each problem through ErrorLogger
+        ("every change to the file MUST log an error" is the class's own rule), writes `<file>-x`, renames
+        the input `.bak` and the output into place — so it is run on a copy in its own temp folder, which
+        is deleted whatever happens, and the project file is never touched. IProgress is pyflexicon's
+        HeadlessThreadedProgress (IThreadedProgress extends it). [unverified] over pythonnet — the first
+        VM run (handoff Phase A) is the check: that it loads, that it runs on a copy while the project is
+        open in the cache, and that nothing beside the copy is written."""
+        self._t()
+        import shutil
+        import tempfile
+        src = path or self.fwdata_path()
+        tmpdir = tempfile.mkdtemp(prefix="flextext-fixdata-")
+        try:
+            copy_path = os.path.join(tmpdir, os.path.basename(src))
+            shutil.copyfile(src, copy_path)
+            before = set(os.listdir(tmpdir))
+            import clr   # type: ignore[import-not-found]
+            clr.AddReference("SIL.LCModel.FixData")
+            from SIL.LCModel.FixData import FwDataFixer   # type: ignore[import-not-found]
+            HeadlessThreadedProgress = _flexicon().HeadlessThreadedProgress
+            found = []
+
+            def log(description, fixed):
+                found.append(str(description))
+
+            fixer = FwDataFixer(copy_path, HeadlessThreadedProgress(), FwDataFixer.ErrorLogger(log), FwDataFixer.ErrorCounter(lambda: len(found)))
+            fixer.FixErrorsAndSave()
+            after = set(os.listdir(tmpdir))
+            LOG.info("W8b FwDataFixer ran on a copy: %d problem(s); files in the temp folder before %s, after %s",
+                     len(found), sorted(before), sorted(after))
+            return found
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def find_wordform(self, form, ws=None):
         self._t()

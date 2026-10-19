@@ -99,6 +99,7 @@ SOURCE_NAMESPACES = {
     "ProjectBackupService": "SIL.LCModel.DomainServices.BackupRestore", "BackupProjectSettings": "SIL.LCModel.DomainServices.BackupRestore",
     "TsStringUtils": "SIL.LCModel.Core.Text", "ITsString": "SIL.LCModel.Core.KernelInterfaces",
     "IStTxtPara": "SIL.LCModel", "IWfiWordform": "SIL.LCModel", "IWfiAnalysis": "SIL.LCModel",
+    "FwDataFixer": "SIL.LCModel.FixData",   # src/SIL.LCModel.FixData/FwDataFixer.cs (read 2026-10-19)
     "FwDirectoryFinder": "SIL.FieldWorks.Common.FwUtils",
     "InterlinearExporter": "SIL.FieldWorks.IText", "LinguaLinksImport": "SIL.FieldWorks.IText",
     "InterlinVc": "SIL.FieldWorks.IText", "InterlinLineChoices": "SIL.FieldWorks.IText",

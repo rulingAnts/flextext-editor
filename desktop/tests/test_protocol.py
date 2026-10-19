@@ -68,9 +68,11 @@ def test_preview_then_save_is_one_uow_one_history_item_and_a_clean_disk_diff(wor
     before = fw_bytes(port)
     progress = []
     r = s.save(pv["previewToken"], progress=progress.append)
-    assert progress == ["Backing up…", "Verifying backup…", "Writing…", "Checking…", "Saving…", "Checking the file on disk…"]
+    assert progress == ["Backing up…", "Verifying backup…", "Writing…", "Checking…", "Saving…", "Checking the file on disk…", "Running FLEx's own file check…"]
     assert r["undoLabel"] == "Undo Save to FLEx (2 changes)" and r["backup"]["verified"] and r["disk"]["ok"]
     assert r["disk"]["changed"].get("Segment") == 2
+    assert r["disk"]["dataCheck"] == {"ran": True, "problems": 0, "preExisting": 0}   # W8b ran on the saved file
+    assert ("check_data", port.fwdata_path()) in port.calls
     assert port.undo_item_count() == 1 and port.last_undo_text() == "Undo Save to FLEx (2 changes)"
     assert port.has_unsaved_changes() is False and fw_bytes(port) != before
     assert r["newBaseRev"] != w["rev"]
@@ -326,6 +328,87 @@ def test_w8_unexplained_disk_change_poisons(world, monkeypatch):
     assert ei.value.code == "E_DISK_CHECK_FAILED" and "LexEntry" in str(ei.value.detail)
     assert s.poisoned is not None and s.failed_file and s.failed_file.endswith(s.failed_file[-16:])
     assert any(n.startswith("copy-p.fwdata.failed-") for n in os.listdir(port.project_dir()))
+
+
+def _arm_after_backup(port, monkeypatch, arm):
+    """The backup saves first (W2); the fault must wait for the W7 save."""
+    real_backup = port.backup
+
+    def backup_then_arm(comment):
+        p = real_backup(comment)
+        arm()
+        return p
+    monkeypatch.setattr(port, "backup", backup_then_arm)
+
+
+def test_w8b_problem_the_save_introduced_poisons(world, monkeypatch):
+    """A duplicated rt: same guid, same bytes, so the W8 diff is silent — FwDataFixer's model is not."""
+    w, s, port = world, world["s"], world["port"]
+    pv = s.preview(w["tg"], w["rev"], [ft_op(w)], post_for(w, [ft_op(w)]))
+    _arm_after_backup(port, monkeypatch, lambda: port.inject.__setitem__("corrupt_file", "duplicate"))
+    with pytest.raises(FlexError) as ei:
+        s.save(pv["previewToken"])
+    assert ei.value.code == "E_DATA_CHECK_FAILED" and "duplicate object Segment" in ei.value.message
+    assert ei.value.detail["preExisting"] == 0
+    assert s.poisoned is not None and s.failed_file
+    assert any(n.startswith("copy-p.fwdata.failed-") for n in os.listdir(port.project_dir()))
+    # both files were checked: the saved one, then the one from before the save
+    checked = [c[1] for c in port.calls if c[0] == "check_data"]
+    assert checked == [port.fwdata_path(), port.fwdata_path()[:-len(".fwdata")] + ".bak"]
+
+
+def test_w8b_dangling_reference_poisons(world, monkeypatch):
+    w, s, port = world, world["s"], world["port"]
+    pv = s.preview(w["tg"], w["rev"], [ft_op(w)], post_for(w, [ft_op(w)]))
+    _arm_after_backup(port, monkeypatch, lambda: port.inject.__setitem__("corrupt_file", "dangling"))
+    with pytest.raises(FlexError) as ei:
+        s.save(pv["previewToken"])
+    # W8 sees the added object first (an unexplained CmMediaURI) — either check refusing is the point:
+    # the file never passes as good, and it is set aside
+    assert ei.value.code in ("E_DISK_CHECK_FAILED", "E_DATA_CHECK_FAILED")
+    assert s.poisoned is not None and s.failed_file
+
+
+def test_w8b_preexisting_problem_is_reported_not_blamed(world, monkeypatch):
+    """A fault FLEx has been living with is not this save's: the save stands, the toast names it."""
+    w, s, port = world, world["s"], world["port"]
+    pv = s.preview(w["tg"], w["rev"], [ft_op(w)], post_for(w, [ft_op(w)]))
+    monkeypatch.setattr(port, "check_data", lambda path=None: ["LexEntry 0000 has an empty LexemeForm"])
+    r = s.save(pv["previewToken"])
+    assert s.poisoned is None and r["disk"]["ok"]
+    assert r["disk"]["dataCheck"] == {"ran": True, "problems": 0, "preExisting": 1,
+                                      "preExistingSample": ["LexEntry 0000 has an empty LexemeForm"]}
+
+
+def test_w8b_check_that_cannot_run_is_said_not_fatal(world, monkeypatch, caplog):
+    """FwDataFixer missing or failing to load: W8 has passed, the save stands, and the result says the
+    check did not run — never that the file is clean."""
+    w, s, port = world, world["s"], world["port"]
+    pv = s.preview(w["tg"], w["rev"], [ft_op(w)], post_for(w, [ft_op(w)]))
+
+    def boom(path=None):
+        raise ImportError("Unable to find assembly 'SIL.LCModel.FixData'")
+    monkeypatch.setattr(port, "check_data", boom)
+    with caplog.at_level(logging.ERROR, logger="flexshell.save"):
+        r = s.save(pv["previewToken"])
+    assert s.poisoned is None and r["disk"]["ok"]
+    assert r["disk"]["dataCheck"]["ran"] is False and "FixData" in r["disk"]["dataCheck"]["why"]
+    assert any("W8b" in rec.getMessage() and "could not run" in rec.getMessage() for rec in caplog.records)
+
+
+def test_mock_check_data_reads_only_and_knows_the_three_faults(world, tmp_path):
+    port = world["port"]
+    clean = port.fwdata_path()
+    before = open(clean, "rb").read()
+    assert port.check_data(clean) == []
+    assert open(clean, "rb").read() == before and not os.path.exists(clean[:-len(".fwdata")] + ".bak.tmp")
+    text = open(clean, encoding="utf-8").read()
+    bad = tmp_path / "bad.fwdata"
+    bad.write_text(text.replace("</languageproject>", '<rt class="CmMediaURI" guid="11111111-1111-1111-1111-111111111111" ownerguid="22222222-2222-2222-2222-222222222222"><MediaURI><objsur guid="33333333-3333-3333-3333-333333333333" t="r"/></MediaURI></rt>\n</languageproject>'), encoding="utf-8")
+    found = port.check_data(str(bad))
+    assert any("owned by 22222222" in p for p in found) and any("refers to 33333333" in p for p in found)
+    bad.write_text(text[: len(text) // 2], encoding="utf-8")
+    assert port.check_data(str(bad))[0].startswith("the file is not well-formed XML")
 
 
 def test_w8_field_mismatch_poisons(world, monkeypatch):

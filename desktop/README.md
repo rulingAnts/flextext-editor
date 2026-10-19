@@ -13,7 +13,7 @@ A Windows-only **pywebview** (Edge WebView2) shell around the Audio Segmenter. I
 engine* as the web app from `http://127.0.0.1:8017/` and adds the FLEx features that only make
 sense beside a local FieldWorks: open a FLEx text in the Segmenter's **Matcher** (cut the recording,
 match it to the lines, split or join lines), **Save to FLEx** from the text's row (preview → verified
-backup → one atomic unit of work → disk read-back), find a recording whose link points nowhere and fix
+backup → one atomic unit of work → disk read-back → FLEx's own file check), find a recording whose link points nowhere and fix
 the link, import a `.flextext` with FLEx's own importer, **Download…** this app's copy of a text (the work
 done here, read-only sessions included: a `.flextext` with FLEx's own ids that FLEx can import, the ELAN
 `.eaf`, or everything with the recording), **Export FLEx's copy…** (FLEx's own exporter), copy a line as
@@ -172,7 +172,11 @@ last moved), then close FLEx and every other program using the project, confirm 
 **snapshot** of the `.fwdata` into `%LOCALAPPDATA%\FlexTextSegmenterFLEx\snapshots\` before anything is
 written, and another before every later write that follows a change (each with the project's Send/Receive log, for
 FLEx support if a project ever needs repair). Every protection a save already has stays (lock check, FLEx's verified
-backup zip, one unit of work, disk read-back, Undo Save to FLEx). **Recover…** on the project row puts a chosen
+backup zip, one unit of work, disk read-back, Undo Save to FLEx) — plus **FLEx's own file check** after every
+write: liblcm's `FwDataFixer` (what FLEx's Fix Data runs) over a temporary copy of the saved file, never the file
+itself; a problem the save introduced sets the file aside like any failed check (`E_DATA_CHECK_FAILED`), one that was
+already in the project is named in the toast and not blamed on the save, and a check that could not run is said
+out loud rather than counted as clean. **Recover…** on the project row puts a chosen
 snapshot back if the project turns out broken: it refuses once a Send/Receive has happened since (the written data is the team's then),
 sets the current file aside, and gives the app's records their work back marked as not in FLEx. **Check the
 project in FLEx BEFORE your next Send/Receive** — Recover is clean only between the two. A paragraph a

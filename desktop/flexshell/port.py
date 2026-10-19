@@ -151,6 +151,16 @@ class FlexPort(ABC):
         such a paragraph is what LCM's AnalysisAdjuster repairs, and Seth's notes (2026-10-17) record 7 of
         876 references coming out wrong; the shell refuses it instead (protocol.preview, E_CHART_REFS)."""
     @abstractmethod
+    def check_data(self, path=None):
+        """W8b: FLEx's own file check over the project file (`path`, default the live .fwdata) — liblcm's
+        `FwDataFixer` (`SIL.LCModel.FixData`, what FLEx's Fix Data / FixFwData.exe runs): well-formed XML,
+        every object's class and owner, dangling references, the structural rules the W8 read-back does
+        not know. Returns the list of problem descriptions it logged, [] when clean. ⚠ It MUST NOT write
+        to `path` or anything beside it: the real port runs the fixer on a temporary COPY (FwDataFixer has
+        no check-only mode; its repair pass is what reports), and the copy is deleted. Raising means the
+        check could not run (assembly missing, …) — the protocol reports that loudly but does not poison,
+        because W8 has already passed; it never means "clean"."""
+    @abstractmethod
     def has_wordform(self, form, ws=None): ...
     @abstractmethod
     def find_wordform(self, form, ws=None): ...

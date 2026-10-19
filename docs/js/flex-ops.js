@@ -1017,7 +1017,7 @@ export function flexClosedBy(e) {
 // codes whose own message already says nothing was written (no "Nothing was written" before them)
 const SAYS_NOTHING_WRITTEN = new Set(['E_INVARIANT', 'E_STALE_BASE', 'E_BACKUP_FAILED']);
 // codes whose shell message says WHY, in words worth showing beside the translated one
-const WHY_CODES = new Set(['E_INVARIANT', 'E_SAVE_FAILED', 'E_DISK_CHECK_FAILED', 'E_ROLLBACK_INCOMPLETE', 'E_BACKUP_FAILED', 'E_IMPORT_INVALID', 'E_INTERNAL']);
+const WHY_CODES = new Set(['E_INVARIANT', 'E_SAVE_FAILED', 'E_DISK_CHECK_FAILED', 'E_DATA_CHECK_FAILED', 'E_ROLLBACK_INCOMPLETE', 'E_BACKUP_FAILED', 'E_IMPORT_INVALID', 'E_INTERNAL']);
 
 export function flexFailText(e, afterWrite, T) {
   const code = (e && e.code) || 'E_INTERNAL';

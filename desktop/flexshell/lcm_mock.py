@@ -831,8 +831,17 @@ class MockLcm(FlexPort):
         path = self.fwdata_path()
         tmp = path[:-len(".fwdata")] + ".tmp"
         bak = path[:-len(".fwdata")] + ".bak"
+        text = self.render_fwdata(data, model_version)
+        corrupt = self.inject.pop("corrupt_file", None)   # W8b fault: a file the read-back cannot see through
+        if corrupt == "duplicate":        # one rt written twice — same guid, same bytes, so W8's diff is silent
+            m = re.search(r'^<rt class="Segment"[^\n]*$', text, re.M)
+            text = text[:m.end()] + "\n" + m.group(0) + text[m.end():]
+        elif corrupt == "dangling":       # a reference to an object that does not exist
+            text = text.replace("</languageproject>", '<rt class="CmMediaURI" guid="%s" ownerguid="%s"/>\n</languageproject>' % (uuid.uuid4(), uuid.uuid4()))
+        elif callable(corrupt):
+            text = corrupt(text)
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(self.render_fwdata(data, model_version))
+            f.write(text)
         if os.path.exists(bak):
             os.remove(bak)
         if os.path.exists(path):
@@ -842,6 +851,36 @@ class MockLcm(FlexPort):
         self._dirty = set()
         self._deleted = set()
         self._fwdata_mtime = os.stat(path).st_mtime_ns
+
+    def check_data(self, path=None):
+        """The mock's model of FwDataFixer: structural rules over the file as written, reading only.
+        Well-formed XML; one rt per guid; every ownerguid names an rt in the file; every objsur names
+        one. (The real fixers know more — the mock knows what a broken write of OURS would look like.)"""
+        self.calls.append(("check_data", path))
+        path = path or self.fwdata_path()
+        problems, seen, owners, refs = [], {}, [], []
+        try:
+            for ev, el in ET.iterparse(path, events=("end",)):
+                if el.tag != "rt":
+                    continue
+                g = el.get("guid")
+                if g in seen:
+                    problems.append("duplicate object %s %s (also a %s)" % (el.get("class"), g, seen[g]))
+                seen[g] = el.get("class")
+                if el.get("ownerguid"):
+                    owners.append((el.get("class"), g, el.get("ownerguid")))
+                for o in el.iter("objsur"):
+                    refs.append((el.get("class"), g, o.get("guid")))
+                el.clear()
+        except ET.ParseError as e:
+            return ["the file is not well-formed XML: %s" % e]
+        for cls, g, owner in owners:
+            if owner not in seen:
+                problems.append("%s %s is owned by %s, which does not exist" % (cls, g, owner))
+        for cls, g, target in refs:
+            if target not in seen:
+                problems.append("%s %s refers to %s, which does not exist" % (cls, g, target))
+        return problems
 
     @staticmethod
     def render_fwdata(data, model_version=MODEL_VERSION):

@@ -885,6 +885,9 @@ class Session:
                 said, " (and %d more)" % (len(problems) - 3) if len(problems) > 3 else ""), {"problems": problems[:20]}))
             self._w9(fw)
             raise self.poisoned
+        if progress:
+            progress("Running FLEx's own file check…")
+        data_check = self._data_check(fw, base + ".bak")
         changed = {}
         for g, (o, n) in d["changed"].items():
             if n["cls"] in diskcheck.DATE_ONLY_OK and set(k for k in n["fields"] if o["fields"].get(k) != n["fields"].get(k)) <= {"DateModified"}:
@@ -894,7 +897,42 @@ class Session:
             changed[n["cls"]] = changed.get(n["cls"], 0) + 1
         for g, o in d["removed"].items():
             changed[o["cls"]] = changed.get(o["cls"], 0) + 1
-        return {"ok": True, "changed": changed, "facts": facts}
+        return {"ok": True, "changed": changed, "facts": facts, "dataCheck": data_check}
+
+    def _data_check(self, fw, bak):
+        """W8b: FLEx's own file check (FwDataFixer, port.check_data) over the SAVED file, after W8 has
+        explained every byte that changed. A problem it reports is judged against the file from BEFORE
+        the save (.bak): one the write introduced poisons the session and sets the file aside (W9) like
+        any other failed check; one that was already there is reported — "preExisting" — never blamed on
+        this save and never a reason to refuse it, because a project that FLEx has been running with a
+        fixable fault would otherwise never accept a write again. A check that cannot RUN is not a clean
+        check: it is said loudly (console, the saved toast) and the save stands on W8 alone."""
+        try:
+            found = self.port.check_data(fw)
+        except Exception as e:   # noqa: BLE001
+            SAVE.error("W8b FLEx's own file check (FwDataFixer) could not run: %s", trace.exc_text(e))
+            return {"ran": False, "why": "%s: %s" % (type(e).__name__, str(e)[:200])}
+        if not found:
+            SAVE.info("W8b FwDataFixer: no problems in the saved file")
+            return {"ran": True, "problems": 0, "preExisting": 0}
+        try:
+            before = set(self.port.check_data(bak))
+        except Exception as e:   # noqa: BLE001
+            SAVE.error("W8b FwDataFixer could not run on the file from before the save: %s", e)
+            before = set()
+        new = [p for p in found if p not in before]
+        old = [p for p in found if p in before]
+        for p in old:
+            SAVE.warning("  W8b FwDataFixer, already in the file before this save: %s", p)
+        if new:
+            for p in new:
+                SAVE.error("  W8b FwDataFixer, introduced by this save: %s", p)
+            self._poison(FlexError("E_DATA_CHECK_FAILED", "FLEx's own file check found %d problem(s) the save introduced: %s%s" % (
+                len(new), "; ".join(new[:3]), " (and %d more)" % (len(new) - 3) if len(new) > 3 else ""),
+                {"problems": new[:20], "preExisting": len(old)}))
+            self._w9(fw)
+            raise self.poisoned
+        return {"ran": True, "problems": 0, "preExisting": len(old), "preExistingSample": old[:5]}
 
     def _w9(self, fw):
         """Preserve the file that failed the check (never delete); the user chooses .bak or the backup."""

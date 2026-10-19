@@ -9275,6 +9275,70 @@ function historyModal() {
   };
 }
 
+/* ---------------- Utilities: the offline recovery tool (recovery/) ----------------
+ * One self-contained HTML file that saves texts out of a browser's stored files, for a device whose
+ * app cannot save or send. It is NOT part of any app: it is built into recovery/dist by
+ * bump-version.sh, committed, and fetched here from jsDelivr's mirror of this public repo, at the
+ * branch that matches this panel's estate.
+ *
+ * ⚠ fetch + Blob, not a link. A cross-origin <a download> is ignored by the browser (and jsDelivr
+ * serves GitHub HTML as text/plain), so a link would open the source in a tab instead of saving it.
+ * Reading it into a Blob of our own makes the save a same-origin download, with the right name and
+ * type, and lets the panel check which engine the file was built with before handing it over.
+ *
+ * ⚠ jsDelivr caches a BRANCH for up to about 12 hours, so the copy can lag a release. That is shown,
+ * never hidden: the file's own engine stamp is compared with this panel's ENGINE_VERSION. */
+const RECOVERY_CDN = 'https://cdn.jsdelivr.net/gh/rulingAnts/flextext-editor@';
+const RECOVERY_PATH = '/recovery/dist/flextext-recovery.html';
+export function recoveryToolUrl(estate = HOME) {
+  const branch = estate.beta ? 'beta' : estate.staging ? 'staging' : estate.local ? 'main' : 'productionWeb';
+  return RECOVERY_CDN + branch + RECOVERY_PATH;
+}
+export function recoveryToolVersion(html) {
+  const m = /<span id="engine">(v\d+)<\/span>/.exec(String(html || ''));
+  return m ? m[1] : '';
+}
+
+export function recoveryToolModal() {
+  const m = modal(`
+    <h3>${esc(t('panel.recovery.title'))}</h3>
+    <p class="note">${esc(t('panel.recovery.intro'))}</p>
+    <p class="note">${esc(t('panel.recovery.use'))}</p>
+    <button class="primary-btn" data-m="get">${esc(t('panel.recovery.download'))}</button>
+    <p class="note" data-m="status" hidden></p>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
+  const get = m.el.querySelector('[data-m="get"]');
+  const status = m.el.querySelector('[data-m="status"]');
+  const say = (msg) => { status.textContent = msg; status.hidden = !msg; };
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  get.onclick = async () => {
+    const url = recoveryToolUrl();
+    get.disabled = true;
+    say(t('panel.recovery.working'));
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const html = await res.text();
+      const built = recoveryToolVersion(html);
+      if (!built) throw new Error(t('panel.recovery.notTool'));
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      a.download = 'flextext-recovery.html';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      say(built === ENGINE_VERSION
+        ? t('panel.recovery.saved', { v: built })
+        : t('panel.recovery.older', { v: built, panel: ENGINE_VERSION }));
+    } catch (e) {
+      say(t('panel.recovery.failed', { msg: e.message, url }));
+    } finally {
+      get.disabled = false;
+    }
+  };
+}
+
 /* ---------------- Utilities: audio converter + FLEx writing-systems checker ----------------
  * Surfaced in the panel as modals; both reuse the SAME engine the editor's Settings tab uses
  * (convertAudio / surveyWritingSystems / remapWritingSystems). All runs locally in the browser. */
@@ -9287,6 +9351,7 @@ function utilitiesModal() {
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
     <button class="primary-btn" data-m="export">${esc(t('exp.h'))}</button>
     <button class="primary-btn" data-m="sfm">${esc(t('sfm.utilBtn'))}</button>
+    <button class="primary-btn" data-m="recovery">${esc(t('panel.recovery.btn'))}</button>
     <hr class="rp-sep">
     <p class="note"><b>${esc(t('panel.util.apps'))}</b> — ${esc(t('panel.util.appsNote'))}</p>
     ${companionApps().map((a) => `<a class="secondary-btn rp-app-link" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t(a.label))} ↗</a>`).join('')}
@@ -9305,6 +9370,7 @@ function utilitiesModal() {
    * passed — a panel has no device writing systems of its own, and serializeFlextext falls back to
    * und/en, which is what an SFM file carrying no language codes honestly is. */
   m.el.querySelector('[data-m="sfm"]').onclick = () => { m.close(); openSfmConverter(); };
+  m.el.querySelector('[data-m="recovery"]').onclick = () => { m.close(); recoveryToolModal(); };
   m.el.querySelector('[data-m="erase"]').onclick = () => { m.close(); eraseDataModal(); };
   // Delivery-TTL preference: stored per account; the WORKER's clamp (7–400) is authoritative, this
   // input's min/max is only a courtesy mirror of it.

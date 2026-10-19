@@ -58,6 +58,11 @@ for sat in $SATS; do
 done
 [ "$fail" = 0 ] || exit 1
 node test/version-sync.test.mjs >/dev/null || { echo "FAIL: version-sync test" >&2; exit 1; }
+# The offline recovery tool embeds the engine's format modules and is downloaded by the researcher
+# panel from jsDelivr's mirror of the COMMITTED file, so it is rebuilt with every engine version:
+# a stale copy would write texts the way an older app did. test/recovery-tool.test.mjs fails if the
+# committed file differs from a fresh build.
+node recovery/build.mjs >/dev/null || { echo "FAIL: recovery/build.mjs" >&2; exit 1; }
 tag=$(grep -m1 -oE "export const BUILD_TAG = '[^']*'" docs/js/i18n.js | sed "s/.*= '//;s/'$//")
 if [ -n "$tag" ]; then
   echo "⚠ BUILD_TAG is set to \"$tag\" — this build shows that name instead of the bare version."

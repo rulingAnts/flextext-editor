@@ -22,7 +22,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const ENTRY = resolve(HERE, 'src/ui.js');
 const TEMPLATE = resolve(HERE, 'index.html');
-const OUT = resolve(HERE, 'dist/flextext-recovery.html');
+// The committed copy is what the researcher panel downloads (via jsDelivr). A path argument builds
+// elsewhere, which is how the test compares a fresh build with the committed one.
+const OUT = process.argv[2] ? resolve(process.argv[2]) : resolve(HERE, 'dist/flextext-recovery.html');
 
 const IMPORT_RE = /^import\s*\{([^}]*)\}\s*from\s*'([^']+)';?[ \t]*$/gm;
 const REEXPORT_RE = /^export\s*\{([^}]*)\}\s*from\s*'([^']+)';?[ \t]*$/gm;

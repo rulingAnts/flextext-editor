@@ -11,8 +11,14 @@ It works with no internet, from a thumb drive.
 node recovery/build.mjs        # → recovery/dist/flextext-recovery.html
 ```
 
-Copy that one file to the thumb drive. Rebuild it after an engine release so it writes what the
-current app writes. The page footer shows the engine version it was built with.
+The built file is committed, and `bump-version.sh` rebuilds it with every engine version, so it
+always writes what the current app writes. The page footer shows the engine version it was built
+with.
+
+Researchers download it from the researcher panel: **Utilities → Recovery tool**. The panel fetches
+the committed file through jsDelivr from the branch matching its estate (`productionWeb` for the
+live panel) and saves it. jsDelivr caches a branch for up to about 12 hours, so just after a
+release the panel may say the copy is a version behind.
 
 ## Use
 

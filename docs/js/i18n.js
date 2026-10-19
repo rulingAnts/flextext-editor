@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v716';
+export const ENGINE_VERSION = 'v717';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v716';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'recovery v1';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -1412,6 +1412,16 @@ internet after the first time.</p>
   'panel.util.appsNote': 'Each opens in a new tab. Every app keeps its own texts; install it once and it works offline.',
   'panel.util.segmenter': 'Audio Segmenter',
   'panel.util.consent': 'Consent Collector',
+  'panel.recovery.btn': 'Recovery tool (offline file)',
+  'panel.recovery.title': 'Flextext Recovery',
+  'panel.recovery.intro': 'One HTML file that gets texts out of a browser when the app itself cannot save or send them. It reads the browser\'s stored files and writes each text exactly as the app\'s own Save would, recordings included. It needs no internet.',
+  'panel.recovery.use': 'Copy it to a thumb drive and open it in Chrome or Edge on the computer that holds the texts, or on another computer with a copy of that browser\'s profile folder. It can also give the app a link to remove texts once they have been saved.',
+  'panel.recovery.download': 'Download flextext-recovery.html',
+  'panel.recovery.working': 'Downloading…',
+  'panel.recovery.saved': 'Saved — built with engine {v}, the same as this panel.',
+  'panel.recovery.older': 'Saved — but this copy was built with engine {v}, and this panel is {panel}. The download mirror refreshes within about 12 hours; download again later for the newest.',
+  'panel.recovery.notTool': 'the file downloaded is not the recovery tool',
+  'panel.recovery.failed': 'Could not download the recovery tool ({msg}). Address tried: {url}',
   'panel.dev.engine': 'engine {v}',
   'panel.dev.stale': 'update needed',
   // Researcher/developer-facing only — never shown in the coworker's app. Explains a CONFIRMED
@@ -4113,6 +4123,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.util.appsNote': 'Masing-masing terbuka di tab baru. Setiap aplikasi menyimpan teksnya sendiri; pasang sekali dan ia bekerja luring.',
   'panel.util.segmenter': 'Pemotong Audio',
   'panel.util.consent': 'Pengumpul Izin',
+  'panel.recovery.btn': 'Alat pemulihan (berkas luring)',
+  'panel.recovery.title': 'Pemulihan Flextext',
+  'panel.recovery.intro': 'Satu berkas HTML untuk mengeluarkan teks dari browser ketika aplikasi itu sendiri tidak dapat menyimpan atau mengirimnya. Alat ini membaca berkas simpanan browser dan menulis setiap teks persis seperti fungsi Simpan aplikasi, termasuk rekamannya. Tidak memerlukan internet.',
+  'panel.recovery.use': 'Salin ke flashdisk dan buka di Chrome atau Edge pada komputer yang menyimpan teks, atau di komputer lain dengan salinan folder profil browser tersebut. Alat ini juga dapat memberi aplikasi tautan untuk menghapus teks setelah teks disimpan.',
+  'panel.recovery.download': 'Unduh flextext-recovery.html',
+  'panel.recovery.working': 'Mengunduh…',
+  'panel.recovery.saved': 'Tersimpan — dibuat dengan mesin {v}, sama dengan panel ini.',
+  'panel.recovery.older': 'Tersimpan — tetapi salinan ini dibuat dengan mesin {v}, sedangkan panel ini {panel}. Cermin unduhan diperbarui dalam sekitar 12 jam; unduh lagi nanti untuk yang terbaru.',
+  'panel.recovery.notTool': 'berkas yang diunduh bukan alat pemulihan',
+  'panel.recovery.failed': 'Tidak dapat mengunduh alat pemulihan ({msg}). Alamat yang dicoba: {url}',
   'panel.dev.engine': 'mesin {v}',
   'panel.dev.stale': 'perlu diperbarui',
   'panel.dev.staleWhy': 'Perangkat ini masih menjalankan engine {running} sementara situs menyajikan {live}. Terkonfirmasi pada dua laporan berjarak minimal 6 jam, jadi ini bukan keterlambatan pembaruan biasa — proses rilis mungkin bermasalah.',

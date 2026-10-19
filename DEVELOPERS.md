@@ -213,7 +213,7 @@ The full audit that produced this shape, including the scope map, is `plans/sett
 ### 3.2 The recovery tool (`recovery/`)
 
 A single offline HTML page (`node recovery/build.mjs` → `recovery/dist/flextext-recovery.html`,
-gitignored) that reads a Chromium profile's `IndexedDB` and `Local Storage` folders directly and
+**committed**) that reads a Chromium profile's `IndexedDB` and `Local Storage` folders directly and
 saves each Flextext text exactly as the app's own Save would. It is for a device whose app cannot
 save or send. It is never served; it travels on a thumb drive.
 
@@ -228,6 +228,13 @@ save or send. It is never served; it travels on a thumb drive.
   `?cleanup=<titles>` link (`runTaskCleanup`), which confirms on the device first. Because that link
   matches by title, the page only offers it for a text that it saved, is unchanged since, and has a
   title no other text shares. Keep `runTaskCleanup`'s behaviour stable; the test pins it too.
+- **Distribution:** the researcher panel's Utilities → *Recovery tool* fetches the committed file
+  from jsDelivr (`cdn.jsdelivr.net/gh/rulingAnts/flextext-editor@<branch>/recovery/dist/…`, branch by
+  estate: `productionWeb` / `beta` / `staging`, `main` on the dev rig) and saves it as a Blob — a
+  cross-origin `<a download>` would only open the source. It compares the file's engine stamp with
+  its own `ENGINE_VERSION` and says so when the CDN's ~12-hour branch cache is behind.
+  `bump-version.sh` rebuilds the file; `test/recovery-tool.test.mjs` fails if the committed copy
+  differs from a fresh build. The editor and the other apps do not offer it.
 - **Proof:** `test/browser/recovery-e2e.playwright.mjs` drives the real app in Chromium, saves with
   its Save, then runs the built page on the same profile: every file must be byte-identical except
   the `exportSource`/generator string (which names the tool) and the EAF's write time.

@@ -15,7 +15,9 @@
  *
  * Run: node test/recovery-tool.test.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { consentReceiptText } from '../recovery/src/bundle.js';
 import { deleteBlocker, cleanupLink, guessAppUrl } from '../recovery/src/ui.js';
@@ -117,13 +119,43 @@ console.log('\nwhere the app lives');
   ok(guessAppUrl('https://flextext.app') === 'https://flextext.app/', 'elsewhere: the origin root');
 }
 
-console.log('\nthe page builds into one file');
+console.log('\nthe page builds into one file, and the committed copy is that file');
 {
-  const out = execFileSync(process.execPath, [new URL('../recovery/build.mjs', import.meta.url).pathname], { encoding: 'utf8' });
-  ok(/wrote recovery\/dist\/flextext-recovery\.html/.test(out), out.trim());
-  const html = readFileSync(new URL('../recovery/dist/flextext-recovery.html', import.meta.url), 'utf8');
+  const fresh = join(mkdtempSync(join(tmpdir(), 'fxrec-')), 'flextext-recovery.html');
+  const out = execFileSync(process.execPath, [new URL('../recovery/build.mjs', import.meta.url).pathname, fresh], { encoding: 'utf8' });
+  ok(/\(\d+ KB, engine v\d+/.test(out), out.trim());
+  const html = readFileSync(fresh, 'utf8');
   ok(!/<script[^>]+src=|<link[^>]+href=["']https?:|\bimport\s*\(|^\s*import\s/m.test(html), 'it fetches nothing — it must open from a thumb drive with no network');
   ok((html.match(/<\/script>/g) || []).length === 1, 'and no string inside it closes its <script> early');
+  /* ⚠ THE RESEARCHER PANEL DOWNLOADS THE COMMITTED FILE (through jsDelivr), not a build. A stale
+   * one writes texts the way an older app did, so it must be exactly what the sources build today.
+   * bump-version.sh rebuilds it; after changing recovery/ or an engine format module without a bump,
+   * run `node recovery/build.mjs` and commit the result. */
+  const committed = readFileSync(new URL('../recovery/dist/flextext-recovery.html', import.meta.url), 'utf8');
+  ok(committed === html, 'recovery/dist/flextext-recovery.html is up to date (run: node recovery/build.mjs)');
+  const i18n = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+  const engineVersion = /export const ENGINE_VERSION = '([^']+)'/.exec(i18n)[1];
+  ok(committed.includes(`<span id="engine">${engineVersion}</span>`), `and it carries the engine stamp the panel checks (${engineVersion})`);
+  ok(/node recovery\/build\.mjs/.test(readFileSync(new URL('../bump-version.sh', import.meta.url), 'utf8')), 'bump-version.sh rebuilds it');
+}
+
+console.log('\nthe researcher panel offers it — and only the panel');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const util = squash(fnBody(panel, 'function utilitiesModal() {') || '');
+  ok(util.includes('data-m="recovery"') && util.includes('recoveryToolModal()'), 'Utilities has a button that opens it');
+  const cdn = /const RECOVERY_CDN = '([^']+)';/.exec(panel);
+  const path = /const RECOVERY_PATH = '([^']+)';/.exec(panel);
+  ok(cdn && cdn[1] === 'https://cdn.jsdelivr.net/gh/rulingAnts/flextext-editor@', 'from jsDelivr\'s mirror of this repo');
+  ok(path && path[1] === '/recovery/dist/flextext-recovery.html', 'at the committed file\'s path');
+  const url = squash(fnBody(panel, 'export function recoveryToolUrl(estate = HOME) {') || '');
+  ok(url.includes("estate.beta ? 'beta' : estate.staging ? 'staging' : estate.local ? 'main' : 'productionWeb'"), 'at the branch matching the panel\'s estate — production panels get productionWeb');
+  const fetchIt = squash(fnBody(panel, 'export function recoveryToolModal() {') || '');
+  ok(fetchIt.includes('await fetch(url') && fetchIt.includes("new Blob([html], { type: 'text/html' })") && fetchIt.includes("a.download = 'flextext-recovery.html'"),
+    'it is fetched and saved as a Blob — a cross-origin download link would only open the source');
+  ok(fetchIt.includes('recoveryToolVersion(html)') && fetchIt.includes('built === ENGINE_VERSION'), 'and the file\'s engine stamp is checked against the panel\'s');
+  const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  ok(!/RECOVERY_CDN|recoveryTool|flextext-recovery/.test(app), 'the editor and the other apps do not offer it (app.js never mentions it)');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

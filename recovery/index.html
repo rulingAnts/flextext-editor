@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flextext Recovery</title>
+<meta name="description" content="Recovers Flextext texts from a browser's stored files and saves them exactly as the app's own Save would. Works offline from a thumb drive.">
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #66645e; --line: #dcdad3;
+    --accent: #1f5f8b; --accent-ink: #ffffff; --good: #2e6b34; --warn: #8a5a00; --bad: #a3262a;
+    --claimed: #eef6ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171716; --panel: #22221f; --ink: #ecebe6; --muted: #a29f96; --line: #3a3934;
+      --accent: #6fb1e0; --accent-ink: #0d1a24; --good: #8fcf95; --warn: #e6b45a; --bad: #f08a8d;
+      --claimed: #1f2b20;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171716; --panel: #22221f; --ink: #ecebe6; --muted: #a29f96; --line: #3a3934;
+    --accent: #6fb1e0; --accent-ink: #0d1a24; --good: #8fcf95; --warn: #e6b45a; --bad: #f08a8d;
+    --claimed: #1f2b20;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 0 0 2px; }
+  .sub, .meta { color: var(--muted); font-size: .9rem; }
+  .card, .area { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+  code { font-size: .88em; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; word-break: break-all; }
+  #drop { border: 2px dashed var(--line); border-radius: 10px; padding: 20px; text-align: center; }
+  #drop.over { border-color: var(--accent); }
+  button, .pick { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary, .pick { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .pick input { display: none; }
+  #status { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); }
+  #status[data-kind="good"] { color: var(--good); }
+  #status[data-kind="warn"] { color: var(--warn); }
+  #status[data-kind="bad"] { color: var(--bad); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  ul.texts { list-style: none; margin: 0; padding: 0; }
+  ul.texts > li { border-top: 1px solid var(--line); padding: 8px 4px; }
+  ul.texts > li.claimed { background: var(--claimed); }
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .row .what { flex: 1; min-width: 0; }
+  .title { font-weight: 600; overflow-wrap: anywhere; }
+  .flags { font-size: .85rem; color: var(--warn); }
+  .preview { margin: 4px 0 0 28px; font-size: .9rem; }
+  .preview ol { padding-left: 1.6em; max-height: 320px; overflow: auto; }
+  .bl { font-weight: 500; } .gl { color: var(--muted); font-size: .85rem; } .ft { font-style: italic; }
+  details > summary { cursor: pointer; }
+  .delete, .others, .problems { margin-top: 12px; }
+  .delete .why, .why { color: var(--bad); font-size: .9rem; }
+  .delete li.blocked { color: var(--muted); }
+  .claims { list-style: none; padding-left: 0; }
+  .link { padding: 8px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+  .link a { color: var(--accent); }
+  input[type="url"] { font: inherit; max-width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 32px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Flextext Recovery</h1>
+  <p class="sub">Finds the texts the Flextext apps keep inside the browser and saves each one exactly as the app's own Save would: the <code>.flextext</code>, and when the app would zip it, the recording and the other files that ride with it. Nothing is sent anywhere; this page works with no internet.</p>
+
+  <div class="card">
+    <h2>1. Find the browser's profile folder</h2>
+    <p>On the computer that has the texts, the browser keeps them in its profile folder:</p>
+    <ul>
+      <li>Windows, Chrome: <code>%LOCALAPPDATA%\Google\Chrome\User Data\Default</code> &nbsp;(Edge: <code>%LOCALAPPDATA%\Microsoft\Edge\User Data\Default</code>)</li>
+      <li>macOS, Chrome: <code>~/Library/Application Support/Google/Chrome/Default</code></li>
+      <li>Linux, Chrome: <code>~/.config/google-chrome/Default</code> &nbsp;(Chromium: <code>~/.config/chromium/Default</code>)</li>
+    </ul>
+    <p>A second browser profile is named <code>Profile 1</code>, <code>Profile 2</code>… instead of <code>Default</code>. The address bar page <code>chrome://version</code> shows the exact path as "Profile Path".</p>
+    <p>Inside it, the two folders that matter are <code>IndexedDB</code> (the texts and recordings) and <code>Local Storage</code> (the device settings). Choosing the whole profile folder works. To move them on a thumb drive, copy just those two into one folder and choose that folder. Copying is most reliable with the browser closed.</p>
+  </div>
+
+  <div class="card">
+    <h2>2. Choose that folder</h2>
+    <div id="drop">
+      <label class="pick">Choose folder…<input id="folder" type="file" webkitdirectory multiple></label>
+      <p class="meta">or drop the folder here. The browser may ask whether to let this page read the files: it only reads them.</p>
+    </div>
+  </div>
+
+  <p id="status" hidden></p>
+  <div id="results"></div>
+
+  <footer>
+    Flextext Recovery, built with the Flextext engine <span id="engine">__ENGINE_VERSION__</span>. Files it saves say so in their <code>exportSource</code>.
+    &nbsp;<button id="forget" type="button">Forget saved-text marks</button>
+  </footer>
+</main>
+<!--BUNDLE-->
+</body>
+</html>

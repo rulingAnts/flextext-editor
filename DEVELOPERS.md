@@ -210,6 +210,28 @@ there, which is how the Audio Segmenter came to be told to fix send buttons it d
 
 The full audit that produced this shape, including the scope map, is `plans/settings-organisation.md`.
 
+### 3.2 The recovery tool (`recovery/`)
+
+A single offline HTML page (`node recovery/build.mjs` → `recovery/dist/flextext-recovery.html`,
+gitignored) that reads a Chromium profile's `IndexedDB` and `Local Storage` folders directly and
+saves each Flextext text exactly as the app's own Save would. It is for a device whose app cannot
+save or send. It is never served; it travels on a thumb drive.
+
+- **The file format is the engine's, not a copy.** `build.mjs` inlines `docs/js/flextext.js`,
+  `seg-exports.js` and `zip.js` unchanged; only `recovery/src/bundle.js` (the decisions of
+  `buildBundleFor`'s local save) is a port, and `test/recovery-tool.test.mjs` pins it to `app.js`
+  line by line. **A change to the app's Save that fails that test must be mirrored in `bundle.js`.**
+- **Readers:** `leveldb.js` (log + table + MANIFEST, Snappy), `chromium-idb.js` (IndexedDB key
+  layout, blob files), `v8-value.js` (structured-clone values, partial on error), `local-storage.js`.
+  Superseded record versions still on disk are kept and used when the newest will not decode.
+- **It never writes the browser's files.** Removing a saved text goes through the app's own
+  `?cleanup=<titles>` link (`runTaskCleanup`), which confirms on the device first. Because that link
+  matches by title, the page only offers it for a text that it saved, is unchanged since, and has a
+  title no other text shares. Keep `runTaskCleanup`'s behaviour stable; the test pins it too.
+- **Proof:** `test/browser/recovery-e2e.playwright.mjs` drives the real app in Chromium, saves with
+  its Save, then runs the built page on the same profile: every file must be byte-identical except
+  the `exportSource`/generator string (which names the tool) and the EAF's write time.
+
 ## 4. The data model
 
 A text ("doc") is:

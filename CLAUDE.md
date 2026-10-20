@@ -634,6 +634,29 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     record that was in sync with Drive when opened stays in sync across that read-back and the quiet
     writes (`keepInSync`), until the first real edit.
 
+## 🚩 fxdiag FOLLOWS THE SUITE'S STORAGE (Seth, 2026-10-20) — enforced by a test
+
+`tools/fxdiag/` is the computer-side diagnostic reader: it finds a laptop's browser profiles and reads
+**only the FlexText apps' storage** — the suite's origins, the `flextext…` IndexedDB databases, the
+`flextext-…` localStorage keys — never the rest of the browser. That rule is only as good as the tool's
+knowledge of what the suite IS, and that moves every time an app is added, renamed or given a new host.
+
+- **The knowledge lives in ONE place:** `tools/fxdiag/fxdiag/suite.py` (`is_suite_host`, `is_suite_db`,
+  `is_suite_key`, `DOCS_DB`). The tool's `.flextext` export uses the engine's own `docs/js/flextext.js`,
+  staged into the wheel at install — never a Python copy of the writer.
+- **`test/fxdiag-suite-sync.test.mjs` harvests the facts from the source** — every host in the panel's
+  `ESTATES` and the worker's `ALLOWED_ORIGINS`, every `indexedDB.open(...)` name in `docs/js`, every
+  literal `localStorage` key, db.js's store names — and asks `suite.py` (in Python, via
+  `tools/fxdiag/tests/suite_check.py`) whether it recognises each one. A new hostname, database or key
+  the tool would skip fails the suite **in the commit that adds it**; fix `suite.py` in that commit.
+  ⚠ It FAILS when no Python 3 is on PATH rather than skipping — the freshness-guard lesson.
+- **The tool is offered from the researcher panel and nowhere else** (Feedback window, "Diagnostic tool
+  for computers"). A coworker's device shows no off-site links and a phone cannot run it; the same test
+  pins the link to `researcher-panel.js` alone.
+- Its own tests (`py -m pytest tools/fxdiag/tests`) run against a REAL Chromium profile written by headless
+  Chromium with made-up records (`tools/fxdiag/tests/make_profile.mjs`): regenerate the fixture when the
+  stored record shape changes.
+
 ## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 
 **This repository is PUBLIC. Describe what the security measures PROTECT, never speculate in writing

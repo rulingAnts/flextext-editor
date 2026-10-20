@@ -1483,6 +1483,10 @@ function header(titleKey, withLock) {
  * carries `issue: <n>` and renders a link to it. Items with no submitted issue carry nothing —
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
+/* fxdiag (tools/fxdiag): the computer-side diagnostic reader — reads ONLY the FlexText apps' storage from
+ * a laptop's browser profiles and writes one report file. Offered HERE and nowhere else (Seth, 2026-10-20):
+ * a coworker's device shows no off-site links, and a phone cannot run it anyway. test/fxdiag-panel-link.test.mjs. */
+const FXDIAG_URL = 'https://github.com/rulingAnts/flextext-editor/tree/main/tools/fxdiag';
 const RELEASES = [
   { v: 'v724', date: '2026-10-16', items: [
     { k: 'panel.rel.fix.matcherBackKeeps' },
@@ -2235,6 +2239,7 @@ function feedbackModal() {
       <button type="button" class="secondary-btn" data-report="bug">${esc(t('panel.reportBug'))}</button>
       <button type="button" class="secondary-btn" data-report="feature">${esc(t('panel.reportFeature'))}</button>
       <button type="button" class="secondary-btn" data-issues title="${esc(t('panel.feedback.knownTip'))}">${esc(t('panel.feedback.known'))}</button>
+      <button type="button" class="secondary-btn" data-diag title="${esc(t('panel.feedback.diagTip'))}">${esc(t('panel.feedback.diag'))}</button>
     </div>
     ${notes ? `<p class="note">${notes}</p>` : ''}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
@@ -2243,6 +2248,7 @@ function feedbackModal() {
     reportModal(b.dataset.report);
   }));
   m.el.querySelector('[data-issues]').addEventListener('click', () => openExternal(ISSUES_URL.replace(/\/$/, '')));
+  m.el.querySelector('[data-diag]').addEventListener('click', () => openExternal(FXDIAG_URL));
   m.el.querySelectorAll('[data-notes]').forEach((b) => b.addEventListener('click', () => {
     m.close();
     releaseNotesModal();

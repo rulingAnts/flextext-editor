@@ -33,3 +33,7 @@ fxdiag = "fxdiag.cli:main"
 
 [tool.setuptools]
 packages = ["fxdiag"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+fxdiag = ["engine/*", "engine/js/*"]

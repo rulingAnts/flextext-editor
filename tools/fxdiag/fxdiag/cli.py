@@ -2,8 +2,11 @@
 
   fxdiag                         the window (needs the [gui] extra); falls back to `scan`
   fxdiag scan [--user-data-dir P]... [--all-users]
-  fxdiag report [--out report.zip] [--store SLUG]... [--texts all|id,id] [--with-audio]
-                [--redact-titles] [--note TEXT] [--user-data-dir P]... [--all-users]
+  fxdiag report [--out report.zip] [--store SLUG]... [--texts all|id,id] [--with-audio] [--flextext]
+                [--raw] [--redact-titles] [--note TEXT] [--user-data-dir P]... [--all-users]
+
+Only the FlexText suite's storage is read — suite origins, databases and keys named flextext… —
+never the rest of the browser.
 """
 
 import argparse
@@ -55,7 +58,7 @@ def cmd_report(args):
         return 1
     out = Path(args.out) if args.out else Path.cwd() / ("fxdiag-%s.zip" % _dt.datetime.now().strftime("%Y%m%d-%H%M%S"))
     summary = report.build(stores, out, texts=_parse_texts(args.texts), with_audio=args.with_audio,
-                           redact_titles=args.redact_titles, note=args.note or "")
+                           redact_titles=args.redact_titles, note=args.note or "", flextext=args.flextext, raw=args.raw)
     print(report.readme(summary))
     print("written: %s" % out)
     return 0
@@ -83,6 +86,8 @@ def main(argv=None):
     r.add_argument("--store", action="append", default=[], metavar="SLUG", help="only these stores (slugs from `scan`)")
     r.add_argument("--texts", default="none", metavar="all|ID,ID", help="include full text records (they are the language data): all, or a list of ids; default none")
     r.add_argument("--with-audio", action="store_true", help="also include the recordings of the included texts")
+    r.add_argument("--flextext", action="store_true", help="write the texts as .flextext FILES (export/), with the engine's own writer (needs Node.js)")
+    r.add_argument("--raw", action="store_true", help="include the suite origins' IndexedDB folders as copied (raw/); never other sites' storage")
     r.add_argument("--redact-titles", action="store_true", help="replace titles in the manifest with a hash")
     r.add_argument("--note", help="a line from you, kept in the report")
     r.set_defaults(fn=cmd_report)

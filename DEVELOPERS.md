@@ -210,6 +210,14 @@ there, which is how the Audio Segmenter came to be told to fix send buttons it d
 
 The full audit that produced this shape, including the scope map, is `plans/settings-organisation.md`.
 
+**`tools/fxdiag/`** — the computer-side diagnostic reader (pip-installable from the repo): finds a laptop's
+browser profiles (Chrome/Edge/Brave/Chromium/Vivaldi, the Electron shell, the FLEx shell's WebView2) and
+reads ONLY the FlexText apps' storage into one report zip — manifests, settings, and when asked the texts
+as `.flextext` files (the engine's own writer, staged into the wheel) with their recordings, or the suite
+origins' raw IndexedDB folders. Its knowledge of the suite is `fxdiag/suite.py`, kept in step with
+`docs/js` by `test/fxdiag-suite-sync.test.mjs`. Linked from the researcher panel's Feedback window only.
+Not for phones: Android's Chrome storage is sandboxed.
+
 ## 4. The data model
 
 A text ("doc") is:

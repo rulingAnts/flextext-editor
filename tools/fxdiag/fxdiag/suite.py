@@ -3,22 +3,34 @@
 One origin, several apps: on GitHub Pages the editor, recorder, crowd recorder and researcher panel all
 live on rulingants.github.io at different paths — ONE profile origin, one IndexedDB folder. On the
 Cloudflare estate each app is its own host (app. / record. / crowd. / research. / audio-segmenter. /
-consent. / pat. and the beta- twins), and the preview estates are *.workers.dev. Dev rigs are
-localhost. Database names start with `flextext` (db.js, sync.js, files.js, the crowd store), as do
+consent. / pat. and the beta- twins), and the preview estates are *.68mh29kgsd.workers.dev. Dev rigs
+are localhost. Database names start with `flextext` (db.js, sync.js, files.js, the crowd store), as do
 localStorage keys. A key whose name says it holds a credential is listed as PRESENT, never copied.
+
+⚠ THIS FILE FOLLOWS THE APPS. A new hostname, database or key in docs/js or worker/wrangler.toml that
+this module would not recognise fails test/fxdiag-suite-sync.test.mjs in the commit that adds it
+(CLAUDE.md, "fxdiag follows the suite's storage"); fix it HERE, in the same commit.
 """
 
 import re
 
 DOCS_DB = "flextext-editor"          # db.js: stores 'docs' (keyPath id) and 'media' (blobs + peaks by doc id)
 DB_PREFIX = "flextext"
-KEY_PREFIX = "flextext-"
+# localStorage key prefixes the apps use: the suite-wide `flextext-…`, and the Paragraph Analysis tool's own
+# (`fxpa:` its working document and mappings, `pa.` its switches, `sfm.` its converter). On a suite origin
+# only these are read; anything else under that origin is left alone.
+KEY_PREFIXES = ("flextext-", "fxpa:", "pa.", "sfm.", "rp-")   # rp-: one researcher-panel key predates the flextext- rule
+KEY_PREFIX = KEY_PREFIXES[0]
 SETTINGS_KEY = "flextext-ws-settings"
 
 # a localStorage key whose NAME says it carries something that must not travel: recorded as present + length
 _SENSITIVE = re.compile(r"auth|session|unlock|acct|secret|token|cred|password|key$|-key", re.I)
 
-_WORKERS = re.compile(r"^(?:[a-z0-9-]+-)?(?:flextext|paragraph-analysis)[a-z0-9-]*\.68mh29kgsd\.workers\.dev$", re.I)
+# Every Worker on the suite's Cloudflare account answers at <name>.68mh29kgsd.workers.dev — production
+# (flextext-editor, paragraph-analysis-tool, consent-collector, audio-segmenter, …), the -beta twins and
+# every <branch>-<worker> preview. The account subdomain is the suite's, so the suffix is the rule;
+# test/fxdiag-suite-sync.test.mjs checks it against worker/wrangler.toml's allow-list on every run.
+_WORKERS_SUFFIX = ".68mh29kgsd.workers.dev"
 
 
 def is_suite_host(host):
@@ -27,7 +39,7 @@ def is_suite_host(host):
         return True
     if host == "flextext.app" or host.endswith(".flextext.app"):
         return True
-    return bool(_WORKERS.match(host))
+    return host.endswith(_WORKERS_SUFFIX) and len(host) > len(_WORKERS_SUFFIX)
 
 
 def app_hint(host):
@@ -46,7 +58,7 @@ def is_suite_db(name):
 
 
 def is_suite_key(key):
-    return (key or "").startswith(KEY_PREFIX)
+    return (key or "").startswith(KEY_PREFIXES)
 
 
 def is_sensitive_key(key):

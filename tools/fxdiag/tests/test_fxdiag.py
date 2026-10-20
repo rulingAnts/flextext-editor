@@ -1,7 +1,8 @@
 """fxdiag against a REAL Chromium profile: tests/fixtures/profile-fixture.zip was written by headless
 Chromium (tests/make_profile.mjs — Playwright, a persistent context, made-up records at the suite's
-production origin), so the LevelDB, Blink and V8 encodings are the genuine ones. Everything in it is
-invented: two texts called "Fixture text one/two", a 3000-byte blob of zeros as the recording.
+production origin, built in the page by the engine's own parser), so the LevelDB, Blink and V8 encodings
+and the record shape are the genuine ones. Everything in it is invented: two texts called "Fixture text
+one/two", a 3000-byte blob of zeros as the recording, a fake auth token under a credential-named key.
 Regenerate with `node tests/make_profile.mjs <dir>` and re-zip Default/IndexedDB + Default/Local
 Storage/leveldb (no LOCK files) if Chromium's format ever moves."""
 import json
@@ -31,12 +32,16 @@ def user_data(tmp_path):
 def test_suite_knowledge():
     assert suite.is_suite_host("rulingants.github.io") and suite.is_suite_host("beta-record.flextext.app") and suite.is_suite_host("flextext.app")
     assert suite.is_suite_host("staging-flextext-editor.68mh29kgsd.workers.dev") and suite.is_suite_host("paragraph-analysis-tool.68mh29kgsd.workers.dev")
+    assert suite.is_suite_host("consent-collector-beta.68mh29kgsd.workers.dev") and suite.is_suite_host("audio-segmenter.68mh29kgsd.workers.dev")
     assert not suite.is_suite_host("example.org") and not suite.is_suite_host("github.io") and not suite.is_suite_host("evil-flextext.app.example")
+    assert not suite.is_suite_host("68mh29kgsd.workers.dev") and not suite.is_suite_host("other.workers.dev") and not suite.is_suite_host("x.68mh29kgsd.workers.dev.example")
     assert suite.parse_idb_folder("https_app.flextext.app_0.indexeddb.leveldb") == ("https", "app.flextext.app", "0")
     assert suite.parse_idb_folder("http_localhost_8012.indexeddb.blob") == ("http", "localhost", "8012")
     assert suite.origin_url("http", "localhost", "8012") == "http://localhost:8012" and suite.origin_url("https", "x.flextext.app", "0") == "https://x.flextext.app"
     assert suite.is_sensitive_key("flextext-researcher-auth") and suite.is_sensitive_key("flextext-sync-session") and suite.is_sensitive_key("flextext-admin-unlock")
     assert not suite.is_sensitive_key("flextext-ws-settings") and not suite.is_sensitive_key("flextext-device-id") and not suite.is_sensitive_key("flextext-lang")
+    assert suite.is_suite_key("flextext-lang") and suite.is_suite_key("fxpa:working") and suite.is_suite_key("pa.joinSplit") and suite.is_suite_key("sfm.convert.mapping") and suite.is_suite_key("rp-anything")
+    assert not suite.is_suite_key("theme") and not suite.is_suite_key("0x4AAAAAAA") and not suite.is_suite_key("")
 
 
 def test_discover_finds_the_profile_its_origin_and_the_installed_app(user_data):
@@ -101,7 +106,9 @@ def test_reader_decodes_records_blobs_and_settings(user_data, tmp_path):
     stores = r["databases"]["flextext-editor"]["stores"]
     docs = {d["id"]: d for d in stores["docs"]["docs"]}
     assert set(docs) == {"doc-a", "doc-b"} and docs["doc-a"]["title"] == "Fixture text one"
-    assert docs["doc-a"]["doc"]["paragraphs"][0]["words"][1]["txt"] == "ipsum" and docs["doc-b"]["flex"]["textGuid"].endswith("0001")
+    words = docs["doc-a"]["doc"]["paragraphs"][0]["segments"][0]["words"]
+    assert "ipsum" in json.dumps(words) and len(words) == 3
+    assert docs["doc-b"]["flex"]["textGuid"].endswith("0001") and len(docs["doc-a"]["doc"]["segments"]) == 1   # one span per paragraph (one line), two phrases inside it
     media = stores["media"]["media"]
     assert media["doc-a"] == {"kind": "blob", "size": 3000, "type": "audio/wav", "fileName": None}
     assert media["peaks:doc-a"]["kind"] == "value" and media["peaks:doc-a"]["fields"] == ["peaks"]
@@ -113,6 +120,8 @@ def test_reader_decodes_records_blobs_and_settings(user_data, tmp_path):
     vals = ls["https://rulingants.github.io"]
     assert vals["flextext-ws-settings"] == {"vern": "xx", "vernName": "Made-up", "anal": "en", "segmentation": True}
     assert vals["flextext-device-id"] == "dev-0000-fixture"
+    assert vals["flextext-researcher-auth"] == {"present": True, "length": 24}   # the fake token never leaves the profile
+    assert "made-up-token" not in json.dumps(ls)
 
 
 def test_sensitive_local_storage_keys_are_present_not_copied(monkeypatch, tmp_path):
@@ -147,9 +156,11 @@ def test_report_zip_holds_manifests_and_texts_only_when_asked(user_data, tmp_pat
         assert not any(n.startswith("texts/") or n.startswith("media/") for n in names)
         body = json.loads(z.read(next(n for n in names if n.startswith("storage-"))))
         rows = {t["id"]: t for t in body["origins"][0]["texts"]}
-        assert rows["doc-a"]["words"] == 2 and rows["doc-a"]["segments"] == 1 and rows["doc-a"]["media"]["doc-a"]["size"] == 3000
+        assert rows["doc-a"]["words"] == 4 and rows["doc-a"]["phrases"] == 2 and rows["doc-a"]["segments"] == 1 and rows["doc-a"]["media"]["doc-a"]["size"] == 3000
+        assert rows["doc-a"]["hasDriveFolder"] is True and "folder-0000" not in json.dumps(rows)
         assert rows["doc-a"]["uploadState"] == {"upload": {"fields": ["state"]}} and rows["doc-b"]["flexTextGuid"].endswith("0001")
-        assert "lorem" not in z.read(next(n for n in names if n.startswith("storage-"))).decode()   # a manifest carries no words
+        manifest = z.read(next(n for n in names if n.startswith("storage-"))).decode()
+        assert "lorem" not in manifest and "made-up-token" not in manifest   # a manifest carries no words and no credential
         assert body["localStorage"]["https://rulingants.github.io"]["flextext-ws-settings"]["vern"] == "xx"
         readme = z.read("README.txt").decode()
         assert "2 text(s)" in readme and "0 text record(s) included" in readme and "Android" in readme
@@ -178,3 +189,74 @@ def test_cli_scan_and_report(user_data, tmp_path, capsys, monkeypatch):
     assert cli.main(["report", "--user-data-dir", str(user_data), "--out", str(tmp_path / "x.zip"), "--texts", "doc-b"]) == 0
     assert zipfile.ZipFile(tmp_path / "x.zip").namelist().count("report.json") == 1
     assert cli.main(["scan", "--user-data-dir", str(tmp_path / "nowhere")]) == 1
+
+
+def test_only_the_suites_storage_is_read(user_data, tmp_path):
+    """A foreign origin's IndexedDB folder beside ours, and foreign keys in Local Storage, never reach
+    the report — by host filter and by key prefix, not by luck."""
+    idb = user_data / "Default" / "IndexedDB"
+    (idb / "https_example.org_0.indexeddb.leveldb").mkdir()
+    (idb / "https_example.org_0.indexeddb.leveldb" / "CURRENT").write_text("MANIFEST-000001\n")
+    stores = profiles.discover([user_data])
+    assert [o.host for o in stores[0].origins] == ["rulingants.github.io"]
+    out = tmp_path / "r.zip"
+    report.build(stores, out, raw=True, workdir=tmp_path / "w")
+    with zipfile.ZipFile(out) as z:
+        names = z.namelist()
+        assert not any("example.org" in n for n in names)
+        raw = [n for n in names if n.startswith("raw/")]
+        assert raw and all("/IndexedDB/https_rulingants.github.io_0.indexeddb." in n for n in raw)
+        assert not any("Local Storage" in n for n in raw)   # the profile-wide localStorage LevelDB never travels
+        body = json.loads(z.read(next(n for n in names if n.startswith("storage-"))))
+        assert set(body["localStorage"]) == {"https://rulingants.github.io"}
+    blob = json.dumps([n for n in names]) + "".join(zipfile.ZipFile(out).read(n).decode("utf-8", "replace") for n in names if n.endswith(".json") or n.endswith(".txt"))
+    assert "example.org" not in blob
+
+
+def test_flextext_export_uses_the_engines_writer(user_data, tmp_path):
+    from fxdiag import flexexport
+    ok, why = flexexport.availability()
+    if not ok:
+        pytest.skip("flextext export needs node and the engine: " + why)
+    stores = profiles.discover([user_data])
+    out = tmp_path / "r.zip"
+    summary = report.build(stores, out, flextext=True, with_audio=True, workdir=tmp_path / "w")
+    ex = summary["stores"][0]["exported"]
+    assert ex == {"flextext": 2, "recordings": 1, "failed": []}, ex
+    with zipfile.ZipFile(out) as z:
+        names = z.namelist()
+        fx = sorted(n for n in names if n.endswith(".flextext"))
+        assert [n.rsplit("/", 1)[1] for n in fx] == ["Fixture text one.flextext", "Fixture text two.flextext"]
+        xml = z.read(fx[0]).decode("utf-8")
+        assert xml.startswith("<?xml") and "<interlinear-text" in xml and "lorem" in xml and "ipsum" in xml and "dolor" in xml
+        assert 'type="title"' in xml and "Fixture text one" in xml and 'guid="11111111-1111-4111-8111-111111111111"' in xml
+        assert "Fixture text one.wav" in xml                        # the media-files block names the recording beside it
+        assert "begin-time-offset" in xml                           # the record carried segments: its times travel
+        wav = [n for n in names if n.endswith("Fixture text one.wav")]
+        assert len(wav) == 1 and len(z.read(wav[0])) == 3000
+        readme = z.read("README.txt").decode()
+        assert "2 .flextext file(s), 1 recording(s)" in readme
+    assert summary["engineSerializer"] not in ("", "unknown")
+
+
+def test_flextext_export_without_node_says_so(user_data, tmp_path, monkeypatch):
+    from fxdiag import flexexport
+    monkeypatch.setattr(flexexport, "find_node", lambda: None)
+    stores = profiles.discover([user_data])
+    out = tmp_path / "r.zip"
+    summary = report.build(stores, out, flextext=True, workdir=tmp_path / "w")
+    assert "Node.js" in summary["flextextUnavailable"]
+    assert summary["stores"][0]["exported"]["flextext"] == 0 and len(summary["stores"][0]["exported"]["failed"]) == 2
+    with zipfile.ZipFile(out) as z:
+        assert "could not be written" in z.read("README.txt").decode()
+        assert not any(n.endswith(".flextext") for n in z.namelist())
+
+
+def test_filename_rules_match_the_engine():
+    from fxdiag import flexexport
+    assert flexexport.sanitize_base('a/b:c*d?"e<f>g|h') == "a_b_c_d_e_f_g_h"
+    assert flexexport.sanitize_base("  x  ") == "x" and len(flexexport.sanitize_base("y" * 200)) == 120
+    assert flexexport.ext_for("audio/webm;codecs=opus") == ".webm" and flexexport.ext_for("audio/wav") == ".wav"
+    assert flexexport.ext_for("audio/wav", "one.MP3") == ".mp3" and flexexport.ext_for("application/octet-stream") == ""
+    taken = set()
+    assert [flexexport.unique_name("t", taken) for _ in range(3)] == ["t", "t (2)", "t (3)"]

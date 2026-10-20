@@ -21,11 +21,13 @@ pre{background:#f3f3f3;padding:10px;white-space:pre-wrap;font-size:12px}
 .warn{color:#8a4b00}
 </style>
 <h1>fxdiag — FlexText storage on this computer</h1>
-<p>Read from disk, from a copy; nothing in the browser is changed. Texts and recordings are language data: they are left out unless you tick them.</p>
+<p>Reads <b>only the FlexText suite apps' storage</b> (their origins, databases and settings) from a copy on disk; nothing else in the browser is opened, and nothing is changed. Texts and recordings are language data: they are left out unless you tick them.</p>
 <div id="stores">scanning…</div>
 <div id="opts" style="display:none">
-<label><input type="checkbox" id="texts"> include the full text records (the words)</label>
-<label><input type="checkbox" id="audio"> include the recordings too (large)</label>
+<label><input type="checkbox" id="flextext"> the texts as <b>.flextext files</b> (what FLEx or another device can open)</label>
+<label><input type="checkbox" id="audio"> …with their <b>recordings</b> (large)</label>
+<label><input type="checkbox" id="texts"> the full text <b>records</b> as JSON (the app's own stored form)</label>
+<label><input type="checkbox" id="raw"> the <b>raw browser storage</b> of the suite's origins (their IndexedDB folders, byte for byte)</label>
 <label><input type="checkbox" id="redact"> replace titles in the manifest with a hash</label>
 <label>Note for the reader: <input id="note" size="60"></label>
 <button id="go">Make the report…</button>
@@ -49,7 +51,8 @@ document.getElementById('go').onclick=async()=>{
   const slugs=[...document.querySelectorAll('.pick:checked')].map(e=>e.dataset.slug);
   const out=document.getElementById('out'); out.textContent='working…';
   const r=await window.pywebview.api.make_report(slugs, document.getElementById('texts').checked, document.getElementById('audio').checked,
-    document.getElementById('redact').checked, document.getElementById('note').value);
+    document.getElementById('redact').checked, document.getElementById('note').value,
+    document.getElementById('flextext').checked, document.getElementById('raw').checked);
   out.textContent=r.error?('Problem: '+r.error):(r.readme+'\\nwritten: '+r.path);
 };
 window.addEventListener('pywebviewready', scan);
@@ -67,7 +70,7 @@ class Api:
         self._stores = profiles.discover(self.user_data_dirs, all_users=self.all_users)
         return [s.to_dict() for s in self._stores]
 
-    def make_report(self, slugs, texts, audio, redact, note):
+    def make_report(self, slugs, texts, audio, redact, note, flextext=False, raw=False):
         try:
             stores = [s for s in self._stores if s.slug in set(slugs)]
             if not stores:
@@ -76,7 +79,8 @@ class Api:
             if not path:
                 return {"error": "cancelled"}
             path = path[0] if isinstance(path, (list, tuple)) else path
-            summary = report.build(stores, path, texts="all" if texts else "none", with_audio=bool(audio), redact_titles=bool(redact), note=note or "")
+            summary = report.build(stores, path, texts="all" if texts else "none", with_audio=bool(audio), redact_titles=bool(redact), note=note or "",
+                                   flextext=bool(flextext), raw=bool(raw))
             return {"path": str(path), "readme": report.readme(summary)}
         except Exception as e:   # noqa: BLE001 — the page shows it; the console has the trace
             import traceback

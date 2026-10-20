@@ -1202,6 +1202,11 @@ after `fxDump`'s capture and #98's anonymous route, which it extends.
   flextext-editor.git@desktop-flex#subdirectory=tools/fxdiag"`. ⚠ It reads DESKTOP profiles only: an Android
   phone's Chrome is sandboxed and opts out of backup, so no thumb drive reaches a field device — the in-app
   report is the only route there, which is why the private leg above still has to be built.
+  Later the same day (Seth): the tool is OFFERED FROM THE RESEARCHER PANEL ONLY (Feedback window), it reads
+  ONLY the suite's storage — stated in the window, the README and the report, and pinned by
+  `test/fxdiag-suite-sync.test.mjs`, which also makes "update fxdiag when the apps change" a rule the suite
+  enforces (CLAUDE.md) — and it exports the texts as `.flextext` FILES with their recordings (the engine's
+  own writer, staged into the wheel, run in Node) and the suite origins' raw IndexedDB folders.
 - **The pull this tool must keep resisting:** it is a legitimate owner's tool and exactly the kind of tool the
   lost-device policy is written about. Read-only by construction (copy first, never the LOCK), no upload of its
   own yet (the zip is handed to the person; when the worker route exists, the upload is a ticked choice, never a

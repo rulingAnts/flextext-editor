@@ -151,8 +151,9 @@ def _profile_name(profile_dir, fallback):
 
 def installed_web_apps(profile_dir):
     """Best effort: Chromium keeps installed web apps in Preferences under `web_apps` and in
-    `Web Applications/`. We report any entry with a start_url / scope / name, and the ids the folder
-    holds — enough to say "an app from our origin is installed here", not a full inventory."""
+    `Web Applications/`. We report the SUITE's entries (start_url / scope on a suite host) and only a
+    COUNT of the others — this tool reads the FlexText suite's storage, not the browser's — plus
+    whether the Web Applications folder exists. Enough to say "an app of ours is installed here"."""
     out = []
     profile_dir = Path(profile_dir)
     try:
@@ -176,13 +177,13 @@ def installed_web_apps(profile_dir):
             for v in node:
                 walk(v, depth + 1)
     walk(prefs.get("web_apps") or {})
+    others = len([h for h in out if not h.get("suite")])
+    out = [h for h in out if h.get("suite")]
+    if others:
+        out.append({"otherInstalledWebApps": others})
     wa = profile_dir / "Web Applications"
     if wa.is_dir():
-        try:
-            ids = sorted(p.name for p in (wa / "Manifest Resources").iterdir() if p.is_dir()) if (wa / "Manifest Resources").is_dir() else []
-        except OSError:
-            ids = []
-        out.append({"webApplicationsFolder": True, "manifestResourceIds": ids[:50]})
+        out.append({"webApplicationsFolder": True})
     return out
 
 

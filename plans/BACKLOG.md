@@ -1182,6 +1182,31 @@ contains…" beside it:**
 Tracked on GitHub as **#98** (comment of 2026-10-20 carries this widening). Status: backlog, not scheduled;
 after `fxDump`'s capture and #98's anonymous route, which it extends.
 
+### Addendum (Seth, 2026-10-20, later the same day) — the read side, and the desktop half BUILT
+
+- **Reading the private bucket is gated by an API KEY, not by the Cloudflare account.** Seth: *"Requiring API
+  key to view, which a local session and keychain could use to view the diagnostic dumps."* So the worker gets a
+  read route (`GET /v1/report/<id>/<part>`) behind a dedicated read secret — compared in constant time like the
+  relay's write secret, used for nothing else, rotated if a laptop leaves the team's hands. The key lives in the
+  Mac keychain / Windows Credential Manager, and a LOCAL Claude Code session reads it from there and pulls the
+  dump. A cloud session cannot (egress to the workers domain is blocked from the sandbox), which is fine: the
+  bucket stays plaintext and the key is what makes it private.
+- **The desktop half exists: `tools/fxdiag/`** (same day). A Python tool, console + pywebview window, that finds
+  every browser profile on a computer holding suite storage — Chrome, Edge, Brave, Chromium, Vivaldi, the Electron
+  shell's userData, the FLEx shell's WebView2 folder; installed suite PWAs from Preferences — COPIES the LevelDB
+  folders and reads the copy (ccl_chromium_reader, MIT, a git dependency since it is not on PyPI), and writes
+  one zip in the private leg's file shape: `report.json`, `storage-<store>.json` (per-text manifest rows with no
+  words, media manifest, settings, credential-named keys as present + length), `texts/` and `media/` only when
+  ticked. Tests run against a REAL Chromium profile written by headless Chromium with made-up records
+  (`tools/fxdiag/tests/`). Install: `pip install "flextext-fxdiag[gui] @ git+https://github.com/rulingAnts/
+  flextext-editor.git@desktop-flex#subdirectory=tools/fxdiag"`. ⚠ It reads DESKTOP profiles only: an Android
+  phone's Chrome is sandboxed and opts out of backup, so no thumb drive reaches a field device — the in-app
+  report is the only route there, which is why the private leg above still has to be built.
+- **The pull this tool must keep resisting:** it is a legitimate owner's tool and exactly the kind of tool the
+  lost-device policy is written about. Read-only by construction (copy first, never the LOCK), no upload of its
+  own yet (the zip is handed to the person; when the worker route exists, the upload is a ticked choice, never a
+  default), and the same report format as the in-app leg so there is one reader, not two.
+
 ## VIDEO SOURCES (.mp4) — audio extraction first, preview later (Seth, 2026-08-21)
 
 > *"Can our editor app make use of video files (like mp4)? For now just automatically extracting and

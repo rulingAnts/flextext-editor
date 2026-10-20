@@ -71,3 +71,7 @@ desktop/build/lib/
 desktop/*.egg-info/
 desktop/build/*.egg-info/
 desktop/.venv/
+
+# tools/fxdiag: pip-install leftovers (desktop/build is SOURCE, so no global build/ rule)
+tools/fxdiag/build/
+*.egg-info/

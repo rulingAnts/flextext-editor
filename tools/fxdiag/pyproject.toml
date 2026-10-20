@@ -1,0 +1,35 @@
+# fxdiag — the FlexText suite's offline diagnostic reader for DESKTOP browser profiles.
+#
+#   pip install "flextext-fxdiag[gui] @ git+https://github.com/rulingAnts/flextext-editor.git@desktop-flex#subdirectory=tools/fxdiag"
+#   fxdiag            # the window (pywebview); `fxdiag scan` / `fxdiag report` from a console
+#
+# Reads Chromium-family profiles (Chrome, Edge, Brave, Chromium, Vivaldi), the Electron shell's user
+# data and the FLEx shell's WebView2 folder from disk — never through a running browser — and writes
+# ONE zip in the same shape as the in-app problem report (plans/BACKLOG.md, "KNOWN ISSUE (#98, widened
+# 2026-10-20)"). Pure Python but for two compression wheels. The LevelDB / IndexedDB / localStorage
+# decoding is CCL Solutions Group's ccl_chromium_reader (MIT), which is not on PyPI, so it is a direct
+# git dependency: pip needs git on PATH at install time. Nothing here needs network at RUN time.
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flextext-fxdiag"
+version = "0.1.0.dev0"
+description = "FlexText suite: read a device's browser storage from disk (texts, settings, manifests) into one diagnostic report"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+dependencies = [
+  "ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader.git@ef840de30221c4d65bc96d2f4d9057e9ef2f526d",
+]
+
+[project.optional-dependencies]
+gui = ["pywebview>=5.0"]
+test = ["pytest>=8"]
+
+[project.scripts]
+fxdiag = "fxdiag.cli:main"
+
+[tool.setuptools]
+packages = ["fxdiag"]

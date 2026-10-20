@@ -1097,6 +1097,91 @@ announces itself instead of reading as a complete one.
 - It should work OFFLINE, printing the local half and saying plainly that the server half is
   unavailable — a field device with no signal is exactly when someone wants it.
 
+## KNOWN ISSUE (#98, widened 2026-10-20): problem reports need ATTACHMENTS, and GitHub cannot carry them
+
+> Seth, 2026-10-20: *"need better error reporting that doesn't require GitHub and that allows users to attach
+> diagnostic data including logs, browser storage manifest for specific devices (or all devices), researcher
+> panel and Google Drive contents, and selected texts from Google Drive storage or devices. And have those
+> auto upload to R2 private bucket where I and Claude alone can see them."*
+
+This widens **#98** (report a problem / suggest a feature without a GitHub account). #98 as written fixes the
+ACCOUNT wall: the worker posts the issue for the user. It leaves the DATA wall untouched, and the data wall is
+the one that costs the most time. Today a problem report carries app, version, site and browser **and
+nothing else — by design, because the tracker is public** (`panel.rel.new.reportLinks`). So every real
+diagnosis still starts with "can you send me…": the log (`fxDump`'s capture, above, once it exists), what is
+on the device, what is in Drive, the text itself. A field user cannot do any of that, and a researcher does it
+by hand over chat, one file at a time.
+
+### The shape: a report is TWO legs, and only the text leg is public
+
+1. **Public leg — unchanged from #98.** Title, description, app/version/site/browser → a GitHub issue (via the
+   worker, no account needed). This is what the Feedback window's "known issues" list is made of. It carries
+   NO data, and now also carries one more line: the **report id** of its private leg, so an issue and its
+   attachments find each other without the attachments being on GitHub.
+2. **Private leg — new.** Everything the user ticks is bundled and uploaded, through the worker, into a
+   **separate private R2 bucket** (NOT `flextext-back-end`, which the relay serves audio from; a new bucket,
+   e.g. `flextext-reports`, bound only to the `/v1/report` route and to nothing that reads). Key:
+   `reports/<yyyy-mm>/<report-id>/<part>`. Each part is a file in a predictable format so a session can
+   read it without guessing: `report.json` (who/what/when, which parts are present, the public issue number),
+   `log.txt` (the `fxDump` capture with its blind-spot header), `storage-<install-id>.json` (manifests),
+   `drive.json`, `panel.json`, and the texts as the `.flextext` / bundle they already are.
+
+**What the user can attach — every one a checkbox, all off until ticked, each with a one-line "this
+contains…" beside it:**
+
+| attachment | source | what it holds |
+|---|---|---|
+| the log | `fxDump`'s ring buffer (above) | our console output, uncaught errors, fetch method/path/status — never bodies |
+| storage manifest, THIS device | IndexedDB + `navigator.storage.estimate()` | per text: id, title, revs, bytes, pending-upload state, media keys; settings that change behaviour |
+| storage manifest, OTHER devices / ALL devices | the devices themselves, via sync | a device cannot read another's storage; the panel ASKS (an ops request on the sync channel each device already polls) and each device uploads its own manifest to the same report id when it next syncs. The panel shows which devices have answered. Asynchronous by nature — say so in the UI |
+| researcher-panel state | the panel's own listing | projects, instances, containers, member/grant rows as the panel sees them — the server half of `fxDump` |
+| Drive contents | the researcher's Drive token, from the panel | the text folders' tree: names, ids, sizes, modified times, parentage — the "is D1 in step with Drive" half |
+| selected texts | Drive (panel downloads with its token) or a device (uploads what it holds) | the `.flextext` (and bundle) itself — the one attachment that IS language data |
+
+### Who can read it — and what "Seth and Claude alone" means in practice
+
+- **The bucket has no read route.** The worker can only PUT into it (`/v1/report`); there is no GET, no listing,
+  no signed URL. Reading happens from the Cloudflare account: the dashboard, or `wrangler r2 object get` —
+  which is exactly how a Claude session reads it too, through the existing **wrangler (one-off command)**
+  Actions dispatch (the sandbox's direct egress to `*.workers.dev` is blocked; the Actions runner's is not).
+  So the reader set is "people with the Cloudflare account" plus "a session Seth gives the dispatch to", which
+  is the set Seth named.
+- **Decide before building: encrypt the private leg to an operator key, or not.** The suite's posture is that
+  the backend holds ciphertext (D1 does). Doing the same here — encrypt each part in the browser to a public
+  key whose private half Seth holds — makes the reader set true against the Cloudflare account surface as
+  well, at the cost that a Claude session needs Seth to decrypt (or to hand it the key for that session).
+  Plaintext in a private bucket is simpler and is what Seth asked for literally; the key is what makes "alone"
+  hold without relying on anyone's account hygiene. Seth's call; the note here is that it is a call.
+- **Retention is a setting, not a promise.** An R2 lifecycle rule expires reports (90 days, say); the
+  researcher's Feedback window lists the reports they sent and has **Delete** on each (a `DELETE /v1/report/<id>`
+  the worker honours only for the report's own sender). A report holding language data must be deletable by
+  the person who sent it.
+- **The form says what leaves the device, before it leaves.** The suite's privacy and research-ethics
+  obligations are what this protects: a text is a community's language and a speaker's voice, so the texts
+  checkbox names the texts it will send, the manifest checkbox says titles are included, and nothing is
+  attached that was not ticked. The public leg says plainly that it becomes a public issue; the private leg
+  says plainly who can read it and for how long.
+
+### Constraints this inherits
+
+- **Backend-first, additively** (CLAUDE.md): a new bucket binding and a new route are purely additive; D1
+  gets a `report` table (id, sender instance/researcher, issue number, parts, created) so Delete and the
+  "which devices have answered" view have something to read. Then the panel form, then the Editor's gated
+  form (#98's `allowFeedback`). Worker deploy → maintenance flag + rollback note, as always.
+- **Abuse control is #98's**: signed-in panel callers pass; anonymous callers carry a Turnstile token; a hard
+  per-part size cap (texts can be large; a bundle with audio is the one that needs a ceiling — attach the
+  `.flextext`, not the WAV, unless the report is ABOUT the audio).
+- **The capture half is `fxDump` (previous section)** — this issue is the TRANSPORT for it. Build the ring
+  buffer first; this gives it somewhere to go other than a text file the user has to find and send.
+- **Cost:** R2's free tier (10 GB stored, 1M class-A ops a month) is far above this volume; the lifecycle rule
+  keeps it there. Nothing on GitHub is metered by this. Confirm the bucket is on the free plan before the
+  first deploy — the GitHub-costs rule's spirit applies to Cloudflare too.
+- The public tracker stays what it is: #98's issue text, the known-issues list, the release notes' `issue: <n>`
+  links. The private bucket is where DATA goes, never where discussion goes.
+
+Tracked on GitHub as **#98** (comment of 2026-10-20 carries this widening). Status: backlog, not scheduled;
+after `fxDump`'s capture and #98's anonymous route, which it extends.
+
 ## VIDEO SOURCES (.mp4) — audio extraction first, preview later (Seth, 2026-08-21)
 
 > *"Can our editor app make use of video files (like mp4)? For now just automatically extracting and

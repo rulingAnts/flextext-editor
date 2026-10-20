@@ -37,6 +37,7 @@ BLIND_SPOTS = [
     "An Android phone's Chrome cannot be read from a computer at all; use the in-app report there.",
     "Files the OS refused to copy are listed under copyProblems; a manifest built from fewer files is incomplete.",
     "Only the FlexText suite's storage is read: suite origins, databases and keys named flextext…; no other site's data is opened or copied.",
+    "Firefox-family profiles are read with codecs that could not be checked against a real Firefox where this tool was written; treat a Firefox section as provisional until one run has been checked by hand.",
 ]
 
 
@@ -97,7 +98,10 @@ def store_report(copy, redact_titles=False):
         r["texts"] = [doc_manifest(d, media, redact_titles) for d in docs]
         docs_by_origin[o.origin] = docs
         body["origins"].append(r)
-    ls, ls_problems = reader.read_local_storage(copy.local_storage, hosts)
+    if copy.layout == "gecko":
+        ls, ls_problems = reader.read_gecko_local_storage(copy)
+    else:
+        ls, ls_problems = reader.read_local_storage(copy.local_storage, hosts)
     body["localStorage"] = ls
     body["problems"] = ls_problems
     return body, docs_by_origin
@@ -163,6 +167,12 @@ def copy_raw(z, copy):
     Local Storage is deliberately NOT here (one LevelDB for every site in the profile)."""
     n = 0
     for o in copy.origins:
+        if o.kind == "gecko":   # the origin's own folder: its idb/ and ls/ belong to that origin alone
+            for p in sorted(Path(o.leveldb).rglob("*")):
+                if p.is_file():
+                    z.write(p, "raw/%s/storage/default/%s/%s" % (copy.slug, Path(o.leveldb).name, p.relative_to(o.leveldb).as_posix()))
+                    n += 1
+            continue
         for folder in (o.leveldb, o.blob):
             if folder is None:
                 continue

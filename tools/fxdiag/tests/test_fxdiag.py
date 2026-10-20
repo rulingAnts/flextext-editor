@@ -260,3 +260,136 @@ def test_filename_rules_match_the_engine():
     assert flexexport.ext_for("audio/wav", "one.MP3") == ".mp3" and flexexport.ext_for("application/octet-stream") == ""
     taken = set()
     assert [flexexport.unique_name("t", taken) for _ in range(3)] == ["t", "t (2)", "t (3)"]
+
+
+# ---- Firefox family (gecko) — discovery and localStorage on SYNTHETIC layouts; see gecko.py's caveat ----
+
+def _gecko_profile(tmp_path, with_ini=True):
+    root = tmp_path / "Firefox"
+    prof = root / "Profiles" / "abcd1234.default-release"
+    for origin in ("https+++rulingants.github.io", "http+++localhost+8012", "https+++example.org", "https+++app.flextext.app^userContextId=2"):
+        (prof / "storage" / "default" / origin / "idb").mkdir(parents=True)
+    (prof / "prefs.js").write_text("// prefs", encoding="utf-8")
+    if with_ini:
+        (root / "profiles.ini").write_text("[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/abcd1234.default-release\nDefault=1\n\n[General]\nStartWithLastProfile=1\n", encoding="utf-8")
+    return root, prof
+
+
+def test_gecko_origin_dir_names():
+    from fxdiag import gecko
+    assert gecko.parse_origin_dir("https+++rulingants.github.io") == ("https", "rulingants.github.io", None)
+    assert gecko.parse_origin_dir("http+++localhost+8012") == ("http", "localhost", "8012")
+    assert gecko.parse_origin_dir("https+++app.flextext.app^userContextId=2") == ("https", "app.flextext.app", None)
+    assert gecko.parse_origin_dir("moz-extension+++abc") is None and gecko.parse_origin_dir("chrome") is None
+
+
+def test_gecko_discovery_lists_profiles_and_suite_origins_only(tmp_path):
+    from fxdiag import gecko
+    root, prof = _gecko_profile(tmp_path)
+    assert gecko.profiles_in(root) == [(prof, "default-release")]
+    assert sorted(h for _, h, _ in gecko.suite_origins(prof)) == ["app.flextext.app", "localhost", "rulingants.github.io"]
+    assert profiles.guess_layout(root) == "gecko" and profiles.guess_layout(prof) == "gecko"
+    stores = profiles.discover([root])
+    assert len(stores) == 1 and stores[0].layout == "gecko" and stores[0].profile_name == "default-release"
+    assert sorted(o.origin for o in stores[0].origins) == ["http://localhost:8012", "https://app.flextext.app", "https://rulingants.github.io"]
+    assert all(o.kind == "gecko" for o in stores[0].origins)
+    # no profiles.ini: the Profiles/ folders are still found
+    root2, prof2 = _gecko_profile(tmp_path / "noini", with_ini=False)
+    assert gecko.profiles_in(root2) == [(prof2, prof2.name)]
+
+
+def test_gecko_candidate_roots_per_platform(tmp_path):
+    from fxdiag import gecko
+    home = tmp_path / "h"
+    (home / "AppData" / "Roaming" / "Mozilla" / "Firefox").mkdir(parents=True)
+    (home / "AppData" / "Roaming" / "Mozilla" / "Firefox" / "profiles.ini").write_text("", encoding="utf-8")
+    (home / "AppData" / "Roaming" / "librewolf" / "Profiles").mkdir(parents=True)
+    assert [a for a, _ in gecko.candidate_roots(home, "win32")] == ["Firefox", "LibreWolf"]
+    (home / ".mozilla" / "firefox").mkdir(parents=True)
+    (home / ".mozilla" / "firefox" / "profiles.ini").write_text("", encoding="utf-8")
+    assert [a for a, _ in gecko.candidate_roots(home, "linux")] == ["Firefox"]
+    assert [a for a, _, l in profiles.candidate_user_data_dirs(home=home, platform="linux") if l == "gecko"] == ["Firefox"]
+
+
+def test_gecko_local_storage_reader_on_a_synthetic_lsng_file(tmp_path):
+    """⚠ Self-consistency only: the schema (key, utf16_length, compression_type, value) and the Snappy
+    framing are written from the Firefox source as remembered, not from a real profile. A real
+    data.sqlite that reads differently is the finding this test cannot make."""
+    import sqlite3
+    pytest.importorskip("mozidbedit")
+    import cramjam
+    from fxdiag import gecko
+    origin = tmp_path / "https+++app.flextext.app"
+    (origin / "ls").mkdir(parents=True)
+    con = sqlite3.connect(origin / "ls" / "data.sqlite")
+    con.execute("CREATE TABLE data (key TEXT PRIMARY KEY, utf16_length INTEGER NOT NULL, compression_type INTEGER NOT NULL, last_access_time INTEGER NOT NULL DEFAULT 0, value BLOB NOT NULL)")
+    settings = json.dumps({"vern": "xx", "anal": "en"})
+    comp = bytes(cramjam.snappy.compress_raw(settings.encode("utf-8")))
+    con.execute("INSERT INTO data VALUES (?,?,?,?,?)", ("flextext-ws-settings", len(settings), 1, 0, comp))
+    con.execute("INSERT INTO data VALUES (?,?,?,?,?)", ("flextext-device-id", 8, 0, 0, b"dev-0001"))
+    con.execute("INSERT INTO data VALUES (?,?,?,?,?)", ("flextext-researcher-auth", 6, 0, 0, b"secret"))
+    con.execute("INSERT INTO data VALUES (?,?,?,?,?)", ("theme", 4, 0, 0, b"dark"))
+    con.commit(); con.close()
+    vals, problems = gecko.read_local_storage(origin)
+    assert problems == [] and vals["flextext-ws-settings"] == settings and vals["flextext-device-id"] == "dev-0001" and vals["theme"] == "dark"
+    shaped = reader.shape_keys(vals)
+    assert shaped == {"flextext-ws-settings": {"vern": "xx", "anal": "en"}, "flextext-device-id": "dev-0001", "flextext-researcher-auth": {"present": True, "length": 6}}
+
+
+def test_gecko_indexeddb_reader_against_a_real_firefox_profile_if_one_is_on_hand(tmp_path):
+    """Runs only when tests/fixtures/firefox-fixture.zip exists (a Firefox profile written by
+    tests/make_profile.mjs with FXDIAG_BROWSER=firefox on a machine that has Playwright's Firefox)."""
+    fx = HERE / "fixtures" / "firefox-fixture.zip"
+    if not fx.is_file():
+        pytest.skip("no Firefox fixture — gecko IndexedDB reading stays [unverified]")
+    pytest.importorskip("mozidbedit")
+    root = tmp_path / "ff"
+    with zipfile.ZipFile(fx) as z:
+        z.extractall(root)
+    stores = profiles.discover([root])
+    assert stores and stores[0].layout == "gecko"
+    out = tmp_path / "r.zip"
+    summary = report.build(stores, out, texts="all", with_audio=True, workdir=tmp_path / "w")
+    assert summary["stores"][0]["texts"] == 2, summary
+
+
+# ---- the USB exchange package ----
+
+def test_pack_builds_a_package_the_app_can_import(user_data, tmp_path):
+    from fxdiag import flexexport, pack
+    ok, why = flexexport.availability()
+    if not ok:
+        pytest.skip(why)
+    stores = profiles.discover([user_data])
+    rep = tmp_path / "r.zip"
+    report.build(stores, rep, flextext=True, with_audio=True, workdir=tmp_path / "w")
+    out = tmp_path / "usb" / "device-7"
+    m = pack.build([rep], out, device="device 7", assign={"vern": "xx", "vernName": "Made-up", "anal": "en", "upload": "folder-0000"},
+                   delete=[{"id": "doc-old", "title": "An old one"}], note="for the test", zip_it=True)
+    files = sorted(p.name for p in out.iterdir())
+    assert files == ["Fixture text one.flextext", "Fixture text one.wav", "Fixture text two.flextext", "MANIFEST.json", "README.txt", "assign.html"]
+    mf = json.loads((out / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert mf["format"] == "flextext-usb-exchange" and mf["device"] == "device 7"
+    assert {t["file"]: t["recordings"] for t in mf["texts"]} == {"Fixture text one.flextext": ["Fixture text one.wav"], "Fixture text two.flextext": []}
+    assert mf["texts"][0]["guid"] == "11111111-1111-4111-8111-111111111111" and mf["texts"][0]["title"] == "Fixture text one"
+    assert mf["assignUrl"] == "https://app.flextext.app/?vern=xx&vernName=Made-up&anal=en&upload=folder-0000"
+    assert mf["delete"] == [{"id": "doc-old", "title": "An old one"}]
+    assert "fxdiag never writes into a browser" in (out / "README.txt").read_text(encoding="utf-8")
+    import html as _html
+    assert mf["assignUrl"] in _html.unescape((out / "assign.html").read_text(encoding="utf-8"))
+    assert zipfile.ZipFile(str(out) + ".zip").namelist().count("MANIFEST.json") == 1
+    assert (out / "Fixture text one.wav").stat().st_size == 3000
+
+
+def test_pack_from_loose_files_and_cli(tmp_path, monkeypatch, capsys):
+    from fxdiag import cli
+    src = tmp_path / "loose"
+    src.mkdir()
+    (src / "A text.flextext").write_text('<?xml version="1.0"?><document><interlinear-text guid="33333333-3333-4333-8333-333333333333"><item type="title" lang="en">A &amp; B</item></interlinear-text></document>', encoding="utf-8")
+    (src / "A text.webm").write_bytes(b"\0" * 10)
+    (src / "unrelated.txt").write_text("x", encoding="utf-8")
+    assert cli.main(["pack", str(src), "--out", str(tmp_path / "pkg"), "--device", "d", "--assign", "vern=xx", "--delete", "id-1:Old title"]) == 0
+    names = sorted(p.name for p in (tmp_path / "pkg").iterdir())
+    assert names == ["A & B.flextext", "A & B.webm", "MANIFEST.json", "README.txt", "assign.html"]
+    assert "Old title" in capsys.readouterr().out
+    assert cli.main(["pack", str(src), "--out", str(tmp_path / "pkg2"), "--assign", "novalue"]) == 2

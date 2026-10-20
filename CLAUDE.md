@@ -655,7 +655,13 @@ knowledge of what the suite IS, and that moves every time an app is added, renam
   pins the link to `researcher-panel.js` alone.
 - Its own tests (`py -m pytest tools/fxdiag/tests`) run against a REAL Chromium profile written by headless
   Chromium with made-up records (`tools/fxdiag/tests/make_profile.mjs`): regenerate the fixture when the
-  stored record shape changes.
+  stored record shape changes. **Firefox-family reading (`gecko.py`) is [unverified]** on a real profile —
+  no Firefox was runnable where it was written; its IndexedDB test waits for `firefox-fixture.zip`.
+- **⚠ fxdiag READS browser storage and NEVER WRITES IT** (Seth asked for "inject", 2026-10-20; this is the
+  answer). A write from outside the browser into a LevelDB or an SQLite the browser may hold open is how a
+  device loses every text on it, and no field phone is reachable that way at all. Texts, recordings and
+  assignments go ONTO a device through the app's own import (`fxdiag pack` makes the USB package; the app
+  applies it), deletions happen in the app after the grab is confirmed. Do not add a storage writer.
 
 ## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 

@@ -2,7 +2,8 @@
 
 A small tool for a computer (Windows, Mac, Linux) that finds every browser profile holding FlexText
 storage — Chrome, Edge, Brave, Chromium, Vivaldi, the Flextext Desktop (Electron) shell, the FLEx
-shell's WebView2 folder — and writes **one zip** with what a problem report needs: a manifest of the
+shell's WebView2 folder, and the Firefox family (Firefox, LibreWolf, Waterfox — see the caveat below) —
+and writes **one zip** with what a problem report needs: a manifest of the
 texts on the device (ids, titles, dates, sizes, upload state, which have a recording), the device's
 settings, which suite apps are installed, and, **only if ticked**: the texts as **`.flextext` files**
 beside their **recordings** (written by the engine's own serializer, so FLEx or another device can open
@@ -45,6 +46,40 @@ holds the JSON records and says what to install.
 on a machine that has Python; then `X:\fxdiag\Scripts\fxdiag` on any machine with the same Python
 version. Point it at a copied profile folder with `--user-data-dir` if the browser is not on that
 machine. `--all-users` looks under every account's folder.
+
+## Firefox and relatives — read, with a caveat
+
+Gecko keeps each origin's storage in its own folder (`storage/default/<scheme+++host>/idb/*.sqlite`,
+`ls/data.sqlite`), values Snappy-compressed and structured-clone encoded. fxdiag reads them with
+moz-idb-edit's codecs (MPL-2.0, a git dependency) and its own SQL — `fxdiag/gecko.py`. ⚠ **Unverified
+on a real Firefox profile**: no Firefox could be run where this was written, so the discovery and the
+localStorage reader are tested on synthetic layouts only and the IndexedDB reader's test runs only when
+`tests/fixtures/firefox-fixture.zip` exists. Every report says so in its blind spots. To make the fixture
+on a machine with Playwright's Firefox: `FXDIAG_BROWSER=firefox node tests/make_profile.mjs <dir>`, then
+zip that profile's `storage/default/<suite origins>` into the fixture file. Firefox has no installed PWAs
+on desktop, so there is no installed-app listing for it.
+
+## USB: grabbing, assigning and deleting with no network — `fxdiag pack`
+
+`fxdiag report --flextext --with-audio` **grabs** a computer's texts as files. `fxdiag pack` makes the
+return trip: a **USB exchange package** — the texts and recordings for a device, `assign.html` with the
+same settings link the researcher panel would send (writing systems, upload folder, consent mode…), a
+`MANIFEST.json`, and a README with the steps — which the person applies **in the app on the device**:
+open the link (an installed app applies it offline), then *Open text + recording together* for each text.
+Texts the researcher wants removed are listed in the manifest as a request; the person removes them in the
+app after checking they are safe elsewhere.
+
+```powershell
+fxdiag pack report.zip --out E:or-device-7 --device "device 7" --assign vern=xx --assign anal=en --assign upload=<folderId> --delete <id>:<title> --zip
+```
+
+⚠ **fxdiag never writes into a browser's storage, and will not.** Chromium's IndexedDB is a LevelDB with
+Blink-serialised values, blob journals and per-store metadata; Firefox's is SQLite with structured-clone
+values and side files. One wrong byte written from outside the browser, into a store it may hold open,
+is how a device loses every text on it — and no field phone can be reached that way anyway. Everything
+goes in through the app's own doors. The app-side **Import from USB** that takes a whole package at once
+and offers the marked deletions is planned (`plans/BACKLOG.md`, "USB exchange"); until then the package
+is applied one pair at a time with the dialog the app already has.
 
 ## What is in the zip
 

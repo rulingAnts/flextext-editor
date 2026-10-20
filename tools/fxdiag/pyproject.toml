@@ -3,8 +3,9 @@
 #   pip install "flextext-fxdiag[gui] @ git+https://github.com/rulingAnts/flextext-editor.git@desktop-flex#subdirectory=tools/fxdiag"
 #   fxdiag            # the window (pywebview); `fxdiag scan` / `fxdiag report` from a console
 #
-# Reads Chromium-family profiles (Chrome, Edge, Brave, Chromium, Vivaldi), the Electron shell's user
-# data and the FLEx shell's WebView2 folder from disk — never through a running browser — and writes
+# Reads Chromium-family profiles (Chrome, Edge, Brave, Chromium, Vivaldi), Firefox-family profiles
+# (Firefox, LibreWolf, Waterfox — unverified on a real profile, see fxdiag/gecko.py), the Electron
+# shell's user data and the FLEx shell's WebView2 folder from disk — never through a running browser — and writes
 # ONE zip in the same shape as the in-app problem report (plans/BACKLOG.md, "KNOWN ISSUE (#98, widened
 # 2026-10-20)"). Pure Python but for two compression wheels. The LevelDB / IndexedDB / localStorage
 # decoding is CCL Solutions Group's ccl_chromium_reader (MIT), which is not on PyPI, so it is a direct
@@ -21,7 +22,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 dependencies = [
+  # Chromium family: LevelDB / IndexedDB / localStorage decoding (MIT; not on PyPI)
   "ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader.git@ef840de30221c4d65bc96d2f4d9057e9ef2f526d",
+  # Firefox family: structured-clone, Snappy and key codecs (MPL-2.0; not on PyPI) — see fxdiag/gecko.py
+  "moz-idb-edit @ git+https://gitlab.com/ntninja/moz-idb-edit.git@e008c289609138b6c575357b9889c0aa0ed14f07",
 ]
 
 [project.optional-dependencies]

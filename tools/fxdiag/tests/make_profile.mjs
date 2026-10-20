@@ -10,11 +10,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(process.env.FXDIAG_PLAYWRIGHT || '/opt/node-tools/node_modules/playwright/index.js');
-const { chromium } = require('playwright');
+const { chromium, firefox } = require('playwright');
+// FXDIAG_BROWSER=firefox writes a Firefox profile instead (zip the profile's storage/default/<suite origins>
+// into tests/fixtures/firefox-fixture.zip): the gecko reader's test runs only when that fixture exists.
+const engine = process.env.FXDIAG_BROWSER === 'firefox' ? firefox : chromium;
 const here = dirname(fileURLToPath(import.meta.url));
 const jsDir = join(here, '..', '..', '..', 'docs', 'js');
 const [,, userDataDir] = process.argv;
-const ctx = await chromium.launchPersistentContext(userDataDir, { headless: true, executablePath: process.env.FXDIAG_CHROMIUM || '/opt/pw-browsers/chromium' });
+const ctx = await engine.launchPersistentContext(userDataDir, { headless: true, ...(engine === chromium ? { executablePath: process.env.FXDIAG_CHROMIUM || '/opt/pw-browsers/chromium' } : {}) });
 await ctx.route('**/*', (route) => {
   const u = new URL(route.request().url());
   const m = /\/js\/([a-z-]+\.js)$/.exec(u.pathname);

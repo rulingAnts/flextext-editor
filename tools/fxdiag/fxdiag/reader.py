@@ -36,10 +36,57 @@ def _key_value(k):
     return v if isinstance(v, (str, int, float)) else repr(v)
 
 
+def _shape_media_value(v, blob_info=None):
+    if blob_info is not None:
+        return {"kind": "blob", **blob_info}
+    return {"kind": "value", "jsonBytes": _json_size(v), "fields": sorted(v.keys())[:20] if isinstance(v, dict) else type(v).__name__}
+
+
+def read_gecko_origin(origin):
+    """The Firefox-family twin of read_origin: gecko.read_idb_folder's raw records shaped the same way.
+    [unverified] on a real profile — gecko.py."""
+    from . import gecko
+    out = {"origin": origin.origin, "host": origin.host, "appHint": origin.app_hint, "kind": "gecko", "databases": {}, "problems": []}
+    try:
+        dbs, problems = gecko.read_idb_folder(Path(origin.leveldb) / "idb")
+    except Exception as e:   # noqa: BLE001
+        out["problems"].append("Firefox IndexedDB could not be read: %s: %s" % (type(e).__name__, e))
+        return out
+    out["problems"].extend(problems)
+    for name, db in dbs.items():
+        entry = {"stores": {}}
+        for sname, st in db["stores"].items():
+            recs = {"count": st["count"], "keys": [], "docs": [], "media": {}, "deserializeErrors": 0}
+            for key, value, meta in st["records"]:
+                if value is None and meta.get("why") and not meta.get("files"):
+                    recs["deserializeErrors"] += 1
+                if name == suite.DOCS_DB and sname == "docs" and isinstance(value, dict):
+                    recs["docs"].append(value)
+                elif name == suite.DOCS_DB and sname == "media":
+                    if meta.get("files"):
+                        sizes = [f["size"] for f in meta["files"] if f.get("size") is not None]
+                        recs["media"][str(key)] = {"kind": "blob", "size": sum(sizes) if sizes else None, "type": None, "fileName": None,
+                                                  "files": meta["files"], "undecoded": value is None}
+                    elif value is not None:
+                        recs["media"][str(key)] = _shape_media_value(value)
+                    else:
+                        recs["media"][str(key)] = {"kind": "unknown", "error": meta.get("why")}
+                elif len(recs["keys"]) < 200:
+                    recs["keys"].append(key if isinstance(key, (str, int, float)) else repr(key))
+            for k in ("docs", "media", "keys"):
+                if not recs[k]:
+                    recs.pop(k)
+            entry["stores"][sname] = recs
+        out["databases"][name] = entry
+    return out
+
+
 def read_origin(origin):
     """→ {origin, databases: {name: {...}}, problems: [str]} for one copied OriginStorage."""
+    if getattr(origin, "kind", "chromium") == "gecko":
+        return read_gecko_origin(origin)
     idb_mod, _, blink = _ccl()
-    out = {"origin": origin.origin, "host": origin.host, "appHint": origin.app_hint, "databases": {}, "problems": []}
+    out = {"origin": origin.origin, "host": origin.host, "appHint": origin.app_hint, "kind": "chromium", "databases": {}, "problems": []}
     try:
         wrapped = idb_mod.WrappedIndexDB(origin.leveldb, origin.blob)
     except Exception as e:   # noqa: BLE001 — a corrupt or foreign folder is a finding, not a crash
@@ -95,6 +142,8 @@ def read_origin(origin):
 
 def read_blob(origin, store_name, key):
     """The bytes of one Blob record (a recording), for --with-audio. None if it is not a blob."""
+    if getattr(origin, "kind", "chromium") == "gecko":
+        return _read_gecko_blob(origin, store_name, key)
     idb_mod, _, blink = _ccl()
     wrapped = idb_mod.WrappedIndexDB(origin.leveldb, origin.blob)
     try:
@@ -108,6 +157,71 @@ def read_blob(origin, store_name, key):
     finally:
         wrapped.close()
     return None
+
+
+def _read_gecko_blob(origin, store_name, key):
+    """A Firefox Blob record's bytes: the files the row names in <db>.files/, concatenated in order.
+    [unverified] that a one-Blob record names exactly one file; the manifest lists them all."""
+    from . import gecko
+    dbs, _ = gecko.read_idb_folder(Path(origin.leveldb) / "idb")
+    st = dbs.get(suite.DOCS_DB, {}).get("stores", {}).get(store_name)
+    if not st:
+        return None
+    for k, value, meta in st["records"]:
+        if str(k) == str(key) and meta.get("files"):
+            out = b""
+            for f in meta["files"]:
+                for sq in sorted((Path(origin.leveldb) / "idb").glob("*.files")):
+                    p = sq / str(f["id"]).lstrip(".")
+                    if p.is_file():
+                        out += p.read_bytes()
+                        break
+            return out or None
+    return None
+
+
+def shape_keys(latest):
+    """The localStorage shaping rule, shared by both engines: suite keys only, credential-named keys as
+    present + length, the settings key parsed."""
+    shaped = {}
+    for k, v in sorted(latest.items()):
+        if not suite.is_suite_key(k):
+            continue
+        if suite.is_sensitive_key(k):
+            shaped[k] = {"present": True, "length": len(v or "")}
+        elif k == suite.SETTINGS_KEY:
+            try:
+                shaped[k] = json.loads(v)
+            except (TypeError, ValueError):
+                shaped[k] = v
+        else:
+            shaped[k] = v
+    return shaped
+
+
+def read_gecko_local_storage(copy):
+    """{origin: {key: …}} for a copied gecko store: each origin's ls/data.sqlite, then the legacy file."""
+    from . import gecko
+    out, problems = {}, []
+    for o in copy.origins:
+        try:
+            vals, probs = gecko.read_local_storage(o.leveldb)
+        except Exception as e:   # noqa: BLE001
+            problems.append("%s localStorage: %s: %s" % (o.origin, type(e).__name__, e))
+            continue
+        problems.extend("%s: %s" % (o.origin, p) for p in probs)
+        shaped = shape_keys(vals)
+        if shaped:
+            out[o.origin] = shaped
+    legacy = Path(getattr(copy, "copy_root", "")) / "webappsstore.sqlite" if getattr(copy, "copy_root", None) else None
+    if legacy and legacy.is_file():
+        vals, probs = gecko.read_legacy_webappsstore(legacy.parent, {o.host for o in copy.origins})
+        problems.extend(probs)
+        for origin, kv in vals.items():
+            shaped = shape_keys(kv)
+            if shaped:
+                out.setdefault(origin + " (legacy webappsstore)", {}).update(shaped)
+    return out, problems
 
 
 def read_local_storage(leveldb_dir, hosts):
@@ -131,17 +245,7 @@ def read_local_storage(leveldb_dir, hosts):
                 if not suite.is_suite_key(rec.script_key):
                     continue
                 latest[rec.script_key] = rec.value   # records come in sequence order: the last live write wins
-            shaped = {}
-            for k, v in sorted(latest.items()):
-                if suite.is_sensitive_key(k):
-                    shaped[k] = {"present": True, "length": len(v or "")}
-                elif k == suite.SETTINGS_KEY:
-                    try:
-                        shaped[k] = json.loads(v)
-                    except (TypeError, ValueError):
-                        shaped[k] = v
-                else:
-                    shaped[k] = v
+            shaped = shape_keys(latest)
             if shaped:
                 out[storage_key] = shaped
     except Exception as e:   # noqa: BLE001

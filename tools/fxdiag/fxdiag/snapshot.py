@@ -35,7 +35,15 @@ def take(store: ProfileStore, workdir=None):
     problems = []
     copy = ProfileStore(app=store.app, layout=store.layout, user_data_dir=store.user_data_dir, profile_dir=store.profile_dir,
                         profile_name=store.profile_name, web_apps=list(store.web_apps), notes=list(store.notes))
+    copy.copy_root = base / store.slug   # where the legacy file lands, for the reader
     for o in store.origins:
+        if o.kind == "gecko":
+            od = base / store.slug / "storage" / "default" / o.leveldb.name
+            for sub in ("idb", "ls"):
+                if (o.leveldb / sub).is_dir():
+                    _copytree(o.leveldb / sub, od / sub, problems)
+            copy.origins.append(OriginStorage(origin=o.origin, host=o.host, leveldb=od, blob=None, app_hint=o.app_hint, kind="gecko"))
+            continue
         lv = base / store.slug / "IndexedDB" / o.leveldb.name
         _copytree(o.leveldb, lv, problems)
         bl = None
@@ -43,6 +51,13 @@ def take(store: ProfileStore, workdir=None):
             bl = base / store.slug / "IndexedDB" / o.blob.name
             _copytree(o.blob, bl, problems)
         copy.origins.append(OriginStorage(origin=o.origin, host=o.host, leveldb=lv, blob=bl, app_hint=o.app_hint))
+    if store.layout == "gecko" and (store.profile_dir / "webappsstore.sqlite").is_file():
+        try:
+            (base / store.slug).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(store.profile_dir / "webappsstore.sqlite", base / store.slug / "webappsstore.sqlite")
+            copy.notes.append("legacy webappsstore.sqlite copied")
+        except OSError as e:
+            problems.append({"file": str(store.profile_dir / "webappsstore.sqlite"), "error": "%s: %s" % (type(e).__name__, e)})
     if store.local_storage is not None:
         ls = base / store.slug / "Local Storage" / "leveldb"
         _copytree(store.local_storage, ls, problems)

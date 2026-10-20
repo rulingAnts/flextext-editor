@@ -4,6 +4,7 @@
   fxdiag scan [--user-data-dir P]... [--all-users]
   fxdiag report [--out report.zip] [--store SLUG]... [--texts all|id,id] [--with-audio] [--flextext]
                 [--raw] [--redact-titles] [--note TEXT] [--user-data-dir P]... [--all-users]
+  fxdiag pack SRC... --out FOLDER [--device WHO] [--assign k=v]... [--delete ID[:TITLE]]... [--zip]
 
 Only the FlexText suite's storage is read — suite origins, databases and keys named flextext… —
 never the rest of the browser.
@@ -64,6 +65,25 @@ def cmd_report(args):
     return 0
 
 
+def cmd_pack(args):
+    from . import pack
+    assign = {}
+    for kv in args.assign:
+        if "=" not in kv:
+            print("--assign wants key=value, got %r" % kv)
+            return 2
+        k, v = kv.split("=", 1)
+        assign[k.strip()] = v.strip()
+    delete = []
+    for d in args.delete:
+        i, _, t = d.partition(":")
+        delete.append({"id": i, "title": t or None})
+    m = pack.build(args.sources, args.out, device=args.device, assign=assign or None, app_origin=args.app_origin, delete=delete, note=args.note, zip_it=args.zip)
+    print(pack.readme(m))
+    print("written: %s%s" % (args.out, ("  and " + m["zip"]) if m.get("zip") else ""))
+    return 0
+
+
 def cmd_gui(args):
     try:
         from . import gui
@@ -91,6 +111,17 @@ def main(argv=None):
     r.add_argument("--redact-titles", action="store_true", help="replace titles in the manifest with a hash")
     r.add_argument("--note", help="a line from you, kept in the report")
     r.set_defaults(fn=cmd_report)
+    k = sub.add_parser("pack", help="make a USB exchange package (texts + recordings + assignment) the app on a device imports")
+    k.add_argument("sources", nargs="+", metavar="SRC", help=".flextext files, folders of them, or fxdiag report zips (their export/)")
+    k.add_argument("--out", required=True, metavar="FOLDER", help="the package folder to write (on the USB stick)")
+    k.add_argument("--device", default="", help="who or which device it is for (free text, kept in the manifest)")
+    k.add_argument("--assign", action="append", default=[], metavar="key=value",
+                   help="an assignment parameter as the panel's settings link carries them (vern=…, vernName=…, anal=…, upload=…, consentMode=…); repeatable")
+    k.add_argument("--app-origin", default=None, help="the app the link opens (default https://app.flextext.app/)")
+    k.add_argument("--delete", action="append", default=[], metavar="ID[:TITLE]", help="a text the researcher wants removed from the device once grabbed (advisory; the app asks)")
+    k.add_argument("--note", default="")
+    k.add_argument("--zip", action="store_true", help="also zip the folder")
+    k.set_defaults(fn=cmd_pack)
     g = sub.add_parser("gui", help="open the window")
     _common(g)
     g.set_defaults(fn=cmd_gui)

@@ -1,9 +1,11 @@
 """Find the places on this disk where a FlexText app may have left storage.
 
-Three layouts, one shape of result:
+Four layouts, one shape of result:
   chromium   <User Data>/<Default|Profile N>/{IndexedDB, Local Storage/leveldb, Preferences}
   flat       Electron's userData: {IndexedDB, Local Storage/leveldb} at the root (the Flextext Desktop shell)
   webview2   pywebview's storage_path for the FLEx shell: <path>/EBWebView/<Default>/… (chromium inside)
+  gecko      Firefox and relatives: <profile>/storage/default/<scheme+++host>/{idb/*.sqlite, ls/data.sqlite}
+             (gecko.py; profiles from profiles.ini) — [unverified] on a real profile, see gecko.py
 
 Everything here is file-system reading of names and small JSON files; the LevelDB folders are only
 LOCATED, never opened (reader.py does that, on a copy). Paths can be given explicitly
@@ -16,16 +18,17 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import suite
+from . import gecko, suite
 
 
 @dataclass
 class OriginStorage:
     origin: str              # 'https://app.flextext.app'
     host: str
-    leveldb: Path            # the .indexeddb.leveldb folder
-    blob: Path | None        # the .indexeddb.blob folder beside it, if any
+    leveldb: Path            # chromium: the .indexeddb.leveldb folder; gecko: the origin folder (idb/ + ls/ inside)
+    blob: Path | None        # chromium: the .indexeddb.blob folder beside it, if any; gecko: None
     app_hint: str = ""
+    kind: str = "chromium"   # chromium | gecko — which reader decodes it
 
 
 @dataclass
@@ -49,7 +52,7 @@ class ProfileStore:
         return {
             "app": self.app, "layout": self.layout, "userDataDir": str(self.user_data_dir), "profileDir": str(self.profile_dir),
             "profileName": self.profile_name, "slug": self.slug,
-            "origins": [{"origin": o.origin, "host": o.host, "appHint": o.app_hint, "hasBlobs": o.blob is not None} for o in self.origins],
+            "origins": [{"origin": o.origin, "host": o.host, "appHint": o.app_hint, "hasBlobs": o.blob is not None, "kind": o.kind} for o in self.origins],
             "localStorage": str(self.local_storage) if self.local_storage else None,
             "installedWebApps": self.web_apps, "notes": self.notes,
         }
@@ -110,6 +113,7 @@ def candidate_user_data_dirs(home=None, platform=None, all_users=False):
                 ("Flextext Desktop", cfg / "Flextext Desktop", "flat"),
             ]
         out.extend((app, p, layout) for app, p, layout in cands if p.is_dir())
+        out.extend((app, p, "gecko") for app, p in gecko.candidate_roots(h, platform))
     return out
 
 
@@ -118,6 +122,8 @@ def guess_layout(path):
     path = Path(path)
     if (path / "EBWebView").is_dir():
         return "webview2"
+    if (path / "profiles.ini").is_file() or (path / "storage" / "default").is_dir():
+        return "gecko"
     if (path / "IndexedDB").is_dir() or (path / "Local Storage").is_dir():
         return "chromium" if (path / "Preferences").is_file() and (path.parent / "Local State").is_file() else "flat"
     return "chromium"
@@ -190,7 +196,13 @@ def installed_web_apps(profile_dir):
 def scan_profile_dir(profile_dir, app, layout, user_data_dir, fallback_name=None):
     profile_dir = Path(profile_dir)
     store = ProfileStore(app=app, layout=layout, user_data_dir=Path(user_data_dir), profile_dir=profile_dir,
-                         profile_name=_profile_name(profile_dir, fallback_name) if layout != "flat" else app)
+                         profile_name=(fallback_name or profile_dir.name) if layout == "gecko" else _profile_name(profile_dir, fallback_name) if layout != "flat" else app)
+    if layout == "gecko":
+        for origin, host, d in gecko.suite_origins(profile_dir):
+            store.origins.append(OriginStorage(origin=origin, host=host, leveldb=d, blob=None, app_hint=suite.app_hint(host), kind="gecko"))
+        store.local_storage = None      # per origin in gecko (inside each origin folder), plus the legacy file
+        store.notes.append("gecko profile: Firefox-family storage, read with moz-idb-edit's codecs — unverified on a real profile until the first run says otherwise")
+        return store
     idb = profile_dir / "IndexedDB"
     if idb.is_dir():
         for d in sorted(idb.iterdir()):
@@ -223,6 +235,8 @@ def discover(user_data_dirs=None, all_users=False, home=None, platform=None):
         root = path / "EBWebView" if layout == "webview2" else path
         if layout == "flat":
             profiles = [(root, app)]
+        elif layout == "gecko":
+            profiles = gecko.profiles_in(root) if not (root / "storage" / "default").is_dir() else [(root, root.name)]
         else:
             profiles = _profile_dirs(root)
         for pdir, name in profiles:

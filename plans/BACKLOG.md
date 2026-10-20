@@ -1212,6 +1212,50 @@ after `fxDump`'s capture and #98's anonymous route, which it extends.
   own yet (the zip is handed to the person; when the worker route exists, the upload is a ticked choice, never a
   default), and the same report format as the in-app leg so there is one reader, not two.
 
+## USB EXCHANGE — grab, assign and delete texts with no network (Seth, 2026-10-20)
+
+> *"I'd like it to be able to extract and also inject texts and recordings. So if a network connection isn't
+> available grabbing, deleting, and assigning texts can be done through this app via USB."*
+
+**The decision, and why: nothing writes into a browser's storage from outside.** `tools/fxdiag` reads
+Chromium's LevelDB and Firefox's SQLite from disk, from a copy. Writing them is a different thing: Blink /
+structured-clone serialisation, blob journals and side files, per-store metadata, a browser that may hold the
+store open — one wrong byte and a device has lost every text on it, which is the one outcome this suite is
+built to prevent. And the field device is an Android phone whose storage no USB tool can reach either way. So
+"inject" means: **put the package where the app can import it, and let the app do the writing** — the only
+route that also covers phones.
+
+**What exists now (fxdiag, same day):** `fxdiag report --flextext --with-audio` GRABS a computer's texts as
+`.flextext` files with recordings; `fxdiag pack` builds the USB EXCHANGE PACKAGE for a device — texts +
+recordings, `assign.html` carrying the panel's settings link (`applyUrlSettings` parameters; an installed app
+applies it offline), `MANIFEST.json` (`format: flextext-usb-exchange`, texts with file/recordings/guid/title,
+the assignment, the DELETE requests as ids + titles), README with the steps. Applied today one pair at a time
+through the app's existing *Open text + recording together* dialog; deletions are a request the person acts on
+in the app.
+
+**What the APP needs next — engine work, blast radius every app (plan before building):**
+1. **Import from USB** (Texts screen, and the Segmenter): pick a package folder or zip → read `MANIFEST.json`
+   → show what it holds (n texts, which have recordings, the assignment, the deletion requests) → apply the
+   assignment (same code path as the link), import every pair (the `newDocFromPair` path, so conversion,
+   peaks and the segmentation seed behave as for an assigned text), then OFFER the deletions one by one —
+   each shown with its title and whether this device still holds unsent changes; nothing removed without a
+   tap per text. A text already on the device (same guid) → the check-in merge path, not a duplicate.
+2. **Export to USB**: the mirror — the device writes its own package (texts + recordings + a device manifest
+   with pending-upload state) to a chosen folder, so a coworker's phone can be grabbed over USB OTG storage
+   or a laptop's downloads folder without the researcher's tool touching the browser. This is the phone
+   route for grabbing.
+3. **Delete after grab, safely:** a deletion request is honoured only for a text whose record the package's
+   maker has (the manifest names the guid and the grabbed record's modified stamp); a text edited since is
+   shown as "changed since it was grabbed" and left alone unless the person insists.
+4. The manifest is versioned (`version: 1`); the app refuses a newer version it does not know rather than
+   guessing.
+
+**Firefox and relatives (same ask):** fxdiag now discovers Firefox-family profiles and reads their IndexedDB
+and localStorage with moz-idb-edit's codecs — ⚠ unverified on a real profile (no Firefox could run where it
+was written); the first run on one is the check, and every report flags its Firefox section as provisional
+until then. The suite itself stays Chromium-only (CLAUDE.md); this is about reading what a researcher's Firefox
+may hold, not supporting it as a field browser.
+
 ## VIDEO SOURCES (.mp4) — audio extraction first, preview later (Seth, 2026-08-21)
 
 > *"Can our editor app make use of video files (like mp4)? For now just automatically extracting and

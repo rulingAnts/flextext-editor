@@ -1212,7 +1212,13 @@ after `fxDump`'s capture and #98's anonymous route, which it extends.
   own yet (the zip is handed to the person; when the worker route exists, the upload is a ticked choice, never a
   default), and the same report format as the in-app leg so there is one reader, not two.
 
-## USB EXCHANGE — grab, assign and delete texts with no network (Seth, 2026-10-20)
+## USB EXCHANGE — grab, assign and delete texts with no network (Seth, 2026-10-20) — GitHub #120
+
+Tracked as **#120**, together with its sibling ask: **reassign a device to a different project without losing
+data or settings** — texts, recordings, pending uploads and device settings survive; project-owned settings
+follow the new project; the device's Ki is re-wrapped under the new project's key and the old grants revoked;
+the Drive folder is re-parented id-aware; the move rides the panel when online and the USB package when not.
+
 
 > *"I'd like it to be able to extract and also inject texts and recordings. So if a network connection isn't
 > available grabbing, deleting, and assigning texts can be done through this app via USB."*

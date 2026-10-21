@@ -155,3 +155,38 @@ test('the writer: a word with no guid is written with none (not guid="")', () =>
   doc.paragraphs[0].segments[0].words[0].guid = '';
   assert.match(FT.serializeFlextext(doc, {}, {}), /<word>\s*<item type="txt"/);
 });
+
+/* NO TAB LEAVES IN A .flextext — FROM A FLEx TEXT TOO (the merge of tabfix-utility into desktop-flex, 2026-10-21).
+ * tabfix-utility routed the OLD writer through xesc / frag; desktop-flex had rewritten that writer for FLEx (line
+ * breaks, media links, guids, item order), so the merge kept desktop-flex's and routed IT through them. This pins
+ * the result on the FLEx shell's own path (flexExportDoc → serializeFlextext): a tab in a baseline, a word, a word
+ * gloss, another language's gloss item, a free translation, a literal one, the title — none reaches the file. */
+test('a FLEx text with tabs in it: none reaches the file, and nothing else changes', () => {
+  const clean = flexDoc();
+  const tabbed = flexDoc();
+  const s = tabbed.paragraphs[0].segments[0];
+  tabbed.title = 'A\tstory';
+  s.baseline = 'aa\tbb.';
+  s.words[0].gls = '\tA';
+  s.words[0].glosses = { ...s.words[0].glosses, en: '\tA' };
+  s.words[1].txt = 'bb';
+  s.words[0].preservedXML = [glsXml('id', 'A-id\t')];
+  s.free = 'one\t';
+  s.frees = { ...s.frees, en: 'one\t' };
+  s.lits = { en: 'lit\tone' };
+  s.postItemsXML = [glsXml('id', 'sa\ttu')];
+  const xml = write(tabbed, stateOf(clone(clean)));
+  assert.ok(!xml.includes('\t'), 'no raw tab anywhere in the file');
+  assert.ok(!/&#(?:9|x0*9);/i.test(xml), 'and none written as a character reference');
+  const ph = phrases(xml)[0];
+  assert.match(ph, /<item type="txt" lang="qaa">aa bb\.<\/item>/, 'a tab between words is one space');
+  assert.match(ph, /<item type="gls" lang="en">A<\/item>/, 'a tab at a gloss edge is nothing');
+  assert.match(ph, /<item type="gls" lang="id">A-id<\/item>/, 'a kept item from another language too');
+  assert.match(ph, /<item type="gls" lang="id">sa tu<\/item>/, 'and the other language\'s free translation');
+  assert.match(xml, /<item type="title" lang="[^"]*">A story<\/item>/, 'the title');
+  assert.deepEqual(attrsOf(xml, 'phrase').map((a) => a.guid), attrsOf(write(clean), 'phrase').map((a) => a.guid), 'every phrase keeps its FLEx guid');
+  // `aa`'s stored gloss differs from FLEx's (it holds a tab), so by postStateOf's rule it claims no id — FLEx's importer
+  // then finds the analysis by its glosses, which come out identical; the untouched words keep theirs
+  assert.deepEqual(wordGuids(ph), [['aa', null], ['bb', AN(2)], ['.', null]]);
+  assert.equal(write(clean).includes('\t'), false);
+});

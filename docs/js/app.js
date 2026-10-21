@@ -15,7 +15,7 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
 import { whenFlexReady, isFlexShell, isFlexShellPage } from './native-flex.js';   // the FLEx desktop shell's seam (desktop/); inert on the web
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, untab, untabField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, untab, untabField, glossSpaces, trimGlossEdges, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -5237,10 +5237,11 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
      * The caret index survives untouched because the substitution is one character for one. */
     g.addEventListener('input', () => {
       untabField(g);   // a pasted tab is a space here, so the line below makes it the break character
-      if (g.value.includes(' ')) {
-        const at = g.selectionStart;
-        g.value = g.value.split(' ').join(glossBreak());
-        try { g.setSelectionRange(at, at); } catch { /* detached: nothing to restore */ }
+      // A space at the very start is dropped; the rest become the break character (typing.js glossSpaces).
+      const sp = glossSpaces(g.value, glossBreak(), g.selectionStart);
+      if (sp.value !== g.value) {
+        g.value = sp.value;
+        try { g.setSelectionRange(sp.caret, sp.caret); } catch { /* detached: nothing to restore */ }
       }
       /* ⚠ AND THEN THE PERIODS, because the rule above is what CREATES the doubles: two spaces in a
        * row become "PST..PERF". Seth hit exactly that, and then: "in glosses only one period at a
@@ -5254,6 +5255,13 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
           try { g.setSelectionRange(r.caret, r.caret); } catch { /* detached */ }
         }
       }
+      /* The break characters a TRAILING space just became: feedback while the typist goes on, a leftover
+       * if they leave now — trimGlossEdges takes them on blur, while the box is unchanged since. Kept
+       * across a keystroke only if that keystroke changed nothing. */
+      const sepNow = glossBreak();
+      const runNow = g.value.length - g.value.replace(new RegExp(`\\${sepNow}+$`), '').length;
+      g.__autoTail = sp.tail ? { value: g.value, n: Math.min(sp.tail, runNow) }
+        : (g.__autoTail && g.__autoTail.value === g.value ? g.__autoTail : null);
       w.gls = g.value; sizeInput(g); schedulePersist();
     });
     /* ⚠ AND AGAIN ON BLUR, WHICH IS THE PASS THAT CANNOT BE FOUGHT. Seth, 2026-09-10: "our period
@@ -5276,8 +5284,14 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
        * before this feature existed. Passing `{ gloss: singleSpaceEnabled() }` was wrong twice over:
        * with the setting off it still collapsed periods, and it did so under the FULL-LINE rules,
        * which would have collapsed spaces and normalized ellipses inside a gloss label. */
-      const spaced = untab(g.value).split(' ').join(glossBreak());
-      const want = singleSpaceEnabled() ? tidyField(spaced, { kind: 'gloss', moment: 'blur', sep: glossBreak() }).value : spaced;
+      const sep = glossBreak();
+      // Any space still there (an IME can hold one past input): an edge one dropped, an inner one the separator.
+      const sp = glossSpaces(g.value, sep);
+      // The leftovers — a trailing space's separator from this pass, plus one from typing if the box is unchanged since.
+      const prior = g.__autoTail && g.__autoTail.value === g.value ? g.__autoTail.n : 0;
+      g.__autoTail = null;
+      const edged = trimGlossEdges(sp.value, sep, { value: sp.value, n: sp.tail + prior });
+      const want = singleSpaceEnabled() ? tidyField(edged, { kind: 'gloss', moment: 'blur', sep }).value : edged;
       if (want === g.value) return;
       g.value = want;
       w.gls = want;
@@ -5331,7 +5345,11 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
         e.preventDefault();
         const from = g.selectionStart ?? g.value.length;
         const to = g.selectionEnd ?? from;
-        g.setRangeText('.', from, to, 'end');
+        /* ⚠ A SPACE, NOT A LITERAL '.' (2026-10-21). This typed '.' whatever the researcher had chosen, so on
+         * a physical keyboard an underscore or hyphen setting still gave periods. Typing the space and
+         * letting the input handler convert it means one path for every keyboard: the researcher's
+         * separator, the leading-space drop, and the leftover remembered for blur. */
+        g.setRangeText(' ', from, to, 'end');
         g.dispatchEvent(new Event('input', { bubbles: true }));
       }
     });

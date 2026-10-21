@@ -692,6 +692,47 @@ export function untabField(el) {
   return true;
 }
 
+/* ⚠ A WORD GLOSS'S SPACES AND EDGES (Seth, 2026-10-21: "automatically trim leading or trailing periods
+ * left over after the user leaves a gloss cell … or whatever morpheme break character the researcher
+ * defined").
+ *
+ * glossSpaces — the space-to-separator rule (2026-09-08), plus one edge: a space at the very START of
+ * a gloss is DROPPED, not made a separator. Nothing precedes it, so it is no break between anything,
+ * and dropping it there and then means no leading separator is ever created. The rest become the
+ * separator one for one (the caret holds). `tail` counts the separators at the END that came from
+ * spaces in this pass — while the typist is still going those are feedback ("PST " shows "PST." so the
+ * next word lands after it); left at the end when they leave, they are a leftover.
+ *
+ * trimGlossEdges — what leaving the box does to the edges:
+ *   - the separators a trailing space became (`auto`, valid only while the box is unchanged since)
+ *     go, whatever the separator is;
+ *   - and for the period or the underscore, ANY run of the separator at either edge goes, typed or
+ *     not: neither means anything at the edge of a gloss.
+ *   ⚠ NOT a typed hyphen. With the hyphen as the separator, "PST-" and "-PST" may be exactly what the
+ *   researcher meant — a prefix and a suffix gloss in Leipzig — so only the hyphen the app itself just
+ *   made from a space is taken, never one the typist put there (the stripTrailing note above, again).
+ * Both UNGATED, like the space rule they finish: these leftovers are the app's own, not a style
+ * choice — the single-space setting still governs the tidying that follows. */
+export function glossSpaces(value, sep, caret = null) {
+  const v = untab(value);
+  if (!v.includes(' ')) return { value: v, caret, tail: 0 };
+  const lead = v.length - v.replace(/^ +/, '').length;
+  const body = v.slice(lead);
+  const tail = body.length - body.replace(/ +$/, '').length;
+  return { value: body.split(' ').join(sep || '.'), caret: caret == null ? caret : Math.max(0, caret - Math.min(caret, lead)), tail };
+}
+const EDGE_SAFE = '._';   // separators that mean nothing at the edge of a gloss (not - or =)
+export function trimGlossEdges(value, sep, auto = null) {
+  let v = String(value ?? '');
+  const s = sep || '.';
+  if (auto && auto.n > 0 && auto.value === v) {
+    const run = v.length - v.replace(new RegExp(`\\${s}+$`), '').length;
+    v = v.slice(0, v.length - Math.min(auto.n, run));
+  }
+  if (EDGE_SAFE.includes(s)) v = v.replace(new RegExp(`^\\${s}+|\\${s}+$`, 'g'), '');
+  return v;
+}
+
 /* The two kinds of field, and what each does at each moment. Reading this table IS reading the
  * policy; the primitives above only say how. */
 const TIDY = {

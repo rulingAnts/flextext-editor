@@ -1212,10 +1212,6 @@ export function driveUnassign(docIds, projectFolderId, folders) {
 export function trashFiles(fileIds, note) {
   return api('POST', '/v1/researcher/trash', { body: { fileIds, note } });
 }
-/* ⚠ ALSO THE PANEL'S DEVELOPER "Remove, no backup" (v720). `delete` is an existing command type, so
- * that affordance needed no backend change — and it is NOT a force: the device's own
- * deleteConfirmedDoc refuses un-uploaded work unless THAT device has developer mode armed in its own
- * console. A panel cannot destroy a coworker's un-uploaded work from afar. */
 export function deleteDoc(instanceId, docId)       { return pushCommand(instanceId, 'delete', { docId }); }
 export async function changeSettings(instanceId, settings) {
   // Push the encrypted settings command to the device…

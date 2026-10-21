@@ -104,7 +104,6 @@ composes an acute accent. Anything hidden from ordinary users belongs here inste
 | Function | Where | What it does |
 |---|---|---|
 | `fxUpdate()` | any app | Forces a service-worker update check/activation (same flow as the ⌃/⌥+U shortcut). The fix for "I pushed a version but the device still runs the old one". |
-| `fxDev()` / `fxDev(false)` | any app (incl. the panel) | **Arms developer mode for this browser, and it PERSISTS until turned off.** A red ☠ badge sits bottom-left for as long as it is armed (drawn on boot in every shell), and its own button disarms it. While armed, every text row gains a ☠ beside the ordinary 🗑 that deletes the text **without backing it up first**, and the researcher panel gains "Remove, no backup" beside "Remove from device". `?devreset` clears it too, on the hosts that honour `?devreset`. ⚠ Arming is console-only on purpose — this repo's no-keyboard-shortcut rule, plus a better reason: nobody should reach a destructive control by mistyping. ⚠ **The device is the authority**: the panel's button sends the ordinary `delete` command with a `force` request, which a device that was *not* armed in its own console still refuses, so a panel can never destroy a coworker's un-uploaded work from afar. The corollary is the thing to know before arming: **while a device is armed, it obeys that command for any un-uploaded text on it**, not only the ones its holder ☠'d — `fxDev()` says so when it arms. ⚠ **Every ordinary path is unchanged, armed or not**: the 🗑, the panel's plain "Remove from device", delete-after-upload, the upload-completion hook and the sweep all still refuse a text that is not safely on Drive — `deleteConfirmedDoc` honours the exception only when the CALLER asked (`{ force: true }`, passed by the `delete` command alone) AND the device is armed (v722 review: keyed on the flag alone, the ordinary 🗑 on an armed device destroyed post-queue edits when a stale upload landed). ⚠ A ☠ (or an honoured "Remove, no backup") on a text that had already been to Drive leaves a **tombstone** (`flextext-dev-removed`, carries the folder id; `fxTombs()` lists, `fxTombs('clear')` drops). It **counts as a claim** in the panel — the folder is kept out of Unassigned and out of the sweep — and it expires 30 days after a report carrying it was first accepted (never before a panel could have seen it; a year as the long stop for a device never paired again). It is dropped the moment the same docId is live again (assign/adopt reuse ids), and the panel ignores one for a text live on any other device. The panel shows the row struck through, tagged "removed, no backup", with "Remove, no unassign" → Drive **trash**, never Unassigned — and **a panel armed with `fxDev()` trashes them itself on every full load** (`autoTrashTombs`), the same verified path without the confirm, which the ☠ dialog already gave. Trashed only when Drive's own `flextextDoc` tag on that folder matches the tombstone's docId — the device's word alone is not enough — and remembered as done per `instance|doc|folder` only when the route reports that id `ok`. |
 | `fxLinks()` | researcher panel | Shows the current link-estate mode and reveals the advanced picker. |
 | `fxBlanks()` | paragraph tool | Lists hidden blank lines — where each sits in sibling order and which group holds it. FLEx exports carry empty phrases; they are hidden and auto-absorbed, so a selection can look adjacent on screen and not be. Console-only by design: analysts should not have to think about them. |
 | `fxTree()` | paragraph tool | Prints the selection, every group's children in order, the top-level units, and — for the current selection — whether its members are adjacent among their siblings, naming what sits between them if not. The answer to "why won't these group?". |
@@ -184,7 +183,7 @@ every caller knows the setting it wants, never which tab happens to hold it.
 
 | Marker | Meaning |
 |---|---|
-| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Twelve fields; nine whose engine gate reads `!Sync.hasSession() \|\| settings.X === true` (v717 added `timingBanner`, v718 `keepTimes`, v719 `gapLines`), four that wait on an upload that cannot happen. |
+| `off: 'setup.off.<k>'` | inert on an unlinked device. Rendered **greyed with the reason on tap**, never hidden — a setting that vanishes when you link a device is one nobody can find twice. Ten fields; six whose engine gate reads `!Sync.hasSession() \|\| settings.X === true`, four that wait on an upload that cannot happen. |
 | `only: 'segmenter'` | the field appears in that mode's Settings tab only (`setupGroupsFor`) |
 | `standalone: true` | exists on the unlinked surface alone — `consentAudioFile`, the picked file where the panel pushes a Drive URL |
 | `type: 'action'` | a **button**, not a setting (`archivalDefaults`) — excluded from collect/fill |
@@ -217,8 +216,7 @@ A text ("doc") is:
 ```
 { title, paragraphs: [ { guid, segments: [ phrase ] } ], segments: [ span ], … }
 phrase = { attrs, baseline, words: [ { txt, gls, punct, … } ], free, pre/postItemsXML }
-span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   (+ derived timeEstimated, estSource)
-         (+ in memory only, never stored: phAt — a placeholder's values; noRoom — a display mark)
+span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
 ```
 - `paragraphs[].segments` are FLEx *phrases* (text structure). `doc.segments` are *time spans*.
 - **A word gloss (`gls`) never contains whitespace.** Two reasons, and the second is the
@@ -240,77 +238,11 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
   damaged by construction.
 - **Round-trip policy** (`flextext.js` header): anything the app doesn't edit (morphemes, notes,
   unknown items/attrs, media-files) is preserved as XML fragments and re-emitted.
-- **Estimates are per EDGE (v717, `plans/time-gaps-and-estimates.md` §2).** `guess` holds the value
-  of each edge that is a guess (nudged, interpolated, ✨, or read back from a file); an edge stays a
-  guess only while it still holds that value, so placing it clears it. `timeEstimated` is a derived
-  copy (`isEstimate`), kept for v714, `.fxpa` and PAT. No operation makes a guess of the first line's
-  start or the last line's end (C0) — but a guess that BECOMES outermost (its line's neighbour was
-  deleted) stays a guess. A flag no live edge explains was written by an older build and is migrated
-  per edge, never read as real. Every operation goes through three primitives — `placeSeam`,
-  `splitSpanAt`, `mergeSpanPair` — and a seam with a pause between its lines moves only the dragged
-  edge. `normalizeSegments` no longer clamps to the decoded length: drawing and playback clip at use.
-  A pending span may carry `fileTimes: [b, e]`: the file's own times for a line the model could not
-  place (nested, a sliver, an older build's clamp) that nobody has changed — the export writes them
-  back while the phrase still holds exactly them. `doc.timeEdges` marks a doc this model has read
-  (made, imported, or read back once); a doc without it is pre-v717.
-- **What the editor shows of it (v717).** Every strip surface (Baseline, Cut, Gloss, the Segmenter)
-  wears the same three classes from `segment-strips.js` `timeStateClass`: `seg-pending` (dotted, ⋯),
-  `seg-est` (dashed, from `isEstimate` — never the bare flag) and `seg-check` (red bar: a line the
-  report flags). Above the dock, ONE banner per text (`renderTimingBanner`, worded from
-  `timingReport`) with Details, Show and Dismiss; researcher-switchable as `timingBanner`. Drags go
-  through `dragSeam` with the grabbed edge, judged against the spans at pick-up. Opening a text saves
-  nothing but a one-line text's whole-file span or a tail cover, and those quietly (`saveQuiet`, no
-  `modified` stamp; v717 also saved the even seed, which v718 only draws). Drawing,
-  playback (`playEnd`) and the dock's marks clip at the recording's end; the stored time never does.
-- **Untimed lines are drawn, never written (v718, Seth's B2).** Before any tab draws a text,
-  segment-strips `prepareDisplaySpans` lays every line with no time into the gap its timed neighbours
-  leave (segments.js `spreadUntimed`: an even share, 400 ms a line or `noRoom`; an all-untimed text is
-  one room, [0, D] — v714's old spread). Such a span is a PLACEHOLDER: `phAt` records its values and it
-  is one only while it still holds them (`isPlaceholder`), so whatever the user places — a cut, a drag,
-  ✨, Keep — makes it a stored time; a join of two placeholders or a split nobody placed stays one.
-  Placeholders live in `current.doc.segments` and are removed in ONE place, `db.js putDoc →
-  storableRecord` (also `matchDraft.spans`); exports read the same storable form (`spansForExport`) and
-  the "already on Drive" hash does too. Looks: `seg-spread` (all untimed: dashed, one info banner),
-  `seg-needs` (partly timed: amber bar and "needs timing"), `seg-noroom` (⋯ with the amber bar) — the
-  amber only while untimed lines are at most half the text (`needsMarks`; a text still mostly untimed is
-  one being cut, P6), and behind the banner's switch. v714/v717's stored even spread is recognised from the spans
-  themselves (`seedsToPending`) and drawn untimed again — v714's even after a user began correcting it there
-  (on the seed's grid, `v714SeedLines`: only the lines somebody placed keep a time). **Keep times**
-  (`keepLineTimes`, active row, researcher switch `keepTimes`) makes a guessed line's times its own; the
-  Audio Segmenter spreads its untimed rows the same way and writes them back untimed on Done. Its draft
-  exists only once something was changed there (`MG.edited`), and its "this text has changed" check
-  (`mgBaseSig`) ignores the editor's quiet writes (a seed made pending, D7; the tail cover is gone in v719) but not a Keep.
-- **Unassigned audio is a row, not a line (v719, Seth's B1).** `segments.js gapRowsFor(spans, D)`
-  returns one entry per insertion index `k` for every pause of ≥ 350 ms where BOTH neighbours are
-  placed (`isPlaced`) — a pending line or placeholder means the room is already shared out by
-  `spreadUntimed` (D3). `k === 0` is the lead, `k === n` the tail, which replaces v718's `coverTail`
-  (removed: it silently stretched an untexted last line to the end of the recording). The rows are
-  drawn by `renderStrips` and `renderCut` through one `gapRowEl`, wear `.gap-row[data-gap]` and none
-  of the line classes, and the player's gap bands are a separate layer from `setBoundaries` so seam
-  numbers are untouched (case 15). `gapHasSpeech` reuses the ✨ detector's framing and the
-  recording's own levels to tint a gap ≥ 1 s holding ≥ 400 ms of voice. Writing is `insertLineAt`
-  (a direct splice of both arrays at one index — never `reconcileBaseline`), wrapped by `addGapLine`
-  and `addAllGapLines` (end-first, one `captureUndo`, one save). Gated by `gapLines`
-  (`!Sync.hasSession() || settings.gapLines === true`) and hidden entirely while an unacknowledged
-  red timing banner stands; the device preference `showGaps` (default on) draws or hides the rows.
-- **The text box keeps times with their lines (v717).** `reconcileBaselineWithOrigins` says where each
-  new line came from (kept / exact / edit / join / split / new, paired only within the stretch between
-  unchanged lines, by shared words first and in order only in the gaps the words leave; `moved` for a
-  line that changed places) and `segmentsFollowLines` builds the times from that — never by position,
-  and only along the run of lines whose old order still holds.
 
 **`.flextext` is the canonical time-alignment carrier** — phrase `begin/end-time-offset`
 attributes + `media-files` (the FLEx/ELAN interop mechanism) on export, `segmentsFromOffsets()` on
 import. There is no proprietary sidecar. Timestamps also emit as visible `note` items
 (`audio 0:01.234–0:05.678`, `~` = estimated) because FLEx has no display line for the raw offsets.
-Since v717 the `~` is read back on import, and every estimated phrase is also listed, per edge, in a
-`<?flextext-editor v="2" time-estimates="GUID@~S-E …"?>` processing instruction (written whenever
-times are, notes on or off; matched back by guid AND times; passed through by a device with
-segmentation off). ⚠ The instruction survives OUR round trips only: FLEx re-writes the file without
-it, so through FLEx the `~` note is what carries an estimate (per line), and with notes off only the
-equal-length rule can recover one. A line whose live span has no time is written with no offsets at
-all — the export never falls back to a phrase's stale imported times — unless it holds `fileTimes`.
-Every exporter reads a stored pre-v717 record's estimates back first, on a copy (`spansForExport`).
 
 ### 4.1 Conversions from files the app has never seen (v377)
 
@@ -577,25 +509,6 @@ encoders and `astats`, ships its licence and source pointer beside the binary, a
   (EAF/flextext/preview/bext, includes pinned regressions from adversarial audits),
   `loose-conversions` (the Utilities converter, asserted as PARITY with the Files ▾ menu),
   `version-sync` (release gate), `worker-*` (auth boundaries, seclog).
-- **Time-model fixtures and the corpus gate (v717).** `test/fixtures/timing/` holds timing SKELETONS
-  of real files — their offsets, notes and guids, with every word `w` and neutral titles;
-  `timing-fixtures-clean` fails on any real text. Before a time-model change goes to staging, run
-  `node tools/corpus-timing.mjs <folder> --durations <json> --baseline <older checkout>` over the
-  real files on your own machine: it opens each file as the editor does and prints COUNTS only
-  (placed times changed on open, lines gained, two opens identical, classes, estimate lines, red
-  banners, and every line of an untouched export that differs from the older engine's). It reads,
-  never writes, and is never run in CI. The expected numbers are in
-  `plans/time-gaps-and-estimates.md` §6.5. Since v718 it also opens every untimed text as if its
-  recording had decoded (`untimed`: drawn evenly or "no room", nothing written but a one-line text's
-  span, an export with no times) and, with `--baseline` at v714, hands the old engine's stored seed to
-  the new one (`untimed.v714Seeds.missed` must be 0) — and the same seed after one v714 correction each (a drag,
-  a cut, a join, a clamp, made with the baseline's own functions: `v714Seeds.corrected` all 0, only the corrected
-  lines keeping a time); each multi-line untimed text must show exactly one
-  info banner and no marked line. The corpus has no partly timed text, so every timed text is also opened
-  as one (`untimed.partly`: every line k % 6 = 2, 3 made untimed by our own export): each untimed run
-  inside its own room and shared evenly, no timed line moved, nothing stored or exported as a time, amber
-  exactly while untimed lines are at most half. The fixtures include U60, an all-untimed FLEx export
-  (60 phrases in one paragraph).
 - **Before your first push: `./install-hooks.sh`.** It installs `hooks/pre-push`, which refuses a
   push carrying a credential (`./check-secrets.sh`), one that touches `.github/workflows/`
   (billable), or one aimed at a production branch. The first has no override on purpose; the other

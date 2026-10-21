@@ -231,16 +231,11 @@ console.log('\nlisting is bounded and scope-limited');
 console.log('\nthe unassigned gate is computed from DEVICE INVENTORY, and only it exposes Remove');
 {
   const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
-  /* v722: the literal loop over the inventories is inventoryDocIds(); assignedDocIds() is that set
-   * PLUS the open ☠ tombstones — a tombstone is a claim, or the folder drifted into Unassigned between
-   * the ☠ and the trash (dev-mode.test.mjs). The predicate under test here is unchanged. */
-  const fn = (panel.match(/function inventoryDocIds\(\) \{[\s\S]*?\n\}/) || [''])[0];
+  const fn = (panel.match(/function assignedDocIds\(\) \{[\s\S]*?\n\}/) || [''])[0];
   ok(/ins\.inventory && Array\.isArray\(ins\.inventory\.items\)/.test(fn),
      'assigned-ness comes from what devices actually report holding');
   ok(/for \(const it of \(lastData && lastData\.instances\) \|\| \[\]\)/.test(fn),
      '...across EVERY instance, not just the current card');
-  ok(/function assignedDocIds\(\) \{\s*\n\s*const ids = inventoryDocIds\(\);\s*\n\s*for \(const x of openTombs\(\)\) ids\.add\(x\.id\);/.test(panel),
-     '...and the claim set the card, the sweep and the modal ask is built on exactly that, plus the open tombstones');
 
   const modal = (panel.match(/function storageModal\(\) \{[\s\S]*?\n\}\n\n/) || [''])[0];
   ok(/const isUnassigned = \(tx\) => !assigned\.has\(tx\.docId\)/.test(modal),

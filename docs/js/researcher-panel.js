@@ -177,12 +177,6 @@ let serverPending = new Map();
  * browser, serverPending for every other panel, retired by ack like the rest. */
 const CMD_KIND = { triggerUpload: 'upload', uploadDelete: 'delete', delete: 'delete', assign: 'assign', setDone: 'done' };
 
-/* Developer mode, read from the SAME per-browser flag app.js owns (`fxDev()` arms it; the badge
- * app.js draws is already on screen here, because the panel runs on the editor's origin with app.js
- * booted). Read, never written: the panel must not be able to arm anything — not itself and
- * certainly not a device. */
-function devMode() { try { return localStorage.getItem('flextext-dev-mode') === '1'; } catch { return false; } }
-
 /* #15 — texts in the Researcher view sort by STATUS, THEN NAME (they listed in arrival order,
  * which helped nobody — Brian's screenshot made the case). Active texts first, finished ones
  * after: the list is a worklist, and a done text is the one thing nobody is about to open. Each
@@ -312,97 +306,6 @@ function loadPending(accountId) {
 function savePending(accountId) {
   try { localStorage.setItem(PENDING_KEY + (accountId || 'anon'), JSON.stringify([...pendingCmds])); }
   catch { /* quota/private mode — the markers degrade to in-memory only */ }
-}
-
-/* DEV-REMOVED TOMBSTONES THIS PANEL HAS ALREADY TRASHED — "<instanceId>|<docId>".
- *
- * ⚠ THIS SET EXISTS BECAUSE NOTHING SYNCS BACK, and that was a deliberate choice (Seth's option 1,
- * 2026-10-10). Telling the device "done" would need a NEW command type, and so a worker allow-list
- * change and the whole backend-first sequence — for a developer affordance. So the panel remembers
- * instead: the device keeps naming the tombstone until it expires on its own, and this is what stops
- * the row being offered again on every poll.
- *
- * ⚠ The cost is honest and small: a SECOND panel, or the same panel in another browser, would offer
- * a row whose folder is already trashed. Trashing an already-trashed folder is a no-op, so the worst
- * outcome is one redundant click. Same per-account localStorage shape as PENDING_KEY. */
-const TOMB_KEY = 'flextext-rp-tombdone:';
-let devTombDone = new Set();
-/* Keyed by folder as well as id (v722 review): docIds are reused by assign/adopt, so "this device's
- * tombstone for this id was handled" must mean THIS folder — a later tombstone for the same id and a
- * new folder is new work, not a repeat. */
-const tombKey = (instanceId, docId, folderId) => `${instanceId}|${docId}|${folderId || ''}`;
-function loadTombDone(accountId) {
-  try {
-    const raw = JSON.parse(localStorage.getItem(TOMB_KEY + (accountId || 'anon')) || '[]');
-    devTombDone = new Set(Array.isArray(raw) ? raw : []);
-  } catch { devTombDone = new Set(); }
-}
-function saveTombDone(accountId) {
-  try { localStorage.setItem(TOMB_KEY + (accountId || 'anon'), JSON.stringify([...devTombDone].slice(-500))); }
-  catch { /* quota/private mode — degrades to in-memory, costing a redundant click after a reload */ }
-}
-
-/* ⚠ THE DEVICE'S WORD IS NOT ENOUGH TO TRASH A FOLDER (v722 review). A tombstone names a folderId
- * the DEVICE reported. The worker's /trash route verifies nothing beyond the drive.file scope — it
- * PATCHes trashed:true on any id the app created, and every text folder in the estate is app-created.
- * So a stale, mistaken or mis-reported folderId would trash ANOTHER TEXT'S folder, and nothing
- * between the button and Google would notice. The estate already pairs each text folder with the
- * docId it is tagged with (`texts[{docId, folderId}]`, from the flextextDoc appProperty Drive itself
- * carries), so the check is local and free: trash only when the folder Drive says belongs to this
- * docId is the one the device named. Returns null when the estate is not loaded — "cannot say" is
- * refused too; the researcher is told to retry rather than trusted through. */
-function tombFolderVerified(tomb) {
-  const texts = (estateCache && Array.isArray(estateCache.texts)) ? estateCache.texts : null;
-  if (!texts) return null;
-  return texts.some((x) => x && x.docId === tomb.id && x.folderId === tomb.folderId);
-}
-/* Every tombstone still OPEN across the dashboard: reported by a device, not yet trashed by this
- * panel, and — the part that matters most — naming a text that is NOT live on ANY device. docIds are
- * reused by assign/adopt, so a device's tombstone can outlive the text's return on another device;
- * the Drive folder is then a live text's folder, and the cross-check would pass, because Drive's tag
- * does say it belongs to that id. The live inventories win. ONE derivation, so the rows, the claim
- * set (assignedDocIds) and the auto-trash can never disagree about what is open. */
-function openTombs() {
-  const live = inventoryDocIds();
-  const out = [];
-  for (const it of (lastData && lastData.instances) || []) {
-    for (const ins of it.installs || []) {
-      const tombs = (ins.inventory && Array.isArray(ins.inventory.devRemoved)) ? ins.inventory.devRemoved : [];
-      for (const x of tombs) {
-        if (!x || !x.id || !x.folderId || live.has(x.id)) continue;
-        if (devTombDone.has(tombKey(it.instance_id, x.id, x.folderId))) continue;
-        out.push({ instanceId: it.instance_id, id: x.id, title: x.title || '', folderId: x.folderId });
-      }
-    }
-  }
-  return out;
-}
-/* ⚠ DEVELOPER MODE FINISHES ☠ REMOVALS BY ITSELF (Seth, 2026-10-11: "have the researcher panel
- * automatically detect and delete tombstones when it loads"). On every FULL render, with the estate
- * in hand, every open tombstone whose folder passes the Drive cross-check is sent to the trash — the
- * same verify → trash → remember sequence as the button, minus the confirm, because the confirm was
- * already given on the device (the ☠ dialog says the folder will be trashed). Gated on THIS panel's
- * own arming as well as the device's: an unarmed researcher sees the struck-through row and nothing
- * happens behind their back. Rides the full render only (an estate round trip, never the 12s poll),
- * one in flight at a time, and a failure costs nothing but the next render's retry. */
-let autoTrashBusy = false;
-async function autoTrashTombs(estate) {
-  if (!devMode() || autoTrashBusy || !estate || !Array.isArray(estate.texts)) return;
-  const todo = openTombs().filter((x) => tombFolderVerified(x) === true);
-  if (!todo.length) return;
-  autoTrashBusy = true;
-  try {
-    const r = await Researcher.trashFiles(todo.map((x) => x.folderId), 'dev-removed text folders (auto)');
-    const ok = new Set(((r && r.results) || []).filter((x) => x && x.ok).map((x) => x.id));
-    let n = 0;
-    for (const x of todo) if (ok.has(x.folderId)) { devTombDone.add(tombKey(x.instanceId, x.id, x.folderId)); n++; }
-    if (n) {
-      saveTombDone(Researcher.currentAccountId());
-      deps.toast(t('panel.dev.tombAuto', { n }), 8000);
-      renderDashboard(lastData || undefined);
-    }
-  } catch { /* retried by the next full render */ }
-  finally { autoTrashBusy = false; }
 }
 
 /* COLLAPSED DEVICE CARDS — instanceId -> true (collapsed) | false (expanded). Same per-account
@@ -811,9 +714,9 @@ export function wireIconPicks(root) {
  * to which settings are specific to unpaired devices and which settings are only applicable to
  * paired devices"). Nothing is hidden on the strength of this; the rule of the repo is that a
  * control which cannot act says why:
- *   • PAIRED ONLY — twelve fields are inert on a device working alone. Eight because the engine gate
+ *   • PAIRED ONLY — ten fields are inert on a device working alone. Six because the engine gate
  *     short-circuits (`!Sync.hasSession() || settings.X === true`: allowDelete, deleteAllEnabled,
- *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit, timingBanner, keepTimes, gapLines — a lone worker always has
+ *     allowAudioRemove, allowAudioSwap, allowBlankLines, allowTextEdit — a lone worker always has
  *     these, so the switch could only lie), and four because they wait on an upload that cannot
  *     happen with no researcher Drive behind it (autoDel, autoBackup, autoBackupMins, doneEnabled).
  *     They appear on the unpaired tab greyed, each carrying its reason: the `off:` notes over in
@@ -888,14 +791,6 @@ const GROUPS = [
     // Drag a boundary: grips on every strip and movable marks on the Cut tab's top player (Seth,
     // 2026-09-06). Its own switch, independent of the texted-lines rule above; default on.
     { k: 'adjustBoundaries', type: 'checkbox', note: 'panel.f.adjustBoundariesNote' },
-    /* The timing banner (v717, plans/time-gaps-and-estimates.md D15): one message per text when its
-     * times are estimates, missing, or out of step with the recording. Every new segmenting control is
-     * the researcher's to switch: on for a lone worker, off on a managed device until switched on. */
-    { k: 'timingBanner', type: 'checkbox', note: 'panel.f.timingBannerNote' },
-    /* "Keep these times" (v718): a guessed line's times made its own, one press on the active line. The
-     * same shape — on for a lone worker, off on a managed device until switched on. */
-    { k: 'keepTimes', type: 'checkbox', note: 'panel.f.keepTimesNote' },
-    { k: 'gapLines', type: 'checkbox', note: 'panel.f.gapLinesNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.
@@ -1059,19 +954,6 @@ export function initResearcherPanel(d) {
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
   window.addEventListener('online', () => { if (!root || root.hidden) return; sweepAssignUploads(); if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
-  /* ⚠ DEVELOPER MODE TOGGLED → REPAINT, or the rows keep the state they were drawn in. fxDev() lives
-   * in app.js and arms a localStorage flag; the panel reads that flag while BUILDING each row, so a
-   * dashboard drawn before arming shows no "Remove, no backup" and one drawn before disarming still
-   * shows it. The panel does not poll its way out of this quickly — renderDashboard runs on its own
-   * events — so arming appeared to do nothing until the next tick. Decoupled through an event rather
-   * than a cross-module call: app.js has no business knowing the panel's render entry point. */
-  window.addEventListener('fx-dev-mode', () => {
-    /* ⚠ ONLY WHILE A DASHBOARD IS SHOWING (v722 review): `.rp-metrics` is the marker renderDashboard
-     * itself uses. Fired on the sign-in screen, an unconditional repaint replaced it with a dashboard
-     * that could not load — the account was not unlocked — stuck on "reconnecting". */
-    if (!root.querySelector('.rp-metrics')) return;
-    try { renderDashboard(lastData || undefined); } catch { /* mid-render: the next poll repaints */ }
-  });
   /* CONSOLE ENTRY POINT — `fxDevices()`. Prints what the panel ACTUALLY received for each device,
    * so "why is/isn't this flagged?" is answered with data instead of a theory. Added after two wrong
    * guesses about the estate badge (Seth, 2026-08-05): the client code and the worker SQL both
@@ -1591,22 +1473,6 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v719', date: '2026-10-10', items: [
-    { k: 'panel.rel.new.gapRows' },
-  ] },
-  { v: 'v718', date: '2026-10-10', items: [
-    { k: 'panel.rel.new.untimedLines' },
-    { k: 'panel.rel.new.keepTimes' },
-    { k: 'panel.rel.fix.segmenterUntimed' },
-    { k: 'panel.rel.fix.joinUndoGlossCut' },
-  ] },
-  { v: 'v717', date: '2026-10-10', items: [
-    { k: 'panel.rel.new.timeEstimates' },
-    { k: 'panel.rel.new.timingBanner' },
-    { k: 'panel.rel.fix.textBoxKeepsTimes' },
-    { k: 'panel.rel.fix.dragKeepsPause' },
-    { k: 'panel.rel.fix.openNotAnEdit' },
-  ] },
   { v: 'v716', date: '2026-10-10', items: [
     { k: 'panel.rel.fix.noticeLinks' },
   ] },
@@ -2978,7 +2844,6 @@ async function renderDashboard(prefetched) {
   lastData = data; lastDataAt = Date.now();   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
-  loadTombDone(Researcher.currentAccountId());   // which ☠-removed folders this panel has already trashed
   await loadMoves(Researcher.currentAccountId());
   await loadTtl(Researcher.currentAccountId());
   /* ⚠ EVERY render re-derives the shared pending state, not just the 12s poll. An action-driven
@@ -3155,7 +3020,6 @@ async function renderDashboard(prefetched) {
     // Warm the crowd preview heads once this render is out of the way — see sweepCrowdPreviews.
     try { sweepCrowdPreviews(crowdCache, estateCache); } catch { /* never costs the render */ }
     sweepUnassigned(estateCache);
-    autoTrashTombs(estateCache);   // developer mode only; see the function — never awaited, never costs the render
   }
 
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
@@ -5112,25 +4976,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       const ghosts = [...allPending].filter(([docId, pc]) =>
         pc.kind === 'assign' && !invIds.has(docId))
         .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
-      /* ⚠ DEV-REMOVED TEXTS GET A SYNTHESIZED ROW, for the same reason the ghosts above do: one
-       * renderer, so the state shows "the way it shows a pending delete" instead of as a second
-       * widget behaving differently. `pendingDelete: true` is what strikes it through — the device
-       * no longer has this text at all, which is exactly what that styling already means.
-       *
-       * These are texts a developer ☠ removed WITHOUT a backup. The device is still naming them so
-       * the Drive folder can be TRASHED rather than drifting into Unassigned among texts that are
-       * there for real reasons (Seth, 2026-10-10). Nothing syncs back to the device, so once this
-       * panel has trashed one it remembers and stops listing it — see devTombDone. */
-      const tombs = (ins.inventory && Array.isArray(ins.inventory.devRemoved)) ? ins.inventory.devRemoved : [];
-      // ⚠ Filtered through openTombs — not here — so a text live on ANOTHER device (reused id) is
-      // never offered for the trash, and the rows can never disagree with the claim set or the sweep.
-      const open = new Set(openTombs().filter((x) => x.instanceId === it.instance_id).map((x) => x.id + '|' + x.folderId));
-      const tombRows = tombs
-        .filter((x) => x && x.id && x.folderId && !invIds.has(x.id) && open.has(x.id + '|' + x.folderId))
-        .map((x) => ({ id: x.id, title: x.title || '', uploadState: '', hasAudio: false,
-                       pendingDelete: true, __devRemoved: true, __folderId: x.folderId }));
       // Ghosts (incoming assigns) stay on top — they are news; the settled rows sort by #15's rule.
-      const listed = [...ghosts, ...tombRows, ...(inv || []).slice().sort(textOrder)];
+      const listed = [...ghosts, ...(inv || []).slice().sort(textOrder)];
       const rows = listed.length ? listed.map((d) => {
         /* ⚠ 'uploading' HAS A REAL WRITER — see the allow-list note below, which rightly warns
          * against carrying a state nothing can produce. The device now reports it whenever any file
@@ -5233,28 +5080,11 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * cancel, so it is tested first and the row falls through to the ordinary withdrawal. */
         const cancelRemovalBtn = ` <button class="link-btn rp-cancel" data-iact="cancel-removal" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.cancelDelete'))}</button>`;
         const del = (!d.id || d.__assigning || wiped) ? ''
-          /* ⚠ A DEV-REMOVED ROW OFFERS EXACTLY ONE THING, and none of the ordinary actions. The
-           * device does not have this text any more, so Upload / Remove-from-device / Move / Done
-           * would all queue a command to an install that will never find it. The only live work
-           * left is the Drive folder, and the only right end for it is the TRASH: every Drive query
-           * the worker makes is scoped `trashed=false`, so a trashed folder cannot resurface in the
-           * estate or in Unassigned. That is what makes the guarantee hold. */
-          : d.__devRemoved
-            ? ((mAssign && devMode())   // this panel's OWN arming too: a dev control, like "Remove, no backup"
-                ? ` <button class="link-btn rp-devdel" data-iact="tomb-trash" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-folder="${esc(d.__folderId)}" data-title="${esc(d.title || '')}" title="${esc(t('panel.dev.tombTip'))}">${esc(t('panel.dev.tombTrash'))}</button>`
-                : '')
           : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete', mAssign) : takenTag)
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
-            ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
-                         /* ⚠ DEVELOPER MODE ONLY, AND IT IS NOT A FORCE. This sends the ORDINARY
-                          * `delete` command; the DEVICE still refuses it for un-uploaded work unless
-                          * that device was armed in its own console. So this cannot destroy a
-                          * coworker's work from here — see devMode in app.js. Rendered only while
-                          * this panel's own browser is armed (same origin, same flag). */
-                       + (devMode() ? ` <button class="link-btn rp-devdel" data-iact="del-text-now" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.dev.delNow'))}</button>` : '')
-                       : '')
+            ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>` : '')
             /* ⚠ THE "UPDATE THE DEVICE FIRST" GREY-OUT IS FOR SOMEONE WHO COULD OTHERWISE DELETE.
              * It sits on the ELSE of canDelText and so used to escape the mAssign gate above it: a
              * member WITHOUT assignTexts, looking at an old device, was shown a dead greyed Remove
@@ -5267,13 +5097,12 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
-        const canSetDone = engNum >= 138 && !wiped && mAssign && !d.__devRemoved;   // the toggle follows the assignTexts capability
+        const canSetDone = engNum >= 138 && !wiped && mAssign;   // the toggle follows the assignTexts capability
         /* A pending done-toggle renders the TARGET state plus the same waiting tag every other
          * queued command wears — and not as a button, so a second click cannot queue a second
          * toggle while the first is still travelling. Retires on ack like every marker. */
         const donePend = p && p.kind === 'done' ? p : null;
-        const doneTag = d.__devRemoved ? ''   // the device has no such text to mark
-          : donePend
+        const doneTag = donePend
           ? `<span class="rp-tag ${donePend.done ? 'rp-tag-done' : 'rp-tag-notdone'}">${esc(t(donePend.done ? 'panel.inst.doneTag' : 'panel.inst.notDoneTag'))}</span><span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.pendingTag'))}</span>`
           : d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
@@ -5301,9 +5130,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
                                   : `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>`) : '');
         // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
-        const delTag = d.__devRemoved
-          ? `<span class="rp-tag rp-tag-deleting" title="${esc(t('panel.dev.tombTagTip'))}">${esc(t('panel.dev.tombTag'))}</span>`
-          : deleting ? `<span class="rp-tag rp-tag-deleting">${esc(t('panel.inst.deletingTag'))}</span>` : '';
+        const delTag = deleting ? `<span class="rp-tag rp-tag-deleting">${esc(t('panel.inst.deletingTag'))}</span>` : '';
         // Downloads: labelled by PURPOSE (ELAN / SayMore / FLExText / FlexText Editor), never by
         // filename — two .eaf exports are near-impossible to tell apart by name. The assigned-audio
         // URL comes from the History log, the only place it is retained (the device reports what it
@@ -5317,7 +5144,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * until that works"). A member holding drive:read gets the same Files… menu the owner has,
          * downloading through the project-scoped route. Without the capability it is ABSENT rather
          * than disabled — a dead control reads as broken. */
-        const dl = (memberCtx && !mDrive) || d.__devRemoved ? ''   // a dev-removed row's folder is for the trash, not for browsing
+        const dl = (memberCtx && !mDrive) ? ''
           : previewBtnHtml(it.instance_id, d.id, d.title || '', !!memberCtx)
             + filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx, !!d.done);
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
@@ -5328,7 +5155,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
           : `${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}`;
         return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}${d.__assigning ? ' rp-pending-assign' : ''}">
           <div class="rp-text-main">
-            <div class="rp-text-title">${esc(textLabel(d))} ${d.__devRemoved ? '' : `<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>`}${delTag}</div>
+            <div class="rp-text-title">${esc(textLabel(d))} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
             <div class="note rp-text-meta">${meta}</div>
           </div>
           <div class="rp-text-actions">${dl}${up}${moveBtn}${del}</div>
@@ -5651,45 +5478,6 @@ async function instanceActionInner(el) {
       pendingCmds.set(el.dataset.id, { seq: r2.seq, kind: 'delete', instanceId: id, at: Date.now() });
       savePending(Researcher.currentAccountId());
       deps.toast(t('panel.inst.delSent'), 5000);
-      renderDashboard(lastData || undefined);
-    } else if (act === 'tomb-trash') {
-      /* Finish a ☠ removal on the Drive side: send the text's folder to the TRASH, which is the one
-       * end state that cannot come back as an Unassigned row. The confirm says that plainly, because
-       * after this there is no copy left anywhere. */
-      const folder = el.dataset.folder;
-      if (!folder) return;
-      /* ⚠ VERIFIED AGAINST DRIVE'S OWN TAG BEFORE ANYTHING IS ASKED — see tombFolderVerified. A
-       * mismatch is refused outright, not confirmed past: the confirm text names the TEXT, and a
-       * researcher saying yes to the text must not be read as yes to whatever folder the id turned
-       * out to be. "Estate not loaded" is refused too, with a retry, rather than trusted through. */
-      const verified = tombFolderVerified({ id: el.dataset.id, folderId: folder });
-      if (verified !== true) {
-        deps.toast(t(verified === null ? 'panel.dev.tombNoEstate' : 'panel.dev.tombMismatch', { title: el.dataset.title || '?' }), 8000);
-        return;
-      }
-      if (!await confirmModal(t('panel.dev.confirmTombTrash', { title: el.dataset.title || '?' }))) return;
-      try {
-        const r4 = await busy(el, () => Researcher.trashFiles([folder], 'dev-removed text folder'));
-        /* ⚠ THE ROUTE ANSWERS 200 WITH PER-ID RESULTS, ok:false included (v722 review) — a failed
-         * PATCH is not an exception here. Remembering it as done would hide the row for good while
-         * the folder sat untrashed, free to drift into Unassigned once the device's tombstone expired. */
-        const hit = ((r4 && r4.results) || []).find((x) => x && x.id === folder);
-        if (!hit || !hit.ok) { deps.toast(t('panel.dev.tombFailed'), 6000); return; }
-        /* Remembered BEFORE the toast and the repaint, so the row goes away on this render rather
-         * than coming back on the next poll (the device keeps naming it until it expires). */
-        devTombDone.add(tombKey(el.dataset.i, el.dataset.id, folder));
-        saveTombDone(Researcher.currentAccountId());
-        deps.toast(t('panel.dev.tombTrashed', { n: 1 }), 6000);
-        renderDashboard(lastData || undefined);
-      } catch { deps.toast(t('panel.dev.tombFailed'), 6000); }
-    } else if (act === 'del-text-now') {
-      /* Developer mode: remove it WITHOUT the upload first. The confirm says so plainly, and names
-       * the one thing that will stop it — a device nobody armed refuses this and the text stays. */
-      if (!await confirmModal(t('panel.dev.confirmDelNow', { title: el.dataset.title || '?' }))) return;
-      const r3 = await busy(el, () => Researcher.deleteDoc(id, el.dataset.id));   // the existing sender — see researcher.js
-      pendingCmds.set(el.dataset.id, { seq: r3.seq, kind: 'delete', instanceId: id, at: Date.now() });
-      savePending(Researcher.currentAccountId());
-      deps.toast(t('panel.dev.delNowSent'), 6000);
       renderDashboard(lastData || undefined);
     } else if (act === 'cancel-removal') {
       /* The pending REMOVAL half of a move, before stage 2 has issued it as a command. There is
@@ -9172,8 +8960,7 @@ function maintenanceBanner() {
   return out;
 }
 
-/* The ids LIVE on some device — what the inventories literally report. */
-function inventoryDocIds() {
+function assignedDocIds() {
   const ids = new Set();
   for (const it of (lastData && lastData.instances) || []) {
     for (const ins of it.installs || []) {
@@ -9181,18 +8968,6 @@ function inventoryDocIds() {
       for (const d of items) if (d && d.id) ids.add(d.id);
     }
   }
-  return ids;
-}
-/* The ids CLAIMED — live on a device, OR named by an open ☠ tombstone. ⚠ A TOMBSTONE IS A CLAIM
- * (v722 review): between the ☠ and the trash, no device reports the text, and that is PRECISELY the
- * predicate the Unassigned card and the sweep use — so the folder was listed under Unassigned and
- * re-parented into the Unassigned folder on the very render that first showed its "Remove, no
- * unassign" row. The fourth bug from that one predicate shape; the sweep's own comment says to check
- * every new rule against it. Counting the tombstone here keeps the folder where it is until it is
- * trashed, which is the whole requirement ("we DON'T want dev-deleted texts ending up in unassigned"). */
-function assignedDocIds() {
-  const ids = inventoryDocIds();
-  for (const x of openTombs()) ids.add(x.id);
   return ids;
 }
 

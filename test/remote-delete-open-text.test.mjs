@@ -25,7 +25,6 @@
  */
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { withGuesses, isPlaced } from '../docs/js/segments.js';
 
 const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 const fn = (src, name) => (src.match(new RegExp(`\\nfunction ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`)) || [''])[0];
@@ -95,16 +94,8 @@ test('#90 review: the Segmenter\'s own 🗑 and the matcher\'s async steps (sour
   const iGuard = ud.indexOf('if (SEGMENTER_MODE && MG && MG.docId === docId) mgClose();');
   ok(iGuard > 0, 'an open matcher on the text being deleted is closed through mgClose()');
   ok(iConfirm > 0 && iGuard > iConfirm, 'only once the user has said yes — Cancel leaves the matcher as it was');
-  /* The branch condition gained `force ||` when developer mode arrived (v720) — the forced,
-   * no-backup delete short-circuits into the LOCAL branch. The property pinned here is unchanged:
-   * mgClose() still runs before either branch, so the upload-first one goes through uploadDocById
-   * rather than the editor's doUpload. */
-  ok(iGuard < ud.indexOf('if (force || !d || !uploads || backedUp) {'),
+  ok(iGuard < ud.indexOf('if (!d || !uploads || backedUp) {'),
      'and before BOTH branches, so the upload-first one goes through uploadDocById, not the editor\'s doUpload');
-  ok(/const force = !!opts\.force && devMode\(\);/.test(ud),
-     'a forced delete is re-checked against devMode() here, never trusted from the caller');
-  ok(ud.indexOf('const force =') < iConfirm && /force\s*\n?\s*\? t\('dev\.confirmDeleteNoBackup'/.test(ud),
-     'and it gets its OWN confirm, which says plainly that nothing is uploaded first');
   /* Why the list can be on screen with the matcher open: show() hides the home tabs only for the
    * editor's own views, and the segmenter's Texts tab shows its list without closing the matcher. */
   ok(/const inEditor = view === 'cut' \|\| view === 'baseline' \|\| view === 'gloss'/.test(fn(app, 'show')),
@@ -330,8 +321,6 @@ test('#90 review: matcher steps that await, with the delete landing in the middl
       const newGuid = () => 'g';
       const makeSegment = () => ({ words: [] });
       const mergePhrases = (p) => p[0];
-      const withGuesses = env.withGuesses;   // the real one (segments.js) — mgCommit settles the spans through it since v717
-      const isPlaced = env.isPlaced;         // …and counts what it wrote by it since v718 (a placeholder is not audio)
       const docStats = () => ({});
       const Sync = { workerUploadTarget: () => true, reportNow() {} };
       async function uploadDocById(id) { calls.push('uploadDocById:' + id); if (env.during === 'upload') remoteDelete(); }
@@ -345,7 +334,7 @@ test('#90 review: matcher steps that await, with the delete landing in the middl
     return { h, threw };
   };
   const open = () => ({ MG: { docId: 'A', spans: [{ start: 0, end: 1000 }], lines: [{ id: 'l1', guid: 'g1', phrases: [{ words: [] }] }] },
-                        current: { id: 'A', stale: true }, withGuesses, isPlaced });
+                        current: { id: 'A', stale: true } });
 
   console.log('\nDone with nothing in the way (paired) — unchanged');
   {

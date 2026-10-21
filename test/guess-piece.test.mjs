@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { guessSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_WINDOW_MS, MIN_SEGMENT_MS, edgeGuessed } from '../docs/js/segments.js';
+import { guessSplits, guessSplitsWithin, applyGuessedSplitsWithin, GUESS_WINDOW_MS, MIN_SEGMENT_MS } from '../docs/js/segments.js';
 
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const MPB = 0.5;   // ms per bucket, as ensurePeaks produces
@@ -51,11 +51,6 @@ test('applyGuessedSplitsWithin replaces ONE piece and carries everything else ov
   assert.deepEqual(r.segments[0], { start: 0, end: 6000 }, 'the texted neighbour is byte-for-byte what it was');
   assert.deepEqual(r.segments.slice(1).map((s) => [s.start, s.end]), [[6000, 7000], [7000, 11000], [11000, total]]);
   assert.ok(r.segments.slice(1).every((s) => s.timeEstimated === true), 'the piece\'s own flags travel with its pieces');
-  // v717, per edge: the detector's boundaries are guesses; the piece's own end is the last line's (C0).
-  assert.deepEqual(r.segments.slice(1).map((s) => [edgeGuessed(s, 0), edgeGuessed(s, 1)]), [[true, true], [true, true], [true, false]]);
-  const real = applyGuessedSplitsWithin([{ start: 0, end: 6000 }, { start: 6000, end: total }], ['words', ''], 1, [11000, 7000]);
-  assert.deepEqual(real.segments.slice(1).map((s) => [edgeGuessed(s, 0), edgeGuessed(s, 1)]), [[false, true], [true, true], [true, false]],
-    'a real piece keeps its real outer edges; only the detected boundaries are guesses');
   assert.deepEqual(r.paragraphs, ['first piece has words', '', '', ''], 'paragraph i becomes k+1 empty lines; the texted line keeps its text');
   assert.deepEqual(segs, [{ start: 0, end: 6000 }, { start: 6000, end: total, timeEstimated: true }], 'inputs are not mutated');
 });
@@ -120,11 +115,7 @@ test('the words: EN and ID, and the long-recording refusals are gone with the ca
 test('✨ sits on the dock, far right, and is the Cut tab\'s: shown by renderCut, hidden by stopCut (v701)', () => {
   for (const shell of ['../docs/index.html', '../satellites/audio-segmenter/index.html']) {
     const html = rd(shell);
-    /* ⚠ THE CLAIM IS "LAST", NOT "WITHIN N CHARACTERS OF ✕". The window was 1200 until v719 put the
-       two gap controls (and their comment) between them, which is exactly where they belong — ✨
-       keeps the far-right corner because `.player-guess { margin-left: auto }` and because it is the
-       final element before </div>. Both halves are still asserted; only the slack grew. */
-    assert.match(html, /class="player-remove icon-btn2"[\s\S]{0,2000}?<button id="btn-guess-splits" class="player-guess icon-btn2" data-i18n-title="cut\.guess"\n\s+data-i18n-aria="cut\.guess" aria-label="Guess the lines" hidden>✨<\/button>\n\s+<\/div>/, `${shell}: last control on the dock, hidden until the Cut tab shows it`);
+    assert.match(html, /class="player-remove icon-btn2"[\s\S]{0,1200}?<button id="btn-guess-splits" class="player-guess icon-btn2" data-i18n-title="cut\.guess"\n\s+data-i18n-aria="cut\.guess" aria-label="Guess the lines" hidden>✨<\/button>\n\s+<\/div>/, `${shell}: last control on the dock, hidden until the Cut tab shows it`);
     assert.doesNotMatch(html, /id="cut-tools-label"/, `${shell}: the "Guess" word beside it is gone with the row`);
   }
   assert.match(fn(STRIPS, 'stopCut'), /guess\.hidden = true;/, 'leaving the Cut tab hides it');

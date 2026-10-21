@@ -19,8 +19,6 @@
  *                                           idempotent, never-clobber handlers)
  *   iface.gatherInventory()   -> Promise<object>  (metadata-only list to report)
  *   iface.onStatus(state)     -> void      (optional UI hook: 'pending'|'linked'|…)
- *   iface.onReported(inv)     -> void      (optional: the worker ACCEPTED this inventory — fires
- *                                           once per successful POST, never on the change-gated skip)
  */
 
 import { generateInstallKeypair, exportPublicKeyB64, importPublicKeyB64, publicKeyFingerprint, unwrapKeyFromResearcher, encryptJSON, decryptJSON } from './crypto.js';
@@ -486,9 +484,7 @@ async function maybeReport(s, force = false) {
     await v1('POST', `/v1/instances/${encodeURIComponent(s.instanceId)}/installs/${encodeURIComponent(s.installId)}/report`,
       { headers: installHeaders(s), body: { reported, ack_seq: s.ackSeq } });
     lastReportHash = hash;
-  } catch { return; /* report is best-effort; next tick retries */ }
-  // After the POST succeeded, and outside its try: a hook that throws must not read as a failed report.
-  if (iface.onReported) { try { iface.onReported(inv); } catch { /* the hook's problem, not sync's */ } }
+  } catch { /* report is best-effort; next tick retries */ }
 }
 
 // Public: nudge a report after an inventory-changing local event (doc add/delete/

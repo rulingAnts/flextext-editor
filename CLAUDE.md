@@ -169,26 +169,15 @@ the agent sandbox:
   without asking anyone (Seth, 2026-08-20: *"YOU can tell when the staging build has finished and is
   live"*).
 
-- **Direct HTTP: OPEN since 2026-10-11.** The network policy was widened, so the sandbox now reaches
-  all seven `*.flextext.app` app hosts, `rulingants.github.io`, the `staging-*.68mh29kgsd.workers.dev`
-  estate, and `connect.flextext.app` (which answers 401 to an unauthenticated root — the worker
-  refusing, correctly). **`./check-release-integrity.sh` runs for real and passes**, and a deploy is
-  confirmed by reading the version the live origin serves. v719's staging deploy was verified this
-  way on all seven hosts before anyone opened a browser.
-  - ⚠ The script is **PATH-based** (the Pages layout: `$BASE/flextext-editor/sw.js`,
-    `$BASE/text-recorder/sw.js`). Pointed at a host-based Cloudflare origin it fails confusingly,
-    looking for `app.flextext.app/flextext-editor/sw.js`. `rulingants.github.io` is the host it
-    wants and the default `BASE` is already right — do not "fix" it toward Cloudflare.
-  - ⚠ **`000` from the sandbox does NOT mean blocked.** Read the gateway's own code at
-    `$HTTPS_PROXY/__agentproxy/status`: **403** is a policy denial, **502** is permitted-but-nothing-
-    answering. `beta.flextext.app` reads 000 and is 502 — the seven `<worker>-beta` Workers have
-    never been created, so there is nothing there to reach. Diagnosing that as a network problem is
-    the mistake this line exists to prevent.
+⚠ Direct HTTP is still blocked — egress to `*.workers.dev`, `rulingants.github.io`,
+`connect.flextext.app` and `pat.flextext.app` returns 000/403 — so `check-release-integrity.sh` run
+from the sandbox proves nothing. That is a real limit, and it is the ONLY one; do not let it stand in
+for "verification is manual". Allowing those four hosts in the environment's network policy would
+close the remainder.
 
 ⚠ **The general lesson, which is why this is written at length:** a limitation recorded once gets
 believed indefinitely, by humans and agents alike. Re-test the limits occasionally rather than
-inheriting them. **This is the THIRD time that has been the finding in this file** — the paragraph
-above replaced one that had been wrong for weeks, and was itself wrong within seven weeks.
+inheriting them. This is the second time that has been the finding in this file.
 
 #### Docs commits are free now
 
@@ -517,46 +506,14 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
   `note` items (`audio 0:00.000–0:02.000`, `~` = estimated) — NEVER into the baseline text.
   `segmentsFromOffsets()` (flextext.js) derives spans back on open, clamped monotonic. FLEx stores
   the offsets on its Segment objects (ELAN interop); it has no interlinear line for them, so the
-  note line is the visible carrier — that's why both are written. ⚠ Since v717 estimates are per
-  EDGE (`guess`, segments.js), the `~` is READ BACK on import, a `time-estimates` processing
-  instruction carries the guessed edges whatever the note setting (OUR round trips only — FLEx drops
-  it, so through FLEx the `~` note is the carrier), and a line whose live span has no time is written
-  with NO offsets (never its stale imported ones) — except a line the model could not place that
-  nobody changed (`fileTimes`: nested ELAN phrases, a sliver, an older build's clamp), which writes
-  the file's own back (P4). Every export reads a pre-v717 record's estimates back on a COPY
-  (`spansForExport`), so no path — upload from the list, auto-backup, Gloss with the banner off —
-  can send its guesses out as times. plans/time-gaps-and-estimates.md.
+  note line is the visible carrier — that's why both are written.
 - **`doc.segments` is the working state** (time spans, one per paragraph), edited ONLY through
   `segments.js` (never invent a time; out-of-range → `timePending`; text is sacred). ALIGNMENT
   EDITS NEVER TOUCH TEXT: the ⇥ set-boundary control and the seeds write `doc.segments` only, so
   glosses/free translations cannot be lost by construction.
-- **Seeds and untimed lines (v718):** a fresh single-line doc → one whole-file span (D7, a real time,
-  written quietly). Every other line with no time is DRAWN, never written: segments.js
-  `spreadUntimed` shares the gap between its timed neighbours (or [0, D] for a text with no times —
-  v714's old even spread) evenly, 400 ms a line or it stays ⋯ "no room". Those spans are
-  PLACEHOLDERS (`phAt`, `isPlaceholder` — status by value, so a moved copy is not one): they play,
-  drag and cut like any span, and the moment the user places something the line is real (or an
-  estimate, dashed) and stored. Partly timed → amber "needs timing", but only while the untimed lines
-  are the exception (at most half — `needsMarks`); all or mostly untimed → dashed, one info banner.
-  v714/v717's STORED even spread is recognised (`seedsToPending`) and drawn untimed again — v714's even
-  after a user began correcting it there (`v714SeedLines`: step from the UNTOUCHED lines, never a mean of
-  edited ones). The Audio Segmenter keeps a draft only after an edit (`MG.edited`); its changed-text
-  check ignores the editor's quiet writes. Seth's B2, plans/time-gaps-and-estimates.md §4 v718.
-- **Gaps are shown, never filled (v719, Seth's B1):** audio no line covers — before the first line,
-  between two PLACED lines, after the last — shows as a `.gap-row` with ▶, its own waveform, its range
-  and "Add a line here" whenever the pause is ≥ 350 ms (`segments.js gapRowsFor`; a gap ≥ 1 s with
-  ≥ 400 ms voiced is tinted amber, `gapHasSpeech`). ⚠ **NOTHING IS INSERTED WHEN A TEXT OPENS** — the
-  rows are a view until a finger lands; inserting on open would grow ELAN40 from 40 lines to 79, almost
-  all silence, and send ~40 empty phrases to FLEx on the next export (D1). Add here / Add all /
-  ✂-in-a-gap go through `insertLineAt`, which splices `doc.paragraphs` and `doc.segments` at the SAME
-  index DIRECTLY — never `reconcileBaseline`, whose LCS could pair a new blank line with a neighbouring
-  blank and take its time with it. Add all works from the end backwards and is ONE Undo. ⚠ A gap row
-  carries NONE of `.seg-strip`, `.cut-row`, `.seg-text`, `data-i` and the gap bands are their own player
-  layer (`Player.setGapMarks`), so everything that finds rows by order still counts only lines, and
-  dragging seam k still moves seam k (case 15). `coverTail` is GONE: the unaccounted tail is a row now,
-  not a silent stretch of the last line. Researcher switch `gapLines` (the writes, not the rows); device
-  preference `showGaps`, default on. While a red "check alignment" banner is unacknowledged, Add is
-  hidden and the row says so (case 16). plans/time-gaps-and-estimates.md §4 v719.
+- **Seeds:** fresh single-line doc → one whole-file span. Pre-transcribed multi-line doc with no
+  alignment → even division marked `timeEstimated` (dashed) — line 1 claiming the whole recording
+  would be a false alignment. All-pending docs heal the same way once audio decodes.
 - **Exports (in the save/share zip):** `<title>.eaf` + `<title>.pfsx` (ELAN reads display settings
   from a same-basename sidecar; without it ELAN's remembered `sortAlphabetically` puts every gloss
   tier ABOVE its own vernacular partner — `A_phrase-gls-*` sorts before `A_phrase-txt-*`. The
@@ -585,38 +542,8 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     the setting-based guard read the hidden empty textarea and WIPED the doc's text.
   - Strip/gloss waveform canvases redraw via ResizeObserver + the existing tickers — a draw that
     races layout bakes a tiny buffer that CSS stretches into a blank slab.
-  - `prepareDisplaySpans()` (segment-strips, was `reconcile`; every tab runs it — Gloss too, since v718)
-    writes only D7's one-line span and the tail cover, QUIETLY (`persistQuiet` → app.js `saveQuiet`, no
-    `modified` stamp: opening a text is not an edit, and a stamp re-uploads a text already on Drive);
-    peaks failures `console.warn` instead of vanishing.
-  - **⚠ PLACEHOLDERS NEVER REACH STORAGE OR A FILE (v718).** `db.js putDoc → storableRecord` is the ONE
-    chokepoint (a shallow copy: `current` keeps its drawn lines), covering `doc.segments` and
-    `matchDraft.spans`; every exporter reads `spansForExport`, the storable form; `uploadContentSig`
-    hashes the stored form. Never add a second writer of the docs store — `storage-chokepoint.test.mjs`
-    fails if anything but db.js opens it.
-  - **Keep times (v718)** — on the ACTIVE line only, a guessed line's times (dashed, or "needs timing")
-    become its real ones: one Undo item, one save, our `~` note and instruction entry go with it (case
-    7). Researcher-switchable (`keepTimes`, the `timingBanner` shape) and only where `adjustBoundaries`
-    allows drags.
-  - **The timing banner (v717)** — one message per text above the dock (estimates, lines with no time,
-    "lines and audio look out of step"), worded from `timingReport`; it changes nothing, its Dismiss is a
-    quiet `rec.timingAck`, and it is researcher-switchable (`timingBanner`, the `allowBlankLines`
-    shape). Every drag surface goes through `dragSeam` with the grabbed EDGE, judged against the spans
-    at pick-up — across a pause only that edge moves.
-  - **Text and times change together, at the same index — never re-paired by position** (the
-    2026-08-16 lesson). The classic box's `applyBaseline` on a timed text takes
-    `reconcileBaselineWithOrigins` → `segmentsFollowLines`; the positional `syncToLines` is the last
-    resort for a doc whose spans already disagreed with its lines, and it sets `rec.timeSync` so the
-    banner turns red (an Undo takes the flag back with the edit). Pairing is by shared WORDS first,
-    even when the line counts match; only a gap the words leave pairs in order. A line MOVED past
-    others keeps its words but not its time — the recording's order is fixed. The box has its own
-    focus-session Undo in every mode, segmentation on or off. Before a time-model change reaches
-    staging, run `tools/corpus-timing.mjs` over the real files (local, read-only, counts only —
-    DEVELOPERS.md §8).
-  - **Opening is not an edit, all the way to Drive.** A pre-v717 doc is read back on open
-    (`enterEditor` → `readBackOnOpen`, and `mgLoad` for the Segmenter) before any tab draws it; a
-    record that was in sync with Drive when opened stays in sync across that read-back and the quiet
-    writes (`keepInSync`), until the first real edit.
+  - `reconcile()`'s seeds/heals persist immediately; peaks failures `console.warn` instead of
+    vanishing.
 
 ## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 

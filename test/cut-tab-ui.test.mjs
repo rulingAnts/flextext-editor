@@ -72,8 +72,8 @@ ok(/export function wireWaveSeek/.test(strips), 'the click-to-position/drag-to-s
 const render = strips.match(/export function renderCut\(anchorIdx\) \{[\s\S]*?\n\}/)[0];
 ok(/wireWaveSeek\(wave, seg, cutDeps\.getPlayer/.test(render), 'the Cut tab strips use it');
 ok(/wireWaveSeek\(wave, seg, deps\.getPlayer/.test(strips), 'and so do the Baseline strips — one behaviour, not two');
-ok(/const ms = Math\.min\(seg\.start \+ f \* \(seg\.end - seg\.start\), playEnd\(p, seg\)\);\s*\n\s*p\?\.seekMs\?\.\(ms\);/.test(strips),
-   'a click maps to a time INSIDE that segment\'s own span (v717: clipped at the recording\'s end, never past it)');
+ok(/const ms = seg\.start \+ f \* \(seg\.end - seg\.start\);\s*\n\s*getPlayer\(\)\?\.seekMs\?\.\(ms\);/.test(strips),
+   'a click maps to a time INSIDE that segment\'s own span');
 ok(/wireWaveSeek\(wave, \(\) => player|wireWaveSeek\(wave, seg, \(\) => player/.test(app),
    '…and so does the GLOSS tab, which had its own copy until the pause behaviour needed writing twice');
 
@@ -118,10 +118,8 @@ ok(!/playThrough/.test(render), 'but the ROW button does not — no play-through
 ok(/wireSegPlay\(play, seg, cutDeps\.getPlayer/.test(render),
    'it uses the SAME wireSegPlay as Baseline and Gloss, so "play this line" means one thing');
 const wsp = strips.match(/export function wireSegPlay[\s\S]*?\n\}/)[0];
-ok(/playSpan\(from, playEnd\(p, seg\), seg\.start\)/.test(wsp),
+ok(/playSpan\(from, seg\.end, seg\.start\)/.test(wsp),
    'which is span-limited (playSpan) and rewinds to the segment when it finishes');
-ok(/return D > 0 && seg\.end > D \? Math\.max\(seg\.start, D\) : seg\.end;/.test(strips),
-   '…its stop clipped to the recording (v717, P8): a stored end past the decoded length is kept, not played past');
 ok(!/function cutPlaySeg/.test(strips), 'and the tab keeps no play-through copy of that wiring');
 const cutEntry = app.match(/if \(tab === 'cut'\) \{[\s\S]*?prepareCutAudio\(\);/)[0];
 ok(/lastPlayTarget = null;/.test(cutEntry),
@@ -271,14 +269,8 @@ ok(/caret == null \? text\.length/.test(splitAt),
    '…and "no caret" means the END of the line — the words all stay put, the new line starts empty');
 ok(/const input = deps\.container\.querySelectorAll\('\.seg-text'\)\[i\]/.test(splitAt),
    'the words come from the BOX, not the model, so keystrokes not yet committed are not dropped');
-ok(/const ms = deps\.getPlayer\(\)\?\.playheadMs\?\.\(\);\s*\n\s*const i = segmentIndexAt\(docSegments\(doc\), ms\);/.test(atPlayhead),
-   'it acts on the line the PLAYHEAD is in');
-/* v719: "the playhead is in no line" used to be a flat refusal. It now has a meaning — the playhead
- * is in a GAP — and the gesture adds the line there (Seth, 10 Oct). Still never a silent split of
- * something else: only a gap the user can see on screen, and only through addGapLine's own capture. */
-ok(/if \(i < 0\) \{\s*\n\s*const g = gapsToDraw\(docSegments\(doc\), deps\)\.find/.test(atPlayhead)
-   && /return !!\(g && deps\.addGapLine && deps\.addGapLine\(g\.k\)\);/.test(atPlayhead),
-   '…and a playhead in a gap adds a line there instead of refusing (v719)');
+ok(/const ms = deps\.getPlayer\(\)\?\.playheadMs\?\.\(\);\s*\n\s*const i = segmentIndexAt\(docSegments\(doc\), ms\);/.test(atPlayhead) && /if \(i < 0\) return false/.test(atPlayhead),
+   'it acts on the line the PLAYHEAD is in, and refuses when the playhead is in none of them');
 ok(/if \(deps\.capture\) deps\.capture\(\); splitLineAt\(/.test(fn(strips, 'stripsSpec')),
    '…and the completed split is its own undo step, taken at the commit (plans/split-tiers.md) — a chopping run types nothing, so nothing else would create one');
 ok(/if \(focusNext\) focusStrip\(i \+ 1, 0\)/.test(splitAt),
@@ -289,26 +281,20 @@ ok(/activeTab !== 'baseline'/.test(app) && /stripSplitAtPlayhead\(\)/.test(app)
 ok(/baseline\.hintSeg/.test(app) && /baseline\.hintSeg/.test(i18n),
    'and the tab says so — the classic "Enter for a new paragraph" hint is wrong in strip mode');
 
-console.log('\nthe segments account for ALL of the recording — v719: by SHOWING the tail, not by swallowing it');
-/* ⚠ coverTail IS GONE (v719). Seth's rule — 2026-08-14, "showing part (not all) of the recording …
- * is not OK" — is unchanged; what changed is the answer. It used to stretch an untexted last line
- * silently to the end of the recording; now the unaccounted tail is its own gap row, with ▶, its
- * waveform and its length. Nothing is written, so nothing can be written WRONG: on the damaged L29
- * export the 2.1 s tail is the evidence the red banner is pointing at, and absorbing it into the
- * last line hid exactly that (case 16). */
-ok(!fn(strips, 'coverTail'), 'coverTail is gone');
-ok(!/COVER_TOL_MS/.test(strips), '…and so is its tolerance constant');
-ok(!/coverTail\(doc, paras, known\)/.test(fn(strips, 'prepareDisplaySpans')),
-   '…and prepareDisplaySpans no longer calls it — opening a text writes less than it did, never more');
-ok(/addGap\(paras\.length\);/.test(fn(strips, 'renderStrips')) && /addGap\(segs\.length\);/.test(fn(strips, 'renderCut')),
-   'the tail is drawn instead, on both tabs (gapRowsFor\'s k === n row)');
-ok(/if \(wrote\) \(d\.persistQuiet \|\| d\.persist\)\?\.\(\);/.test(fn(strips, 'prepareDisplaySpans')) && /persistQuiet: \(\) => saveQuiet\(\),/.test(app),
-   'D7\'s one-line span is still written QUIETLY (v717, P1): opening a text is not an edit');
+console.log('\nthe segments account for ALL of the recording');
+const cover = fn(strips, 'coverTail');
+ok(!!cover, 'there is a step that extends an unfinished tail to the end of the recording');
+ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /last\.attrs/.test(cover),
+   '…which never touches a line that has text, nor one whose times were imported');
+ok(/COVER_TOL_MS/.test(cover) && /COVER_TOL_MS = 1000/.test(strips),
+   '…and leaves rounding and encoder priming alone (a second of tolerance)');
+ok(/if \(coverTail\(doc\.segments, paras, known\)\) repaired = true;/.test(fn(strips, 'reconcile')),
+   'reconcile runs it, and a repair it makes is persisted like any other');
 const durFor = fn(strips, 'peaksDurationFor');
 ok(/id !== peaksCache\.docId/.test(durFor) && /return 0/.test(durFor),
    'a peaks cache belonging to ANOTHER text can never seed this one\'s spans');
-ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 3,
-   '…and the Baseline strips, the Cut tab and (v718) the Gloss bars all tell it which text they are showing');
+ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 2,
+   '…and both the Baseline strips and the Cut tab tell it which text they are showing');
 
 console.log('\na cut or a join does not throw the user back to the top of the recording');
 ok(/const keepTop = scroller \? scroller\.scrollTop : 0;/.test(render), 'the scroll offset is read BEFORE the rebuild');
@@ -387,10 +373,10 @@ ok(/switchTab\(landingTab\(tab\), \/\* landing \*\/ true\);/.test(app),
 // …as a STATEMENT: the function's comment names schedulePersist to explain why it is not used.
 ok(!/\n\s*schedulePersist\(\);/.test(fn(app, 'rememberTab')),
    'and remembering never goes through persist() — looking at a tab must not stamp the text modified');
-ok(/saveQuiet\(\);/.test(fn(app, 'rememberTab')) && /return db\.putDoc\(rec\)\.catch/.test(fn(app, 'saveQuiet')) && !/modified/.test(fn(app, 'saveQuiet').replace(/\/\*[\s\S]*?\*\//g, '')),
+ok(/db\.putDoc\(rec\)/.test(fn(app, 'rememberTab')),
    'it writes the record quietly instead (a modified stamp would re-upload a text already on Drive)');
-ok(/!\(docSegments\(current\.doc\)\.some\(isAligned\) \|\| current\.audioSource\)/.test(landing),
-   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen (v718: an aligned span, or the recording itself — an untimed text stores no span)');
+ok(/!docSegments\(current\.doc\)\.some\(isAligned\)/.test(landing),
+   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

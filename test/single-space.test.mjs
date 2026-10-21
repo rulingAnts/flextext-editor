@@ -209,7 +209,8 @@ test('each box gets the rules its own content can take', () => {
   assert.match(seg, /deps\.singleSpace && deps\.singleSpace\(\)/, '.seg-text tidies on input');
   assert.match(seg, /tidyField\(input\.value, \{ kind: 'vern', moment: 'input', prev: input\.__prevVal \}/,
     'a baseline strip is vernacular');
-  assert.match(STRIPS, /tidyField\(input\.value, \{ kind: 'vern', moment: 'blur' \}\)\.value/, 'and on blur');
+  // v725: on the tab-free value (no-tabs.test.mjs) — the tab rule runs first, ungated
+  assert.match(STRIPS, /tidyField\(plain, \{ kind: 'vern', moment: 'blur' \}\)\.value/, 'and on blur');
   assert.match(APP, /singleSpace: \(\) => singleSpaceEnabled\(\),/, 'passed as a predicate, read fresh each time');
 
   // the free translation, both moments; the legacy box, blur only (it has no keystroke handler)
@@ -317,8 +318,9 @@ test('the rule fires on the VALUE, never on a key press', () => {
         `${name}: a keydown handler must not carry this rule`);
   }
   // and it IS wired to input/blur — asserted positively so the check above cannot pass vacuously
-  assert.match(APP, /addEventListener\('input'[\s\S]{0,600}?tidyField/);
-  assert.match(APP, /addEventListener\('blur'[\s\S]{0,600}?tidyField/);
+  // 800, not 600 (v725): each of those handlers now opens with the tab rule (no-tabs.test.mjs)
+  assert.match(APP, /addEventListener\('input'[\s\S]{0,800}?tidyField/);
+  assert.match(APP, /addEventListener\('blur'[\s\S]{0,800}?tidyField/);
 });
 
 /* Seth: "There might be a way to simplify and combine some of these rules..." */

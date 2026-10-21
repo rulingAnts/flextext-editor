@@ -28,7 +28,7 @@ import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAl
 import { peakPlan } from './seg-exports.js';
 // Already in every SHELL (seg-exports.js imports it), so this adds no precache path.
 import { readLegacyEstimates } from './flextext.js';
-import { tidyField } from './typing.js';
+import { tidyField, untab, untabField } from './typing.js';
 
 /* ═══ THE PENDING SPLIT — one edit, one position per tier (Seth, 2026-09-06; plans/split-tiers.md)
  * "any cut that's made starts with a cut executed on any of the active tiers and immediately
@@ -1352,6 +1352,7 @@ export function renderStrips() {
      * route that cannot be relied on (the same reason the gloss space-to-period fix had to move to
      * the value). The caret is restored because rewriting .value throws it to the end otherwise. */
     input.addEventListener('input', () => {
+      untabField(input);   // a tab is never text — typing.js untab; ungated, one for one
       if (/[\r\n]/.test(input.value)) {
         const at = input.selectionStart;
         const before = input.value.slice(0, at).replace(/[\r\n]+/g, ' ').length;
@@ -1378,8 +1379,9 @@ export function renderStrips() {
     /* And again on the way out, where the edges get tidied too and no IME can be mid-commit fighting
      * the rewrite (Seth: "on blur, remove duplicated spaces if this behavior is enabled"). */
     input.addEventListener('blur', () => {
-      if (!(deps.singleSpace && deps.singleSpace())) return;
-      const tidy = tidyField(input.value, { kind: 'vern', moment: 'blur' }).value;
+      // The tab rule runs whatever the single-space setting says; the tidy after it is the gated part.
+      const plain = untab(input.value);
+      const tidy = (deps.singleSpace && deps.singleSpace()) ? tidyField(plain, { kind: 'vern', moment: 'blur' }).value : plain;
       if (tidy === input.value) return;
       input.value = tidy;
       input.__prevVal = tidy;

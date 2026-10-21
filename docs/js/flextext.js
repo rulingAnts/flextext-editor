@@ -26,6 +26,140 @@ export function newGuid() {
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ESC[c]); }
 
+/* ⚠ NO TAB EVER LEAVES IN A .flextext (Seth, 2026-10-21: "None of our data within xml elements in
+ * flextext exports should be tab-separated" — "our export process should also catch and fix tabs").
+ * A researcher's file reached FLEx with its baseline lines tab-separated word by word, and two word
+ * glosses carrying a tab at their edges: text pasted from a tab-separated source, or typed with a Tab
+ * key. FLEx reads the tab as part of the line. (The words themselves were fine — tokenize splits on any
+ * whitespace — but the phrase's baseline line and the glosses were written as they were.)
+ *
+ * The boxes now turn a tab into a space as it arrives (typing.js untab). This is the BACKSTOP, for
+ * what is already stored — on devices, in drafts, in a file opened from elsewhere — and for any route
+ * in that a box does not see. An export is not an edit: the stored text is left as it is.
+ *
+ * ⚠ NOT one-for-one like the box rule. A run of whitespace that holds a tab becomes ONE space between
+ * words and NOTHING at an edge — the box rule can leave the collapsing to the single-space setting, an
+ * export cannot, or "\tPST\t" would leave as " PST " with spaces inside a word gloss. Whitespace with
+ * no tab in it is not touched, so a text that never held a tab exports byte for byte as before. */
+export function untabForXml(s) {
+  const v = String(s ?? '');
+  if (!v.includes('\t')) return v;
+  return v.replace(/^[ \t]*\t[ \t]*|[ \t]*\t[ \t]*$/g, '').replace(/[ \t]*\t[ \t]*/g, ' ');
+}
+/* The same for a fragment kept verbatim from an imported file (title items, morphemes, notes):
+ * only TEXT is changed — a text node holding a tab and something that is not whitespace. Whitespace
+ * between tags is layout, which indentFragment owns. */
+export function untabFragmentForXml(xml) {
+  const v = String(xml ?? '');
+  if (!v.includes('\t')) return v;
+  return v.replace(/>([^<]*\t[^<]*)</g, (m, text) => (/[^\s]/.test(text) ? '>' + untabForXml(text) + '<' : m));
+}
+
+/* ═══ "FIX TABS IN A .flextext" — the Utilities tool (Seth, 2026-10-21) ════════════════════════════
+ * The fixer "available on the Researcher Panel and unpaired devices": the export backstop's rule, on a
+ * FILE someone already has — one exported before the fix, or made by another program. Only text
+ * changes; every other byte is kept; and the copy is read back before anyone is offered it. The device's
+ * Utilities tab and the panel's Utilities both call this, and both render tabFixReportHtml.
+ * tools/fix-flextext-tabs.html is the standalone twin for a researcher who needs it before a release
+ * reaches them (test/fix-tabs-tool.test.mjs keeps its copies of these rules identical). */
+
+// A tab may also be written as a character reference. Decoded in TEXT only, so untabForXml sees it.
+export function decodeTabRefs(xml) {
+  return String(xml).replace(/>([^<]*&#(?:9|x0*9);[^<]*)</gi, (m, t) => '>' + t.replace(/&#(?:9|x0*9);/gi, '\t') + '<');
+}
+/* Where a piece of text sits, as a key the UI translates (tabfix.kind.*). The parent is passed in:
+ * not every DOM this runs on has parentElement (the node test shim does not). */
+function tabKind(el, parentTag) {
+  const t = el.getAttribute ? el.getAttribute('type') : '';
+  if (el.tagName === 'item') {
+    if (parentTag === 'morph') return { key: 'morph', what: t || '' };
+    if (t === 'txt' && parentTag === 'phrase') return { key: 'baseline' };
+    if (t === 'txt' && parentTag === 'word') return { key: 'word' };
+    if (t === 'punct') return { key: 'punct' };
+    if (t === 'gls' && parentTag === 'word') return { key: 'wordGloss' };
+    if (t === 'gls' && parentTag === 'phrase') return { key: 'free' };
+    if (t === 'lit') return { key: 'lit' };
+    if (t === 'note') return { key: 'note' };
+    if (t === 'title') return { key: 'title' };
+    return { key: 'other', what: `item type="${t || ''}" in ${parentTag}` };
+  }
+  return { key: 'other', what: `<${el.tagName}>` };
+}
+// A text child is a Text node in a browser and a plain string in the node test shim; both are read.
+const textOf = (n) => (typeof n === 'string' ? n : (n && n.nodeType === 3 ? n.nodeValue : null));
+function walkFlextext(root, onText, onElement) {
+  const go = (el, parentTag) => {
+    onElement(el);
+    for (const n of el.childNodes || []) {
+      const s = textOf(n);
+      if (s != null) { if (s.includes('\t') && /[^\s]/.test(s)) onText(el, parentTag, s); }
+      else if (n && n.tagName) go(n, el.tagName);
+    }
+  };
+  go(root, '');
+}
+const parseXmlOrNull = (s) => {
+  try {
+    const d = new DOMParser().parseFromString(s, 'application/xml');
+    return !d || d.querySelector('parsererror') || !d.documentElement || d.documentElement.tagName === 'parsererror' ? null : d;
+  } catch { return null; }
+};
+function surveyTabs(d) {
+  const found = [], census = {};
+  walkFlextext(d.documentElement, (el, parentTag, text) => found.push({ ...tabKind(el, parentTag), before: text }),
+    (el) => { census[el.tagName] = (census[el.tagName] || 0) + 1; });
+  return { found, census };
+}
+/* bytes (Uint8Array) → { status, name, changes, checks, counts, fixed, bom }.
+ * status: 'encoding' | 'notXml' | 'clean' | 'fixed' | 'failed' — only 'fixed' carries a copy to offer. */
+export function fixFlextextTabs(bytes, name = 'text.flextext') {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  const bom = u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF;
+  let src;
+  try { src = new TextDecoder('utf-8', { fatal: true }).decode(bom ? u8.subarray(3) : u8); }
+  catch { return { status: 'encoding', name, changes: [] }; }
+  const decl = (src.match(/^<\?xml[^>]*encoding=["']([^"']+)["']/i) || [])[1];
+  if (decl && !/^utf-?8$/i.test(decl)) return { status: 'encoding', name, changes: [] };
+  const before = parseXmlOrNull(src);
+  if (!before) return { status: 'notXml', name, changes: [] };
+  const b = surveyTabs(before);
+  if (!b.found.length) return { status: 'clean', name, changes: [] };
+  const fixed = untabFragmentForXml(decodeTabRefs(src));
+  const after = parseXmlOrNull(fixed);
+  const a = after ? surveyTabs(after) : null;
+  const keys = Object.keys(b.census);
+  const sameShape = !!a && keys.length === Object.keys(a.census).length && keys.every((k) => a.census[k] === b.census[k]);
+  const counts = { words: b.census.word || 0, phrases: b.census.phrase || 0, paragraphs: b.census.paragraph || 0 };
+  const checks = [
+    { key: 'xml', ok: !!after },
+    { key: 'shape', ok: sameShape, vars: counts },
+    { key: 'tabs', ok: !!a && a.found.length === 0 },
+  ];
+  const changes = b.found.map((c) => ({ ...c, after: untabForXml(c.before) }));
+  const ok = checks.every((c) => c.ok);
+  return { status: ok ? 'fixed' : 'failed', name, changes, checks, counts, fixed: ok ? fixed : null, bom,
+           outName: String(name).replace(/(\.flextext|\.xml)?$/i, (m) => '-fixed' + (m || '.flextext')) };
+}
+/* The report both surfaces show. `tr` is i18n's t. Every value from the file goes through esc —
+ * these strings are the file's own text. A download button carries data-tabfix-dl. */
+export function tabFixReportHtml(r, tr) {
+  if (r.status === 'encoding') return `<p class="note">${esc(tr('tabfix.encoding', { name: r.name }))}</p>`;
+  if (r.status === 'notXml') return `<p class="note">${esc(tr('tabfix.notXml', { name: r.name }))}</p>`;
+  if (r.status === 'clean') return `<p class="note">✓ ${esc(tr('tabfix.clean', { name: r.name }))}</p>`;
+  const marked = (s) => esc(s).replace(/\t/g, '<mark>⇥</mark>');
+  const kind = (c) => esc(tr('tabfix.kind.' + c.key, { what: c.what || '' }));
+  const rows = r.changes.map((c) => `<tr><td>${kind(c)}</td><td>${marked(c.before)}</td><td>${esc(c.after)}</td></tr>`).join('');
+  return `<p><b>${esc(tr('tabfix.found', { n: r.changes.length, name: r.name }))}</b></p>
+    <ul class="tabfix-checks">${r.checks.map((c) => `<li class="${c.ok ? 'ok' : 'bad'}">${c.ok ? '✓' : '✗'} ${esc(tr('tabfix.chk.' + c.key, c.vars || {}))}</li>`).join('')}</ul>
+    <details${r.changes.length <= 30 ? ' open' : ''}><summary>${esc(tr('tabfix.changes'))}</summary>
+      <table class="ws-table"><thead><tr><th>${esc(tr('tabfix.where'))}</th><th>${esc(tr('tabfix.before'))}</th><th>${esc(tr('tabfix.after'))}</th></tr></thead><tbody>${rows}</tbody></table></details>
+    ${r.status === 'fixed'
+      ? `<p><button type="button" class="primary-btn" data-tabfix-dl>${esc(tr('tabfix.download', { name: r.outName }))}</button></p><p class="note">${esc(tr('tabfix.use'))}</p>`
+      : `<p class="note bad">${esc(tr('tabfix.failed'))}</p>`}`;
+}
+// What the download button hands the browser: the fixed copy, its BOM kept.
+export function tabFixBlob(r) { return new Blob([r.bom ? '\uFEFF' : '', r.fixed], { type: 'application/xml' }); }
+
 /* ---------------- Tokenization & segmentation ---------------- */
 
 // Characters that count as part of a word (letters, marks, digits, common
@@ -1007,6 +1141,9 @@ export function parseTimeEstimatesPi(data) {
 }
 
 export function serializeFlextext(doc, settings = {}, opts = {}) {
+  // Every value this writes goes through xesc, and every kept fragment through frag: see untabForXml.
+  const xesc = (v) => esc(untabForXml(v));
+  const frag = (xml, pad) => indentFragment(untabFragmentForXml(xml), pad);
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
   // — including texts recorded before the change. Imported docs are the opposite:
@@ -1037,14 +1174,14 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
    * `producedBy` is a PARAMETER (opts), never module state — same rule the rest of this module
    * follows so a second writer can call it. Omitted entirely when the caller supplies nothing,
    * rather than emitting a guess. */
-  const provenance = opts.producedBy ? ` exportSource="${esc(opts.producedBy)}"` : '';
-  lines.push(`<document version="${esc(doc.version || '2')}"${provenance}>`);
+  const provenance = opts.producedBy ? ` exportSource="${xesc(opts.producedBy)}"` : '';
+  lines.push(`<document version="${xesc(doc.version || '2')}"${provenance}>`);
   const attrs = Object.entries(doc.textAttrs || {})
-    .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
+    .map(([k, v]) => ` ${k}="${xesc(v)}"`).join('');
   lines.push(`  <interlinear-text${attrs}>`);
-  lines.push(`    <item type="title" lang="${esc(authored ? anal : (doc.titleLang || anal))}">${esc(doc.title || 'Untitled')}</item>`);
-  for (const xml of doc.metaItemsXML || []) lines.push(indentFragment(xml, '    '));
-  if (doc.objectsXML) lines.push(indentFragment(doc.objectsXML, '    '));
+  lines.push(`    <item type="title" lang="${xesc(authored ? anal : (doc.titleLang || anal))}">${xesc(doc.title || 'Untitled')}</item>`);
+  for (const xml of doc.metaItemsXML || []) lines.push(frag(xml, '    '));
+  if (doc.objectsXML) lines.push(frag(doc.objectsXML, '    '));
   lines.push('    <paragraphs>');
   // Segmentation time-alignment (Seth, 2026-08-03): aligned spans are exported BOTH ways — as
   // FLEx's native phrase begin/end-time-offset attributes AND as a human-visible note item — and
@@ -1132,10 +1269,10 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
     const pAttrs = Object.entries(seg.attrs || {})
       .filter(([k]) => !((timed || untimed) && (k === 'begin-time-offset' || k === 'end-time-offset'))
         && !(timed && k === 'media-file'))
-      .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
-      + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${link ? ` media-file="${esc(link)}"` : ''}` : '');
+      .map(([k, v]) => ` ${k}="${xesc(v)}"`).join('')
+      + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${link ? ` media-file="${xesc(link)}"` : ''}` : '');
     lines.push(`          <phrase${pAttrs}>`);
-    lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
+    lines.push(`            <item type="txt" lang="${xesc(seg.txtLang || vern)}">${xesc(seg.baseline)}</item>`);
     /* ⚠ NO segnum ITEM. We used to mint one — a plain running integer — for every phrase, and it
      * was wrong in three ways at once.
      *
@@ -1165,32 +1302,32 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
      * is not identity — FLEx reads an item by type and lang — but the file should come back as it went. */
     const pre = seg.preItemsXML || [];
     const head = pre.filter(isItemXml), inWords = pre.filter((x) => !isItemXml(x));
-    const free = (seg.free || seg.freeLang) ? `<item type="gls" lang="${esc(seg.freeLang || anal)}">${esc(seg.free)}</item>` : null;
+    const free = (seg.free || seg.freeLang) ? `<item type="gls" lang="${xesc(seg.freeLang || anal)}">${xesc(seg.free)}</item>` : null;
     const at = seg.freeAt;
     const freeBefore = !!(free && at && !at.post);
-    head.forEach((x, k) => { if (freeBefore && k === at.at) lines.push('            ' + free); lines.push(indentFragment(x, '            ')); });
+    head.forEach((x, k) => { if (freeBefore && k === at.at) lines.push('            ' + free); lines.push(frag(x, '            ')); });
     if (freeBefore && at.at >= head.length) lines.push('            ' + free);
     // a phrase FLEx wrote with no <words> (a hard line break) goes back without one while it has none
     if (!((seg.noWords || isLineBreakPhrase(seg)) && !(seg.words || []).length && !inWords.length)) {
       lines.push('            <words>');
-      for (const xml of inWords) lines.push(indentFragment(xml, '              '));
+      for (const xml of inWords) lines.push(frag(xml, '              '));
       for (const w of seg.words) {
         const wType = w.phrase ? ' type="phrase"' : '';
         // A <word> guid is FLEx's analysis object (InterlinearExporter); punctuation has none and FLEx writes
         // it with none — one minted on import is the engine's own (Seth's FLEx round-trip report, bug 7). A word
         // with no guid (flexExportDoc: a word changed here) is written with none, as FLEx writes one it has no object for.
-        lines.push(`              <word${w.punct || !w.guid ? '' : ` guid="${esc(w.guid)}"`}${wType}>`);
+        lines.push(`              <word${w.punct || !w.guid ? '' : ` guid="${xesc(w.guid)}"`}${wType}>`);
         if (w.punct) {
-          lines.push(`                <item type="punct" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
+          lines.push(`                <item type="punct" lang="${xesc(w.txtLang || vern)}">${xesc(w.txt)}</item>`);
         } else {
           if (!w.derivedTxt) {
-            lines.push(`                <item type="txt" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
+            lines.push(`                <item type="txt" lang="${xesc(w.txtLang || vern)}">${xesc(w.txt)}</item>`);
           }
           // the editable gloss, empty included when the file had it (glsLang): FLEx writes one per writing system
-          const gls = (w.gls || w.glsLang) ? `<item type="gls" lang="${esc(w.glsLang || anal)}">${esc(w.gls)}</item>` : null;
+          const gls = (w.gls || w.glsLang) ? `<item type="gls" lang="${xesc(w.glsLang || anal)}">${xesc(w.gls)}</item>` : null;
           const kept = w.preservedXML || [];
           const gAt = gls && Number.isInteger(w.glsAt) ? Math.min(w.glsAt, kept.length) : kept.length;
-          kept.forEach((xml, k) => { if (gls && k === gAt) lines.push('                ' + gls); lines.push(indentFragment(xml, '                ')); });
+          kept.forEach((xml, k) => { if (gls && k === gAt) lines.push('                ' + gls); lines.push(frag(xml, '                ')); });
           if (gls && gAt >= kept.length) lines.push('                ' + gls);
         }
         lines.push('              </word>');
@@ -1203,13 +1340,13 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
      * they say again what the times on the phrase already say — which FLEx reads now that every timed phrase
      * names its media. Our own notes from an earlier export are dropped either way when times are written. */
     const note = timed && opts.timeNotes === true
-      ? `<item type="note" lang="${esc(anal)}">audio ${isEstimate(span) ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>` : null;
+      ? `<item type="note" lang="${xesc(anal)}">audio ${isEstimate(span) ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>` : null;
     const post = seg.postItemsXML || [];
     const ins = free && !freeBefore ? (at && at.post ? Math.min(at.at, post.length) : 0) : 0;
     const ours = [free && !freeBefore ? free : null, note].filter(Boolean);
     post.forEach((xml, k) => {
       if (k === ins) for (const x of ours) lines.push('            ' + x);
-      if (!((timed || untimed) && OUR_NOTE.test(xml))) lines.push(indentFragment(xml, '            '));
+      if (!((timed || untimed) && OUR_NOTE.test(xml))) lines.push(frag(xml, '            '));
     });
     if (ins >= post.length) for (const x of ours) lines.push('            ' + x);
     lines.push('          </phrase>');
@@ -1217,7 +1354,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
 
   let pi = -1;
   for (const run of emit) {
-    lines.push(`      <paragraph guid="${esc(run.guid)}">`);
+    lines.push(`      <paragraph guid="${xesc(run.guid)}">`);
     lines.push('        <phrases>');
     for (const li of run.lines) {
       const para = doc.paragraphs[li];
@@ -1263,9 +1400,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   push({ lang: anal, font: settings.analFont || '', vernacular: false });
   lines.push('    <languages>');
   for (const l of langs) {
-    let s = `      <language lang="${esc(l.lang)}"`;
-    if (l.encoding) s += ` encoding="${esc(l.encoding)}"`;
-    if (l.font) s += ` font="${esc(l.font)}"`;
+    let s = `      <language lang="${xesc(l.lang)}"`;
+    if (l.encoding) s += ` encoding="${xesc(l.encoding)}"`;
+    if (l.font) s += ` font="${xesc(l.font)}"`;
     if (l.vernacular) s += ' vernacular="true"';
     lines.push(s + ' />');
   }
@@ -1274,10 +1411,10 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   // when WE minted the guid (a doc with no media-files block of its own), in milliseconds, as FLEx writes it.
   if (minted) {
     lines.push('    <media-files offset-type="milliseconds">');
-    lines.push(`      <media guid="${esc(mediaGuid)}" location="${esc(opts.mediaName)}"/>`);
+    lines.push(`      <media guid="${xesc(mediaGuid)}" location="${xesc(opts.mediaName)}"/>`);
     lines.push('    </media-files>');
   }
-  for (const xml of doc.mediaXML || []) lines.push(indentFragment(xml, '    '));
+  for (const xml of doc.mediaXML || []) lines.push(frag(xml, '    '));
   lines.push('  </interlinear-text>');
   lines.push('</document>');
   return lines.join('\n') + '\n';

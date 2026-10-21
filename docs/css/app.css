@@ -3898,3 +3898,8 @@ a.offsite-off, area.offsite-off {
 .mg-sec-mark{font-weight:700;color:#b45309;padding:0 .15rem}
 .mg-sec-btn{font-size:.75rem;padding:.05rem .4rem;border:1px solid #d97706;border-radius:4px;background:#fff;color:#92400e;cursor:pointer}
 .mg-sec-btn:hover{background:#fde68a}
+/* Fix tabs in a .flextext (flextext.js tabFixReportHtml) — device Utilities and the panel's modal */
+.tabfix-checks { list-style: none; padding: 0; margin: 6px 0; font-size: 14px; }
+.tabfix-checks .ok { color: #137333; }
+.tabfix-checks .bad, .note.bad { color: #b3261e; }
+#tabfix-result mark, #tf-result mark { padding: 0 2px; border-radius: 3px; }

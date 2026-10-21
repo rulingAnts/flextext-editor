@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v724';
+export const ENGINE_VERSION = 'v726';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v724';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'back-keeps-draft v1';
+export const BUILD_TAG = 'desktop-flex + tabfix-utility v1';
 
 /* THE BETA TIER (Seth, 2026-10-10): seven Cloudflare Workers named <worker>-beta, deployed from the
  * `beta` branch by each app's deploy.sh, that real people install and live on for a while BEFORE the
@@ -827,6 +827,33 @@ en: {
   'research.save': 'Save settings',
   'research.copyLink': 'Copy setup link for coworker',
   'research.checkerH': 'Writing system checker',
+  'tabfix.h': 'Fix tabs in a .flextext file',
+  'tabfix.note': 'Some .flextext files carry TAB characters inside the text — the baseline, glosses or translations — usually from text pasted out of a spreadsheet or another program. FLEx reads a tab as part of the text. Choose a file and this makes a fixed copy for you to download. The original is not changed, and nothing leaves this device.',
+  'tabfix.btn': 'Fix a .flextext file…',
+  'tabfix.clean': 'No tabs found in {name} — it does not need fixing.',
+  'tabfix.notXml': '{name} was not changed: it is not a well-formed XML file.',
+  'tabfix.encoding': '{name} was not changed: only UTF-8 files can be fixed here.',
+  'tabfix.found': '{n} piece(s) of text in {name} held a tab.',
+  'tabfix.chk.xml': 'the fixed copy is well-formed XML',
+  'tabfix.chk.shape': 'it has exactly the same elements as the original ({words} words, {phrases} phrases, {paragraphs} paragraphs)',
+  'tabfix.chk.tabs': 'no tab is left in any text',
+  'tabfix.failed': 'The fixed copy did not pass every check, so it is not offered. The original was not changed.',
+  'tabfix.changes': 'Each change',
+  'tabfix.where': 'Where',
+  'tabfix.before': 'Before (⇥ = tab)',
+  'tabfix.after': 'After',
+  'tabfix.download': 'Download {name}',
+  'tabfix.use': 'Use the fixed copy wherever you would have used the original.',
+  'tabfix.kind.baseline': 'Baseline line',
+  'tabfix.kind.word': 'Word',
+  'tabfix.kind.punct': 'Punctuation',
+  'tabfix.kind.wordGloss': 'Word gloss',
+  'tabfix.kind.free': 'Free translation',
+  'tabfix.kind.lit': 'Literal translation',
+  'tabfix.kind.note': 'Note',
+  'tabfix.kind.title': 'Title',
+  'tabfix.kind.morph': 'Morpheme ({what})',
+  'tabfix.kind.other': 'Other: {what}',
   'research.checkerNote': 'Open a <code>.flextext</code> file to see which writing system codes are used on each interlinear line, fix any wrong codes, and download the corrected file. (This edits the raw file directly and preserves everything else in it.)',
   'research.checkBtn': 'Check a .flextext file…',
   'research.declared': '{name} — declared writing systems: {list}',
@@ -4030,6 +4057,33 @@ id: {
   'research.save': 'Simpan pengaturan',
   'research.copyLink': 'Salin tautan pengaturan untuk rekan kerja',
   'research.checkerH': 'Pemeriksa sistem tulisan',
+  'tabfix.h': 'Perbaiki tab dalam file .flextext',
+  'tabfix.note': 'Beberapa file .flextext berisi karakter TAB di dalam teks — baris dasar, glos atau terjemahan — biasanya dari teks yang ditempel dari spreadsheet atau program lain. FLEx membaca tab sebagai bagian dari teks. Pilih file, dan alat ini membuat salinan yang sudah diperbaiki untuk diunduh. File asli tidak diubah, dan tidak ada yang dikirim dari perangkat ini.',
+  'tabfix.btn': 'Perbaiki file .flextext…',
+  'tabfix.clean': 'Tidak ada tab di {name} — file ini tidak perlu diperbaiki.',
+  'tabfix.notXml': '{name} tidak diubah: file ini bukan XML yang valid.',
+  'tabfix.encoding': '{name} tidak diubah: hanya file UTF-8 yang bisa diperbaiki di sini.',
+  'tabfix.found': '{n} bagian teks di {name} berisi tab.',
+  'tabfix.chk.xml': 'salinan yang diperbaiki adalah XML yang valid',
+  'tabfix.chk.shape': 'elemennya persis sama dengan aslinya ({words} kata, {phrases} frasa, {paragraphs} paragraf)',
+  'tabfix.chk.tabs': 'tidak ada tab yang tersisa di teks mana pun',
+  'tabfix.failed': 'Salinan yang diperbaiki tidak lolos semua pemeriksaan, jadi tidak ditawarkan. File asli tidak diubah.',
+  'tabfix.changes': 'Setiap perubahan',
+  'tabfix.where': 'Di mana',
+  'tabfix.before': 'Sebelum (⇥ = tab)',
+  'tabfix.after': 'Sesudah',
+  'tabfix.download': 'Unduh {name}',
+  'tabfix.use': 'Gunakan salinan ini sebagai pengganti file asli.',
+  'tabfix.kind.baseline': 'Baris dasar',
+  'tabfix.kind.word': 'Kata',
+  'tabfix.kind.punct': 'Tanda baca',
+  'tabfix.kind.wordGloss': 'Glos kata',
+  'tabfix.kind.free': 'Terjemahan bebas',
+  'tabfix.kind.lit': 'Terjemahan harfiah',
+  'tabfix.kind.note': 'Catatan',
+  'tabfix.kind.title': 'Judul',
+  'tabfix.kind.morph': 'Morfem ({what})',
+  'tabfix.kind.other': 'Lainnya: {what}',
   'research.checkerNote': 'Buka file <code>.flextext</code> untuk melihat kode sistem tulisan yang dipakai pada setiap baris interlinear, perbaiki kode yang salah, lalu unduh file yang sudah diperbaiki. (Proses ini mengubah file asli secara langsung dan mempertahankan semua isi lainnya.)',
   'research.checkBtn': 'Periksa file .flextext…',
   'research.declared': '{name} — sistem tulisan yang terdaftar: {list}',

@@ -348,6 +348,19 @@
 
   <hr>
 
+  <!-- Fix tabs in a .flextext (Seth, 2026-10-21): the export backstop's rule on a file someone already
+       has. The panel's Utilities offers the same tool (tabFixModal); both render flextext.js
+       tabFixReportHtml, and tools/fix-flextext-tabs.html is the standalone twin. -->
+  <h2 data-i18n="tabfix.h">Fix tabs in a .flextext file</h2>
+  <p class="note" data-i18n="tabfix.note"></p>
+  <div class="toolbar">
+    <button id="btn-tabfix" class="secondary-btn" data-i18n="tabfix.btn">Fix a .flextext file&hellip;</button>
+    <input type="file" id="tabfix-file" accept=".flextext,.xml" hidden>
+  </div>
+  <div id="tabfix-result" hidden></div>
+
+  <hr>
+
   <!-- ⚠ THE SAME ROWS THE FILES ▾ MENU OFFERS, from files the user picked instead of from Drive
        (Seth, 2026-08-14: "exactly the same thing that our files drop down box already does … except
        that the user can submit their own flextext and matching audio file … That's the goal of this

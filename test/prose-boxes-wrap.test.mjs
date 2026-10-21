@@ -124,7 +124,8 @@ test('the gloss normalises again on blur, after the keyboard has finished with i
    * needs tidying, and that is the likeliest state after Gboard has had its way with the box. The
    * property under test is unchanged — write nothing when there is nothing to fix. */
   assert.match(b, /if \(want === g\.value\) return;/, 'a no-op when there is nothing to fix');
-  assert.match(b, /const spaced = g\.value\.split\(' '\)\.join\(glossBreak\(\)\);/, 'the substitution still runs unconditionally, with the configured separator');
+  // v725: a tab is a space first (no-tabs.test.mjs), so a pasted tab becomes the separator too
+  assert.match(b, /const spaced = untab\(g\.value\)\.split\(' '\)\.join\(glossBreak\(\)\);/, 'the substitution still runs unconditionally, with the configured separator');
   // the doc gets the SAME value the box got — asserted as that identity rather than as a literal,
   // since what is assigned is now the tidied string rather than a re-read of g.value
   assert.match(b, /g\.value = want;\s*\n\s*w\.gls = want;/, 'and the doc is updated, not just the box');

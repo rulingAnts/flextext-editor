@@ -673,6 +673,25 @@ export function undoKeyboardPeriod(value, prev) {
   return value;
 }
 
+/* ⚠ A TAB IS NEVER TEXT (Seth, 2026-10-21). A researcher's file reached FLEx with its baseline
+ * tab-separated word by word — text pasted from a tab-separated source (a FLEx row, a spreadsheet) or
+ * typed with a Tab key — and FLEx reads the tab as part of the line. So every box that holds text
+ * bound for a .flextext turns a tab into a SPACE as it arrives, and again on the way out.
+ *
+ * ⚠ UNGATED, unlike the tidying below: a tab is not a style question the researcher may switch off, it
+ * is a character no orthography, gloss or translation uses. ONE FOR ONE, so the caret does not move
+ * and — the property the classic baseline box depends on — the line count never changes: newlines are
+ * untouched, and a blank line on an aligned doc is a timed span of silence. A run of spaces this
+ * leaves behind is the single-space rule's to collapse, when the researcher has it on. */
+export function untab(v) { const s = String(v ?? ''); return s.includes('\t') ? s.replace(/\t/g, ' ') : s; }
+export function untabField(el) {
+  if (!el || typeof el.value !== 'string' || !el.value.includes('\t')) return false;
+  const a = el.selectionStart, b = el.selectionEnd;
+  el.value = untab(el.value);
+  try { if (a != null) el.setSelectionRange(a, b); } catch { /* detached: nothing to restore */ }
+  return true;
+}
+
 /* The two kinds of field, and what each does at each moment. Reading this table IS reading the
  * policy; the primitives above only say how. */
 const TIDY = {

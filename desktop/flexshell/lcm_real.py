@@ -176,6 +176,28 @@ def _map_open_error(e):
     return e
 
 
+def _fixdata_frame(e):
+    """The first frame of liblcm's FwDataFixer code in a .NET exception's stack ("FwDataFixer.StoreGuidInfoAndOwnership"),
+    or None when the exception did not come from inside the fixer (a load or binding failure: the check could not run)."""
+    from . import trace
+    st = str(trace._attr(e, "StackTrace") or "")
+    for line in st.splitlines():
+        line = line.strip()
+        if line.startswith("at ") and "SIL.LCModel.FixData." in line:
+            return line[3:].split("(", 1)[0].replace("SIL.LCModel.FixData.", "")
+    return None
+
+
+def _dotnet_type(e):
+    from . import trace
+    return trace._type_name(e).rsplit(".", 1)[-1]
+
+
+def _dotnet_message(e):
+    from . import trace
+    return trace._message(e)
+
+
 def _epoch_ms(dt):
     """A .NET DateTime (LCM's DateCreated / DateModified) → epoch milliseconds (UTC), or None when unset."""
     if dt is None:
@@ -630,8 +652,23 @@ class RealLcm(FlexPort):
             def log(description, fixed):
                 found.append(str(description))
 
-            fixer = FwDataFixer(copy_path, HeadlessThreadedProgress(), FwDataFixer.ErrorLogger(log), FwDataFixer.ErrorCounter(lambda: len(found)))
-            fixer.FixErrorsAndSave()
+            progress = HeadlessThreadedProgress()
+            logger, counter = FwDataFixer.ErrorLogger(log), FwDataFixer.ErrorCounter(lambda: len(found))
+            # Everything above failing is "could not run" (raised: the save stands on W8 and says so). Below, the
+            # fixer is READING THE FILE: an exception thrown from its own code is a finding about the file, not a
+            # check that could not run. [verified, VM 2026-10-21] one <rt> duplicated by hand makes FwDataFixer's
+            # constructor throw ArgumentException ("An item with the same key has already been added", in
+            # StoreGuidInfoAndOwnership) instead of logging it — and a duplicated rt is exactly the fault the W8
+            # read-back cannot see. The line is stable (no guids) so W8b can compare it with the pre-save file's.
+            try:
+                fixer = FwDataFixer(copy_path, progress, logger, counter)
+                fixer.FixErrorsAndSave()
+            except Exception as e:   # noqa: BLE001
+                where = _fixdata_frame(e)
+                if where is None:
+                    raise
+                found.append("FLEx's own file check stopped on this file (%s in %s): %s" % (
+                    _dotnet_type(e), where, (_dotnet_message(e).splitlines() or [""])[0][:200]))
             after = set(os.listdir(tmpdir))
             LOG.info("W8b FwDataFixer ran on a copy: %d problem(s); files in the temp folder before %s, after %s",
                      len(found), sorted(before), sorted(after))

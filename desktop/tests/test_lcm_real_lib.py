@@ -1,6 +1,7 @@
 """lcm_real's library loading and open-error mapping, with FAKE modules (the rest of lcm_real needs
 Windows + FLEx). Pins the fifth VM launch's lesson: FLExTools' `flexlibs` was imported first and its
 OpenProject has no `undoable`."""
+import os
 import sys
 import types
 
@@ -318,3 +319,67 @@ def test_an_analysis_is_trivial_only_when_its_bundle_matches_the_word_in_every_w
     an.MorphBundlesOS[0].Form.set_String(2, _Tss("KO-TA"))
     assert not port._is_trivial(an)
     assert port.find_trivial_analysis("wf-second") is None
+
+
+class ArgumentException(Exception):
+    """Stands in for a .NET exception as pythonnet raises it: Message and StackTrace attributes."""
+    def __init__(self, message, stack):
+        super().__init__(message)
+        self.Message = message
+        self.StackTrace = stack
+
+
+def _fixdata(mods, tmp_path, raises):
+    """Fake clr + pyflexicon + SIL.LCModel.FixData: a FwDataFixer that logs one problem, then maybe throws."""
+    clr = types.ModuleType("clr")
+    clr.AddReference = lambda name: None
+    mods.setitem(sys.modules, "clr", clr)
+    fx = _fake("flexicon", with_undoable=True)
+    fx.HeadlessThreadedProgress = lambda: object()
+    mods.setitem(sys.modules, "flexicon", fx)
+
+    class FwDataFixer:
+        class ErrorLogger:
+            def __init__(self, f):
+                self.f = f
+
+        class ErrorCounter:
+            def __init__(self, f):
+                self.f = f
+
+        def __init__(self, path, progress, logger, counter):
+            logger.f("Adjusted homograph number in <x> from 0 to 2", True)
+            if raises is not None:
+                raise raises
+
+        def FixErrorsAndSave(self):
+            pass
+    for name in ("SIL", "SIL.LCModel", "SIL.LCModel.FixData"):
+        mods.setitem(sys.modules, name, types.ModuleType(name))
+    sys.modules["SIL.LCModel.FixData"].FwDataFixer = FwDataFixer
+    f = tmp_path / "p.fwdata"
+    f.write_text("<languageproject/>", encoding="utf-8")
+    return str(f)
+
+
+def test_check_data_reports_the_fixer_stopping_on_the_file_as_a_problem(mods, tmp_path):
+    """VM, 2026-10-21: one <rt> duplicated by hand made FwDataFixer's constructor throw instead of logging — and a
+    duplicated rt is the fault W8 cannot see. Thrown from inside the fixer = a finding about the file, judged
+    against the pre-save file by W8b; never "could not run", which lets the save stand on W8 alone."""
+    stack = ("   at System.Collections.Generic.Dictionary`2.Insert(TKey key, TValue value, Boolean add)\n"
+             "   at SIL.LCModel.FixData.FwDataFixer.StoreGuidInfoAndOwnership(XElement rt, ErrorLogger errorLogger)\n"
+             "   at SIL.LCModel.FixData.FwDataFixer.InitializeFixers(String filename)\n")
+    path = _fixdata(mods, tmp_path, ArgumentException("An item with the same key has already been added.", stack))
+    found = lcm_real.RealLcm(str(tmp_path)).check_data(path)
+    assert found[0].startswith("Adjusted homograph number")
+    assert found[1] == ("FLEx's own file check stopped on this file (ArgumentException in "
+                        "FwDataFixer.StoreGuidInfoAndOwnership): An item with the same key has already been added.")
+    assert os.listdir(tmp_path) == ["p.fwdata"], "the file is only read"
+
+
+def test_check_data_that_cannot_run_still_raises(mods, tmp_path):
+    """A failure that did not come from inside the fixer's own code (a load or binding failure) is not a finding
+    about the file: it raises, and W8b says the check could not run."""
+    path = _fixdata(mods, tmp_path, ArgumentException("delegate binding failed", "   at Python.Runtime.Something()\n"))
+    with pytest.raises(ArgumentException):
+        lcm_real.RealLcm(str(tmp_path)).check_data(path)

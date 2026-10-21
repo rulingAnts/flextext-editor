@@ -69,43 +69,67 @@ def test_exception_inside_lcm_rolls_back(backend):
     assert fingerprint_text(b.read_text(tg)) == before
 
 
-def test_nested_begin_throws_and_discards_the_outer(backend):
-    b = backend
+# Raw LCM [verified, plan §5.2]: a nested BeginUndoTask, a Save or a BackupProject inside an open unit of work
+# throws AND throws the open work away (the outer Dispose then throws too). The port refuses all three at
+# CurrentDepth > 0 BEFORE LCM sees them, so the open unit of work stays as it was and can still be committed or
+# rolled back by its owner. The VM conformance run (2026-10-21) found the mock modelling raw LCM instead.
+
+def _open_with_one_edit(b):
     tg = first_text(b)["guid"]
     before = fingerprint_text(b.read_text(tg))
     p = para0(b)
     h = b.begin_uow("outer", "outer")
     b.set_free_translation(p["segments"][0]["guid"], "en", "outer edit")
+    return tg, before, h, fingerprint_text(b.read_text(tg))
+
+
+def test_nested_begin_is_refused_and_the_outer_stays_open(backend):
+    b = backend
+    tg, before, h, during = _open_with_one_edit(b)
     with pytest.raises(RuntimeError, match="Nested"):
         b.begin_uow("inner", "inner")
-    assert fingerprint_text(b.read_text(tg)) == before, "the outer UOW's changes are discarded"
-    with pytest.raises(RuntimeError):
-        b.commit(h)   # the outer Dispose throws
-    assert b.depth() == 0
+    assert b.depth() == 1 and fingerprint_text(b.read_text(tg)) == during, "the outer UOW is untouched"
+    b.rollback(h)
+    assert b.depth() == 0 and fingerprint_text(b.read_text(tg)) == before
 
 
-def test_save_inside_uow_throws_and_rolls_back(backend):
+def test_save_inside_uow_is_refused_and_the_uow_stays_open(backend):
     b = backend
-    tg = first_text(b)["guid"]
-    before = fingerprint_text(b.read_text(tg))
-    p = para0(b)
-    h = b.begin_uow("u", "r")
-    b.set_free_translation(p["segments"][0]["guid"], "en", "x")
+    tg, before, h, during = _open_with_one_edit(b)
     with pytest.raises(RuntimeError, match="Commit at wrong place"):
         b.save()
-    assert b.depth() == 0 and fingerprint_text(b.read_text(tg)) == before
+    assert b.depth() == 1 and fingerprint_text(b.read_text(tg)) == during
+    b.commit(h)
+    assert b.depth() == 0 and b.undo_item_count() == 1
 
 
-def test_backup_inside_uow_throws_and_rolls_back(backend):
+def test_backup_inside_uow_is_refused_and_the_uow_stays_open(backend):
     b = backend
-    tg = first_text(b)["guid"]
-    before = fingerprint_text(b.read_text(tg))
-    p = para0(b)
-    b.begin_uow("u", "r")
-    b.set_free_translation(p["segments"][0]["guid"], "en", "x")
+    tg, before, h, during = _open_with_one_edit(b)
     with pytest.raises(RuntimeError):
         b.backup("inside")
+    assert b.depth() == 1 and fingerprint_text(b.read_text(tg)) == during
+    b.rollback(h)
     assert b.depth() == 0 and fingerprint_text(b.read_text(tg)) == before
+
+
+def test_close_without_save_with_a_uow_open_releases_the_project_and_writes_nothing(backend):
+    """A session closed while a unit of work is still open (a poisoned save that never got as far as its rollback)
+    must still dispose: on real LCM, Dispose with the undo stack's lock held threw SynchronizationLockException
+    (VM, 2026-10-21) and left the project held by a cache nobody could close. The open work is thrown away in
+    memory first; nothing reaches the disk, and the project opens again."""
+    b = backend
+    fw = b.fwdata_path()
+    with open(fw, "rb") as f:
+        on_disk = f.read()
+    _open_with_one_edit(b)
+    name = b.project_name()
+    b.close_without_save()
+    with open(fw, "rb") as f:
+        assert f.read() == on_disk
+    b.open(name, write=True)
+    b.stop_save_timer()
+    assert b.depth() == 0 and b.has_unsaved_changes() is False
 
 
 def test_backup_at_depth_0_writes_a_verifiable_zip(backend):
@@ -133,6 +157,9 @@ def test_save_writes_tmp_bak_fwdata_and_undo_after_save_is_a_net_empty_diff(back
     b.commit(h)
     assert b.has_unsaved_changes() is True
     assert b.save() is not False
+    # LCM writes on its own commit thread: read the disk only after it is done, as protocol W7 does. Without this
+    # the real run (VM, 2026-10-21) read the FIRST save's file after the second save and saw its edit still there.
+    b.complete_all_commits()
     assert b.has_unsaved_changes() is False
     assert not os.path.exists(base + ".tmp") and os.path.exists(base + ".bak")
     with open(base + ".bak", "rb") as f:
@@ -140,6 +167,7 @@ def test_save_writes_tmp_bak_fwdata_and_undo_after_save_is_a_net_empty_diff(back
     assert b.undo() == UNDO_SUCCESS
     assert b.read_text(tg)["paragraphs"][0]["segments"][0]["ft"] == {}
     b.save()
+    b.complete_all_commits()
     with open(fw, "rb") as f:
         after = f.read()
     # net-empty apart from DateModified stamps

@@ -258,6 +258,23 @@ class RealLcm(FlexPort):
         path, V-5]. Deliberately NOT flexicon's CloseProject(), which saves [verified]."""
         self._t()
         if self.cache is not None:
+            # An open unit of work holds the undo stack's lock, and LcmCache.Dispose then throws
+            # SynchronizationLockException and disposes nothing — the project stays held by a cache nobody can
+            # close [verified, VM conformance run 2026-10-21]. Throw the open work away IN MEMORY first; nothing
+            # here reaches the disk.
+            try:
+                if self._handle is not None:
+                    self._handle.set_RollBack(True)
+                    self._handle.Dispose()
+            except Exception:   # noqa: BLE001 — the depth check below is the backstop
+                pass
+            finally:
+                self._handle = None
+            try:
+                if self.ah is not None and self.ah.CurrentDepth > 0:
+                    self.ah.Rollback(0)
+            except Exception:   # noqa: BLE001 — Dispose below is still attempted
+                pass
             try:
                 self.cache.Dispose()
             finally:

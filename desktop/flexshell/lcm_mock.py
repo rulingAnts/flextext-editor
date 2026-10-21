@@ -569,10 +569,9 @@ class MockLcm(FlexPort):
         if self._wedged:
             raise LockRecursionException("UndoStack write lock held by another thread")
         if self._uow is not None and self._uow.state == "open":
-            # [verified] a nested BeginUndoTask throws AND discards the outer UOW's changes
-            outer = self._uow
-            self._restore(outer.snapshot)
-            outer.state = "discarded"
+            # Raw LCM [verified]: a nested BeginUndoTask throws AND discards the outer UOW's changes. The PORT
+            # never lets LCM see one: lcm_real refuses at CurrentDepth > 0 before calling it, so the outer unit of
+            # work stays open and intact (the VM conformance run, 2026-10-21, found the mock modelling raw LCM).
             raise RuntimeError("Nested tasks are not supported")
         self._uow = _UowHandle(undo_label, redo_label, self._snapshot(), threading.get_ident())
         return self._uow
@@ -729,18 +728,15 @@ class MockLcm(FlexPort):
         return bool(self._dirty or self._deleted)
 
     def save(self):
-        """[verified] inside a UOW: throws 'Commit at wrong place' and rolls the UOW back.
+        """Inside a UOW: refused before LCM is called, the UOW left open and intact — as lcm_real does (raw LCM
+        [verified] throws 'Commit at wrong place' and rolls the UOW back; the port never lets it get that far).
         [verified] silent failure: no exception, HasUnsavedChanges false, disk unchanged, .tmp left,
         only an ERROR log record — and the next save drops the failed edit."""
         self.calls.append(("save",))
         if self._wedged:
             raise NullReferenceException("undo stack: object reference not set (wedged)")
         if self.depth() > 0:
-            h = self._uow
-            self._restore(h.snapshot)
-            h.state = "rolledback"
-            self._uow = None
-            raise RuntimeError("Commit at wrong place")
+            raise RuntimeError("Save at depth > 0 (Commit at wrong place)")
         path = self.fwdata_path()
         if self.inject.get("external_mtime") or (self._fwdata_mtime is not None and os.path.exists(path)
                                                  and os.stat(path).st_mtime_ns != self._fwdata_mtime):
@@ -766,13 +762,10 @@ class MockLcm(FlexPort):
 
     def backup(self, comment):
         """ProjectBackupService.BackupProject [verified]: saves first, writes FLEx's own .fwbackup
-        (a zip holding <name>.fwdata). Inside a UOW it throws and rolls the UOW back [verified]."""
+        (a zip holding <name>.fwdata). Inside a UOW: refused before LCM is called, the UOW left open and intact,
+        as lcm_real does (raw LCM throws and rolls the UOW back [verified])."""
         self.calls.append(("backup", comment))
         if self.depth() > 0:
-            h = self._uow
-            self._restore(h.snapshot)
-            h.state = "rolledback"
-            self._uow = None
             raise RuntimeError("BackupProject inside a unit of work")
         self.save()
         bdir = self.backup_dir()

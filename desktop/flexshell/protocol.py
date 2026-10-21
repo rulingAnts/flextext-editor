@@ -67,6 +67,15 @@ WORD_EDITS = ("word.split", "word.join", "word.insert", "baseline.replace")
 REWRITES = WORD_EDITS + ("phrase.split", "phrase.join", "phrase.moveBoundary", "phrase.toPara", "para.toPhrase", "para.split", "para.join")
 
 
+def _resolve(absorbed, guid):
+    """A paragraph guid as it stands now: followed through every join of this save that absorbed it (P3 → P2 → P1)."""
+    seen = set()
+    while guid in absorbed and guid not in seen:
+        seen.add(guid)
+        guid = absorbed[guid]
+    return guid
+
+
 def op_order(op):
     """Where an op runs: structure first, by kind (merges before splits), then content. A phrase.toPara
     marked afterSplit moves a phrase a split of this same save made (a Sentence break in the Matcher),
@@ -712,9 +721,10 @@ class Session:
         ops = sorted(pv["ops"], key=op_order)
         chosen = pv["chosen"]
         attached_uri = None
+        absorbed = {}   # a paragraph a join of this save merged away → the paragraph that took it in
         for op in ops:
             kind = op["op"]
-            pg = alias.get(op.get("paraGuid"), op.get("paraGuid"))
+            pg = _resolve(absorbed, alias.get(op.get("paraGuid"), op.get("paraGuid")))
             sg = alias.get(op.get("segGuid"), op.get("segGuid"))
             if kind == "phrase.split":
                 times = op.get("times")
@@ -731,7 +741,16 @@ class Session:
                 if op.get("newPara"):
                     alias[op["newPara"]] = newp
             elif kind in ("para.join", "para.toPhrase"):
+                # The paragraph merged in is gone afterwards; an op later in this save that names it — the next
+                # join of a chain (three paragraphs made one: join P1, then join P2, which now lives in P1) —
+                # means the paragraph that took it in. Found on the VM, 2026-10-21: the second join of a chain
+                # answered E_NOT_FOUND "no following paragraph" and the save rolled back. The preview already
+                # counted chains (merged_end); the apply did not.
+                order = [p["guid"] for p in port.read_text(text_guid)["paragraphs"]]
+                i = order.index(pg) if pg in order else None
                 S.paragraph_to_phrase(port, text_guid, pg)
+                if i is not None and i + 1 < len(order):
+                    absorbed[order[i + 1]] = pg
             elif kind == "word.split":
                 S.split_word(port, text_guid, pg, sg, op["index"], op["offset"])
             elif kind == "word.join":

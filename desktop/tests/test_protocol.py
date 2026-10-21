@@ -829,3 +829,36 @@ def test_a_word_join_across_punctuation_or_past_the_last_word_is_refused(world):
         with pytest.raises(FlexError) as ei:
             s.preview(w["tg"], w["rev"], [op], {})
         assert ei.value.code == "E_SCOPE"
+
+
+def test_a_chain_of_paragraph_joins_saves_and_one_undo_takes_it_back(tmp_path):
+    """Three paragraphs made one in a single save: para.toPhrase P0, then para.toPhrase P1 — but P1 was merged into
+    P0 by the first join, so the second must mean P0 (VM, 2026-10-21: E_NOT_FOUND "no following paragraph", rolled
+    back). A later op naming an absorbed paragraph (times on its phrase) follows it the same way."""
+    import copy
+    projects = tmp_path / "Projects"
+    projects.mkdir()
+    MockLcm.create_project(str(projects), "copy-c", texts=[{"title": "chain", "paragraphs": ["aaa bbb", "ccc ddd", "eee fff", "ggg hhh"]}])
+    (projects / "copy-c" / "flextext-disposable-copy.txt").write_text("x")
+    port = MockLcm(str(projects))
+    s = Session(port, "copy-c", write=True, copy_only=True, marker_ok=True)
+    tg = port.list_texts()[0]["guid"]
+    before = model.fingerprint_text(port.read_text(tg))
+    o = s.open_text(tg)
+    doc = copy.deepcopy(o["doc"])
+    l0, l1, l2, l3 = doc["paragraphs"]
+    p0, p1, p2, p3 = (ln["paraOf"] for ln in (l0, l1, l2, l3))
+    segs = [ln["segments"][0]["attrs"]["guid"] for ln in (l0, l1, l2)]
+    l1["paraOf"] = l2["paraOf"] = p0
+    l2["segments"][0]["attrs"]["begin-time-offset"], l2["segments"][0]["attrs"]["end-time-offset"] = "900", "1500"
+    ops = [{"op": "para.toPhrase", "paraGuid": p0}, {"op": "para.toPhrase", "paraGuid": p1},
+           {"op": "times.set", "paraGuid": p2, "segGuid": segs[2], "begin": 900, "end": 1500}]
+    pv = s.preview(tg, o["baseRev"], ops, engine_post(doc, {p0, p1, p2}))
+    assert pv["counts"]["StTxtPara"] == -2, pv["counts"]
+    s.save(pv["previewToken"])
+    t = port.read_text(tg)
+    assert [p["guid"] for p in t["paragraphs"]] == [p0, p3], "P1 and P2 joined into P0; P3 untouched"
+    assert [x["guid"] for x in t["paragraphs"][0]["segments"]] == segs, "every phrase kept, in order"
+    assert (t["paragraphs"][0]["segments"][2]["beginTime"], t["paragraphs"][0]["segments"][2]["endTime"]) == ("900", "1500")
+    s.undo_save()
+    assert model.fingerprint_text(port.read_text(tg)) == before, "ONE undo takes the whole chain back"

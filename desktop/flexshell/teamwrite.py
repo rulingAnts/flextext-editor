@@ -75,16 +75,39 @@ def hg_state(folder):
     return {"present": True, "lastActivity": (newest // 1_000_000) if newest else None, "sig": sig}
 
 
-def find_hg(code_dir=None):
-    """Chorus's own Mercurial, shipped with FieldWorks (`<RootCodeDir>\\Mercurial\\hg.exe` [unverified path]), else an
-    `hg` on PATH; None when neither is there — the log is then simply not recorded."""
+_REGISTRY = object()
+
+
+def find_hg(code_dir=None, bridge_dir=_REGISTRY):
+    """The Mercurial FLEx's own Send/Receive runs on this store: FLEx Bridge's (`<InstallationDir>\\mercurial\\hg.exe`,
+    from the registry), else one under FieldWorks' own folder. None when neither is there — the log is then simply
+    not recorded.
+
+    ⚠ NEVER an `hg` from PATH (VM, 2026-10-21). FieldWorks 9 ships no Mercurial of its own (`<RootCodeDir>\\Mercurial`
+    does not exist); the `hg` on PATH there was the user's own TortoiseHg — a different, newer Mercurial, with its own
+    config and extensions. Even `hg log` can write cache files inside `.hg`, and anything a different Mercurial writes
+    into the team's store is a risk to the next Send/Receive. Only FLEx Bridge's own copy touches it."""
+    from . import fwfind
+    bd = fwfind.flexbridge_dir() if bridge_dir is _REGISTRY else bridge_dir
     cands = []
+    if bd:
+        cands.append(os.path.join(bd, "mercurial", "hg.exe"))
     if code_dir:
-        cands += [os.path.join(code_dir, "Mercurial", "hg.exe"), os.path.join(code_dir, "Mercurial", "hg")]
+        cands.append(os.path.join(code_dir, "Mercurial", "hg.exe"))
     for c in cands:
         if os.path.isfile(c):
             return c
-    return shutil.which("hg")
+    return None
+
+
+def hg_config_path(hg):
+    """HGRCPATH for `hg`: ONLY the config shipped beside it — FLEx Bridge's `mercurial.ini` (its extensions, SIL's
+    fixutf8 among them) and `default.d` — never the user's own `%USERPROFILE%\\mercurial.ini`, which TortoiseHg's
+    settings dialog writes and FLEx Bridge's hg.exe would otherwise read too. The repository's own `.hg\\hgrc` is
+    read whatever this says, as it is for FLEx Bridge. Empty (no config files at all) when nothing is there."""
+    d = os.path.dirname(os.path.abspath(hg))
+    parts = [p for p in (os.path.join(d, "mercurial.ini"), os.path.join(d, "default.d")) if os.path.exists(p)]
+    return os.pathsep.join(parts)
 
 
 def hg_log(folder, code_dir=None, n=HG_LOG_N, hg=None):
@@ -95,7 +118,7 @@ def hg_log(folder, code_dir=None, n=HG_LOG_N, hg=None):
     hg = hg or find_hg(code_dir)
     if not hg or not os.path.isdir(os.path.join(folder, ".hg")):
         return []
-    env = dict(os.environ, HGPLAIN="1", HGENCODING="utf-8")
+    env = dict(os.environ, HGPLAIN="1", HGENCODING="utf-8", HGRCPATH=hg_config_path(hg))
     try:
         r = subprocess.run([hg, "-R", folder, "log", "-l", str(n), "--template", "{node}\t{date|isodatesec}\t{author}\t{desc|firstline}\n"],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, env=env)

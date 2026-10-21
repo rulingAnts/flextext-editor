@@ -360,3 +360,27 @@ def test_a_marked_copy_needs_no_checklist_and_takes_no_snapshot(api, tmp_path):
     assert r["writable"] and r["team"] is False and r["snapshot"] is None
     ok(api.close_project())
     assert ok(api.recover_plan("copy-t"))["refusal"] == "E_NO_SNAPSHOT"
+
+
+def test_find_hg_uses_flex_bridges_mercurial_and_never_an_hg_on_path(tmp_path, monkeypatch):
+    """VM, 2026-10-21: FieldWorks 9 ships no Mercurial of its own; FLEx Bridge does (6.5.1 with SIL's fixutf8), and
+    the hg on PATH was the user's own TortoiseHg (7.0.1). A different Mercurial must never touch the team's store."""
+    path_hg = fake_hg(tmp_path, [])
+    monkeypatch.setenv("PATH", os.path.dirname(path_hg) + os.pathsep + os.environ.get("PATH", ""))
+    assert teamwrite.find_hg(None, bridge_dir=None) is None, "an hg on PATH is never used"
+    assert teamwrite.find_hg(str(tmp_path / "no-fieldworks"), bridge_dir=str(tmp_path / "no-bridge")) is None
+    bridge = tmp_path / "FLExBridge4"
+    (bridge / "mercurial").mkdir(parents=True)
+    (bridge / "mercurial" / "hg.exe").write_bytes(b"")
+    assert teamwrite.find_hg(None, bridge_dir=str(bridge)) == str(bridge / "mercurial" / "hg.exe")
+
+
+def test_hg_reads_only_the_config_shipped_beside_it(tmp_path):
+    """FLEx Bridge's hg.exe would also read %USERPROFILE%\mercurial.ini, which TortoiseHg writes. HGRCPATH names
+    only its own mercurial.ini and default.d."""
+    d = tmp_path / "mercurial"
+    (d / "default.d").mkdir(parents=True)
+    (d / "mercurial.ini").write_text("[extensions]\n", encoding="utf-8")
+    parts = teamwrite.hg_config_path(str(d / "hg.exe")).split(os.pathsep)
+    assert parts == [str(d / "mercurial.ini"), str(d / "default.d")]
+    assert teamwrite.hg_config_path(str(tmp_path / "bare" / "hg.exe")) == "", "nothing beside it: no config at all"

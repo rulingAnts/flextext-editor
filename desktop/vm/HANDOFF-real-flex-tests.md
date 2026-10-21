@@ -1,7 +1,7 @@
 # Handoff: real-FLEx tests and dress rehearsals for writing to the team's project
 
 For a Claude Code session running INSIDE the Windows VM where FieldWorks, Python 3.13 and the FLEx
-projects live. Written 2026-10-18 by the cloud session that built the write path (branch `desktop-flex`,
+projects live. Entry point: `desktop/vm/READINESS-TESTS.md` (what is on the branch, what "ready" means). Written 2026-10-18 by the cloud session that built the write path (branch `desktop-flex`,
 commits `9eb919d` and `5730cd9`); Seth is at the keyboard and at FLEx. Read this whole file, then
 `desktop/README.md`, `plans/flex-desktop-segmenter.md` §5, §12.3–12.4 and §15, and `CLAUDE.md` at the
 repo root, before touching anything.
@@ -119,6 +119,14 @@ to FLEx** → Seth checks again. Record pass/fail per item in your reply, never 
     "A discourse chart or a text tag in FLEx refers to this paragraph…"; a free translation on the same
     paragraph must still save.
 11. Two saves on one text, then Undo twice: FLEx back to the start, the work still in the app.
+12. **Tabs (v725–v727 merged in, 2026-10-21).** (a) Paste text holding tabs into a free translation and a word gloss
+    in the Matcher: the box shows spaces, the preview shows spaces, FLEx shows spaces. (b) **Known gap, find out what
+    happens:** the FLEx write ops (`flex-ops.js` ft.set / gloss.set / lt.set) take values straight from the record, and
+    nothing scrubs a tab ALREADY STORED (a record from before v725). Make one on a marked copy only: open the text,
+    then in the shell's DevTools console set one free translation in the stored record to contain a tab and reload;
+    save that line to FLEx. Report exactly what the preview, the save (a rollback with E_INVARIANT, or a tab written
+    into FLEx?) and FLEx show. The fix belongs on BOTH sides (ops and the intended after-state, so the W5 invariant
+    still agrees) and is the next change; do not weaken W5 to get past it.
 
 Anything that poisons the session, rolls back half-way, or shows differently in FLEx than in the preview
 is a finding: console lines (without text), the op, the fix with its test.

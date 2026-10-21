@@ -67,6 +67,14 @@ WORD_EDITS = ("word.split", "word.join", "word.insert", "baseline.replace")
 REWRITES = WORD_EDITS + ("phrase.split", "phrase.join", "phrase.moveBoundary", "phrase.toPara", "para.toPhrase", "para.split", "para.join")
 
 
+def _para_holding(port, text_guid, seg_guid):
+    """The paragraph that holds a segment now, inside the save's unit of work; None if no paragraph does."""
+    for p in port.read_text(text_guid)["paragraphs"]:
+        if any(s["guid"] == seg_guid for s in p["segments"]):
+            return p["guid"]
+    return None
+
+
 def _resolve(absorbed, guid):
     """A paragraph guid as it stands now: followed through every join of this save that absorbed it (P3 → P2 → P1)."""
     seen = set()
@@ -763,6 +771,11 @@ class Session:
             kind = op["op"]
             pg = _resolve(absorbed, alias.get(op.get("paraGuid"), op.get("paraGuid")))
             sg = alias.get(op.get("segGuid"), op.get("segGuid"))
+            if sg and kind in STRUCTURAL + WORD_EDITS:
+                # The phrase is where it is NOW: an earlier paragraph split of this save may have moved it into the
+                # paragraph it made (two Sentence breaks in one line: VM, 2026-10-21, E_NOT_FOUND "no following
+                # segment", rolled back), as a join may have merged its paragraph away (`absorbed`).
+                pg = _para_holding(port, text_guid, sg) or pg
             if kind == "phrase.split":
                 times = op.get("times")
                 new = S.split_phrase(port, text_guid, pg, sg, op["afterWordIndex"], new_times=tuple(map(tuple, times)) if times else None)

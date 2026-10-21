@@ -869,3 +869,34 @@ def test_a_chain_of_paragraph_joins_saves_and_one_undo_takes_it_back(tmp_path):
     assert (phrases[2]["beginTime"], phrases[2]["endTime"]) == ("900", "1500")
     s.undo_save()
     assert model.fingerprint_text(port.read_text(tg)) == before, "ONE undo takes the whole chain back"
+
+
+def test_two_sentence_breaks_in_one_paragraph_each_make_a_paragraph(world):
+    """✂ twice in one line with the break kind Sentence: two splits, then TWO new paragraphs. The first paragraph
+    split moves the second's phrase into the paragraph it makes, so the second op must find its phrase where it is
+    now (VM, 2026-10-21: E_NOT_FOUND "no following segment", the save rolled back)."""
+    import copy
+    w, s, port = world, world["s"], world["port"]
+    doc = copy.deepcopy(w["doc"])
+    ln = doc["paragraphs"][3]                                     # "hhh iii jjj", one phrase
+    seg, pg = ln["segments"][0], ln["paraOf"]
+    words = seg["words"]
+    seg["words"] = words[:1]
+    for g, ws, np_ in (("eng-n1", words[1:2], "eng-p1"), ("eng-n2", words[2:], "eng-p2")):
+        doc["paragraphs"].append({"guid": "ln-" + g, "paraOf": np_, "segments": [{"attrs": {"guid": g}, "words": ws, "free": "", "baseline": ""}]})
+    ops = [
+        {"op": "phrase.split", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "afterWordIndex": 0, "newPhrase": "eng-n1", "times": None},
+        {"op": "phrase.split", "paraGuid": pg, "segGuid": "eng-n1", "afterWordIndex": 0, "newPhrase": "eng-n2", "times": None},
+        {"op": "phrase.toPara", "paraGuid": pg, "segGuid": seg["attrs"]["guid"], "newPara": "eng-p1", "afterSplit": True},
+        {"op": "phrase.toPara", "paraGuid": pg, "segGuid": "eng-n1", "newPara": "eng-p2", "afterSplit": True},
+    ]
+    before = model.fingerprint_text(port.read_text(w["tg"]))
+    pv = s.preview(w["tg"], w["rev"], ops, engine_post(doc, {pg, "eng-p1", "eng-p2"}))
+    assert pv["counts"]["StTxtPara"] == 2 and pv["counts"]["Segment"] == 2, pv["counts"]
+    r = s.save(pv["previewToken"])
+    t = port.read_text(w["tg"])
+    assert [p["contents"] for p in t["paragraphs"][1:4]] == ["hhh", "iii", "jjj"]
+    assert [p["segments"][0]["guid"] for p in t["paragraphs"][2:4]] == [r["alias"]["eng-n1"], r["alias"]["eng-n2"]]
+    assert LINE_SEP not in "".join(p["contents"] for p in t["paragraphs"]), "each break became a paragraph boundary"
+    s.undo_save()
+    assert model.fingerprint_text(port.read_text(w["tg"])) == before

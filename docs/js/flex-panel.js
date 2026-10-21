@@ -1449,7 +1449,9 @@ function describe(s) {
     case 'ft.set': return s.ws ? T('flex.sum.ftIn', { w: wsName(s.ws, 'anal'), b: s.before || '—', a: s.after || '—' }) : T('flex.sum.ft', { b: s.before || '—', a: s.after || '—' });
     case 'lt.set': return T('flex.sum.lt', { b: s.before || '—', a: s.after || '—' });
     case 'times.set': return T('flex.sum.times', { b: s.begin, e: s.end });
-    case 'gloss.set': return T(s.fromGuess ? (s.outcome === 'reuse' ? 'flex.sum.gloss.guessReuse' : 'flex.sum.gloss.guessNew') : 'flex.sum.gloss.' + s.outcome, { n: s.otherUses || 0 })
+    // a new gloss on a word that had none: no other uses to keep (Seth, 2026-10-21, on "the other 0 use(s) keep the old one")
+    case 'gloss.set': return T(s.fromGuess ? (s.outcome === 'reuse' ? 'flex.sum.gloss.guessReuse' : 'flex.sum.gloss.guessNew')
+      : (s.outcome === 'newGloss' && !s.otherUses ? 'flex.sum.gloss.created' : 'flex.sum.gloss.' + s.outcome), { n: s.otherUses || 0 })
       + (s.ws && s.ws.length ? ' — ' + T('flex.sum.inWs', { w: s.ws.map((w) => wsName(w, 'anal')).join(', ') }) : '')
       + (s.newWord ? ' ' + T('flex.sum.newWord') : '') + (s.approves ? ' ' + T('flex.sum.approves') : '');
     case 'word.split': return T('flex.sum.wordSplit', { w: s.word, a: s.into[0], b: s.into[1] });

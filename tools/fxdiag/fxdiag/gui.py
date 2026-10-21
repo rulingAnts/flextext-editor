@@ -63,7 +63,7 @@ class Api:
     def __init__(self, user_data_dirs, all_users):
         self.user_data_dirs = user_data_dirs
         self.all_users = all_users
-        self.window = None
+        self._window = None   # private: pywebview exposes public attributes to the page and would walk into WebView2 internals
         self._stores = []
 
     def scan(self):
@@ -75,7 +75,7 @@ class Api:
             stores = [s for s in self._stores if s.slug in set(slugs)]
             if not stores:
                 return {"error": "nothing ticked"}
-            path = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename="fxdiag-report.zip", file_types=("Zip (*.zip)",))
+            path = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename="fxdiag-report.zip", file_types=("Zip (*.zip)",))
             if not path:
                 return {"error": "cancelled"}
             path = path[0] if isinstance(path, (list, tuple)) else path
@@ -111,7 +111,7 @@ def _smoke(window, out_path):
 def run(user_data_dirs, all_users=False):
     import os
     api = Api(list(user_data_dirs or []), all_users)
-    api.window = webview.create_window("fxdiag — FlexText storage report", html=HTML, js_api=api, width=820, height=640)
+    api._window = webview.create_window("fxdiag — FlexText storage report", html=HTML, js_api=api, width=820, height=640)
     smoke = os.environ.get("FXDIAG_GUI_SMOKE")
     if smoke:
         def watchdog():
@@ -119,7 +119,7 @@ def run(user_data_dirs, all_users=False):
             time.sleep(120)
             os._exit(3)
         threading.Thread(target=watchdog, daemon=True).start()
-        webview.start(_smoke, (api.window, smoke))
+        webview.start(_smoke, (api._window, smoke))
     else:
         webview.start()
     return 0

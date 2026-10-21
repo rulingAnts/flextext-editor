@@ -121,6 +121,7 @@ jobs:
           if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}"; $target = @(); $cleanup = @() }
           else { $tag = "fxdiag-v$ver-pre"; $target = @('--target', "${{ github.sha }}"); $cleanup = @('--cleanup-tag') }
           python tools/fxdiag/packaging/release_notes.py "$exe" "${{ steps.gui.outcome }}" "${{ github.sha }}" | Out-File -FilePath notes.md -Encoding utf8
+          if ($LASTEXITCODE -ne 0 -or (Get-Item notes.md).Length -lt 200) { throw 'release notes were not written - not publishing a release with an empty page' }
           (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $exe -Leaf) | Out-File -FilePath "$exe.sha256" -Encoding ascii
           gh release delete $tag --yes @cleanup 2>$null
           $global:LASTEXITCODE = 0   # "release not found" on the first run is expected, not a failure

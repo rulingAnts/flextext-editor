@@ -65,6 +65,7 @@ def main(argv=None):
         p = subprocess.run([str(exe), "gui", "--user-data-dir", str(ud)], capture_output=True, text=True, encoding="utf-8", errors="replace", env=genv, timeout=180)
         print(p.stdout[-2000:], p.stderr[-2000:])
         check(out.is_file(), "the window opened and reported back (rc=%d)" % p.returncode)
+        check("Error while processing" not in p.stdout + p.stderr, "no pywebview/WebView2 errors on the console (nothing native exposed to the page)")
         r = json.loads(out.read_text(encoding="utf-8"))
         print("  window: renderer=%s, shows: %r" % (r.get("renderer"), (r.get("stores") or "")[:300]))
         check("rulingants.github.io" in (r.get("stores") or ""), "the window's scan lists the fixture's origin")

@@ -6,6 +6,7 @@ import hashlib
 import sys
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8")   # a Windows runner's redirected stdout is cp1252: the "→" crashed the first notes
 exe, gui, commit = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 sha = hashlib.sha256(exe.read_bytes()).hexdigest()
 gui_line = ("- **The window was opened on the build machine** (Windows, WebView2) and listed the test profile."

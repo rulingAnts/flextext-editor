@@ -149,7 +149,8 @@ console.log('\n...and Tab/Space still route through that function');
    * ⚠ PLAIN Space only: this branch used to catch Shift+Space as well and swallow the chord, so the
    * one key meaning "audio wherever the caret is" moved the caret instead. */
   ok(/e\.key === ' ' && !e\.shiftKey\)/.test(app), 'the chord is no longer caught here');
-  ok(/g\.setRangeText\('\.', from, to, 'end'\)/.test(app), 'plain Space inserts a period at the caret');
+  // v727: a SPACE at the caret, which the input handler makes the researcher's separator (it typed a literal '.')
+  ok(/g\.setRangeText\(' ', from, to, 'end'\)/.test(app), 'plain Space types the gloss separator at the caret');
   ok(/g\.dispatchEvent\(new Event\('input', \{ bubbles: true \}\)\)/.test(app),
      'and says so, since setRangeText fires no input event and the model is written by that listener');
   ok(/OneStory Editor aligns interlinear data by WHITESPACE ALONE/.test(app),

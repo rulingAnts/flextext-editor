@@ -249,3 +249,20 @@ def test_a_paragraph_started_right_after_a_splits_last_piece(tmp_path):
     t = port.read_text(tg)
     assert [q["contents"] for q in t["paragraphs"]] == ["aaa " + LB + "bbb", "ccc ddd"], [q["contents"] for q in t["paragraphs"]]
     assert shape(port, tg) == [[1, "↵", 1], [2]]
+
+
+def test_word_positions_follow_flexs_analyses_when_punctuation_is_part_of_a_word():
+    """VM, 2026-10-21: an earlier import tool stored "bbb," and "ddd." as ONE wordform each. The breaker cuts the
+    punctuation off, so its tokens and FLEx's analyses disagreed and every index after a comma was one word late — a
+    split landed one word past the cut. Positions now come from the analyses, found in the text."""
+    text = "Aaa bbb, ccc ddd."
+    seg = {"guid": "s", "begin": 0, "end": len(text), "analyses": [
+        {"kind": "wordform", "form": "aaa"}, {"kind": "wordform", "form": "bbb,"},
+        {"kind": "wordform", "form": "ccc"}, {"kind": "wordform", "form": "ddd."}]}
+    p = {"contents": text, "ws": "xx"}
+    got = S.word_token_ends(p, seg)
+    assert [(a, b, f, punct) for a, b, f, punct in got] == [(0, 3, "Aaa", False), (4, 8, "bbb,", False), (9, 12, "ccc", False), (13, 17, "ddd.", False)]
+    seg["analyses"] = seg["analyses"][:2] + [{"kind": "wordform", "form": "zzz"}] + seg["analyses"][3:]
+    with pytest.raises(FlexError) as ei:
+        S.word_token_ends(p, seg)
+    assert ei.value.code == "E_WORDS_MISMATCH", "an analysis not in the text is refused, never guessed"

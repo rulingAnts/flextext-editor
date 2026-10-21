@@ -77,9 +77,44 @@ def _has_word(text):
 
 
 def word_token_ends(p, seg):
-    """[(ichMin, ichLim)] of the segment's tokens in paragraph offsets."""
+    """[(ichMin, ichLim, form, punct)] in paragraph offsets, ONE PER ANALYSIS in the segment's AnalysesRS — the list
+    the engine's word indices (afterWordIndex, a word op's index) count. Where the breaker's tokens agree with the
+    analyses (FLEx's parser made them) they are used as they are. Where they do not, each analysis is found in the
+    text instead [VM, 2026-10-21: a text whose analyses an earlier import tool made holds "word," and "word." as ONE
+    wordform each; the breaker cut the punctuation off, every index after it was one word late, and a split landed one
+    word past where the user cut — the W4 check refused the save, "words differ"]. A segment whose analyses cannot be
+    found in its text is refused (E_WORDS_MISMATCH) rather than guessed."""
     txt = p["contents"][seg["begin"]:seg["end"]]
-    return [(seg["begin"] + a, seg["begin"] + b, form, punct) for a, b, form, punct in tokenize(txt)]
+    toks = [(seg["begin"] + a, seg["begin"] + b, form, punct) for a, b, form, punct in tokenize(txt)]
+    an = seg.get("analyses") or []
+    if not an or (len(an) == len(toks) and all((x.get("kind") == "punct") == t[3] for x, t in zip(an, toks))):
+        return toks
+    spans = _analysis_spans(p, seg)
+    if spans is None:
+        raise FlexError("E_WORDS_MISMATCH", "FLEx's words in this phrase do not line up with its text; check the phrase in "
+                        "FLEx's Interlinear tab first", {"seg": seg["guid"]})
+    return spans
+
+
+def _analysis_spans(p, seg):
+    """Each analysis's form found in the segment's text, in order (spaces between skipped; a wordform's case may differ
+    from the text's, as FLEx lowercases a sentence's first letter in its wordforms). None if any is not there."""
+    text = p["contents"]
+    pos, end, out = seg["begin"], seg["end"], []
+    for a in seg.get("analyses") or []:
+        form = nfd(((a.get("forms") or {}).get(p.get("ws")) or a.get("form") or ""))
+        if not form:
+            return None
+        while pos < end and text[pos].isspace() and text[pos] != LINE_SEP:
+            pos += 1
+        got = text[pos:pos + len(form)]
+        if got.casefold() != form.casefold():
+            return None
+        out.append((pos, pos + len(form), got, a.get("kind") == "punct"))
+        pos += len(form)
+    if text[pos:end].strip():
+        return None
+    return out
 
 
 # ---- §6.3 phrase operations ---------------------------------------------------------------------

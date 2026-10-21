@@ -23,7 +23,7 @@ for (const lang of ['en', 'id']) {
     const s = flexFailText(closedByW5(), true, T);
     assert.equal(s.startsWith(T('flex.closedUnsaved', { f: '' })), true, s);
     assert.ok(!s.includes(T('flex.nothingWritten')), 'not "nothing was written (rolled back)": ' + s);
-    assert.ok(s.includes(T('flex.why', { why: W5 })), s);
+    assert.ok(s.includes(T('flex.seeConsole')) && !s.includes(W5), 'the cause is in the console, not the toast: ' + s);
   });
 
   test(`[${lang}] every later call reports the error that closed the project, and the backup`, () => {
@@ -31,7 +31,7 @@ for (const lang of ['en', 'id']) {
     const s = flexFailText(poisoned({ backup: 'C:/Backups/demo 2026-01-02 0930.fwbackup' }), false, T);
     assert.ok(s.startsWith(T('flex.closedUnsaved', { f: '' })), s);
     assert.ok(s.includes('demo 2026-01-02 0930.fwbackup'), s);
-    assert.ok(s.includes(T('flex.why', { why: W5 })), 'the cause, not the E_POISONED wrapper: ' + s);
+    assert.ok(s.includes(T('flex.seeConsole')), 'the cause is in the console: ' + s);
     assert.doesNotMatch(s, /\{[a-z]+\}/, 'no unfilled placeholder');
     assert.doesNotMatch(s, /\s;|;\s*;/, 'no empty "preserved as ;"');
   });
@@ -47,7 +47,7 @@ for (const lang of ['en', 'id']) {
     i18n.setLang(lang, { save: false });
     const e = err('E_INVARIANT', 're-read differs from the intended result: phrase 1 gloss', { problems: ['x'] });
     const s = flexFailText(e, true, T);
-    assert.equal(s, T('flex.err.E_INVARIANT') + ' ' + T('flex.why', { why: 're-read differs from the intended result: phrase 1 gloss' }));
+    assert.equal(s, T('flex.err.E_INVARIANT') + ' ' + T('flex.seeConsole'), 'friendly: the words of the check go to the console');
   });
 
   test(`[${lang}] refusals keep their own words; "nothing was written" only where it adds something`, () => {
@@ -56,7 +56,7 @@ for (const lang of ['en', 'id']) {
     assert.equal(flexFailText(err('E_SCOPE', 'x', {}), true, T), T('flex.nothingWritten') + ' ' + T('flex.err.E_SCOPE'));
     assert.equal(flexFailText(err('E_SCOPE', 'x', {}), false, T), T('flex.err.E_SCOPE'), 'the shell\'s English is not shown for a refusal');
     assert.equal(flexFailText(err('E_NO_SUCH_CODE', 'boom', {}), false, T), T('flex.err.E_INTERNAL'));
-    assert.equal(flexFailText(err('E_INTERNAL', 'boom', {}), false, T), T('flex.err.E_INTERNAL') + ' ' + T('flex.why', { why: 'boom' }));
+    assert.equal(flexFailText(err('E_INTERNAL', 'boom', {}), false, T), T('flex.err.E_INTERNAL') + ' ' + T('flex.seeConsole'));
   });
 }
 

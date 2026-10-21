@@ -1051,12 +1051,13 @@ export function flexFailText(e, afterWrite, T) {
     const f = d.failedFile || (closed.detail && closed.detail.failedFile) || '';
     let msg = T(f ? 'flex.closedSetAside' : 'flex.closedUnsaved', { f });
     if (d.backup) msg += ' ' + T('flex.closedBackup', { b: d.backup });
-    if (closed.message) msg += ' ' + T('flex.why', { why: closed.message });
+    // the cause stays in the console line (flex-panel fail()): the toast is for the person, not the report — Seth, 2026-10-21
+    if (closed.message) msg += ' ' + T('flex.seeConsole');
     return msg;
   }
   let msg = T('flex.err.' + code, (e && e.detail) || undefined);
   if (msg === 'flex.err.' + code) msg = T('flex.err.E_INTERNAL');
   if (afterWrite && !SAYS_NOTHING_WRITTEN.has(code)) msg = T('flex.nothingWritten') + ' ' + msg;
-  if (e && e.message && WHY_CODES.has(code)) msg += ' ' + T('flex.why', { why: e.message });
+  if (e && e.message && WHY_CODES.has(code)) msg += ' ' + T('flex.seeConsole');   // the why: in the console, not the toast
   return msg;
 }

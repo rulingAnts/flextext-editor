@@ -141,7 +141,7 @@ def test_readonly_file(proj):
     os.chmod(p, stat.S_IRUSR)
     try:
         r = pc.check_project(proj, "copy-x", MODEL_VERSION, drive_type=lambda p: 3, free=lambda p: 10**12)
-        if os.geteuid() != 0:
+        if os.name == "nt" or os.geteuid() != 0:   # Windows: chmod sets the read-only attribute
             assert "E_READONLY_FILE" in r["reasons"]
     finally:
         os.chmod(p, stat.S_IRUSR | stat.S_IWUSR)

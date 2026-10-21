@@ -41,11 +41,23 @@ def test_send_receive_info_reads_the_store(tmp_path):
 
 
 def fake_hg(tmp_path, lines):
-    """An `hg` that prints a log as Chorus's Mercurial would for our template."""
-    hg = tmp_path / "bin" / "hg"
-    hg.parent.mkdir(exist_ok=True)
-    hg.write_text("#!/bin/sh\nif [ \"$3\" = log ]; then printf '" + "".join(l + "\\n" for l in lines) + "'; fi\n", encoding="utf-8")
-    hg.chmod(0o755)
+    """An `hg` that prints a log as Chorus's Mercurial would for our template. A Python script, wrapped in a .cmd on
+    Windows (which cannot run a #!/bin/sh file), so the test runs on the VM as well as on Linux."""
+    import sys
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    script = bindir / "fake_hg.py"
+    out = "".join(l + "\n" for l in lines)
+    script.write_text("import sys\n"
+                      "if len(sys.argv) > 3 and sys.argv[3] == 'log':\n"
+                      "    sys.stdout.write(%r)\n" % out, encoding="utf-8")
+    if os.name == "nt":
+        hg = bindir / "hg.cmd"
+        hg.write_text('@"%s" "%s" %%*\r\n' % (sys.executable, script), encoding="utf-8")
+    else:
+        hg = bindir / "hg"
+        hg.write_text("#!/bin/sh\nexec '%s' '%s' \"$@\"\n" % (sys.executable, script), encoding="utf-8")
+        hg.chmod(0o755)
     return str(hg)
 
 

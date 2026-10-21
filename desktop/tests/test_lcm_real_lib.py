@@ -26,8 +26,10 @@ def _fake(name, with_undoable):
 
 @pytest.fixture
 def mods(monkeypatch):
+    # None in sys.modules makes `import` raise ImportError, so a REAL pyflexicon installed on this machine (the
+    # Windows VM) can never stand in for a fake the test removed. Deleting the entry let the real one import.
     for n in ("flexicon", "flexlibs2", "flexlibs"):
-        monkeypatch.delitem(sys.modules, n, raising=False)
+        monkeypatch.setitem(sys.modules, n, None)
     return monkeypatch
 
 
@@ -35,10 +37,10 @@ def test_pyflexicon_is_preferred_and_flextools_flexlibs_is_never_used(mods):
     mods.setitem(sys.modules, "flexlibs", _fake("flexlibs", with_undoable=False))   # FLExTools', on the VM
     mods.setitem(sys.modules, "flexicon", _fake("flexicon", with_undoable=True))
     assert lcm_real._flexicon().__name__ == "flexicon"
-    mods.delitem(sys.modules, "flexicon")
+    mods.setitem(sys.modules, "flexicon", None)
     mods.setitem(sys.modules, "flexlibs2", _fake("flexlibs2", with_undoable=True))
     assert lcm_real._flexicon().__name__ == "flexlibs2", "the deprecated alias still works"
-    mods.delitem(sys.modules, "flexlibs2")
+    mods.setitem(sys.modules, "flexlibs2", None)
     with pytest.raises(FlexError) as ei:   # only FLExTools' flexlibs left: refused by name, not imported
         lcm_real._flexicon()
     assert ei.value.code == "E_INTERNAL" and "pyflexicon" in ei.value.message

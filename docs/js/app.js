@@ -10,7 +10,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG, isBetaHost } from './i18n.js';
 import { openExternal, wireExternalLinks, enforceNoOffsiteLinks } from './external-link.js';
-import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
+import { enforceTyping, setAnalysisLang, setTypingPrefs, syncTypingWarnings, tidyField, untab, untabField, capBlankLines, glossBreakChar, GLOSS_BREAKS, spellcheckTagFor, syncLanguageNames, wireLanguageNames, WS_CODE_FIELDS, linePermissions, legacyJoinSplit } from './typing.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext, on the Utilities tab (#29)
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
@@ -4509,6 +4509,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * route through. The caret is restored because rewriting .value otherwise throws it to the end,
    * mid-sentence, which is worse than the newline was. */
   input.addEventListener('input', () => {
+    untabField(input);   // a tab is never text — typing.js untab; ungated, one for one
     if (/[\r\n]/.test(input.value)) {
       const at = input.selectionStart;
       const before = input.value.slice(0, at).replace(/[\r\n]+/g, ' ').length;
@@ -4538,8 +4539,9 @@ function renderSegment(seg, segnum, vernFont, analFont) {
    * "between words" — and it is the one moment the keyboard's own autocorrect cannot be mid-flight
    * fighting the rewrite, which is the same reason the gloss period fix tidies on blur. */
   input.addEventListener('blur', () => {
-    if (!singleSpaceEnabled()) return;
-    const tidy = tidyField(input.value, { kind: 'free', moment: 'blur' }).value;
+    // The tab rule runs whatever the single-space setting says; the tidy after it is the gated part.
+    const plain = untab(input.value);
+    const tidy = singleSpaceEnabled() ? tidyField(plain, { kind: 'free', moment: 'blur' }).value : plain;
     if (tidy === input.value) return;
     input.value = tidy;
     input.__prevVal = tidy;
@@ -4645,7 +4647,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
     }
     else if (e.key === 'Escape') { e.preventDefault(); t2.textContent = was; t2.blur(); }
   });
-  t2.addEventListener('blur', () => { const v = t2.textContent.trim(); if (v && v !== was) glossEditWord(seg, i, v); else t2.textContent = was; });
+  t2.addEventListener('blur', () => { const v = untab(t2.textContent).trim(); if (v && v !== was) glossEditWord(seg, i, v); else t2.textContent = was; });
   cell.appendChild(t2);
 
   /* ⚠ WORD-BY-WORD GLOSSING IS THE RESEARCHER'S TO GRANT (Seth, 2026-09-08: "the ability to disable
@@ -4682,6 +4684,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
      *
      * The caret index survives untouched because the substitution is one character for one. */
     g.addEventListener('input', () => {
+      untabField(g);   // a pasted tab is a space here, so the line below makes it the break character
       if (g.value.includes(' ')) {
         const at = g.selectionStart;
         g.value = g.value.split(' ').join(glossBreak());
@@ -4721,7 +4724,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
        * before this feature existed. Passing `{ gloss: singleSpaceEnabled() }` was wrong twice over:
        * with the setting off it still collapsed periods, and it did so under the FULL-LINE rules,
        * which would have collapsed spaces and normalized ellipses inside a gloss label. */
-      const spaced = g.value.split(' ').join(glossBreak());
+      const spaced = untab(g.value).split(' ').join(glossBreak());
       const want = singleSpaceEnabled() ? tidyField(spaced, { kind: 'gloss', moment: 'blur', sep: glossBreak() }).value : spaced;
       if (want === g.value) return;
       g.value = want;
@@ -13012,6 +13015,9 @@ function setup() {
    * are timed spans of silence, 1:1 with doc.segments. */
   $('#baseline-text').addEventListener('blur', () => {
     const ta = $('#baseline-text');
+    /* ⚠ A tab is never text (typing.js untab) — ungated, and BEFORE applyBaseline, which reads the box.
+     * One for one, so the line count the aligned-doc rule below depends on is exactly what it was. */
+    if (ta.value.includes('\t')) ta.value = untab(ta.value);
     if (singleSpaceEnabled()) {
       let v = tidyField(ta.value, { kind: 'vern', moment: 'blur' }).value;
       /* ⚠ GATED ON DOC TRUTH, NOT ON THE SETTING. On an ALIGNED doc a blank baseline line is a

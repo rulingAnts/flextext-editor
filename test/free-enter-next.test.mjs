@@ -41,7 +41,8 @@ test('the phone keyboard lands where the Enter key does', () => {
   assert.match(APP, /applyEnterKeyHint\(input, freeEnterShowsNext\(\)\);\n {2}input\.addEventListener\('focus', \(\) => \{ growArea\(input\); applyEnterKeyHint\(input, freeEnterShowsNext\(\)\); \}\);/,
     'the translation box asks for that key before its first focus and on every one');
   const phone = APP.indexOf("if (e.inputType !== 'insertLineBreak' && e.inputType !== 'insertParagraph') return;");
-  const strip = APP.indexOf("input.addEventListener('input', () => {\n    if (/[\\r\\n]/.test(input.value)) {");
+  // v725: that handler opens with the tab rule (no-tabs.test.mjs), then turns line breaks into spaces
+  const strip = APP.indexOf("input.addEventListener('input', () => {\n    untabField(input);");
   assert.ok(phone > -1, 'a typed line break, never a paste');
   assert.ok(strip > -1 && phone < strip, 'registered BEFORE the handler that turns line breaks into spaces');
   assert.match(APP, /if \(!enterAtEndAdvances\(\) \|\| input\.value\.slice\(input\.selectionStart \?\? 0\)\.trim\(\)\) return;/,

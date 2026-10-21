@@ -142,13 +142,18 @@ function wordLevelEdit(oldForms, newForms) {
 }
 
 /* Index of a lexical word among ALL analyses (punctuation included), as LCM's AnalysesRS counts. */
-function analysisIndex(seg, lexIndex) {
+/* An index into wordsOf(seg) — every word but FLEx's § boundary markers, PUNCTUATION INCLUDED, which is what
+ * lexForms and wordLevelEdit count — as the same word's index in seg.words, i.e. in FLEx's AnalysesRS (the shell's
+ * afterWordIndex / word-op index). ⚠ It used to skip punctuation while its callers counted it: a split whose first
+ * piece held a comma landed one word late per comma (Phase B on the VM, 2026-10-21 — the shell's W4 check refused
+ * the save, "words differ"), and a word split/join/insert after punctuation in its line did the same. */
+function analysisIndex(seg, index) {
   let seen = -1;
   const words = seg.words || [];
   for (let i = 0; i < words.length; i++) {
-    if (words[i].punct) continue;
+    if (isBoundaryMarker(words[i])) continue;
     seen++;
-    if (seen === lexIndex) return i;
+    if (seen === index) return i;
   }
   return -1;
 }

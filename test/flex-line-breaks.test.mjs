@@ -223,3 +223,25 @@ test('a Sentence break right after a split\'s last piece sends its paragraph op 
   assert.deepEqual(toPara.map((o) => [o.segGuid, o.newPara, o.afterSplit]), [['N1', 'NP', true]]);
   assert.ok(d.ops.some((o) => o.op === 'phrase.split' && o.segGuid === 'A' && o.newPhrase === 'N1'));
 });
+
+test('a split position counts punctuation as FLEx does: a comma in the first piece does not push the cut on', () => {
+  /* VM, 2026-10-21: analysisIndex skipped punctuation while its callers counted it — a first piece holding two
+   * commas was cut two words late, and the shell's W4 check refused the save ("words differ"). */
+  const pw = (txt, i, sg, punct) => ({ ...word(txt, i, sg), punct, flex: { ...word(txt, i, sg).flex, analysisKind: punct ? 'punct' : 'wordform' } });
+  const seg = { ...text('A', []), words: [pw('aa', 0, 'A', false), pw(',', 1, 'A', true), pw('bb', 2, 'A', false), pw('cc', 3, 'A', false), pw('dd', 4, 'A', false)] };
+  const base = { ...flexDoc(), paragraphs: [line(seg, 'P1')], segments: [{ start: 0, end: 900 }] };
+  const cur = structuredClone(base);
+  const a = cur.paragraphs[0].segments[0];
+  const piece = { ...text('N1', []), words: a.words.slice(3).map((w) => ({ ...w, flex: { ...w.flex, seg: 'N1' } })) };
+  cur.paragraphs[0].segments[0] = { ...a, words: a.words.slice(0, 3) };            // "aa , bb" | "cc dd"
+  cur.paragraphs.push(line(piece, 'P1'));
+  cur.segments = [{ start: 0, end: 450 }, { start: 450, end: 900 }];
+  const split = OPS.diffFlexDoc(base, cur).ops.find((o) => o.op === 'phrase.split');
+  assert.equal(split.afterWordIndex, 2, 'the cut is after "bb" (FLEx\'s analysis 2), not after "cc" (it was 3)');
+  // a word split after the comma names that word's place in FLEx's list too
+  const ws = structuredClone(base);
+  const w3 = ws.paragraphs[0].segments[0].words;
+  w3.splice(3, 1, { ...w3[3], txt: 'c' }, { ...w3[3], guid: 'x', txt: 'c', flex: { ...w3[3].flex } });
+  const op = OPS.diffFlexDoc(base, ws).ops.find((o) => o.op === 'word.split');
+  assert.ok(op && op.index === 3, 'the word "cc" is analysis 3: ' + JSON.stringify(op));
+});

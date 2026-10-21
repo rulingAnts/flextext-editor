@@ -38,9 +38,10 @@ fxdiag report --texts all --raw --out report.zip         # raw records + the sui
 
 `--flextext` runs the engine's serializer in **Node.js** (nodejs.org); without Node the report still
 holds the JSON records and says what to install. 
-**Or the portable Windows exe** — one file, no Python, no install, Node bundled: the pre-releases tagged
-`fxdiag-v*` on the repository's Releases page. Unsigned, so SmartScreen warns on first run (*More info →
-Run anyway*). Built by `.github/workflows/build-fxdiag.yml` when an `fxdiag-v*` tag is pushed; the build
+**Or the portable Windows exe** — one file, no Python, no install, Node bundled: the pre-release
+`fxdiag-v<version>-pre` on the repository's Releases page (rebuilt in place, same link, whenever
+`tools/fxdiag` changes on `desktop-flex` or `main`). Unsigned, so SmartScreen warns on first run (*More info →
+Run anyway*). Built by `.github/workflows/build-fxdiag.yml`; the build
 runs the tests on Windows, then `packaging/smoke_exe.py` against the exe itself with Node removed from
 PATH, then opens its window, before anything is published. `packaging/build_exe.py` builds the same thing
 locally on any OS.

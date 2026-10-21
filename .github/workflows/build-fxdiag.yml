@@ -1,9 +1,15 @@
 # Build the portable fxdiag executable (tools/fxdiag) for Windows and attach it to a PRE-RELEASE.
 #
-# TRIGGER: pushing a tag `fxdiag-v*` (e.g. fxdiag-v0.1.0-pre.1) — the deliberate act that asks for a build,
-# and the only trigger that works from a feature branch (workflow_dispatch needs the file on `main`; it is
-# here too for when it gets there). No branch push and no schedule run it. A tag push triggers no other
-# workflow: test-rig filters on branches only, and every deploy is workflow_dispatch.
+# TRIGGERS — narrow on purpose:
+#   · a push to desktop-flex or main that CHANGES tools/fxdiag/** or this file. Nothing else on those
+#     branches builds it, so an app or docs push costs nothing here. It publishes the ROLLING pre-release
+#     `fxdiag-v<version>-pre` (deleted and recreated at the new commit), so the download link for a version
+#     stays the same across rebuilds. (A Claude cloud session can push only its branch — not tags, not
+#     main — which is why a path-filtered branch push is a trigger at all.)
+#   · pushing a tag `fxdiag-v*` from a machine that can: publishes under that tag, left alone afterwards.
+#   · workflow_dispatch, once this file is on main (GitHub dispatches only from the default branch).
+# No schedule. A tag push triggers no other workflow: test-rig filters on branches only, and every deploy
+# is workflow_dispatch.
 #
 # COST: free. Public repository + the standard `windows-latest` runner (the same as build-desktop.yml);
 # no larger or GPU label, no matrix, no schedule.
@@ -21,7 +27,11 @@ name: Build fxdiag (Windows exe)
 
 on:
   push:
+    branches: [desktop-flex, main]
     tags: ['fxdiag-v*']
+    paths:
+      - 'tools/fxdiag/**'
+      - '.github/workflows/build-fxdiag.yml'
   workflow_dispatch:
     inputs:
       publish:
@@ -32,6 +42,11 @@ on:
 
 permissions:
   contents: write
+
+# A second push while one build runs replaces it: only the newest commit is worth publishing.
+concurrency:
+  group: build-fxdiag-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows:
@@ -95,18 +110,20 @@ jobs:
       # A release asset URL is stable, unauthenticated and resumable (an artifact URL is none of those).
       # PRE-RELEASE, not draft: a draft's assets need authentication to fetch.
       - name: Attach to a pre-release
-        if: ${{ github.ref_type == 'tag' || inputs.publish }}
+        if: ${{ github.event_name == 'push' || inputs.publish }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $exe = "${{ steps.build.outputs.exe }}"
           $ver = "${{ steps.build.outputs.version }}"
-          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}"; $target = @() }
-          else { $tag = "fxdiag-v$ver-pre.${{ github.run_number }}"; $target = @('--target', "${{ github.sha }}") }
+          # a pushed tag keeps its own name; a branch push or dispatch rolls fxdiag-v<version>-pre forward
+          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}"; $target = @(); $cleanup = @() }
+          else { $tag = "fxdiag-v$ver-pre"; $target = @('--target', "${{ github.sha }}"); $cleanup = @('--cleanup-tag') }
           python tools/fxdiag/packaging/release_notes.py "$exe" "${{ steps.gui.outcome }}" "${{ github.sha }}" | Out-File -FilePath notes.md -Encoding utf8
           (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $exe -Leaf) | Out-File -FilePath "$exe.sha256" -Encoding ascii
-          gh release delete $tag --yes 2>$null
+          gh release delete $tag --yes @cleanup 2>$null
+          $global:LASTEXITCODE = 0   # "release not found" on the first run is expected, not a failure
           gh release create $tag $exe "$exe.sha256" tools/fxdiag/THIRD-PARTY.txt --prerelease --title "fxdiag $ver (Windows x64, pre-release)" --notes-file notes.md @target
           $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$(Split-Path $exe -Leaf)"
           Write-Host "DOWNLOAD_URL: $url"

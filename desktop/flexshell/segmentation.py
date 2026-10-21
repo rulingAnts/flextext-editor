@@ -1,4 +1,4 @@
-"""The § recipes (plan §6.3–§6.5), written against FlexPort. Every function runs INSIDE the
+"""The segmentation recipes (plan §6.3–§6.5; hard line breaks, never a new §, since 2026-10-21), written against FlexPort. Every function runs INSIDE the
 caller's UOW and raises on any surprise — the protocol turns a raise into a rollback. Nothing here
 calls flexicon's segment operations (plan §6.6: SplitSegment corrupts, MergeSegments leaves the §).
 
@@ -83,20 +83,71 @@ def word_token_ends(p, seg):
 
 
 # ---- §6.3 phrase operations ---------------------------------------------------------------------
+# ⚠ HARD LINE BREAKS, NEVER § (Seth, 2026-10-21, on the first real saves): "Please get rid of the section marks. I don't
+# want them. Just hard line breaks." A § splits FLEx's segments but not the Baseline's lines; Shift+Enter in FLEx
+# (U+2028) does both, and it is what the team's data uses (399 breaks, 323 of them right after a word's space). So:
+#   - joining always makes ONE phrase, one baseline line;   - splitting always makes TWO phrases;
+#   - the paragraph toggle alone decides whether two phrases share a paragraph (off: a hard line break between them
+#     inside one paragraph; on: a paragraph boundary, the break gone).
+# LCM makes every U+2028 its own one-character LABEL segment [verified, VM 2026-10-21]: inserting one at a word gap
+# keeps the GUID, free translation and times of the phrase before it, makes the label and a NEW phrase after it, and
+# survives ForceParse; deleting it merges the phrases (FT joined with a space, the first GUID kept). § already in a
+# text (FLEx's own importer writes one where a phrase has no punctuation [verified]) is still joined and moved as
+# before; this app never writes a new one.
+
+def _is_break_label(p, s):
+    """A label segment that is nothing but hard line breaks (not a verse or chapter number)."""
+    txt = p["contents"][s["begin"]:s["end"]]
+    return bool(s.get("isLabel")) and bool(txt) and all(c == LINE_SEP for c in txt)
+
+
+def next_phrase(p, k):
+    """(j, labels): the first segment after k that is not a label, and the label segments between them."""
+    segs = p["segments"]
+    j, labels = k + 1, []
+    while j < len(segs) and segs[j].get("isLabel"):
+        labels.append(j)
+        j += 1
+    return (j if j < len(segs) else None), labels
+
+
+def _require_breaks(p, labels, seg_guid):
+    for i in labels:
+        if not _is_break_label(p, p["segments"][i]):
+            raise FlexError("E_SCOPE", "a verse or chapter number sits between these phrases; change it in FLEx",
+                            {"seg": seg_guid, "label": p["segments"][i]["guid"]})
+
+
+def _without_breaks(old, a, b):
+    """`old` with the breaks at [a, b) removed: a space in their place only where the words would otherwise touch."""
+    touch = a > 0 and b < len(old) and not old[a - 1].isspace() and not old[b].isspace()
+    rep = " " if touch else ""
+    return old[:a] + rep + old[b:], rep
+
+
+def _break_at(text, cut, limit=None):
+    """Where a hard line break goes at a word gap: after the gap's spaces, as FLEx's Shift+Enter leaves it
+    ("word ↵word" — 323 of the 399 breaks in the team's data)."""
+    limit = len(text) if limit is None else limit
+    pos = cut
+    while pos < limit and text[pos].isspace() and text[pos] != LINE_SEP:
+        pos += 1
+    return pos
+
+
 def split_phrase(port, text_guid, para_guid, seg_guid, after_word_index, new_times=None):
-    """Split segment k between word i and i+1 (word indices count ALL analyses incl. punctuation,
-    as AnalysesRS does). Returns the new segment's guid. [verified] recipe:
-      p = just after the last character of the first half (after any trailing punctuation);
-      both halves must contain a word-forming character; if the first half does not already end in
-      an EOS character, insert "§" at p (a space must already follow, else insert "§ "); LCM creates
-      the new segment at k+1 — k keeps GUID, FT, notes and start time; set the new one's times,
-      MediaURIRA and SpeakerRA (= k's), trim k's end time."""
+    """Split segment k between word i and i+1 (word indices count ALL analyses incl. punctuation, as AnalysesRS does)
+    with a HARD LINE BREAK. Returns the new phrase's guid. [verified, VM 2026-10-21]: k keeps GUID, FT, notes and
+    start time; LCM makes the break's label segment at k+1 and the new phrase at k+2; set the new phrase's times,
+    MediaURIRA and SpeakerRA (= k's), trim k's end time."""
     p = para_of(port, text_guid, para_guid)
     require_not_fragile(port, p)
     k = next((i for i, s in enumerate(p["segments"]) if s["guid"] == seg_guid), None)
     if k is None:
         raise FlexError("E_NOT_FOUND", "segment not in paragraph", {"seg": seg_guid})
     seg = p["segments"][k]
+    if seg.get("isLabel"):
+        raise FlexError("E_SCOPE", "a line break or a verse number is not a phrase to split", {"seg": seg_guid})
     toks = word_token_ends(p, seg)
     if not (0 <= after_word_index < len(toks) - 1):
         raise FlexError("E_SCOPE", "no word boundary at that index", {"index": after_word_index, "tokens": len(toks)})
@@ -109,28 +160,25 @@ def split_phrase(port, text_guid, para_guid, seg_guid, after_word_index, new_tim
     second = p["contents"][cut:seg["end"]]
     if not _has_word(first) or not _has_word(second):
         raise FlexError("E_EMPTY_PHRASE", "both halves need a word-forming character", {"seg": seg_guid})
-    old = p["contents"]
     if _ends_with_eos(first):
         raise FlexError("E_SCOPE", "a boundary at real punctuation is already a FLEx break", {"seg": seg_guid})
-    if cut < len(old) and old[cut].isspace():
-        ins = SECTION
-    else:
-        ins = SECTION + " "
-    new = old[:cut] + ins + old[cut:]
-    _assign(port, p, new, (cut, len(ins), 0))
+    old = p["contents"]
+    pos = _break_at(old, cut, seg["end"])
+    new = old[:pos] + LINE_SEP + old[pos:]
+    _assign(port, p, new, (pos, 1, 0))
     p2 = assert_invariant(port, text_guid, para_guid)
-    if len(p2["segments"]) != len(p["segments"]) + 1:
-        raise FlexError("E_INVARIANT", "LCM did not create exactly one segment", {"seg": seg_guid})
-    kept, created = p2["segments"][k], p2["segments"][k + 1]
+    if len(p2["segments"]) != len(p["segments"]) + 2:
+        raise FlexError("E_INVARIANT", "LCM did not make exactly a line break and one phrase", {"seg": seg_guid})
+    kept, label, created = p2["segments"][k], p2["segments"][k + 1], p2["segments"][k + 2]
     if kept["guid"] != seg_guid:
         raise FlexError("E_INVARIANT", "segment k lost its GUID", {"seg": seg_guid})
-    # analyses: every pre-existing analysis GUID kept; the only new one is the § PunctuationForm
+    if not _is_break_label(p2, label):
+        raise FlexError("E_INVARIANT", "the line break is not a segment of its own", {"seg": seg_guid})
+    # analyses: every pre-existing analysis GUID kept, none added to the two phrases (the break's own item is the label's)
     old_an = [a["guid"] for a in seg["analyses"]]
     new_an = [a["guid"] for a in kept["analyses"]] + [a["guid"] for a in created["analyses"]]
-    extra = [g for g in new_an if g not in old_an]
-    if len(extra) > 1 or [g for g in old_an if g not in new_an]:
-        raise FlexError("E_INVARIANT", "analyses changed beyond the § item", {"seg": seg_guid})
-    # times, media, speaker onto the new half
+    if new_an != old_an:
+        raise FlexError("E_INVARIANT", "a split changed the phrases' words", {"seg": seg_guid})
     if seg["mediaUri"]:
         port.set_segment_media(created["guid"], seg["mediaUri"])
     if seg["speaker"]:
@@ -143,32 +191,47 @@ def split_phrase(port, text_guid, para_guid, seg_guid, after_word_index, new_tim
 
 
 def join_phrases(port, text_guid, para_guid, seg_guid, new_end_time=None):
-    """Join segment k with k+1 across a §: delete the § (leave the space). [verified] LCM merges
-    k+1 into k — FT/LT joined with a space, notes moved, analyses kept; k+1's GUID, times, media and
-    speaker gone. Set k's EndTimeOffset to the old k+1 end. A boundary at real punctuation is never
-    joined by silently deleting the mark (E_SCOPE)."""
+    """Join phrase k with the next phrase into ONE phrase: delete the hard line break(s) between them (a space only
+    where the words would touch), or an existing § (leaving one space). [verified] LCM merges the next phrase into k
+    — FT/LT joined with a space, notes moved, analyses kept; its GUID, times, media and speaker gone. Set k's
+    EndTimeOffset to the old end of the phrase joined. A boundary at real punctuation is never joined by silently
+    deleting the mark (E_SCOPE), nor one at a verse or chapter number."""
     p = para_of(port, text_guid, para_guid)
     require_not_fragile(port, p)
-    k = next((i for i, s in enumerate(p["segments"]) if s["guid"] == seg_guid), None)
-    if k is None or k + 1 >= len(p["segments"]):
+    segs = p["segments"]
+    k = next((i for i, s in enumerate(segs) if s["guid"] == seg_guid), None)
+    if k is None:
         raise FlexError("E_NOT_FOUND", "no following segment to join", {"seg": seg_guid})
-    seg, nxt = p["segments"][k], p["segments"][k + 1]
-    if seg["isLabel"] or nxt["isLabel"]:
-        # a hard line break (U+2028) is a label segment of its own, not a § to delete (protocol.preview says so first)
-        raise FlexError("E_SCOPE", "a line break from FLEx sits here; remove it in FLEx to join these phrases", {"seg": seg_guid, "lineBreak": True})
-    toks = word_token_ends(p, seg)
-    if not toks or toks[-1][2] != SECTION:
-        raise FlexError("E_SCOPE", "this boundary is real punctuation; change the text explicitly instead", {"seg": seg_guid})
-    a, b = toks[-1][0], toks[-1][1]
+    seg = segs[k]
+    if seg.get("isLabel"):
+        raise FlexError("E_SCOPE", "a line break or a verse number is not a phrase to join", {"seg": seg_guid, "lineBreak": True})
+    j, labels = next_phrase(p, k)
+    if j is None:
+        raise FlexError("E_NOT_FOUND", "no following segment to join", {"seg": seg_guid})
+    nxt = segs[j]
     old = p["contents"]
-    # delete the § and ONE adjacent space so the words do not end up doubly spaced
-    if a > 0 and old[a - 1].isspace() and b < len(old) and old[b].isspace():
-        a -= 1
-    new = old[:a] + old[b:]
-    _assign(port, p, new, (a, 0, b - a))
+    if labels:
+        _require_breaks(p, labels, seg_guid)
+        if _ends_with_eos(old[seg["begin"]:seg["end"]]):
+            # taking the break out would leave two sentences: still two phrases in FLEx (VM, 2026-10-21: the join
+            # rolled back E_INVARIANT half-way); refused by name, as a § join at real punctuation is
+            raise FlexError("E_SCOPE", "this phrase ends in real punctuation; change the text explicitly instead", {"seg": seg_guid})
+        a, b = segs[labels[0]]["begin"], segs[labels[-1]]["end"]
+        new, rep = _without_breaks(old, a, b)
+        _assign(port, p, new, (a, len(rep), b - a))
+    else:
+        toks = word_token_ends(p, seg)
+        if not toks or toks[-1][2] != SECTION:
+            raise FlexError("E_SCOPE", "this boundary is real punctuation; change the text explicitly instead", {"seg": seg_guid})
+        a, b = toks[-1][0], toks[-1][1]
+        # delete the § and ONE adjacent space so the words do not end up doubly spaced
+        if a > 0 and old[a - 1].isspace() and b < len(old) and old[b].isspace():
+            a -= 1
+        new = old[:a] + old[b:]
+        _assign(port, p, new, (a, 0, b - a))
     p2 = assert_invariant(port, text_guid, para_guid)
-    if len(p2["segments"]) != len(p["segments"]) - 1 or p2["segments"][k]["guid"] != seg_guid:
-        raise FlexError("E_INVARIANT", "LCM did not merge exactly one segment into k", {"seg": seg_guid})
+    if len(p2["segments"]) != len(segs) - 1 - len(labels) or p2["segments"][k]["guid"] != seg_guid:
+        raise FlexError("E_INVARIANT", "LCM did not merge exactly one phrase into k", {"seg": seg_guid})
     end = new_end_time if new_end_time is not None else nxt["endTime"]
     if end is not None and seg["beginTime"] is not None:
         port.set_segment_times(seg_guid, seg["beginTime"], end)
@@ -176,53 +239,67 @@ def join_phrases(port, text_guid, para_guid, seg_guid, new_end_time=None):
 
 
 def move_boundary(port, text_guid, para_guid, seg_guid, new_after_word_index):
-    """Shift words between k and k+1: ONE Contents assignment that removes the old § and inserts
-    the new one [verified: both GUIDs, FTs and times survive; two separate assignments lose the
-    second segment and its times]. Words inside the diff span become bare wordforms — restored here
-    from the snapshot."""
+    """Shift words between phrase k and the next: ONE Contents assignment that removes the old boundary mark and
+    inserts a hard line break at the new place [verified for both a § and a line break: both phrase GUIDs, FTs and
+    times survive; two separate assignments lose the second phrase and its times]. Words inside the diff span become
+    bare wordforms — restored here from the snapshot."""
     p = para_of(port, text_guid, para_guid)
     require_not_fragile(port, p)
-    k = next((i for i, s in enumerate(p["segments"]) if s["guid"] == seg_guid), None)
-    if k is None or k + 1 >= len(p["segments"]):
+    segs = p["segments"]
+    k = next((i for i, s in enumerate(segs) if s["guid"] == seg_guid), None)
+    if k is None or segs[k].get("isLabel"):
+        raise FlexError("E_NOT_FOUND", "no such phrase", {"seg": seg_guid})
+    j, labels = next_phrase(p, k)
+    if j is None:
         raise FlexError("E_NOT_FOUND", "no following segment", {"seg": seg_guid})
-    seg, nxt = p["segments"][k], p["segments"][k + 1]
+    seg, nxt = segs[k], segs[j]
+    old = p["contents"]
     toks_k = word_token_ends(p, seg)
-    if not toks_k or toks_k[-1][2] != SECTION:
-        raise FlexError("E_SCOPE", "the boundary is real punctuation", {"seg": seg_guid})
-    both = toks_k[:-1] + word_token_ends(p, nxt)      # all tokens of k and k+1 without the §
+    if labels:
+        _require_breaks(p, labels, seg_guid)
+        if len(labels) > 1:
+            raise FlexError("E_SCOPE", "a blank line sits between these phrases; move it in FLEx", {"seg": seg_guid})
+        rm_a, rm_b = segs[labels[0]]["begin"], segs[labels[0]]["end"]
+        both = toks_k + word_token_ends(p, nxt)
+        both_an = seg["analyses"] + nxt["analyses"]
+    else:
+        if not toks_k or toks_k[-1][2] != SECTION:
+            raise FlexError("E_SCOPE", "the boundary is real punctuation", {"seg": seg_guid})
+        rm_a, rm_b = toks_k[-1][0], toks_k[-1][1]
+        if rm_a > 0 and old[rm_a - 1].isspace() and rm_b < len(old) and old[rm_b].isspace():
+            rm_a -= 1
+        both = toks_k[:-1] + word_token_ends(p, nxt)      # all tokens of k and the next without the §
+        both_an = seg["analyses"][:-1] + nxt["analyses"]
     words = [t for t in both if not t[3]]
     if not (0 <= new_after_word_index < len(words) - 1):
         raise FlexError("E_SCOPE", "no word boundary at that index", {"index": new_after_word_index})
     cut_tok = words[new_after_word_index]
-    j = both.index(cut_tok)
-    while j + 1 < len(both) and both[j + 1][3]:
-        j += 1
-    cut = both[j][1]
-    old = p["contents"]
-    sa, sb = toks_k[-1][0], toks_k[-1][1]
-    # remove "§" (and one space) at sa..sb; insert "§" after `cut` (adjusting for the removal)
-    rm_a, rm_b = sa, sb
-    if rm_a > 0 and old[rm_a - 1].isspace() and rm_b < len(old) and old[rm_b].isspace():
-        rm_a -= 1
-    without = old[:rm_a] + old[rm_b:]
-    cut2 = cut - (rm_b - rm_a) if cut >= rm_b else cut
-    ins = SECTION if (cut2 < len(without) and without[cut2].isspace()) else SECTION + " "
-    new = without[:cut2] + ins + without[cut2:]
+    jj = both.index(cut_tok)
+    while jj + 1 < len(both) and both[jj + 1][3]:
+        jj += 1
+    cut = both[jj][1]
+    if labels:
+        without, rep = _without_breaks(old, rm_a, rm_b)
+    else:
+        without, rep = old[:rm_a] + old[rm_b:], ""
+    cut2 = cut - (rm_b - rm_a) + len(rep) if cut >= rm_b else cut
+    if _ends_with_eos(without[:cut2]):
+        raise FlexError("E_SCOPE", "a boundary at real punctuation is already a FLEx break", {"seg": seg_guid})
+    pos = _break_at(without, cut2)
+    new = without[:pos] + LINE_SEP + without[pos:]
     if new == old:
         raise FlexError("E_SCOPE", "the boundary is already there", {"seg": seg_guid})
-    # snapshot analyses by word form order for restoration
-    snapshot = [(t[2], a["guid"]) for t, a in zip(both, (seg["analyses"][:-1] + nxt["analyses"]))]
+    snapshot = [(t[2], a["guid"]) for t, a in zip(both, both_an)]
     port.set_contents(p["guid"], nfd(new))
     p2 = assert_invariant(port, text_guid, para_guid)
-    if len(p2["segments"]) != len(p["segments"]) or p2["segments"][k]["guid"] != seg_guid or p2["segments"][k + 1]["guid"] != nxt["guid"]:
-        raise FlexError("E_INVARIANT", "a boundary move did not keep both segments", {"seg": seg_guid})
-    # restore analyses: walk the two new segments' tokens, skipping the §, and re-point bare items
-    # whose form matches the snapshot at that position
+    j2, labels2 = next_phrase(p2, k)
+    if (len(p2["segments"]) != len(segs) - len(labels) + 1 or p2["segments"][k]["guid"] != seg_guid
+            or j2 is None or p2["segments"][j2]["guid"] != nxt["guid"] or len(labels2) != 1):
+        raise FlexError("E_INVARIANT", "a boundary move did not keep both phrases", {"seg": seg_guid})
+    # restore analyses: walk the two phrases' tokens and re-point bare items whose form matches the snapshot there
     pos = 0
-    for s2 in (p2["segments"][k], p2["segments"][k + 1]):
+    for s2 in (p2["segments"][k], p2["segments"][j2]):
         for i, a in enumerate(s2["analyses"]):
-            if a["kind"] == "punct" and a["form"].strip() == SECTION:
-                continue
             if pos < len(snapshot) and snapshot[pos][0] == a["form"] and snapshot[pos][1] != a["guid"]:
                 port.set_analysis(s2["guid"], i, snapshot[pos][1])
             pos += 1
@@ -231,21 +308,50 @@ def move_boundary(port, text_guid, para_guid, seg_guid, new_after_word_index):
 
 
 # ---- §6.4 paragraph operations ------------------------------------------------------------------
+def boundary_after(p, k):
+    """The boundary after segment k as a paragraph split sees it: (j, run) — j the next phrase, `run` the label
+    segments to remove: every hard line break between the last phrase at or before k and j (the engine may name a
+    break row itself as the line before the boundary)."""
+    segs = p["segments"]
+    j = k + 1
+    while j < len(segs) and segs[j].get("isLabel"):
+        j += 1
+    lo = k
+    while lo >= 0 and segs[lo].get("isLabel"):
+        lo -= 1
+    run = list(range(lo + 1, j))
+    return (j if j < len(segs) else None), run
+
+
 def phrase_to_paragraph(port, text_guid, para_guid, seg_guid):
-    """Phrase boundary → paragraph boundary: SplitParaAt(seg[k+1].BeginOffset) exactly on the
-    boundary (mid-segment would duplicate the FT [verified]), then delete the trailing "§ " from
-    the first paragraph (kept if it is real punctuation). Returns the new paragraph guid."""
+    """Phrase boundary → paragraph boundary (the paragraph toggle ON): SplitParaAt at the next phrase's BeginOffset —
+    exactly on the boundary (mid-segment would duplicate the FT [verified]) — then the mark that was the boundary goes
+    from the end of the first paragraph: its hard line break(s) with the spaces before them [verified, VM 2026-10-21],
+    or an existing trailing "§ " (kept if it is real punctuation). Returns the new paragraph guid."""
     p = para_of(port, text_guid, para_guid)
     require_not_fragile(port, p)
     k = next((i for i, s in enumerate(p["segments"]) if s["guid"] == seg_guid), None)
-    if k is None or k + 1 >= len(p["segments"]):
+    if k is None:
         raise FlexError("E_NOT_FOUND", "no following segment", {"seg": seg_guid})
-    nxt = p["segments"][k + 1]
-    new_para = port.split_para_at(para_guid, nxt["begin"])
+    j, run = boundary_after(p, k)
+    if j is None:
+        raise FlexError("E_NOT_FOUND", "no following segment", {"seg": seg_guid})
+    _require_breaks(p, run, seg_guid)
+    new_para = port.split_para_at(para_guid, p["segments"][j]["begin"])
     p2 = assert_invariant(port, text_guid, para_guid)
     assert_invariant(port, text_guid, new_para)
-    if [s["guid"] for s in p2["segments"]] != [s["guid"] for s in p["segments"][:k + 1]]:
+    if [s["guid"] for s in p2["segments"]] != [s["guid"] for s in p["segments"][:j]]:
         raise FlexError("E_INVARIANT", "the first paragraph lost or gained segments", {"para": para_guid})
+    if run:
+        a = p2["segments"][run[0]]["begin"]
+        while a > 0 and p2["contents"][a - 1].isspace() and p2["contents"][a - 1] != LINE_SEP:
+            a -= 1
+        b = len(p2["contents"])
+        _assign(port, p2, p2["contents"][:a], (a, 0, b - a))
+        p3 = assert_invariant(port, text_guid, para_guid)
+        if [s["guid"] for s in p3["segments"]] != [s["guid"] for s in p2["segments"][:run[0]]]:
+            raise FlexError("E_INVARIANT", "removing the line break changed the phrases", {"para": para_guid})
+        return new_para
     toks = word_token_ends(p2, p2["segments"][-1])
     if toks and toks[-1][2] == SECTION:
         a, b = toks[-1][0], len(p2["contents"])
@@ -258,10 +364,27 @@ def phrase_to_paragraph(port, text_guid, para_guid, seg_guid):
     return new_para
 
 
+def ends_in_break(p):
+    """Whether a paragraph's last segment is a hard line break (a paragraph join then needs none of its own)."""
+    return bool(p["segments"]) and _is_break_label(p, p["segments"][-1])
+
+
+def starts_with_break(p):
+    """Whether a paragraph's first segment is a hard line break (the same: the boundary already has one)."""
+    return bool(p["segments"]) and _is_break_label(p, p["segments"][0])
+
+
+def join_writes_break(p, q):
+    """Whether paragraph_to_phrase(P, Q) writes a hard line break of its own: unless P ends, or Q starts, with one."""
+    return bool(p["segments"]) and not ends_in_break(p) and not starts_with_break(q)
+
+
 def paragraph_to_phrase(port, text_guid, para_guid):
-    """Paragraph boundary → phrase boundary (join P and Q): if P does not end in EOS, append "§ "
-    (one assignment); then P.MergeParaWithNext(). [verified] all of Q's segments survive with FT and
-    times; Q's paragraph GUID and style are lost."""
+    """Paragraph boundary → phrase boundary (the paragraph toggle OFF: separate phrases, one paragraph): a hard line
+    break at P's end — after a space, as FLEx's own Shift+Enter leaves it — unless P already ends in one; then
+    P.MergeParaWithNext(). [verified, VM 2026-10-21] every phrase of P and Q keeps its GUID, FT and times, the break
+    between them; Q's paragraph GUID and style are lost (that is what a join means). The Matcher's ⤴ across a
+    paragraph is this followed by join_phrases, which takes the break out again: one phrase."""
     t = port.read_text(text_guid)
     idx = next((i for i, p in enumerate(t["paragraphs"]) if p["guid"] == para_guid), None)
     if idx is None or idx + 1 >= len(t["paragraphs"]):
@@ -269,20 +392,15 @@ def paragraph_to_phrase(port, text_guid, para_guid):
     p, q = t["paragraphs"][idx], t["paragraphs"][idx + 1]
     require_not_fragile(port, p)
     require_not_fragile(port, q)
-    expect_segs = [s["guid"] for s in p["segments"]] + [s["guid"] for s in q["segments"]]
-    if p["segments"] and not _ends_with_eos(p["contents"]):
+    expect_p = [s["guid"] for s in p["segments"]]
+    if join_writes_break(p, q):
         old = p["contents"]
-        # A paragraph that ends in hard line breaks (U+2028, each its own label segment): the § goes BEFORE them, on
-        # the last phrase with words. After them it was a segment of its own and the join rolled back (2026-10-17).
-        cut = len(old)
-        while cut > 0 and old[cut - 1] == LINE_SEP:
-            cut -= 1
-        head = old[:cut]
-        ins = (" " if head and not head[-1].isspace() else "") + SECTION + (" " if cut == len(old) else "")
-        _assign(port, p, head + ins + old[cut:], (cut, len(ins), 0))
+        ins = ("" if (not old or old[-1].isspace()) else " ") + LINE_SEP
+        _assign(port, p, old + ins, (len(old), len(ins), 0))
         p = assert_invariant(port, text_guid, para_guid)
-        if [s["guid"] for s in p["segments"]] != expect_segs[:len(p["segments"])]:
-            raise FlexError("E_INVARIANT", "appending § changed P's segments", {"para": para_guid})
+        if [s["guid"] for s in p["segments"][:-1]] != expect_p or not ends_in_break(p):
+            raise FlexError("E_INVARIANT", "adding the line break changed P's phrases", {"para": para_guid})
+    expect_segs = [s["guid"] for s in p["segments"]] + [s["guid"] for s in q["segments"]]
     port.merge_para_with_next(para_guid)
     p2 = assert_invariant(port, text_guid, para_guid)
     if [s["guid"] for s in p2["segments"]] != expect_segs:

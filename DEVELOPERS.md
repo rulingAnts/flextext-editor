@@ -273,12 +273,12 @@ span   = { start, end, guess?: [gs|null, ge|null] }  |  { timePending: true }   
     Matcher, where row i is audio i, folds them while it is open (`foldFlexBreakLines`, also on a
     resumed draft) and puts each back on Done (`unfoldFlexBreakLines`): beside its line, with its own
     guid and span, in the paragraph it now sits in (a ¶ made at the line after a break leaves the break
-    at the end of the paragraph before, where FLEx's own split keeps it). A join across a break is
-    refused there (`mg.joinLineBreak`) and by the diff (`unsupported: lineBreak`): a break is FLEx's to
-    remove. Both Save checks accept a label segment FLEx already has — the engine's `flexBlockers` skips
+    at the end of the paragraph before, where FLEx's own split keeps it). A join across a break takes the
+    break out (Seth, 2026-10-21: one phrase, one baseline line); only a row that is nothing but breaks is
+    refused (`mg.joinLineBreak`), and a break removed with no join across it (`unsupported: lineBreak`). Both Save checks accept a label segment FLEx already has — the engine's `flexBlockers` skips
     a `readOnly` phrase with no lexical word; the shell's `kept_label` accepts one only while it is
     unchanged and in its own paragraph (or one this save merges or splits it into). `paragraph_to_phrase`
-    writes the § it joins at BEFORE a paragraph's trailing breaks. ⚠ The mock's breaker used to fold a
+    writes no § at all since 2026-10-21: every boundary the shell makes is a hard line break (U+2028). ⚠ The mock's breaker used to fold a
     break after a full stop into the sentence — the commonest place for one — so no test could see any
     of this; `desktop/tests/test_line_breaks.py` and the e2e's scenario 18 pin it now.
   - **A split keeps the GUID on the first piece; a merge keeps the first phrase's** (LCM

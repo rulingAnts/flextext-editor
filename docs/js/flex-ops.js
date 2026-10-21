@@ -280,25 +280,30 @@ export function diffFlexDoc(base, cur, opts = {}) {
     for (let j = k + 1; j < baseOrder.length && !curIndexOf.has(segGuid(baseOrder[j])); j++) run.push(baseOrder[j]);
     if (!run.length) continue;
     const now = cur.paragraphs[curIndexOf.get(segGuid(s))].segments[0];
-    // a hard line break between them (its own segment in LCM, never a §): FLEx's to remove, not this app's
-    if ([s, ...run].some(isFlexBreakPhrase)) {
-      unsupported.push({ why: 'lineBreak', segGuid: segGuid([s, ...run].find(isFlexBreakPhrase)), paraGuid: groupOf(s).key });
+    /* A hard line break between them (its own label segment in LCM) goes with the join: "joining audio segments always
+     * makes them one phrase, one baseline line" (Seth, 2026-10-21) — the shell's join_phrases deletes the break. A
+     * break is never a phrase of the join: no op of its own, no words. Breaks gone with no phrase joined across them,
+     * or a break that is the line joined onto, are not a join: refused by name. */
+    const texts = run.filter((v) => !isFlexBreakPhrase(v));
+    if (isFlexBreakPhrase(s) || !texts.length) {
+      unsupported.push({ why: 'lineBreak', segGuid: segGuid([s, ...run].find(isFlexBreakPhrase) || s), paraGuid: groupOf(s).key });
       continue;
     }
-    if (lexForms(now).join('\u0001') !== [s, ...run].flatMap(lexForms).join('\u0001')) {
+    if (lexForms(now).join('\u0001') !== [s, ...texts].flatMap(lexForms).join('\u0001')) {
       run.forEach((v) => unsupported.push({ why: 'phraseRemoved', segGuid: segGuid(v), paraGuid: groupOf(v).key }));
       continue;
     }
     const pg = groupOf(s).key;
     const these = [], merged = [];
     let left = s, g = groupOf(s), why = null;
-    for (const v of run) {
+    for (const v of texts) {
       if (endsAtStop(left)) { why = 'joinAtStop'; break; }
       const gv = groupOf(v);
       if (gv !== g) {
         // across a paragraph break: FLEx joins the paragraphs, then the phrases — only when v opens its
-        // paragraph and the rest of that paragraph is in the survivor's paragraph now (or joined too)
-        const opens = base.paragraphs[gv.lines[0]].segments[0] === v;
+        // paragraph (a break before it in that paragraph goes with the join) and the rest of that paragraph is in
+        // the survivor's paragraph now (or joined too)
+        const opens = gv.lines.map((li) => base.paragraphs[li].segments[0]).find((x) => !isFlexBreakPhrase(x)) === v;
         const rest = gv.lines.map((li) => base.paragraphs[li].segments[0]).filter((x) => x !== v);
         const moved = rest.every((x) => (curIndexOf.has(segGuid(x)) ? paraOf(cur.paragraphs[curIndexOf.get(segGuid(x))]) === pg : run.includes(x)));
         if (!opens || !moved) { why = 'joinAcrossParagraphs'; break; }
@@ -315,7 +320,7 @@ export function diffFlexDoc(base, cur, opts = {}) {
     touched.add(pg);
     structural.add(segGuid(s));
     joined.add(segGuid(s));
-    joinedFrom.set(segGuid(s), [s, ...run]);
+    joinedFrom.set(segGuid(s), [s, ...texts]);   // the phrases joined; a break between them has no words to pair
   }
 
   // ---- paragraph boundaries: for each adjacent pair of cur lines whose phrases both exist in base

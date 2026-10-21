@@ -225,7 +225,7 @@ def test_a_gloss_and_a_phrase_split_in_one_save(world):
            {"op": "phrase.split", "paraGuid": p0, "segGuid": s0, "afterWordIndex": 0, "newPhrase": "engine-new", "times": None}]
     pv = s.preview(w["tg"], w["rev"], ops, post(doc, {p0}, fresh={(1, 0)}))
     r = s.save(pv["previewToken"])
-    t = port.read_text(w["tg"])["paragraphs"][0]["segments"]
+    t = [x for x in port.read_text(w["tg"])["paragraphs"][0]["segments"] if not x["isLabel"]]   # the split's hard line break is not a phrase
     assert [x["guid"] for x in t] == [s0, r["alias"]["engine-new"]]
     assert t[1]["analyses"][0]["form"] == "lll" and t[1]["analyses"][0]["gloss"] == {"en": "L-en", "id": "L-id2"}, "the gloss went with its word"
     assert t[1]["analyses"][1]["gloss"] == {"en": "K-en", "id": "K-id", "fr": "K-fr"}

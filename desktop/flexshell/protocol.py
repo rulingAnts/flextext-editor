@@ -35,7 +35,7 @@ import xml.etree.ElementTree as ET
 from . import mediafind, trace
 from . import diskcheck, glosses, model, segmentation as S
 from .errors import FlexError, POISONING
-from .lcm_mock import EOS_CHARS, SECTION, is_word_forming, tokenize
+from .lcm_mock import EOS_CHARS, LINE_SEP, SECTION, is_word_forming, tokenize
 from .port import COUNTED_CLASSES, NEVER_CHANGE, UNDO_SUCCESS, nfc, nfd
 
 SAVE = logging.getLogger("flexshell.save")   # every step of a save, and why one stopped (trace.py)
@@ -46,7 +46,7 @@ BACKUP_COMMENT = "FlexText Segmenter before save"
 OP_CLASSES = {
     "ft.set": {"Segment"}, "lt.set": {"Segment"}, "times.set": {"Segment"},
     "phrase.split": {"StTxtPara", "Segment", "PunctuationForm"}, "phrase.join": {"StTxtPara", "Segment"},
-    "phrase.moveBoundary": {"StTxtPara", "Segment"},
+    "phrase.moveBoundary": {"StTxtPara", "Segment", "PunctuationForm"},
     "para.split": {"StTxtPara", "StText", "Segment"}, "para.join": {"StTxtPara", "StText", "Segment", "PunctuationForm"},
     "phrase.toPara": {"StTxtPara", "StText", "Segment"}, "para.toPhrase": {"StTxtPara", "StText", "Segment", "PunctuationForm"},
     "word.split": {"StTxtPara", "Segment", "WfiWordform"}, "word.insert": {"StTxtPara", "Segment", "WfiWordform"},
@@ -255,9 +255,9 @@ class Session:
         # later ops may name them, and nothing else that is not in the text
         new_phrases = {op.get("newPhrase") for op in ops if isinstance(op, dict) and op.get("op") == "phrase.split" and op.get("newPhrase")}
         new_paras = {op.get("newPara") for op in ops if isinstance(op, dict) and op.get("op") in ("phrase.toPara", "para.split") and op.get("newPara")}
-        # FLEx makes the § PunctuationForm ONCE, the first time any op of this save writes a § (a split,
-        # or a paragraph join after a paragraph with no stop) — never once per op
-        section = {"new": not self.port.has_punct_form(SECTION), "counted": False}
+        # FLEx makes the hard line break's PunctuationForm ONCE, the first time any op of this save writes a break (a
+        # split, the paragraph toggle off, a § moved) — never once per op. This app writes no § (2026-10-21).
+        section = {"new": not self.port.has_punct_form(LINE_SEP), "counted": False}
         # wordforms the save's word ops create, counted ONCE however many ops make the same form (FLEx
         # makes one), and handed to the gloss planner: a new word's gloss lands on that wordform
         made_forms = set()
@@ -282,6 +282,7 @@ class Session:
         # every segment in document order: the n-th phrase.join on a segment absorbs the n-th one after it
         # (a paragraph join first puts the next paragraph's segments right after it, in the same order)
         flat = [s for p in t["paragraphs"] for s in p["segments"]]
+        flat_para = [p for p in t["paragraphs"] for s in p["segments"]]
         at = {s["guid"]: i for i, s in enumerate(flat)}
         joins_on = {}
         for op in ops:
@@ -337,33 +338,62 @@ class Session:
                 raise FlexError("E_WS_WORDS", "the words are shown in %s; this paragraph is written in %s" % (text_ws["vern"], paras[pg]["ws"]),
                                 {"shown": text_ws["vern"], "para": paras[pg]["ws"]})
             if kind == "phrase.split":
-                deltas["Segment"] += 1
+                deltas["Segment"] += 2          # the hard line break's own label segment, and the new phrase
                 writes_section()
                 summary.append({"kind": kind, "seg": sg})
             elif kind == "phrase.join":
-                # A HARD LINE BREAK (U+2028, its own label segment in LCM) is not a § boundary: no recipe here
-                # removes one, and join_phrases would refuse it half-way through the save. Said now, by name.
+                # ONE phrase whatever parts them: the hard line break(s) go with the phrase joined (its label segments
+                # with it), an existing § goes; across a paragraph, the break the toggle-off writes goes again. The
+                # n-th join on a phrase absorbs the n-th phrase after it (labels are not phrases).
+                gone = 1
                 if sg in at:
                     n = joins_on.get(sg, 0)
                     joins_on[sg] = n + 1
                     k = at[sg]
-                    nxt = flat[k + 1 + n] if k + 1 + n < len(flat) else None
-                    if flat[k]["isLabel"] or (nxt is not None and nxt["isLabel"]):
-                        raise FlexError("E_SCOPE", "a line break from FLEx sits between these phrases; remove it in FLEx to join them",
-                                        {"seg": sg, "lineBreak": True})
-                deltas["Segment"] -= 1
+                    if flat[k]["isLabel"]:
+                        raise FlexError("E_SCOPE", "a line break or a verse number is not a phrase to join", {"seg": sg, "lineBreak": True})
+                    seen, i, between, prev_i = 0, k + 1, [], k
+                    while i < len(flat):
+                        if flat[i]["isLabel"]:
+                            between.append(i)
+                        else:
+                            if seen == n:
+                                break
+                            seen, between, prev_i = seen + 1, [], i
+                        i += 1
+                    left = flat[prev_i]
+                    if S._ends_with_eos(flat_para[prev_i]["contents"][left["begin"]:left["end"]]):
+                        raise FlexError("E_SCOPE", "this phrase ends in real punctuation; change the text explicitly instead",
+                                        {"seg": sg, "joinAtStop": True})
+                    for li in between:
+                        lp = flat_para[li]
+                        if not S._is_break_label(lp, flat[li]):
+                            raise FlexError("E_SCOPE", "a verse or chapter number sits between these phrases; change it in FLEx", {"seg": sg})
+                    gone += len(between)
+                    if i < len(flat) and flat_para[i]["guid"] != flat_para[prev_i]["guid"] and S.join_writes_break(flat_para[prev_i], flat_para[i]):
+                        gone += 1                # the break paragraph_to_phrase writes, taken out again by this join
+                deltas["Segment"] -= gone
                 summary.append({"kind": kind, "seg": sg})
             elif kind in ("para.split", "phrase.toPara"):
                 deltas["StTxtPara"] += 1
+                if op.get("afterSplit"):
+                    deltas["Segment"] -= 1      # the split's own hard line break becomes the paragraph boundary
+                elif pg in paras and sg in segs and segs[sg][0]["guid"] == pg:
+                    p_ = paras[pg]
+                    k_ = next(i for i, s in enumerate(p_["segments"]) if s["guid"] == sg)
+                    _, run = S.boundary_after(p_, k_)
+                    S._require_breaks(p_, run, sg)
+                    deltas["Segment"] -= len(run)
                 if op.get("newPara"):
                     split_from[op["newPara"]] = pg
                 summary.append({"kind": kind, "para": pg})
             elif kind in ("para.join", "para.toPhrase"):
                 deltas["StTxtPara"] -= 1
-                if pg in paras:             # paragraph_to_phrase appends "§ " when the paragraph it extends has no stop
+                if pg in paras:             # paragraph_to_phrase writes a hard line break unless the paragraph ends in one
                     end = merged_end.get(pg, order.index(pg))
                     last = t["paragraphs"][end]
-                    if last["segments"] and not S._ends_with_eos(last["contents"]):
+                    if end + 1 < len(order) and S.join_writes_break(last, t["paragraphs"][end + 1]):
+                        deltas["Segment"] += 1
                         writes_section()
                     merged_end[pg] = end + 1
                     # the paragraph merged into it is touched too: it is gone afterwards, and a vanished
@@ -441,6 +471,13 @@ class Session:
                     warnings.append({"code": "timesWithoutMedia", "seg": sg,
                                      "note": "FLEx keeps and exports times only with a media link (plan §8.1)"})
             elif kind == "phrase.moveBoundary":
+                if sg in segs:              # a § moved becomes a hard line break: one label segment more
+                    p_, s_ = segs[sg]
+                    k_ = next(i for i, x in enumerate(p_["segments"]) if x["guid"] == sg)
+                    _, labels_ = S.next_phrase(p_, k_)
+                    if not labels_:
+                        deltas["Segment"] += 1
+                        writes_section()
                 summary.append({"kind": kind, "seg": sg})
         # the glosses, each planned on what the ones before it leave — one Planner for the whole save
         planner = glosses.Planner(self.port, made_forms)
@@ -649,7 +686,7 @@ class Session:
         fp_after = model.fingerprint_text(self.port.read_text(text_guid))
         allowed = {"classes": set(pv["classes"]), "touchedOwners": {text_guid} | new_owners, "countDeltas": dict(pv["deltas"]),
                    "referencedFrom": self._referenced_from(text_guid),
-                   "newPunctForms": {SECTION} if pv["deltas"].get("PunctuationForm", 0) > 0 else set()}
+                   "newPunctForms": {LINE_SEP} if pv["deltas"].get("PunctuationForm", 0) > 0 else set()}
         if evaluations_made:
             # the first approval ever recorded in this project made the user agent's two evaluation objects
             # (CmAgent.SetEvaluation): new, owned by the agent, which changes too — and undone with the save

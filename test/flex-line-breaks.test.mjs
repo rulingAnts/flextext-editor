@@ -6,7 +6,8 @@
  *   · a .flextext stored BEFORE the fix: its breaks are still lines, and joining one away gave the next phrase the
  *     break's GUID (bug 1 again).
  * The Matcher now folds a FLEx text's breaks while it is open and puts them back on Done (the stored shape exactly as
- * the shell gave it — so rolling the code back needs nothing done to any record); a join across one is refused there;
+ * the shell gave it — so rolling the code back needs nothing done to any record); a join across one takes it out
+ * (Seth, 2026-10-21: one phrase, one baseline line);
  * a merge never lets a break be the survivor. desktop/tests/test_line_breaks.py holds the shell's half. Made-up data.
  *
  * Run: node test/flex-line-breaks.test.mjs */
@@ -89,7 +90,7 @@ test('Done puts a break where it now sits: a ¶ made at the line after it leaves
   assert.deepEqual(FT.unfoldFlexBreakLines(f2.lines, f2.spans).lines.map((l) => [l.phrases[0].attrs.guid, l.paraOf]).slice(-2), [['B4', 'P1'], ['D', 'P1']]);
 });
 
-test('the engine\'s Save checks: a break is FLEx\'s own label, not a phrase with no letters; a join across one is refused by name', () => {
+test('the engine\'s Save checks: a break is FLEx\'s own label, not a phrase with no letters; a join across one is ONE phrase', () => {
   const base = flexDoc(), cur = structuredClone(base);
   FT.setFreeIn(cur.paragraphs[0].segments[0], 'en', 'a translation', 'en');
   const d = OPS.diffFlexDoc(base, cur);
@@ -98,25 +99,51 @@ test('the engine\'s Save checks: a break is FLEx\'s own label, not a phrase with
   const typed = structuredClone(cur);
   typed.paragraphs[1].segments[0] = { ...typed.paragraphs[1].segments[0], words: [{ txt: '*', punct: true }], baseline: '*' };
   assert.ok(OPS.flexBlockers(typed, d.touched).some((b) => b.blocking && b.segGuid === 'B1') === false, 'a label of punctuation alone is still FLEx\'s label');
-  // A joined onto… across B1: the diff says why, the shell is never asked
+  /* C joined onto A across B1 (Seth, 2026-10-21: "joining audio segments always makes them one phrase, one baseline
+   * line"): one phrase.join on A — the shell deletes the break; the break has no op of its own and no words to pair */
   const joined = structuredClone(base);
   joined.paragraphs.splice(0, 3, { ...joined.paragraphs[0], segments: [{ ...joined.paragraphs[0].segments[0], words: [...joined.paragraphs[0].segments[0].words, ...joined.paragraphs[2].segments[0].words] }] });
   joined.segments.splice(1, 2);
   const dj = OPS.diffFlexDoc(base, joined);
-  assert.ok(!dj.ops.some((o) => o.op === 'phrase.join'));
-  assert.deepEqual(dj.unsupported.map((x) => x.why), ['lineBreak']);
+  assert.deepEqual(dj.unsupported.filter((u) => u.why !== 'timesNeedMedia'), [], 'nothing refused (this made-up text has times and no recording)');
+  assert.deepEqual(dj.ops.filter((o) => o.op === 'phrase.join').map((o) => o.segGuid), ['A']);
+  // the break taken out on its own, with no lines joined across it: not a join, said by name
+  const bare = structuredClone(base);
+  bare.paragraphs.splice(1, 1);
+  bare.segments.splice(1, 1);
+  assert.deepEqual(OPS.diffFlexDoc(base, bare).unsupported.map((x) => x.why), ['lineBreak']);
 });
 
-test('the Matcher refuses a join across a FLEx break, before anything moves', () => {
+test('the Matcher\'s join across a FLEx break takes the break out — only the ones between the two lines', () => {
   const doc = flexDoc();
   const m = matcher(doc);
   Object.assign(m.MG, FT.foldFlexBreakLines(m.MG.lines, []));   // as mgLoad folds it
-  const before = JSON.stringify(m.MG.lines);
   m.mgJoinLine(m.MG.lines[1].id);                               // C onto A, across B1
-  assert.equal(JSON.stringify(m.MG.lines), before, 'nothing joined');
-  assert.equal(m.depth(), 0, 'and no undo step left behind');
-  m.mgJoinLine(m.MG.lines[2].id);                               // D onto C: C carries B2 at its end
-  assert.equal(m.MG.lines.length, 3, 'nor across a break at a paragraph\'s end');
+  assert.equal(m.MG.lines.length, 2, 'joined');
+  const merged = m.MG.lines[0].phrases[0];
+  assert.deepEqual(merged.words.map((w) => w.txt), ['aa', 'bb', 'cc']);
+  assert.ok(!merged.breaksBefore && ids(merged.breaksAfter).join() === 'B2', 'B1 gone; B2 (at the paragraph\'s end) still rides on the line');
+  // Done, then the diff: one phrase.join on A, nothing unsupported
+  const u = FT.unfoldFlexBreakLines(m.MG.lines, []);
+  const done = structuredClone(doc);
+  done.paragraphs = u.lines.map((l) => ({ guid: l.guid, paraOf: l.paraOf, segments: l.phrases, flex: { paraGuid: l.paraOf } }));
+  done.segments = [{ start: 0, end: 1900 }, { start: 0, end: 0, timePending: true }, { start: 2000, end: 2900 }];
+  const d = OPS.diffFlexDoc(doc, done);
+  assert.deepEqual(d.unsupported.filter((u) => u.why !== 'timesNeedMedia'), []);
+  assert.deepEqual(d.ops.filter((o) => o.op === 'phrase.join').map((o) => o.segGuid), ['A']);
+  // D onto that line across B2 at the paragraph's end: the paragraphs join too, and B2 goes
+  m.mgJoinLine(m.MG.lines[1].id);
+  assert.equal(m.MG.lines.length, 1);
+  assert.ok(!m.MG.lines[0].phrases[0].breaksAfter, 'B2 gone with the join');
+  // a row that is nothing but breaks is no line to join
+  const only = flexDoc();
+  only.paragraphs.push(line(brk('B3'), 'P3'));
+  only.segments.push({ start: 0, end: 0, timePending: true });
+  const m3 = matcher(only);
+  Object.assign(m3.MG, FT.foldFlexBreakLines(m3.MG.lines, []));
+  const n = m3.MG.lines.length;
+  m3.mgJoinLine(m3.MG.lines[n - 1].id);
+  assert.equal(m3.MG.lines.length, n, 'refused');
   // a FLEx text with nothing between two lines still joins
   const plain = flexDoc();
   plain.paragraphs.splice(1, 1); plain.paragraphs.splice(2, 1);

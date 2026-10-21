@@ -8,7 +8,7 @@ import pytest
 
 from flexshell import model
 from flexshell.errors import FlexError
-from flexshell.lcm_mock import MockLcm, SECTION
+from flexshell.lcm_mock import LINE_SEP, MockLcm, SECTION
 from flexshell.protocol import Session
 
 TEXTS = [{"title": "proto one", "paragraphs": ["aaa bbb ccc. ddd eee " + SECTION + " fff ggg.", "hhh iii jjj"]}]
@@ -504,15 +504,17 @@ def test_phrase_split_through_the_protocol_with_alias_for_the_new_phrase(world):
     post[pg][0]["begin"], post[pg][0]["end"] = "0", "500"
     post[pg][1]["begin"], post[pg][1]["end"] = "500", "1000"
     pv = s.preview(w["tg"], w["rev"], ops, post)
-    assert pv["counts"] == {"Segment": 1}, pv["counts"]      # the § form already exists in this project
+    # a hard line break (Seth, 2026-10-21), never a §: its label segment and the new phrase, and the break's
+    # PunctuationForm the first time this project gets one
+    assert pv["counts"] == {"Segment": 2, "PunctuationForm": 1}, pv["counts"]
     r = s.save(pv["previewToken"])
     assert r["alias"][new_guid]
     t = port.read_text(w["tg"])
     p = t["paragraphs"][1]
-    assert len(p["segments"]) == 2 and p["segments"][1]["guid"] == r["alias"][new_guid]
-    assert p["contents"] == "hhh" + SECTION + " iii jjj"
-    assert (p["segments"][0]["beginTime"], p["segments"][1]["endTime"]) == ("0", "1000")
-    assert r["disk"]["changed"] == {"Segment": 2, "StTxtPara": 1}, r["disk"]["changed"]
+    assert len(p["segments"]) == 3 and p["segments"][1]["isLabel"] and p["segments"][2]["guid"] == r["alias"][new_guid]
+    assert p["contents"] == "hhh " + LINE_SEP + "iii jjj"
+    assert (p["segments"][0]["beginTime"], p["segments"][2]["endTime"]) == ("0", "1000")
+    assert r["disk"]["changed"] == {"Segment": 3, "StTxtPara": 1, "PunctuationForm": 1}, r["disk"]["changed"]
 
 
 def engine_post(doc, touched):
@@ -576,15 +578,18 @@ def test_the_matchers_split_twice_with_a_sentence_break_and_new_translations(wor
     ]
     before = model.fingerprint_text(port.read_text(w["tg"]))
     pv = s.preview(w["tg"], w["rev"], ops, engine_post(doc, {pg, "eng-np"}))
-    assert pv["counts"] == {"Segment": 2, "StTxtPara": 1}, pv["counts"]   # this project already has its § form
+    # two splits (a break and a phrase each), the first break then the paragraph boundary
+    assert pv["counts"] == {"Segment": 3, "StTxtPara": 1, "PunctuationForm": 1}, pv["counts"]
     r = s.save(pv["previewToken"])
     t = port.read_text(w["tg"])
-    assert [len(p["segments"]) for p in t["paragraphs"]] == [3, 1, 2]
+    assert [len(p["segments"]) for p in t["paragraphs"]] == [3, 1, 3]
     p1, np_ = t["paragraphs"][1], t["paragraphs"][2]
-    assert p1["contents"] == "hhh" and p1["segments"][0]["guid"] == seg["attrs"]["guid"], "the first piece keeps the phrase; its trailing § went with the paragraph split"
-    assert [x["guid"] for x in np_["segments"]] == [r["alias"]["eng-n1"], r["alias"]["eng-n2"]] and np_["guid"] == r["alias"]["eng-np"]
-    assert [x["ft"].get("en") for x in np_["segments"]] == ["the second", "the third"]
-    assert [(x["beginTime"], x["endTime"]) for x in p1["segments"] + np_["segments"]] == [("0", "500"), ("500", "800"), ("800", "1000")]
+    assert p1["contents"] == "hhh" and p1["segments"][0]["guid"] == seg["attrs"]["guid"], "the first piece keeps the phrase; its break became the paragraph boundary"
+    phrases = [x for x in np_["segments"] if not x["isLabel"]]
+    assert np_["contents"] == "iii " + LINE_SEP + "jjj", repr(np_["contents"])
+    assert [x["guid"] for x in phrases] == [r["alias"]["eng-n1"], r["alias"]["eng-n2"]] and np_["guid"] == r["alias"]["eng-np"]
+    assert [x["ft"].get("en") for x in phrases] == ["the second", "the third"]
+    assert [(x["beginTime"], x["endTime"]) for x in p1["segments"] + phrases] == [("0", "500"), ("500", "800"), ("800", "1000")]
     s.undo_save()
     assert model.fingerprint_text(port.read_text(w["tg"])) == before, "ONE undo takes the whole reshaping back"
 
@@ -858,7 +863,9 @@ def test_a_chain_of_paragraph_joins_saves_and_one_undo_takes_it_back(tmp_path):
     s.save(pv["previewToken"])
     t = port.read_text(tg)
     assert [p["guid"] for p in t["paragraphs"]] == [p0, p3], "P1 and P2 joined into P0; P3 untouched"
-    assert [x["guid"] for x in t["paragraphs"][0]["segments"]] == segs, "every phrase kept, in order"
-    assert (t["paragraphs"][0]["segments"][2]["beginTime"], t["paragraphs"][0]["segments"][2]["endTime"]) == ("900", "1500")
+    phrases = [x for x in t["paragraphs"][0]["segments"] if not x["isLabel"]]
+    assert [x["guid"] for x in phrases] == segs, "every phrase kept, in order"
+    assert t["paragraphs"][0]["contents"] == "aaa bbb " + LINE_SEP + "ccc ddd " + LINE_SEP + "eee fff", "a hard line break between them, never a §"
+    assert (phrases[2]["beginTime"], phrases[2]["endTime"]) == ("900", "1500")
     s.undo_save()
     assert model.fingerprint_text(port.read_text(tg)) == before, "ONE undo takes the whole chain back"

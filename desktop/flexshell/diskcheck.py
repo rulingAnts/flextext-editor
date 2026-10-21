@@ -125,7 +125,9 @@ def check(diff, allowed, rt_map=None):
         seen_deltas[cls] = seen_deltas.get(cls, 0) + 1
         if cls not in classes:
             problems.append({"guid": guid, "cls": cls, "why": "unexpected new object of this class"})
-        elif not explained_by_ownership(guid, n) and not (cls == "PunctuationForm" and (n["fields"].get("Form") or "").strip() in punct_ok):
+        # ⚠ strip(" \t\r\n"), never strip(): Python's strip() takes U+2028 too, so a new hard line break form read as
+        # "" and a save that had succeeded was called unexplained (2026-10-21, hard line breaks instead of §)
+        elif not explained_by_ownership(guid, n) and not (cls == "PunctuationForm" and (n["fields"].get("Form") or "").strip(" \t\r\n") in punct_ok):
             problems.append({"guid": guid, "cls": cls, "why": "new object outside every touched text"})
         for field, value in expect.get(guid, {}).items():
             if not _field_is(n["fields"].get(field), value):

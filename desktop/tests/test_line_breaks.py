@@ -107,48 +107,62 @@ def test_a_label_the_engine_changed_is_still_judged(tmp_path):
     assert ei.value.code == "E_EMPTY_PHRASE"
 
 
-@pytest.mark.parametrize("on", [0, 1])   # the line before the break absorbing it, or the break absorbing the line after
-def test_a_join_across_a_line_break_is_refused_at_preview_by_name(tmp_path, on):
+@pytest.mark.parametrize("para,joined", [("aaa bbb" + LB + "ccc ddd", "aaa bbb ccc ddd"), ("aaa bbb " + LB + "ccc ddd", "aaa bbb ccc ddd")])
+def test_a_join_across_a_line_break_saves_as_one_phrase(tmp_path, para, joined):
+    """Seth, 2026-10-21: "joining audio segments always makes them one phrase, one baseline line." The break goes
+    (a space in its place only where the words would touch); the phrase before it keeps its GUID."""
+    port, s, tg, o = world(tmp_path, [para])
+    doc = copy.deepcopy(o["doc"])
+    lines = doc["paragraphs"]
+    first, last = lines[0], lines[2]
+    first["segments"][0]["words"] = first["segments"][0]["words"] + last["segments"][0]["words"]
+    doc["paragraphs"] = [first]
+    p = first["paraOf"]
+    ops = [{"op": "phrase.join", "paraGuid": p, "segGuid": sg(first), "endTime": None}]
+    pv = s.preview(tg, o["baseRev"], ops, post_of(doc, {p}))
+    assert pv["counts"].get("Segment") == -2, pv["counts"]
+    s.save(pv["previewToken"])
+    t = port.read_text(tg)
+    assert t["paragraphs"][0]["contents"] == joined and shape(port, tg) == [[4]]
+    assert t["paragraphs"][0]["segments"][0]["guid"] == sg(first)
+
+
+def test_a_join_that_names_the_break_itself_is_refused_by_name(tmp_path):
     port, s, tg, o = world(tmp_path, ["aaa bbb" + LB + "ccc ddd"])
     before = shape(port, tg)
     lines = o["doc"]["paragraphs"]
-    ops = [{"op": "phrase.join", "paraGuid": lines[on]["paraOf"], "segGuid": sg(lines[on]), "endTime": None}]
+    ops = [{"op": "phrase.join", "paraGuid": lines[1]["paraOf"], "segGuid": sg(lines[1]), "endTime": None}]
     with pytest.raises(FlexError) as ei:
         s.preview(tg, o["baseRev"], ops, {})
     assert ei.value.code == "E_SCOPE" and ei.value.detail.get("lineBreak") is True
     assert shape(port, tg) == before
 
 
-def test_the_join_recipe_itself_refuses_a_line_break(tmp_path):
+def test_the_join_recipe_takes_the_line_break_out(tmp_path):
     port, s, tg, o = world(tmp_path, ["aaa bbb" + LB + "ccc ddd"])
     lines = o["doc"]["paragraphs"]
     h = port.begin_uow("u", "r")
-    try:
-        with pytest.raises(FlexError) as ei:
-            S.join_phrases(port, tg, lines[0]["paraOf"], sg(lines[0]))
-        assert ei.value.code == "E_SCOPE" and ei.value.detail.get("lineBreak") is True, "was: 'this boundary is real punctuation'"
-    finally:
-        port.rollback(h)
+    S.join_phrases(port, tg, lines[0]["paraOf"], sg(lines[0]))
+    port.commit(h)
+    assert port.read_text(tg)["paragraphs"][0]["contents"] == "aaa bbb ccc ddd" and shape(port, tg) == [[4]]
 
 
-@pytest.mark.parametrize("first", ["aaa bbb" + LB, "aaa bbb." + LB])
-def test_a_paragraph_join_onto_one_that_ends_in_a_line_break_saves(tmp_path, first):
-    """With no stop before the break, the § FLEx joins at goes BEFORE the break: after it, it was a segment of its own
-    and the join rolled back ("appending § changed P's segments")."""
+@pytest.mark.parametrize("first,want", [("aaa bbb" + LB, [[2, "↵", 2]]), ("aaa bbb." + LB, [[3, "↵", 2]])])
+def test_a_paragraph_join_onto_one_that_ends_in_a_line_break_writes_no_second_one(tmp_path, first, want):
+    """The paragraph toggle off: the boundary already has a hard line break, so none is added — and never a §."""
     port, s, tg, o = world(tmp_path, [first, "ccc ddd"])
     doc = copy.deepcopy(o["doc"])
     p1, p2 = doc["paragraphs"][0]["paraOf"], doc["paragraphs"][-1]["paraOf"]
     for ln in doc["paragraphs"]:
         ln["paraOf"] = p1
     pv = s.preview(tg, o["baseRev"], [{"op": "para.toPhrase", "paraGuid": p1}], post_of(doc, {p1, p2}))
+    assert pv["counts"].get("Segment", 0) == 0, pv["counts"]
     s.save(pv["previewToken"])
-    t = port.read_text(tg)
-    assert shape(port, tg) == [[3, "↵", 2]]
-    if not first.rstrip(LB).endswith("."):
-        assert t["paragraphs"][0]["contents"].startswith("aaa bbb " + SECTION + LB), "the § sits before the break"
+    assert shape(port, tg) == want
+    assert SECTION not in port.read_text(tg)["paragraphs"][0]["contents"]
 
 
-def test_a_paragraph_join_onto_one_that_starts_with_a_line_break_saves(tmp_path):
+def test_a_paragraph_join_onto_one_that_starts_with_a_line_break_writes_no_second_one(tmp_path):
     port, s, tg, o = world(tmp_path, ["aaa", LB + "bbb ccc"])
     doc = copy.deepcopy(o["doc"])
     p1, p2 = doc["paragraphs"][0]["paraOf"], doc["paragraphs"][-1]["paraOf"]
@@ -156,13 +170,29 @@ def test_a_paragraph_join_onto_one_that_starts_with_a_line_break_saves(tmp_path)
         ln["paraOf"] = p1
     pv = s.preview(tg, o["baseRev"], [{"op": "para.toPhrase", "paraGuid": p1}], post_of(doc, {p1, p2}))
     s.save(pv["previewToken"])
+    assert shape(port, tg) == [[1, "↵", 2]]
+
+
+def test_a_paragraph_join_with_no_break_writes_one_never_a_section(tmp_path):
+    """The paragraph toggle off between two plain paragraphs: separate phrases, one paragraph, a hard line break
+    between them in FLEx's Baseline (after a space, as Shift+Enter leaves it)."""
+    port, s, tg, o = world(tmp_path, ["aaa bbb", "ccc ddd"])
+    doc = copy.deepcopy(o["doc"])
+    p1, p2 = doc["paragraphs"][0]["paraOf"], doc["paragraphs"][-1]["paraOf"]
+    for ln in doc["paragraphs"]:
+        ln["paraOf"] = p1
+    pv = s.preview(tg, o["baseRev"], [{"op": "para.toPhrase", "paraGuid": p1}], post_of(doc, {p1, p2}))
+    assert pv["counts"] == {"StTxtPara": -1, "Segment": 1, "PunctuationForm": 1}, pv["counts"]
+    s.save(pv["previewToken"])
+    assert port.read_text(tg)["paragraphs"][0]["contents"] == "aaa bbb " + LB + "ccc ddd"
     assert shape(port, tg) == [[2, "↵", 2]]
 
 
-def test_a_paragraph_made_after_a_line_break_leaves_it_at_the_end_of_the_first(tmp_path):
-    """Where the Matcher's Done puts a break (flextext.js unfoldFlexBreakLines): one before the line that now opens a
-    paragraph stays at the end of the paragraph before — FLEx's own split leaves it there — and a later one moves with
-    its paragraph. The shell accepts that later one in the paragraph this save makes."""
+def test_a_paragraph_made_at_a_line_break_takes_the_break_out(tmp_path):
+    """Seth, 2026-10-21: the paragraph toggle ON where a hard line break parts two phrases makes that boundary a
+    paragraph boundary — the break goes. The Matcher's Done leaves the break row at the end of the paragraph before
+    (flextext.js unfoldFlexBreakLines) and names it as the line before the boundary; a later break moves with its
+    paragraph, and the shell accepts it in the paragraph this save makes."""
     port, s, tg, o = world(tmp_path, ["aaa" + LB + "bbb" + LB + "ccc"])
     doc = copy.deepcopy(o["doc"])
     lines = doc["paragraphs"]
@@ -170,6 +200,28 @@ def test_a_paragraph_made_after_a_line_break_leaves_it_at_the_end_of_the_first(t
     for ln in lines[2:]:
         ln["paraOf"] = "eng-p1"
     ops = [{"op": "phrase.toPara", "paraGuid": p1, "segGuid": sg(lines[1]), "newPara": "eng-p1"}]
-    pv = s.preview(tg, o["baseRev"], ops, post_of(doc, {p1, "eng-p1"}))   # was E_EMPTY_PHRASE for the second break
+    pv = s.preview(tg, o["baseRev"], ops, post_of(doc, {p1, "eng-p1"}))
+    assert pv["counts"].get("Segment") == -1, pv["counts"]
     s.save(pv["previewToken"])
-    assert shape(port, tg) == [[1, "↵"], [1, "↵", 1]]
+    assert shape(port, tg) == [[1], [1, "↵", 1]]
+    assert port.read_text(tg)["paragraphs"][0]["contents"] == "aaa"
+
+
+def test_a_join_onto_a_phrase_that_ends_in_a_full_stop_is_refused_at_preview(tmp_path):
+    """Taking the break out would leave two sentences, which FLEx keeps as two phrases: on the VM (2026-10-21) the
+    join rolled back E_INVARIANT half-way. Refused at preview by name, nothing written."""
+    port, s, tg, o = world(tmp_path, ["aaa bbb.", "ccc ddd"])
+    before = shape(port, tg)
+    doc = copy.deepcopy(o["doc"])
+    l0, l1 = doc["paragraphs"]
+    ops = [{"op": "para.toPhrase", "paraGuid": l0["paraOf"]}, {"op": "phrase.join", "paraGuid": l0["paraOf"], "segGuid": sg(l0), "endTime": None}]
+    with pytest.raises(FlexError) as ei:
+        s.preview(tg, o["baseRev"], ops, {})
+    assert ei.value.code == "E_SCOPE" and ei.value.detail.get("joinAtStop") is True
+    (tmp_path / "b").mkdir()
+    port2, s2, tg2, o2 = world(tmp_path / "b", ["aaa bbb." + LB + "ccc"])
+    lines = o2["doc"]["paragraphs"]
+    with pytest.raises(FlexError) as ei:
+        s2.preview(tg2, o2["baseRev"], [{"op": "phrase.join", "paraGuid": lines[0]["paraOf"], "segGuid": sg(lines[0]), "endTime": None}], {})
+    assert ei.value.code == "E_SCOPE"
+    assert shape(port, tg) == before

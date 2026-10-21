@@ -6,7 +6,7 @@ import pytest
 
 from flexshell import segmentation as S
 from flexshell.errors import FlexError
-from flexshell.lcm_mock import SECTION
+from flexshell.lcm_mock import LINE_SEP, SECTION
 from flexshell.model import fingerprint_text
 from .conftest import first_text
 
@@ -32,7 +32,9 @@ def test_fixture_shape_and_invariant(backend):
     assert p["segments"][1]["analyses"][-1]["form"] == SECTION, "the § is a phrase-final punct item"
 
 
-def test_split_phrase_with_section_keeps_k_and_creates_k_plus_1(backend):
+def test_split_phrase_makes_a_hard_line_break_k_keeps_its_guid(backend):
+    """Seth, 2026-10-21: a split is a HARD LINE BREAK (Shift+Enter in FLEx), never a §. [verified, VM] LCM makes the
+    break its own label segment at k+1 and the new phrase at k+2; k keeps GUID, FT and start time."""
     b = backend
     tg, p = text_and_para(b)
     seg = p["segments"][0]                      # "aaa bbb ccc. "
@@ -47,21 +49,16 @@ def test_split_phrase_with_section_keeps_k_and_creates_k_plus_1(backend):
     new = S.split_phrase(b, tg, p["guid"], seg["guid"], 0, new_times=((0, 1000), (1000, 3000)))
     b.commit(h)
     tg, p2 = text_and_para(b)
-    assert len(p2["segments"]) == 4
-    assert p2["segments"][0]["guid"] == seg["guid"] and p2["segments"][1]["guid"] == new
-    assert p2["contents"].startswith("aaa" + SECTION + " bbb ccc.")
-    assert p2["segments"][0]["ft"] == {"en": "the first"} and p2["segments"][1]["ft"] == {}
+    assert len(p2["segments"]) == 5
+    assert p2["segments"][0]["guid"] == seg["guid"] and p2["segments"][2]["guid"] == new
+    assert p2["contents"].startswith("aaa " + LINE_SEP + "bbb ccc."), repr(p2["contents"])
+    assert SECTION not in p2["contents"][:12], "no § is ever written"
+    assert p2["segments"][1]["isLabel"]
+    assert p2["segments"][0]["ft"] == {"en": "the first"} and p2["segments"][2]["ft"] == {}
     assert (p2["segments"][0]["beginTime"], p2["segments"][0]["endTime"]) == ("0", "1000")
-    assert (p2["segments"][1]["beginTime"], p2["segments"][1]["endTime"]) == ("1000", "3000")
-    # every old analysis GUID kept; the only new item is the § PunctuationForm
-    new_an = [g for row in analysis_guids(p2) for g in row]
-    old_flat = [g for row in old_an for g in row]
-    assert all(g in new_an for g in old_flat)
-    extra = [g for g in new_an if g not in old_flat]
-    # the § PunctuationForm is "+ on first use" [verified]: this fixture already holds one, so the
-    # split reuses it and nothing new is created; the item itself is there either way
-    assert len(extra) <= 1 and p2["segments"][0]["analyses"][-1]["form"] == SECTION
-    assert p2["segments"][0]["analyses"][-1]["kind"] == "punct"
+    assert (p2["segments"][2]["beginTime"], p2["segments"][2]["endTime"]) == ("1000", "3000")
+    # the two phrases hold exactly the words the one had, with their analyses
+    assert [g for g in analysis_guids(p2)[0] + analysis_guids(p2)[2]] == old_an[0]
     assert S.check_invariant(b, p2)
     # survives ForceParse
     h = b.begin_uow("u", "r")
@@ -78,14 +75,53 @@ def test_split_then_join_is_an_exact_round_trip(backend):
     h = b.begin_uow("u", "r")
     S.split_phrase(b, tg, p["guid"], seg["guid"], 1)
     b.commit(h)
-    assert len(text_and_para(b)[1]["segments"]) == 4
+    assert len(text_and_para(b)[1]["segments"]) == 5
     h = b.begin_uow("u", "r")
     S.join_phrases(b, tg, p["guid"], seg["guid"])
     b.commit(h)
-    assert fingerprint_text(b.read_text(tg)) == before, "split + join: byte-identical model [verified on disk]"
+    assert fingerprint_text(b.read_text(tg)) == before, "split + join: the same text and the same objects"
+
+
+def test_join_across_a_hard_line_break_is_one_phrase(backend):
+    """Joining always makes ONE phrase, one baseline line: the break goes, the next phrase merges into k (FT joined
+    with a space [verified, VM]), k's end time becomes the joined phrase's end."""
+    b = backend
+    tg, p = text_and_para(b, para=1)                      # "hhh iii jjj"
+    seg = p["segments"][0]
+    h = b.begin_uow("u", "r")
+    second = S.split_phrase(b, tg, p["guid"], seg["guid"], 1, new_times=((1000, 2000), (2000, 3000)))
+    b.set_free_translation(seg["guid"], "en", "first")
+    b.set_free_translation(second, "en", "second")
+    b.commit(h)
+    tg, p = text_and_para(b, para=1)
+    assert p["contents"] == "hhh iii " + LINE_SEP + "jjj", repr(p["contents"])
+    h = b.begin_uow("u", "r")
+    S.join_phrases(b, tg, p["guid"], seg["guid"])
+    b.commit(h)
+    tg, p2 = text_and_para(b, para=1)
+    assert p2["contents"] == "hhh iii jjj" and guids(p2) == [seg["guid"]]
+    s = p2["segments"][0]
+    assert s["ft"] == {"en": "first second"} and (s["beginTime"], s["endTime"]) == ("1000", "3000")
+    assert S.check_invariant(b, p2)
+
+
+def test_join_across_a_break_with_no_space_puts_one_in(backend):
+    """A break between two letters (29 of the team's 399): removing it alone would glue the words; a space goes in."""
+    b = backend
+    tg, p = text_and_para(b, para=1)
+    h = b.begin_uow("u", "r")
+    b.set_contents(p["guid"], "hhh" + LINE_SEP + "iii jjj")
+    b.commit(h)
+    tg, p = text_and_para(b, para=1)
+    assert len(p["segments"]) == 3
+    h = b.begin_uow("u", "r")
+    S.join_phrases(b, tg, p["guid"], p["segments"][0]["guid"])
+    b.commit(h)
+    assert text_and_para(b, para=1)[1]["contents"] == "hhh iii jjj"
 
 
 def test_join_merges_ft_moves_notes_and_drops_the_second_guid(backend):
+    """A § already in the text (FLEx's own importer writes them) is still joined: the § goes."""
     b = backend
     tg, p = text_and_para(b)
     k, nxt = p["segments"][1], p["segments"][2]       # "ddd eee § " | "fff ggg."
@@ -118,7 +154,9 @@ def test_join_at_real_punctuation_is_refused(backend):
     b.rollback(h)
 
 
-def test_move_boundary_in_one_assignment_keeps_both_segments(backend):
+def test_move_boundary_replaces_a_section_with_a_hard_line_break(backend):
+    """ONE assignment takes the old § out and puts a hard line break in at the new place: both phrases keep their
+    GUIDs, FTs and times [verified for a §, and for a break, on the VM]."""
     b = backend
     tg, p = text_and_para(b, which=1)                   # "kkk lll § mmm nnn § ooo ppp § qqq rrr § sss ttt"
     k, nxt = p["segments"][0], p["segments"][1]
@@ -131,21 +169,45 @@ def test_move_boundary_in_one_assignment_keeps_both_segments(backend):
     tg, p = text_and_para(b, which=1)
     an_before = analysis_guids(p)
     h = b.begin_uow("u", "r")
-    S.move_boundary(b, tg, p["guid"], k["guid"], 0)     # "kkk § lll mmm nnn § …"
+    S.move_boundary(b, tg, p["guid"], k["guid"], 0)     # "kkk ↵lll mmm nnn § …"
     b.commit(h)
     tg, p2 = text_and_para(b, which=1)
-    assert guids(p2) == guids(p)
-    assert p2["segments"][0]["ft"] == {"en": "A"} and p2["segments"][1]["ft"] == {"en": "B"}
-    assert (p2["segments"][1]["beginTime"], p2["segments"][1]["endTime"]) == ("1000", "2000")
-    assert [a["form"] for a in p2["segments"][0]["analyses"]] == ["kkk", SECTION]
-    assert [a["form"] for a in p2["segments"][1]["analyses"]] == ["lll", "mmm", "nnn", SECTION]
+    assert p2["contents"].startswith("kkk " + LINE_SEP + "lll mmm nnn " + SECTION), repr(p2["contents"])
+    g2 = guids(p2)
+    assert g2[0] == k["guid"] and p2["segments"][1]["isLabel"] and g2[2:] == guids(p)[1:]
+    assert p2["segments"][0]["ft"] == {"en": "A"} and p2["segments"][2]["ft"] == {"en": "B"}
+    assert (p2["segments"][2]["beginTime"], p2["segments"][2]["endTime"]) == ("1000", "2000")
+    assert [a["form"] for a in p2["segments"][0]["analyses"]] == ["kkk"]
+    assert [a["form"] for a in p2["segments"][2]["analyses"]] == ["lll", "mmm", "nnn", SECTION]
     # analyses restored: lll kept its GUID although it sat inside the diff span
-    assert p2["segments"][1]["analyses"][0]["guid"] == an_before[0][1]
+    assert p2["segments"][2]["analyses"][0]["guid"] == an_before[0][1]
     assert S.check_invariant(b, p2)
     h = b.begin_uow("u", "r")
     b.force_parse(p2["guid"])
     b.commit(h)
     assert analysis_guids(text_and_para(b, which=1)[1]) == analysis_guids(p2), "ForceParse then changes nothing"
+
+
+def test_move_boundary_moves_a_hard_line_break(backend):
+    b = backend
+    tg, p = text_and_para(b, para=1)                      # "hhh iii jjj"
+    seg = p["segments"][0]
+    h = b.begin_uow("u", "r")
+    second = S.split_phrase(b, tg, p["guid"], seg["guid"], 0, new_times=((1000, 2000), (2000, 3000)))
+    b.set_free_translation(second, "en", "second")
+    b.commit(h)
+    tg, p = text_and_para(b, para=1)
+    assert p["contents"] == "hhh " + LINE_SEP + "iii jjj"
+    an = analysis_guids(p)
+    h = b.begin_uow("u", "r")
+    S.move_boundary(b, tg, p["guid"], seg["guid"], 1)     # "hhh iii ↵jjj"
+    b.commit(h)
+    tg, p2 = text_and_para(b, para=1)
+    assert p2["contents"] == "hhh iii " + LINE_SEP + "jjj", repr(p2["contents"])
+    assert guids(p2)[0] == seg["guid"] and guids(p2)[2] == second and p2["segments"][1]["isLabel"]
+    assert p2["segments"][2]["ft"] == {"en": "second"} and p2["segments"][2]["beginTime"] == "2000"
+    assert analysis_guids(p2)[0] == an[0] + [an[2][0]], "iii moved with its analysis"
+    assert S.check_invariant(b, p2)
 
 
 def test_control_two_assignments_lose_the_second_segment(backend):
@@ -220,7 +282,35 @@ def test_control_split_para_mid_segment_duplicates_the_ft(backend):
     assert t["paragraphs"][1]["segments"][0]["ft"] == {"en": "dup"} and t["paragraphs"][1]["segments"][0]["beginTime"] is None
 
 
-def test_paragraph_to_phrase_keeps_every_segment_of_q(backend):
+def test_paragraph_toggle_on_at_a_hard_line_break_takes_the_break_out(backend):
+    """The paragraph toggle ON where two phrases are parted by a hard line break: a paragraph boundary takes its place
+    [verified, VM 2026-10-21: SplitParaAt at the next phrase, then the trailing break deleted]."""
+    b = backend
+    tg, p = text_and_para(b, para=1)                      # "hhh iii jjj"
+    seg = p["segments"][0]
+    h = b.begin_uow("u", "r")
+    second = S.split_phrase(b, tg, p["guid"], seg["guid"], 1, new_times=((1000, 2000), (2000, 3000)))
+    b.set_free_translation(second, "en", "second")
+    b.commit(h)
+    tg, p = text_and_para(b, para=1)
+    n_paras = len(b.read_text(tg)["paragraphs"])
+    h = b.begin_uow("u", "r")
+    newp = S.phrase_to_paragraph(b, tg, p["guid"], seg["guid"])
+    b.commit(h)
+    t = b.read_text(tg)
+    assert len(t["paragraphs"]) == n_paras + 1
+    p1, p2 = t["paragraphs"][1], t["paragraphs"][2]
+    assert p2["guid"] == newp
+    assert p1["contents"] == "hhh iii" and guids(p1) == [seg["guid"]], repr(p1["contents"])
+    assert p2["contents"] == "jjj" and guids(p2) == [second]
+    assert p2["segments"][0]["ft"] == {"en": "second"} and p2["segments"][0]["beginTime"] == "2000"
+    assert S.check_invariant(b, p1) and S.check_invariant(b, p2)
+
+
+def test_paragraph_toggle_off_keeps_every_segment_with_a_hard_line_break_between(backend):
+    """The paragraph toggle OFF: separate phrases, ONE paragraph — a hard line break at P's end (after a space, as
+    FLEx's Shift+Enter leaves it), then MergeParaWithNext [verified, VM 2026-10-21]; P ends in "." here, and the break
+    is still written: every phrase the app shows is its own line in FLEx's Baseline."""
     b = backend
     t = b.read_text(first_text(b)["guid"])
     tg = t["guid"]
@@ -229,34 +319,48 @@ def test_paragraph_to_phrase_keeps_every_segment_of_q(backend):
     b.set_free_translation(q["segments"][0]["guid"], "en", "q keeps this")
     b.set_segment_times(q["segments"][0]["guid"], 7, 8)
     b.commit(h)
-    # P ends in "." so no § is appended; make a case that needs one: join q (no EOS) with a third para
     h = b.begin_uow("u", "r")
     S.paragraph_to_phrase(b, tg, p["guid"])
     b.commit(h)
     t2 = b.read_text(tg)
     assert len(t2["paragraphs"]) == 1
-    assert guids(t2["paragraphs"][0]) == guids(p) + guids(q)
-    s = t2["paragraphs"][0]["segments"][-1]
+    m = t2["paragraphs"][0]
+    assert m["contents"] == p["contents"] + " " + LINE_SEP + q["contents"], repr(m["contents"])
+    g = guids(m)
+    assert g[:len(p["segments"])] == guids(p) and g[len(p["segments"]) + 1:] == guids(q)
+    assert m["segments"][len(p["segments"])]["isLabel"]
+    s = m["segments"][-1]
     assert s["ft"] == {"en": "q keeps this"} and s["beginTime"] == "7"
-    assert S.check_invariant(b, t2["paragraphs"][0])
+    assert S.check_invariant(b, m)
 
 
-def test_paragraph_to_phrase_appends_section_when_p_has_no_eos(backend):
+def test_paragraph_toggle_off_then_join_is_one_phrase(backend):
+    """The Matcher's ⤴ across a paragraph: the toggle off, then the join that takes the break out again."""
     b = backend
     t = b.read_text(sorted(b.list_texts(), key=lambda x: x["title"])[1]["guid"])
-    tg, p = t["guid"], t["paragraphs"][0]                 # ends "sss ttt" — no EOS
+    tg, p = t["guid"], t["paragraphs"][0]                 # "kkk lll § mmm nnn § ooo ppp § qqq rrr § sss ttt"
     h = b.begin_uow("u", "r")
-    newp = b.split_para_at(p["guid"], p["segments"][-1]["begin"])   # make a Q: "sss ttt"
+    b.split_para_at(p["guid"], p["segments"][-1]["begin"])   # make a Q: "sss ttt"
+    c = b.read_text(tg)["paragraphs"][0]["contents"]
+    b.set_contents(p["guid"], c[:c.rindex(SECTION)].rstrip())   # P now ends "qqq rrr" — no mark of its own
     b.commit(h)
     t = b.read_text(tg)
-    assert len(t["paragraphs"]) == 2
-    last_before = guids(t["paragraphs"][0])[-1]
+    P, Q = t["paragraphs"]
+    last = P["segments"][-1]
     h = b.begin_uow("u", "r")
-    S.paragraph_to_phrase(b, tg, t["paragraphs"][0]["guid"])
+    b.set_segment_times(last["guid"], 100, 200)
+    b.set_segment_times(Q["segments"][0]["guid"], 200, 300)
+    b.commit(h)
+    h = b.begin_uow("u", "r")
+    S.paragraph_to_phrase(b, tg, P["guid"])
+    S.join_phrases(b, tg, P["guid"], last["guid"])
     b.commit(h)
     t2 = b.read_text(tg)
     assert len(t2["paragraphs"]) == 1
-    assert guids(t2["paragraphs"][0]) == guids(t["paragraphs"][0]) + guids(t["paragraphs"][1])
+    m = t2["paragraphs"][0]
+    assert m["contents"].endswith("qqq rrr sss ttt"), repr(m["contents"])
+    assert guids(m) == guids(P) and (m["segments"][-1]["beginTime"], m["segments"][-1]["endTime"]) == ("100", "300")
+    assert LINE_SEP not in m["contents"] and S.check_invariant(b, m)
 
 
 def test_control_merge_without_section_merges_the_edge_segments(backend):

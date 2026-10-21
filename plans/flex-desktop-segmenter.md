@@ -785,6 +785,19 @@ texts changed 0 paragraphs.
 
 ### 6.3 Phrase operations (all **[verified]** on the copy, each followed by FLEx's own routine)
 
+> **⚠ Superseded 2026-10-21 — hard line breaks, never §.** Seth, on the first real saves: *"Please get rid of the
+> section marks. I don't want them. Just hard line breaks."* A § splits FLEx's segments but not the Baseline's lines
+> (the Gloss and Analyze tabs numbered two phrases on one baseline line). So every boundary the shell makes is a
+> U+2028 (Shift+Enter in FLEx), written after a word's space as the team's data has it (323 of 399): **joining always
+> makes one phrase, one baseline line; splitting always makes two; the paragraph toggle alone decides the
+> paragraph** (off: a break between two phrases of one paragraph; on: a paragraph boundary, the break gone).
+> [verified on the VM, FW 9.3.12] LCM makes each U+2028 a one-character label segment: inserted at a word gap, k
+> keeps GUID/FT/times and the label and the new phrase are new; deleted, the phrases merge under k (FT joined);
+> moved, or replacing a § in one assignment, both phrases keep GUIDs, FTs and times; SplitParaAt after it then
+> deleting it leaves no trace; ForceParse keeps every one. FLEx's own importer DOES write `word§` where a phrase has
+> no punctuation — such a § is still joined and moved, never written new. The recipes below describe the § as it
+> was; `desktop/flexshell/segmentation.py` and `desktop/tests/contract/test_segmentation.py` are the current ones.
+
 - **Split a phrase** between word *i* and *i+1* of segment *k*:
   1. *p* = just after the last character of the first half (after any trailing punctuation).
   2. Both halves must contain a word-forming character, else refuse.

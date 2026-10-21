@@ -9,6 +9,7 @@ from xml.sax.saxutils import escape as _xml_escape
 from xml.sax.saxutils import unescape as _xml_unescape
 
 SECTION = "\u00A7"
+LINE_SEP = "\u2028"   # a hard line break (Shift+Enter in FLEx): its own label segment in LCM
 
 
 def fingerprint_para(p):
@@ -291,6 +292,17 @@ def _nfc(s):
     return unicodedata.normalize("NFC", s or "")
 
 
+def is_break_row(ph):
+    """A post-state row that is only hard line breaks — FLEx's label segment for one, as read back or as the engine
+    carries a break row (its words the break itself, or none)."""
+    words = ph.get("words") or []
+    if any(not set(w.get("txt") or "") <= {LINE_SEP} for w in words):
+        return False
+    txt = "".join(w.get("txt") or "" for w in words) + (ph.get("text") or "")
+    # the break itself must be there: an empty row is not a break, and dropping it would hide what it says
+    return LINE_SEP in txt and not txt.replace(LINE_SEP, "").strip()
+
+
 def compare_post_state(intended, actual, loose_guids=(), primary=None, others=None, visible=None):
     """→ [] when they agree, else human-readable mismatches. New segments/analyses (from a split, a
     bare wordform) have GUIDs the engine could not know: `loose_guids` names the paragraphs where
@@ -307,6 +319,12 @@ def compare_post_state(intended, actual, loose_guids=(), primary=None, others=No
     if visible is None and primary is not None:
         visible = {primary}
     visible = set(visible) if visible is not None else None
+    # A hard line break is FLEx structure, not a phrase: LCM keeps each as a one-character label segment, which a
+    # save may make (a split, the paragraph toggle off) or take out (a join, the toggle on) while the engine's
+    # intended result has none of the new ones. Compared on both sides without them (2026-10-21: hard line breaks,
+    # never §); the phrases around them, their GUIDs, words and translations are compared as before.
+    intended = {pg: [r for r in segs if not is_break_row(r)] for pg, segs in intended.items()}
+    actual = {pg: [r for r in segs if not is_break_row(r)] for pg, segs in actual.items()}
     problems = []
     for pg, segs in intended.items():
         got = actual.get(pg)

@@ -408,13 +408,25 @@ test('a FLEx text: its line break is no row while the Matcher is open, and a row
   assert.deepEqual(store.f.doc.segments.map((x) => (x.timePending ? null : [x.start, x.end])), [[0, 900], null, [1000, 1900], [2000, 2900]]);
 });
 
-test('a FLEx text: a join across its line break is refused, and a free translation beside it saves with the break in place', async () => {
+test('a FLEx text: a join across its line break takes the break out, and Done stores one line without it', async () => {
+  // Seth, 2026-10-21: "joining audio segments always makes them one phrase, one baseline line"
   const store = { f: flexRec('f') };
   const s = matcher(store);
   await opened(s, 'f');
   s.api.join(s.api.MG.lines[1].id);                  // C onto A, across B1
-  assert.equal(s.api.MG.lines.length, 3, 'refused');
-  assert.ok(s.log.toasts.includes('mg.joinLineBreak'), 'and said why');
+  assert.equal(s.api.MG.lines.length, 2, 'joined');
+  assert.ok(!s.log.toasts.includes('mg.joinLineBreak'), 'nothing refused');
+  await s.api.commit();
+  await s.api.settle();
+  const segs = store.f.doc.paragraphs.map((p) => p.segments[0]);
+  assert.deepEqual(segs.map((x) => x.attrs.guid), ['A', 'D'], 'B1 is gone with the join; A keeps its guid');
+  assert.ok(!segs.some((x) => x.breaksBefore || x.breaksAfter || x.flexLine), 'no fold left in the record');
+});
+
+test('a FLEx text: a free translation beside its line break saves with the break in place', async () => {
+  const store = { f: flexRec('f') };
+  const s = matcher(store);
+  await opened(s, 'f');
   s.api.editFree(s.api.MG.lines[1].id, 'the third line');
   await s.api.commit();
   await s.api.settle();

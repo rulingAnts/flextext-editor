@@ -477,7 +477,8 @@ class MockLcm(FlexPort):
         para["Contents"] = new_text
         self._mark(para_guid)
 
-        if len(new_ranges) == len(old_ranges):
+        has_break = LINE_SEP in old_text or LINE_SEP in new_text
+        if len(new_ranges) == len(old_ranges) and not has_break:
             mapping = list(zip(old_segs, new_ranges))
             merged_into = {}
         else:
@@ -494,11 +495,24 @@ class MockLcm(FlexPort):
             mid_new = new_ranges[before:len(new_ranges) - after]
             mapping = list(zip(old_segs[:before], new_ranges[:before]))
             merged_into = {}
-            for k, rng in enumerate(mid_new):
-                if k < len(mid_old):
-                    mapping.append((mid_old[k], rng))
-                else:
+            # A hard line break's label segment inside the edited region is always a NEW object, and an old one there
+            # is simply gone; the PHRASES are matched in order around them [verified, VM 2026-10-21: a break inserted
+            # at a word gap (k kept, label and phrase new), a § replaced by a break in one assignment (both phrases
+            # kept, the label new), a break moved (both phrases kept, the label new)].
+            def lb(txt):
+                return bool(txt) and all(c == LINE_SEP for c in txt)
+            old_lb = [s for s in mid_old if lb(old_text[s["BeginOffset"]:s["EndOffset"]])]
+            for s in old_lb:
+                merged_into[s.guid] = None
+            mid_old = [s for s in mid_old if s not in old_lb]
+            n = 0
+            for rng in mid_new:
+                if lb(new_text[rng[0]:rng[1]]):
                     mapping.append((None, rng))
+                    continue
+                mapping.append((mid_old[n] if n < len(mid_old) else None, rng))
+                n += 1
+            mid_new = [r for r in mid_new if not lb(new_text[r[0]:r[1]])]
             if len(mid_old) > len(mid_new) and mid_new:
                 keeper = mid_old[len(mid_new) - 1]
                 for s in mid_old[len(mid_new):]:

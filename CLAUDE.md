@@ -592,9 +592,14 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab. ⚠ v709 
     one word is the break itself (LCM's PunctuationForm of U+2028; the mock gave it none until 2026-10-17, so
     the engine's test for a break never matched real FLEx) — and only the Matcher folds them (`foldFlexBreakLines` on open and on a resumed draft,
     `unfoldFlexBreakLines` on Done), so no record ever changes shape and rolling the code back needs
-    nothing done to data. A join across a break is refused (FLEx's to remove); both Save checks accept an
+    nothing done to data. A join across a break takes it out (one phrase); both Save checks accept an
     unchanged label segment. Before this, ANY edit in a paragraph holding a break could not be saved. The
     mock's breaker had folded a break after a full stop into its sentence, which is why no test saw it.
+  - **⚠ The shell writes HARD LINE BREAKS, never a § (Seth, 2026-10-21: "Just hard line breaks.").** A § splits
+    FLEx's segments but not the Baseline's lines. Joining always makes ONE phrase, one baseline line; splitting
+    always makes two; the paragraph toggle alone decides whether two phrases share a paragraph (off: a U+2028
+    between them in one paragraph; on: a paragraph boundary, the break gone). A § already in a text (FLEx's own
+    importer writes one where a phrase has no punctuation) is still joined and moved. segmentation.py, plan §6.3.
 - **⚠ Traps that already bit once — do not "simplify" these away:**
   - `applyBaseline` is gated on DOM truth (`#baseline-text` hidden ⇒ skip), NOT on
     `segmentationEnabled()` — during a live settings flip the setting changes before the DOM, and

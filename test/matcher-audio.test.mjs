@@ -490,7 +490,9 @@ console.log('\ntext ⤴ joins PHRASES into one — two phrases in a paragraph is
    * to re-derive them — with no per-phrase time attributes to derive from. The join AND the whole
    * alignment were gone, and persist() wrote the wipe. */
   const join = fn(app, 'mgJoinLine');
-  ok(/phrases: \[mergePhrases\(\[\.\.\.prev\.phrases, \.\.\.cur\.phrases\], \{ prim: mgPrimaryLang\(\) \}\)\]/.test(join),
+  // (2026-10-21: the two lines' phrases are copied first, so a FLEx text can drop the line breaks between them)
+  ok(/const pp = prev\.phrases\.slice\(\), cp = cur\.phrases\.slice\(\)/.test(join)
+     && /phrases: \[mergePhrases\(\[\.\.\.pp, \.\.\.cp\], \{ prim: mgPrimaryLang\(\) \}\)\]/.test(join),
      'the merged line holds ONE phrase, built by mergePhrases (segments.js\'s mergeSegments joins AUDIO spans)');
   ok(!/phrases: \[\.\.\.prev\.phrases, \.\.\.cur\.phrases\]/.test(join),
      '⚠ and never the two side by side');

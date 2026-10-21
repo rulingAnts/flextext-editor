@@ -11359,10 +11359,13 @@ function mgJoinLine(id) {
   const i = MG.lines.findIndex((l) => l.id === id);
   if (i <= 0) return;
   const prev = MG.lines[i - 1], cur = MG.lines[i];
-  /* ⚠ NOT ACROSS A FLEx LINE BREAK in a FLEx text: the break is a segment of its own in FLEx, which a join here
-   * cannot remove (the shell joins only at a §), so the save would be refused. Said now, before anything moves.
-   * (In a .flextext a join across one removes it, as deleting the break does in FLEx — flextext.js mergePhrases.) */
-  if (mgIsFlexText() && mgBreakBetween(prev, cur)) { toast(t('mg.joinLineBreak'), 7000); return; }
+  /* ACROSS A FLEx LINE BREAK in a FLEx text, the join takes the break out: "joining audio segments always makes them
+   * one phrase, one baseline line" (Seth, 2026-10-21) — the shell deletes it in FLEx (segmentation.py join_phrases).
+   * Only the breaks BETWEEN the two lines go (the first line's breaksAfter, the second's breaksBefore); a row that is
+   * nothing but breaks is not a line to join, and is still refused. (In a .flextext a join keeps a break riding on
+   * the merged phrase — flextext.js mergePhrases — which is that format's own round trip.) */
+  const flexBreaks = mgIsFlexText() && mgBreakBetween(prev, cur);
+  if (flexBreaks && (prev.phrases.some(isFlexBreakPhrase) || cur.phrases.some(isFlexBreakPhrase))) { toast(t('mg.joinLineBreak'), 7000); return; }
   mgCapture();
   /* The merged line takes the FIRST line's paragraph. If the two were in different paragraphs the
    * break between them is exactly what the user just removed, so losing it is the point — and if
@@ -11375,8 +11378,14 @@ function mgJoinLine(id) {
    * gone before the list had finished drawing. mergePhrases builds the one segment the rest of
    * the suite reads as one line; see it for what it keeps. (Not segments.js's mergeSegments —
    * that one joins two AUDIO spans, which is the ⤴ on the other pane.) */
+  const pp = prev.phrases.slice(), cp = cur.phrases.slice();
+  if (flexBreaks) {
+    const a = pp.length - 1;
+    if (pp[a] && pp[a].breaksAfter) { const { breaksAfter, ...rest } = pp[a]; pp[a] = rest; }
+    if (cp[0] && cp[0].breaksBefore) { const { breaksBefore, ...rest } = cp[0]; cp[0] = rest; }
+  }
   MG.lines.splice(i - 1, 2, { id: prev.id + '+', guid: prev.guid, paraOf: prev.paraOf,
-    phrases: [mergePhrases([...prev.phrases, ...cur.phrases], { prim: mgPrimaryLang() })] });
+    phrases: [mergePhrases([...pp, ...cp], { prim: mgPrimaryLang() })] });
   mgDraw();
 }
 

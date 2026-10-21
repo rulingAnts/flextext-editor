@@ -34,6 +34,7 @@ def env_without_node():
 
 def run(exe, *args, env=None, timeout=300):
     p = subprocess.run([str(exe), *map(str, args)], capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=timeout)
+    check("\ufffd" not in p.stdout + p.stderr, "fxdiag %s writes clean UTF-8 (no undecodable bytes)" % args[0])
     print("$ fxdiag %s  (rc=%d)\n%s%s" % (" ".join(map(str, args)), p.returncode, p.stdout[-3000:], p.stderr[-2000:]))
     return p
 
@@ -45,6 +46,8 @@ def check(cond, what):
 
 
 def main(argv=None):
+    for st in (sys.stdout, sys.stderr):   # this script's own log must survive a cp1252 runner console too
+        st.reconfigure(encoding="utf-8", errors="replace")
     argv = list(sys.argv[1:] if argv is None else argv)
     gui = "--gui" in argv
     exe = Path([a for a in argv if a != "--gui"][0]).resolve()
@@ -59,7 +62,7 @@ def main(argv=None):
     if gui:
         out = work / "gui.json"
         genv = dict(env, FXDIAG_GUI_SMOKE=str(out))
-        p = subprocess.run([str(exe), "gui", "--user-data-dir", str(ud)], capture_output=True, text=True, errors="replace", env=genv, timeout=180)
+        p = subprocess.run([str(exe), "gui", "--user-data-dir", str(ud)], capture_output=True, text=True, encoding="utf-8", errors="replace", env=genv, timeout=180)
         print(p.stdout[-2000:], p.stderr[-2000:])
         check(out.is_file(), "the window opened and reported back (rc=%d)" % p.returncode)
         r = json.loads(out.read_text(encoding="utf-8"))
@@ -73,8 +76,10 @@ def main(argv=None):
     s = run(exe, "scan", "--user-data-dir", ud, env=env)
     check(s.returncode == 0 and "https://rulingants.github.io" in s.stdout, "scan finds the fixture profile's suite origin")
     rep = work / "report.zip"
-    r = run(exe, "report", "--user-data-dir", ud, "--flextext", "--with-audio", "--texts", "all", "--raw", "--out", rep, env=env)
+    note = "prüfung — проверка — ⚠ ✓"   # outside cp1252 on purpose: the redirected-stdout crash this guards
+    r = run(exe, "report", "--user-data-dir", ud, "--flextext", "--with-audio", "--texts", "all", "--raw", "--note", note, "--out", rep, env=env)
     check(r.returncode == 0 and rep.is_file(), "report written")
+    check(note in r.stdout, "non-Latin text printed intact through a redirected stdout")
     with zipfile.ZipFile(rep) as z:
         names = z.namelist()
         fx = sorted(n.rsplit("/", 1)[1] for n in names if n.endswith(".flextext"))

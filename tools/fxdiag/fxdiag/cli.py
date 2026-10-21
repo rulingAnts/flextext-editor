@@ -130,7 +130,22 @@ def cmd_doctor(args):
     return 0 if ok else 1
 
 
+def _utf8_streams():
+    """Write UTF-8 whatever the stream is. On Windows a redirected or piped stdout uses the ANSI code page
+    (cp1252 on an English install), so a title, a profile name or a ⚠ outside it would crash a report
+    half-way (found by the first Windows build's smoke test). A real console is unaffected (it is already
+    UTF-8 through the console API); errors="replace" means output never takes the run down."""
+    for name in ("stdout", "stderr"):
+        st = getattr(sys, name, None)
+        if st is not None and hasattr(st, "reconfigure"):
+            try:
+                st.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv=None):
+    _utf8_streams()
     ap = argparse.ArgumentParser(prog="fxdiag", description="FlexText suite: read a device's browser storage from disk into one diagnostic report (v%s)" % VERSION)
     sub = ap.add_subparsers(dest="cmd")
     s = sub.add_parser("scan", help="list the profiles and suite origins on this disk")

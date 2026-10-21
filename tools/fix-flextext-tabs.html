@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fix tabs in a .flextext</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1a1d21; --muted:#5b6470; --card:#ffffff; --line:#d9dde3; --ok:#137333;
+          --bad:#b3261e; --accent:#1a5fb4; --mark:#fff0b3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181c; --fg:#e7e9ec; --muted:#a3abb6; --card:#1f2228; --line:#353a43; --ok:#7ad38f;
+            --bad:#ff8a80; --accent:#8ab4f8; --mark:#4a4220; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  .id { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .pick { display: inline-block; margin: 16px 0 8px; padding: 12px 18px; border-radius: 10px; background: var(--accent);
+          color: #fff; font-weight: 600; cursor: pointer; }
+  @media (prefers-color-scheme: dark) { .pick { color: #0b1020; } }
+  .pick input { display: none; }
+  .file { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 14px 0; }
+  .file h2 { font-size: 16px; margin: 0 0 6px; overflow-wrap: anywhere; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  ul.checks { list-style: none; padding: 0; margin: 8px 0; font-size: 14px; }
+  ul.checks li::before { content: attr(data-mark) "  "; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; table-layout: fixed; }
+  th, td { text-align: left; vertical-align: top; padding: 5px 6px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  th { color: var(--muted); font-weight: 600; }
+  td.kind { width: 26%; color: var(--muted); }
+  mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .dl { display: inline-block; margin-top: 10px; padding: 9px 14px; border-radius: 8px; border: 1px solid var(--accent);
+        color: var(--accent); text-decoration: none; font-weight: 600; }
+  details { margin-top: 28px; font-size: 14px; color: var(--muted); }
+  code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fix tabs in a .flextext file</h1>
+  <div class="id">Perbaiki tab dalam file .flextext</div>
+  <p>Choose one or more <code>.flextext</code> files. This page finds TAB characters inside the text — in the
+     baseline, the words, glosses and translations — and makes a <b>fixed copy</b> for you to download. FLEx reads a tab as
+     part of the text, which is what goes wrong. Your original file is not changed, and nothing leaves this computer:
+     the page works without the internet.</p>
+  <p class="id">Pilih satu atau beberapa file <code>.flextext</code>. Halaman ini mencari karakter TAB di dalam teks — di
+     baris dasar, kata, glos dan terjemahan — lalu membuat <b>salinan yang sudah diperbaiki</b> untuk diunduh. File asli
+     tidak diubah, dan tidak ada yang dikirim ke mana pun: halaman ini bekerja tanpa internet.</p>
+  <label class="pick"><input type="file" id="files" accept=".flextext,.xml" multiple>Choose files · Pilih file</label>
+  <div id="out"></div>
+  <details>
+    <summary>What exactly is changed · Apa yang diubah</summary>
+    <p>Inside the text of an element, a run of spaces that holds a tab becomes <b>one space</b> between words, and is
+       removed at the start or end. Text with no tab in it is not touched, and neither is anything outside the text:
+       tags, attributes, the layout between lines and every other character stay exactly as they were. Before you are
+       offered the download, the fixed copy is read back and checked: it must be well-formed, have exactly as many
+       texts, paragraphs, phrases, words and other elements as the original, and contain no tab in any text.</p>
+    <p>This is the same rule the FlexText apps apply when they export, from version 725.</p>
+  </details>
+</main>
+<script>
+"use strict";
+/* ⚠ COPIED FROM docs/js/flextext.js — test/fix-tabs-tool.test.mjs fails if these two ever differ from
+ * the engine's. A standalone page cannot import the engine (it is opened from a file, offline). */
+function untabForXml(s) {
+  const v = String(s ?? '');
+  if (!v.includes('\t')) return v;
+  return v.replace(/^[ \t]*\t[ \t]*|[ \t]*\t[ \t]*$/g, '').replace(/[ \t]*\t[ \t]*/g, ' ');
+}
+function untabFragmentForXml(xml) {
+  const v = String(xml ?? '');
+  if (!v.includes('\t')) return v;
+  return v.replace(/>([^<]*\t[^<]*)</g, (m, text) => (/[^\s]/.test(text) ? '>' + untabForXml(text) + '<' : m));
+}
+
+// A tab may also be written as a character reference. Decode those in TEXT only, so the rule above sees them.
+function decodeTabRefs(xml) {
+  return String(xml).replace(/>([^<]*&#(?:9|x0*9);[^<]*)</gi, (m, t) => '>' + t.replace(/&#(?:9|x0*9);/gi, '\t') + '<');
+}
+function fixText(src) { return untabFragmentForXml(decodeTabRefs(src)); }
+
+const KIND = (el) => {
+  const t = el.getAttribute && el.getAttribute('type');
+  const parent = el.parentElement ? el.parentElement.tagName : '';
+  if (el.tagName === 'item') {
+    if (t === 'txt' && parent === 'phrase') return 'Baseline line · Baris dasar';
+    if (t === 'txt' && parent === 'word') return 'Word · Kata';
+    if (t === 'punct') return 'Punctuation · Tanda baca';
+    if (t === 'gls' && parent === 'word') return 'Word gloss · Glos kata';
+    if (t === 'gls' && parent === 'phrase') return 'Free translation · Terjemahan bebas';
+    if (t === 'lit') return 'Literal translation · Terjemahan harfiah';
+    if (t === 'note') return 'Note · Catatan';
+    if (t === 'title') return 'Title · Judul';
+    if (parent === 'morph') return 'Morpheme (' + t + ') · Morfem';
+    return 'item type="' + (t || '') + '" in ' + parent;
+  }
+  return '<' + el.tagName + '>';
+};
+// Every text node holding a tab (and something that is not whitespace), with its element.
+function tabbedTexts(doc) {
+  const out = [];
+  const walk = (el) => {
+    for (const n of el.childNodes) {
+      if (n.nodeType === 1) walk(n);
+      else if (n.nodeType === 3 && n.nodeValue.includes('\t') && /[^\s]/.test(n.nodeValue)) out.push({ el, text: n.nodeValue });
+    }
+  };
+  walk(doc.documentElement);
+  return out;
+}
+const census = (doc) => {
+  const c = {};
+  for (const el of doc.getElementsByTagName('*')) c[el.tagName] = (c[el.tagName] || 0) + 1;
+  return c;
+};
+const parse = (s) => {
+  const d = new DOMParser().parseFromString(s, 'application/xml');
+  return d.getElementsByTagName('parsererror').length ? null : d;
+};
+const escH = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const showTabs = (s) => escH(s).replace(/\t/g, '<mark>⇥</mark>');
+
+async function handle(file) {
+  const box = document.createElement('section');
+  box.className = 'file';
+  box.innerHTML = '<h2>' + escH(file.name) + '</h2>';
+  document.getElementById('out').appendChild(box);
+  const say = (html) => { const p = document.createElement('div'); p.innerHTML = html; box.appendChild(p); return p; };
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bom = bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+    const src = new TextDecoder('utf-8', { fatal: true }).decode(bom ? bytes.subarray(3) : bytes);
+    const decl = (src.match(/^<\?xml[^>]*encoding=["']([^"']+)["']/i) || [])[1];
+    if (decl && !/^utf-?8$/i.test(decl)) { say('<b class="bad">Not changed:</b> this file says it is ' + escH(decl) + ', and this page only handles UTF-8.'); return; }
+    const before = parse(src);
+    if (!before) { say('<b class="bad">Not changed:</b> this is not a well-formed XML file, so it was left alone.'); return; }
+    const found = tabbedTexts(before);
+    if (!found.length) { say('<b class="ok">✓ No tabs found.</b> This file does not need fixing. · Tidak ada tab — file ini tidak perlu diperbaiki.'); return; }
+    const fixed = fixText(src);
+    const after = parse(fixed);
+    const a = census(before), b = after ? census(after) : {};
+    const sameShape = !!after && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => a[k] === b[k]);
+    const left = after ? tabbedTexts(after).length : -1;
+    const checks = [
+      [!!after, 'the fixed copy is well-formed XML'],
+      [sameShape, 'it has exactly the same elements as the original (' + (a.word || 0) + ' words, ' + (a.phrase || 0) + ' phrases, ' + (a.paragraph || 0) + ' paragraphs)'],
+      [left === 0, 'no tab is left in any text'],
+    ];
+    const allOk = checks.every((c) => c[0]);
+    say('<b>' + found.length + '</b> piece' + (found.length === 1 ? '' : 's') + ' of text held a tab.');
+    say('<ul class="checks">' + checks.map(([ok, m]) => '<li data-mark="' + (ok ? '✓' : '✗') + '" class="' + (ok ? 'ok' : 'bad') + '">' + escH(m) + '</li>').join('') + '</ul>');
+    const rows = found.map(({ el, text }) => '<tr><td class="kind">' + escH(KIND(el)) + '</td><td>' + showTabs(text) + '</td><td>' + escH(untabForXml(text)) + '</td></tr>');
+    say('<details' + (found.length <= 30 ? ' open' : '') + '><summary>Each change · Setiap perubahan</summary><table><tr><th>Where</th><th>Before (<mark>⇥</mark> = tab)</th><th>After</th></tr>' + rows.join('') + '</table></details>');
+    if (!allOk) { say('<b class="bad">✗ The fixed copy did not pass every check, so it is not offered. Your file was not changed.</b> Please send the original to whoever gave you this page.'); return; }
+    const blob = new Blob([bom ? '﻿' : '', fixed], { type: 'application/xml' });
+    const name = file.name.replace(/(\.flextext|\.xml)?$/i, (m) => '-fixed' + (m || '.flextext'));
+    const link = say('').appendChild(document.createElement('a'));
+    link.className = 'dl'; link.href = URL.createObjectURL(blob); link.download = name;
+    link.textContent = '⬇ Download ' + name;
+    say('<span class="id">Use the fixed copy wherever you would have used the original. · Gunakan salinan ini sebagai pengganti file asli.</span>');
+  } catch (e) {
+    say('<b class="bad">Not changed:</b> the file could not be read (' + escH(e && e.message || e) + ').');
+  }
+}
+document.getElementById('files').addEventListener('change', (e) => {
+  document.getElementById('out').innerHTML = '';
+  for (const f of e.target.files) handle(f);
+  e.target.value = '';
+});
+</script>
+</body>
+</html>

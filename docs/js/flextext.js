@@ -22,6 +22,35 @@ export function newGuid() {
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ESC[c]); }
 
+/* ⚠ NO TAB EVER LEAVES IN A .flextext (Seth, 2026-10-21: "None of our data within xml elements in
+ * flextext exports should be tab-separated" — "our export process should also catch and fix tabs").
+ * A researcher's file reached FLEx with its baseline lines tab-separated word by word, and two word
+ * glosses carrying a tab at their edges: text pasted from a tab-separated source, or typed with a Tab
+ * key. FLEx reads the tab as part of the line. (The words themselves were fine — tokenize splits on any
+ * whitespace — but the phrase's baseline line and the glosses were written as they were.)
+ *
+ * The boxes now turn a tab into a space as it arrives (typing.js untab). This is the BACKSTOP, for
+ * what is already stored — on devices, in drafts, in a file opened from elsewhere — and for any route
+ * in that a box does not see. An export is not an edit: the stored text is left as it is.
+ *
+ * ⚠ NOT one-for-one like the box rule. A run of whitespace that holds a tab becomes ONE space between
+ * words and NOTHING at an edge — the box rule can leave the collapsing to the single-space setting, an
+ * export cannot, or "\tPST\t" would leave as " PST " with spaces inside a word gloss. Whitespace with
+ * no tab in it is not touched, so a text that never held a tab exports byte for byte as before. */
+export function untabForXml(s) {
+  const v = String(s ?? '');
+  if (!v.includes('\t')) return v;
+  return v.replace(/^[ \t]*\t[ \t]*|[ \t]*\t[ \t]*$/g, '').replace(/[ \t]*\t[ \t]*/g, ' ');
+}
+/* The same for a fragment kept verbatim from an imported file (title items, morphemes, notes):
+ * only TEXT is changed — a text node holding a tab and something that is not whitespace. Whitespace
+ * between tags is layout, which indentFragment owns. */
+export function untabFragmentForXml(xml) {
+  const v = String(xml ?? '');
+  if (!v.includes('\t')) return v;
+  return v.replace(/>([^<]*\t[^<]*)</g, (m, text) => (/[^\s]/.test(text) ? '>' + untabForXml(text) + '<' : m));
+}
+
 /* ---------------- Tokenization & segmentation ---------------- */
 
 // Characters that count as part of a word (letters, marks, digits, common
@@ -470,6 +499,9 @@ function indentFragment(xml, pad) {
 }
 
 export function serializeFlextext(doc, settings = {}, opts = {}) {
+  // Every value this writes goes through xesc, and every kept fragment through frag: see untabForXml.
+  const xesc = (v) => esc(untabForXml(v));
+  const frag = (xml, pad) => indentFragment(untabFragmentForXml(xml), pad);
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
   // — including texts recorded before the change. Imported docs are the opposite:
@@ -500,14 +532,14 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
    * `producedBy` is a PARAMETER (opts), never module state — same rule the rest of this module
    * follows so a second writer can call it. Omitted entirely when the caller supplies nothing,
    * rather than emitting a guess. */
-  const provenance = opts.producedBy ? ` exportSource="${esc(opts.producedBy)}"` : '';
-  lines.push(`<document version="${esc(doc.version || '2')}"${provenance}>`);
+  const provenance = opts.producedBy ? ` exportSource="${xesc(opts.producedBy)}"` : '';
+  lines.push(`<document version="${xesc(doc.version || '2')}"${provenance}>`);
   const attrs = Object.entries(doc.textAttrs || {})
-    .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
+    .map(([k, v]) => ` ${k}="${xesc(v)}"`).join('');
   lines.push(`  <interlinear-text${attrs}>`);
-  lines.push(`    <item type="title" lang="${esc(authored ? anal : (doc.titleLang || anal))}">${esc(doc.title || 'Untitled')}</item>`);
-  for (const xml of doc.metaItemsXML || []) lines.push(indentFragment(xml, '    '));
-  if (doc.objectsXML) lines.push(indentFragment(doc.objectsXML, '    '));
+  lines.push(`    <item type="title" lang="${xesc(authored ? anal : (doc.titleLang || anal))}">${xesc(doc.title || 'Untitled')}</item>`);
+  for (const xml of doc.metaItemsXML || []) lines.push(frag(xml, '    '));
+  if (doc.objectsXML) lines.push(frag(doc.objectsXML, '    '));
   lines.push('    <paragraphs>');
   // Segmentation time-alignment (Seth, 2026-08-03): aligned spans are exported BOTH ways — as
   // FLEx's native phrase begin/end-time-offset attributes AND as a human-visible note item — and
@@ -557,7 +589,7 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
 
   let pi = -1;
   for (const run of emit) {
-    lines.push(`      <paragraph guid="${esc(run.guid)}">`);
+    lines.push(`      <paragraph guid="${xesc(run.guid)}">`);
     lines.push('        <phrases>');
     for (const li of run.lines) {
     const para = doc.paragraphs[li];
@@ -572,10 +604,10 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       // filtering unconditionally silently unlinked every phrase from its media (audit find).
       const pAttrs = Object.entries(seg.attrs || {})
         .filter(([k]) => !(timed && (k === 'begin-time-offset' || k === 'end-time-offset' || (k === 'media-file' && mediaGuid))))
-        .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
-        + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
+        .map(([k, v]) => ` ${k}="${xesc(v)}"`).join('')
+        + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${xesc(mediaGuid)}"` : ''}` : '');
       lines.push(`          <phrase${pAttrs}>`);
-      lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
+      lines.push(`            <item type="txt" lang="${xesc(seg.txtLang || vern)}">${xesc(seg.baseline)}</item>`);
       /* ⚠ NO segnum ITEM. We used to mint one — a plain running integer — for every phrase, and it
        * was wrong in three ways at once.
        *
@@ -597,35 +629,35 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
        * wherever there are glosses or free translations; a document with neither has no analysis
        * content to declare in the first place. */
       lines.push('            <words>');
-      for (const xml of seg.preItemsXML || []) lines.push(indentFragment(xml, '              '));
+      for (const xml of seg.preItemsXML || []) lines.push(frag(xml, '              '));
       for (const w of seg.words) {
         const wType = w.phrase ? ' type="phrase"' : '';
-        lines.push(`              <word guid="${esc(w.guid)}"${wType}>`);
+        lines.push(`              <word guid="${xesc(w.guid)}"${wType}>`);
         if (w.punct) {
-          lines.push(`                <item type="punct" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
+          lines.push(`                <item type="punct" lang="${xesc(w.txtLang || vern)}">${xesc(w.txt)}</item>`);
         } else {
           if (!w.derivedTxt) {
-            lines.push(`                <item type="txt" lang="${esc(w.txtLang || vern)}">${esc(w.txt)}</item>`);
+            lines.push(`                <item type="txt" lang="${xesc(w.txtLang || vern)}">${xesc(w.txt)}</item>`);
           }
-          for (const xml of w.preservedXML || []) lines.push(indentFragment(xml, '                '));
+          for (const xml of w.preservedXML || []) lines.push(frag(xml, '                '));
           if (w.gls) {
-            lines.push(`                <item type="gls" lang="${esc(w.glsLang || anal)}">${esc(w.gls)}</item>`);
+            lines.push(`                <item type="gls" lang="${xesc(w.glsLang || anal)}">${xesc(w.gls)}</item>`);
           }
         }
         lines.push('              </word>');
       }
       lines.push('            </words>');
       if (seg.free || seg.freeLang) {
-        lines.push(`            <item type="gls" lang="${esc(seg.freeLang || anal)}">${esc(seg.free)}</item>`);
+        lines.push(`            <item type="gls" lang="${xesc(seg.freeLang || anal)}">${xesc(seg.free)}</item>`);
       }
       // The human-visible timestamps (never in the baseline): a note item FLEx displays on its
       // own Note line. '~' marks an estimated boundary the transcriber has not confirmed by ear.
       // opts.timeNotes === false keeps the ATTRIBUTES and drops the note (the device setting
       // segTimeNotes, Seth 2026-09-04) — the times still round-trip; FLEx just shows no Note line.
       if (timed && opts.timeNotes !== false) {
-        lines.push(`            <item type="note" lang="${esc(anal)}">audio ${span.timeEstimated ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
+        lines.push(`            <item type="note" lang="${xesc(anal)}">audio ${span.timeEstimated ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
       }
-      for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
+      for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(frag(xml, '            '));
       lines.push('          </phrase>');
       }
     }
@@ -644,9 +676,9 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   push({ lang: anal, font: settings.analFont || '', vernacular: false });
   lines.push('    <languages>');
   for (const l of langs) {
-    let s = `      <language lang="${esc(l.lang)}"`;
-    if (l.encoding) s += ` encoding="${esc(l.encoding)}"`;
-    if (l.font) s += ` font="${esc(l.font)}"`;
+    let s = `      <language lang="${xesc(l.lang)}"`;
+    if (l.encoding) s += ` encoding="${xesc(l.encoding)}"`;
+    if (l.font) s += ` font="${xesc(l.font)}"`;
     if (l.vernacular) s += ' vernacular="true"';
     lines.push(s + ' />');
   }
@@ -655,10 +687,10 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   // when WE minted the guid (authored docs with no imported media-files block of their own).
   if (mediaGuid) {
     lines.push('    <media-files offset-type="">');
-    lines.push(`      <media guid="${esc(mediaGuid)}" location="${esc(opts.mediaName)}"/>`);
+    lines.push(`      <media guid="${xesc(mediaGuid)}" location="${xesc(opts.mediaName)}"/>`);
     lines.push('    </media-files>');
   }
-  for (const xml of doc.mediaXML || []) lines.push(indentFragment(xml, '    '));
+  for (const xml of doc.mediaXML || []) lines.push(frag(xml, '    '));
   lines.push('  </interlinear-text>');
   lines.push('</document>');
   return lines.join('\n') + '\n';

@@ -203,3 +203,23 @@ test('a stored break is written as FLEx writes one: its txt, no <words>', () => 
   const out = FT.serializeFlextext(doc, { analLang: 'en', vernLang: 'qaa' }, {});
   assert.match(out, /<phrase guid="L">\s*<item type="txt" lang="qaa">\u2028<\/item>\s*<\/phrase>/);
 });
+
+test('a Sentence break right after a split\'s last piece sends its paragraph op (VM, 2026-10-21)', () => {
+  /* ✂ in A, then the paragraph toggle ON at the ORIGINAL line C after it: the pair (A's last piece, C) is a new
+   * phrase then a base phrase, which neither boundary loop looked at — no op went, the intended result still had the
+   * paragraph, and the shell's check refused the save ("2 phrases intended, 9 found"). */
+  const base = flexDoc();
+  const cur = structuredClone(base);
+  const [lA] = cur.paragraphs;
+  const a = lA.segments[0];
+  const piece = { ...text('N1', []), words: a.words.slice(1).map((w) => ({ ...w, flex: { ...w.flex, seg: 'N1' } })) };
+  lA.segments[0] = { ...a, words: a.words.slice(0, 1) };
+  cur.paragraphs.splice(1, 0, line(piece, 'P1'));
+  cur.segments.splice(1, 0, { start: 450, end: 900 });
+  cur.segments[0] = { start: 0, end: 450 };
+  for (const ln of cur.paragraphs.slice(2)) if (ln.paraOf === 'P1') ln.paraOf = 'NP';   // B1, C, B2 open NP
+  const d = OPS.diffFlexDoc(base, cur);
+  const toPara = d.ops.filter((o) => o.op === 'phrase.toPara');
+  assert.deepEqual(toPara.map((o) => [o.segGuid, o.newPara, o.afterSplit]), [['N1', 'NP', true]]);
+  assert.ok(d.ops.some((o) => o.op === 'phrase.split' && o.segGuid === 'A' && o.newPhrase === 'N1'));
+});

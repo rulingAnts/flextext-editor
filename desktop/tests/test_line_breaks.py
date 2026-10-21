@@ -225,3 +225,27 @@ def test_a_join_onto_a_phrase_that_ends_in_a_full_stop_is_refused_at_preview(tmp
         s2.preview(tg2, o2["baseRev"], [{"op": "phrase.join", "paraGuid": lines[0]["paraOf"], "segGuid": sg(lines[0]), "endTime": None}], {})
     assert ei.value.code == "E_SCOPE"
     assert shape(port, tg) == before
+
+
+def test_a_paragraph_started_right_after_a_splits_last_piece(tmp_path):
+    """Phase B on the VM, 2026-10-21: ✂ in a line, then a Sentence break at the ORIGINAL line after it. The boundary
+    after the split's last piece is the base phrase's own — here a hard line break, which becomes the paragraph
+    boundary and goes. (The engine sent no op for it at all; flex-ops now does — test/flex-split-then-paragraph.)"""
+    port, s, tg, o = world(tmp_path, ["aaa bbb " + LB + "ccc ddd"])
+    doc = copy.deepcopy(o["doc"])
+    x, br, y = doc["paragraphs"]
+    p = x["paraOf"]
+    words = x["segments"][0]["words"]
+    x["segments"][0]["words"] = words[:1]
+    piece = {"guid": "ln-n1", "paraOf": p, "segments": [{"attrs": {"guid": "eng-n1"}, "words": words[1:], "free": "", "baseline": ""}]}
+    doc["paragraphs"] = [x, piece, br, y]
+    br["paraOf"] = p
+    y["paraOf"] = "eng-np"
+    ops = [{"op": "phrase.split", "paraGuid": p, "segGuid": sg(x), "afterWordIndex": 0, "newPhrase": "eng-n1", "times": None},
+           {"op": "phrase.toPara", "paraGuid": p, "segGuid": "eng-n1", "newPara": "eng-np", "afterSplit": True}]
+    pv = s.preview(tg, o["baseRev"], ops, post_of(doc, {p, "eng-np"}))
+    assert pv["counts"].get("StTxtPara") == 1 and pv["counts"].get("Segment") == 1, pv["counts"]   # +2 split, -1 the old break
+    s.save(pv["previewToken"])
+    t = port.read_text(tg)
+    assert [q["contents"] for q in t["paragraphs"]] == ["aaa " + LB + "bbb", "ccc ddd"], [q["contents"] for q in t["paragraphs"]]
+    assert shape(port, tg) == [[1, "↵", 1], [2]]

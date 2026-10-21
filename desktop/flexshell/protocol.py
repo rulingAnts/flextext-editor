@@ -262,6 +262,10 @@ class Session:
         # phrases and paragraphs this save itself makes (engine guids, aliased to LCM's when applied):
         # later ops may name them, and nothing else that is not in the text
         new_phrases = {op.get("newPhrase") for op in ops if isinstance(op, dict) and op.get("op") == "phrase.split" and op.get("newPhrase")}
+        # the phrases this save splits, and each new piece → the phrase it was split from (back to a base phrase)
+        split_subjects = {op.get("segGuid") for op in ops if isinstance(op, dict) and op.get("op") == "phrase.split"}
+        split_from_phrase = {op["newPhrase"]: op.get("segGuid") for op in ops
+                             if isinstance(op, dict) and op.get("op") == "phrase.split" and op.get("newPhrase")}
         new_paras = {op.get("newPara") for op in ops if isinstance(op, dict) and op.get("op") in ("phrase.toPara", "para.split") and op.get("newPara")}
         # FLEx makes the hard line break's PunctuationForm ONCE, the first time any op of this save writes a break (a
         # split, the paragraph toggle off, a § moved) — never once per op. This app writes no § (2026-10-21).
@@ -384,8 +388,20 @@ class Session:
                 summary.append({"kind": kind, "seg": sg})
             elif kind in ("para.split", "phrase.toPara"):
                 deltas["StTxtPara"] += 1
-                if op.get("afterSplit"):
+                if op.get("afterSplit") and sg in split_subjects:
                     deltas["Segment"] -= 1      # the split's own hard line break becomes the paragraph boundary
+                elif op.get("afterSplit"):
+                    # the LAST piece of a split: the boundary after it is its base phrase's own (a stop, a §, or line
+                    # breaks), counted on the base paragraph (VM, 2026-10-21)
+                    x = sg
+                    while x in split_from_phrase:
+                        x = split_from_phrase[x]
+                    if x in segs:
+                        p_, _ = segs[x]
+                        k_ = next(i for i, s in enumerate(p_["segments"]) if s["guid"] == x)
+                        _, run = S.boundary_after(p_, k_)
+                        S._require_breaks(p_, run, sg)
+                        deltas["Segment"] -= len(run)
                 elif pg in paras and sg in segs and segs[sg][0]["guid"] == pg:
                     p_ = paras[pg]
                     k_ = next(i for i, s in enumerate(p_["segments"]) if s["guid"] == sg)

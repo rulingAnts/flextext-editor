@@ -390,6 +390,24 @@ export function diffFlexDoc(base, cur, opts = {}) {
     pieces.forEach((p) => structural.add(segGuid(p)));
     touched.add(pg);
   }
+  /* ---- paragraph boundaries after a split's LAST piece: the line after it is a base phrase, so neither loop above
+   * saw the pair (the first skips a phrase base never had; the second looks only between pieces). Phase B on the VM,
+   * 2026-10-21: a Sentence break set right after a split's last piece sent no op, the engine's intended result still
+   * had the paragraph, and the shell's check refused the save (2 phrases intended, 9 found). The boundary is the base
+   * phrase's own (its stop, §, or line break), moved to the end of its last piece. */
+  for (let i = 1; i < cur.paragraphs.length; i++) {
+    const a = cur.paragraphs[i - 1], b = cur.paragraphs[i];
+    const sa = segGuid(a.segments[0]), gb = baseLines.get(segGuid(b.segments[0]));
+    if (!newPhrases.has(sa) || !gb) continue;
+    const ka = newPhrases.get(sa);
+    const wasBreak = ka !== gb.group.key, isBreak = paraOf(a) !== paraOf(b);
+    if (wasBreak && !isBreak) {
+      if (!crossed.has(gb.group.key)) { ops.push({ op: 'para.toPhrase', paraGuid: ka }); touched.add(ka); touched.add(gb.group.key); }
+    } else if (!wasBreak && isBreak) {
+      ops.push({ op: 'phrase.toPara', paraGuid: ka, segGuid: sa, newPara: paraOf(b), afterSplit: true });
+      touched.add(ka); touched.add(paraOf(b));
+    }
+  }
   // Phrases base never had before its first phrase (a line added at the very top): nothing to split from.
   cur.paragraphs.forEach((line) => {
     const seg = line.segments[0];

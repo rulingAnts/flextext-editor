@@ -851,9 +851,15 @@ class MockLcm(FlexPort):
             f.write(text)
         if os.path.exists(bak):
             os.remove(bak)
+        old_mtime = os.stat(path).st_mtime_ns if os.path.exists(path) else None
         if os.path.exists(path):
             os.rename(path, bak)
         os.rename(tmp, path)
+        # A real save takes seconds, so the new .fwdata's time always differs from the old one's (W8 checks it). The
+        # mock writes within one clock tick under a loaded test run, and W8 then "saw" an unchanged file (a flake, VM
+        # 2026-10-21, 1 run in ~3): never leave the time where it was.
+        if old_mtime is not None and os.stat(path).st_mtime_ns <= old_mtime:
+            os.utime(path, ns=(os.stat(path).st_atime_ns, old_mtime + 1_000_000))
         self._disk = data
         self._dirty = set()
         self._deleted = set()

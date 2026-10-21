@@ -1240,10 +1240,19 @@ async function saveSteps(tx, id, rec, spin) {
 }
 /* W8b, FLEx's own file check (FwDataFixer) after a save: clean, could not run (said, never assumed
  * clean), or problems that were in the project before this save — the shell's dataCheck record. */
+/* FLEx's own file check after a save. A problem the save INTRODUCED never reaches here (the shell refuses the save,
+ * E_DATA_CHECK_FAILED). Problems the project already had are named ONCE per project session and then left alone:
+ * Seth, 2026-10-21 — "the toast should be quieter. Focusing on new problems we introduced rather than pre-existing
+ * ones." (The team's project carries 783 that FLEx's Fix Data would tidy; every save repeated them.) */
+const toldPreExisting = new WeakSet();   // the `project` objects whose old problems were said this session
 function dataCheckText(dc) {
   if (!dc) return '';
   if (dc.ran === false) return T('flex.dataCheck.skipped', { why: dc.why || '' });
-  if (dc.preExisting) return T('flex.dataCheck.preExisting', { n: dc.preExisting });
+  if (dc.preExisting) {
+    if (project && toldPreExisting.has(project)) return T('flex.dataCheck.nothingNew');
+    if (project) toldPreExisting.add(project);
+    return T('flex.dataCheck.preExisting', { n: dc.preExisting });
+  }
   return T('flex.dataCheck.clean');
 }
 /* FLEx's media list for the text as it is now (a relink changes the path inside a media object, an

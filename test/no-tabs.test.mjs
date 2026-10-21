@@ -68,8 +68,8 @@ test('the free translation: input and blur, ungated', () => {
 
 test('word glosses: a tab is a space, so it becomes the break character; the gloss-tab word edit too', () => {
   const gi = APP.slice(APP.indexOf("    g.addEventListener('input', () => {"), APP.indexOf("    g.addEventListener('input', () => {") + 600);
-  assert.ok(gi.indexOf('untabField(g);') > 0 && gi.indexOf('untabField(g);') < gi.indexOf("if (g.value.includes(' '))"), 'before the space rule, which then makes it the separator');
-  assert.match(APP, /const spaced = untab\(g\.value\)\.split\(' '\)\.join\(glossBreak\(\)\);/, 'and on blur');
+  assert.ok(gi.indexOf('untabField(g);') > 0 && gi.indexOf('untabField(g);') < gi.indexOf('glossSpaces(g.value'), 'before the space rule, which then makes it the separator');
+  assert.match(APP, /const sp = glossSpaces\(g\.value, sep\);/, 'and on blur (glossSpaces untabs first)');
   assert.match(APP, /t2\.addEventListener\('blur', \(\) => \{ const v = untab\(t2\.textContent\)\.trim\(\);/, 'the baseline word edited in place on the Gloss tab');
 });
 

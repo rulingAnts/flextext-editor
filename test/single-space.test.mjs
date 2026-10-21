@@ -223,7 +223,7 @@ test('each box gets the rules its own content can take', () => {
    * baseline full-line fields" — so kind 'gloss' collapses no spaces (a space there has already
    * become the separator) and takes no ellipsis exemption. */
   assert.match(APP, /tidyField\(g\.value, \{ kind: 'gloss', moment: 'input', sep: glossBreak\(\) \}, g\.selectionStart\)/);
-  assert.match(APP, /tidyField\(spaced, \{ kind: 'gloss', moment: 'blur', sep: glossBreak\(\) \}\)\.value/);
+  assert.match(APP, /tidyField\(edged, \{ kind: 'gloss', moment: 'blur', sep \}\)\.value/);
   /* ⚠ A gloss does not run the SPACE COLLAPSE — it does something stronger. app.js turns a space
    * into the separator before tidyField sees it, and the Leipzig allow-list converts any that get
    * through (from a paste or dictation) the same way. So "a  b" is "a.b", not "a b": two spaces are
@@ -232,7 +232,10 @@ test('each box gets the rules its own content can take', () => {
 
   // ⚠ with the setting OFF a gloss is only space-to-separator — no tidying at all. Getting this
   // wrong meant periods collapsed with the setting disabled, under full-line rules at that.
-  assert.match(APP, /const want = singleSpaceEnabled\(\) \? tidyField\(spaced, \{ kind: 'gloss', moment: 'blur', sep: glossBreak\(\) \}\)\.value : spaced;/,
+  // v727: "space-to-separator" now includes ITS OWN edges (gloss-edges.test.mjs) — the separators that
+  // rule made at the start or end of a gloss are its leftovers, and Seth asked for them gone. Still no
+  // collapsing of runs and no other tidying with the setting off: that is what `edged` → `want` pins.
+  assert.match(APP, /const want = singleSpaceEnabled\(\) \? tidyField\(edged, \{ kind: 'gloss', moment: 'blur', sep \}\)\.value : edged;/,
     'the off path rewrites nothing beyond what it always did');
 });
 

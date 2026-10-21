@@ -1,28 +1,29 @@
-# Release tests for `desktop-flex` — run on the Windows VM, in this order
+# Release tests for the Audio Segmenter desktop app writing to FLEx — run on the Windows VM
 
-For a Claude Code session inside Seth's Windows VM. Two handoffs, run one after the other; each has its own
-ground rules and they all apply. Read BOTH files and `CLAUDE.md` before running anything, then start with 1.
+For a Claude Code session inside Seth's Windows VM. The app under test is the FLEx shell (`desktop/flexshell`,
+`flextext-segmenter-flex`) on branch `desktop-flex`. The full brief is **`desktop/vm/HANDOFF-real-flex-tests.md`**:
+read it, `desktop/README.md`, `plans/flex-desktop-segmenter.md` §5, §12.3–12.4 and §15, and `CLAUDE.md` before
+running anything. Its ground rules all apply.
 
-1. **Writing to FLEx safely — `desktop/vm/HANDOFF-real-flex-tests.md`.** First, because it is the part that can
-   damage real data. Phases A–D, on throwaway copies only:
-   - **A** conformance against real LCM, and the **FwDataFixer gate** (`check_data` runs over pythonnet and writes
-     nothing beside its temp copy). If the gate cannot be made to work, STOP the FLEx part here and say so — no
-     write may reach a real project without it.
-   - **B** every write recipe on a marked copy, each checked by Seth in FLEx and undone;
-   - **C** the team-project path on the `-teamtest` copy: checklist, snapshot, Recover, the refusal after a
-     Send/Receive (one local `hg commit` only, never push/pull/Send/Receive);
-   - **D** the dress rehearsal of exactly what Seth will do on the team project.
-   **Phase E (the team's real project) is NOT part of these release tests.** Do it only if Seth says, in this
-   session and in so many words, to start Phase E — and then strictly as that handoff describes.
+**Since that handoff was written, the write path gained W8b** — FLEx's own file check (liblcm's FwDataFixer) after
+every save. If an earlier session already ran some phases, re-run Phase A in full anyway: its `check_data` gate is
+new and gates everything after it.
 
-2. **fxdiag, the diagnostic and USB-exchange tool — `desktop/vm/HANDOFF-fxdiag-windows-tests.md`.** Phases A–F,
-   read-only toward every browser.
+**The release tests are Phases A–D, on throwaway copies only:**
+- **A** conformance against real LCM; `paragraph_refs` (chart cells, text tags); `find_hg` / `hg_log`; and the
+  **FwDataFixer gate** — `check_data` runs over pythonnet and writes nothing beside its temp copy. If the gate cannot
+  be made to work, STOP: no write may reach a real project without it.
+- **B** every write recipe on a marked copy, each checked by Seth in FLEx and then undone.
+- **C** the team-project path on the `-teamtest` copy: checklist, snapshot, Recover, and the refusal after a
+  Send/Receive (one local `hg commit` only — never push, pull or FLEx's Send/Receive).
+- **D** the dress rehearsal of exactly what Seth will do on the team project.
 
-**Release gate:** FLEx Phases A–D and fxdiag Phases A–F all pass on the current code and the current fxdiag
-pre-release file, with every failure fixed (a test for each fix, pushed to `desktop-flex`) and re-run. Report as
-each handoff's last section says. Merging `desktop-flex` and turning the fxdiag pre-release into a release are
-then Seth's decisions — not this session's.
+**Phase E — the team's real project — is NOT part of the release tests.** Do it only if Seth says, in the session and
+in so many words, to start Phase E, and then strictly as the handoff describes: one text at a time, Seth checking in
+FLEx before any Send/Receive.
 
-**One rule both share that matters most:** nothing from Seth's real projects or real browser profiles goes into a
-commit, a fixture, a log you keep, or a message — no titles, no vernacular words, no names, no paths from this
-machine. Fixtures are made up. `bash check-secrets.sh --staged` before every commit.
+**Release gate:** Phases A–D pass on the current `desktop-flex`, every failure fixed with a test (pytest under
+`desktop/tests`), suites green, pushed, and the affected phases re-run. Report as the handoff's last section says.
+Merging `desktop-flex` is then Seth's decision, not the session's.
+
+(`desktop/vm/HANDOFF-fxdiag-windows-tests.md` is a separate plan for the fxdiag tool and is not part of this release.)

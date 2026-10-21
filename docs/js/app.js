@@ -38,7 +38,7 @@ import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel, companionApps, GLOSS_ICONS, GLOSS_ICON_DEFAULT, iconTilesHtml, syncIconPicks, wireIconPicks, langGuessWarningHtml, wsCodesHelpModal } from './researcher-panel.js';
-import { esc, newGuid as mkGuid } from './flextext.js';
+import { esc, newGuid as mkGuid, fixFlextextTabs, tabFixReportHtml, tabFixBlob } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -8409,6 +8409,26 @@ function setupResearch() {
       tbody.appendChild(tr);
     }
     $('#wscheck-result').hidden = false;
+  });
+
+  /* Fix tabs in a .flextext — see flextext.js fixFlextextTabs. Read, fixed in memory, read back; the
+   * original is never written to, and only a copy that passed every check is offered. */
+  $('#btn-tabfix')?.addEventListener('click', () => $('#tabfix-file').click());
+  $('#tabfix-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const r = fixFlextextTabs(new Uint8Array(await file.arrayBuffer()), file.name);
+    const box = $('#tabfix-result');
+    box.innerHTML = tabFixReportHtml(r, t);
+    box.hidden = false;
+    box.querySelector('[data-tabfix-dl]')?.addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(tabFixBlob(r));
+      a.download = r.outName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    });
   });
 
   $('#btn-wsapply').addEventListener('click', () => {

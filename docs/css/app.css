@@ -3697,3 +3697,9 @@ a.offsite-off, area.offsite-off {
   color: inherit;
   cursor: default;
 }
+
+/* Fix tabs in a .flextext (flextext.js tabFixReportHtml) — device Utilities and the panel's modal */
+.tabfix-checks { list-style: none; padding: 0; margin: 6px 0; font-size: 14px; }
+.tabfix-checks .ok { color: #137333; }
+.tabfix-checks .bad, .note.bad { color: #b3261e; }
+#tabfix-result mark, #tf-result mark { padding: 0 2px; border-radius: 3px; }

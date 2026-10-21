@@ -25,6 +25,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>navguard e2e</title>
 const results = {};
 window.__results = results;
 async function run() {
+  try { results.idbBefore = (await indexedDB.databases()).some((d) => d.name === 'persist-test'); } catch (e) { results.idbBefore = 'err ' + e; }
   try { indexedDB.open('persist-test', 1).onsuccess = (e) => { const db = e.target.result; results.idb = true; }; } catch (e) { results.idb = 'err ' + e; }
   try { const w = window.open('https://example.com/open', '_blank'); results.open = w === null ? 'null' : 'WINDOW'; } catch (e) { results.open = 'err'; }
   const a = document.createElement('a'); a.href = 'https://example.com/blank'; a.target = '_blank'; a.textContent = 'x'; document.body.appendChild(a); a.click();
@@ -37,7 +38,9 @@ async function run() {
   setTimeout(() => { document.title = 'done:' + location.origin; }, 800);
   setTimeout(() => { location.href = 'https://example.com/top'; }, 1200);
 }
-run();
+// The script sits before <body>: run() once the page is parsed, or document.body is null and the first
+// appendChild throws (the first VM run, 2026-10-21, stopped there and tested only window.open).
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
 </script><body>e2e</body>"""
 
 
@@ -89,7 +92,12 @@ def main():
     expected = {"https://example.com/open", "https://example.com/blank", "https://example.com/top", "https://example.com/post"}
     check(set(recorded) == expected, "OS-browser stub recorded exactly the expected URLs: %s" % sorted(recorded))
     check(all(navguard.external_url_ok(u) for u in recorded), "every handed-off URL is http(s)")
-    print("\nNow relaunch once more by hand and confirm IndexedDB 'persist-test' still exists (private_mode=False).")
+    check(page.get("push") == "refused", "history.pushState to another origin was refused")
+    if page.get("idbBefore") is True:
+        print("ok   IndexedDB 'persist-test' from the previous launch is still there (private_mode=False)")
+    else:
+        print("note IndexedDB 'persist-test' was not there yet (%r): run this test once more; that run must say ok"
+              % page.get("idbBefore"))
     sys.exit(0 if ok else 1)
 
 

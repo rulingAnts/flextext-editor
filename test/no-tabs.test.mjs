@@ -73,3 +73,66 @@ test('word glosses: a tab is a space, so it becomes the break character; the glo
   assert.match(APP, /t2\.addEventListener\('blur', \(\) => \{ const v = untab\(t2\.textContent\)\.trim\(\);/, 'the baseline word edited in place on the Gloss tab');
 });
 
+/* ── the export backstop: no tab leaves in a .flextext, whatever is stored (flextext.js untabForXml) ── */
+import { installMiniXmlDom } from './lib/mini-xml-dom.mjs';
+installMiniXmlDom();
+const FX = await import('../docs/js/flextext.js');
+
+test('untabForXml: a run holding a tab is ONE space between words and nothing at an edge; no tab, no change', () => {
+  const { untabForXml: u } = FX;
+  assert.equal(u('aaa\tbbb'), 'aaa bbb');
+  assert.equal(u('aaa \t bbb'), 'aaa bbb', 'tab with spaces around it: one space, not three');
+  assert.equal(u('\tpst.subj\t'), 'pst.subj', 'a gloss with tabs at its edges keeps no space inside the item');
+  assert.equal(u('dddd\t'), 'dddd');
+  assert.equal(u('a  b'), 'a  b', '⚠ whitespace with no tab in it is NOT touched — a tab-free text exports as before');
+  assert.equal(u(' lead and trail '), ' lead and trail ');
+  assert.equal(u(null), '');
+});
+
+test('untabFragmentForXml: kept fragments lose tabs in their TEXT, never in the layout between tags', () => {
+  const { untabFragmentForXml: f } = FX;
+  assert.equal(f('<item type="title" lang="en">Two\tparts</item>'), '<item type="title" lang="en">Two parts</item>');
+  const layout = '<morphemes>\n\t<morph>\n\t\t<item type="txt">ka</item>\n\t</morph>\n</morphemes>';
+  assert.equal(f(layout), layout, 'indentation tabs are layout, left to indentFragment');
+  assert.equal(f('<a>x</a>'), '<a>x</a>');
+});
+
+test('an export holds no tab anywhere, from any field — the shape of the reported file', () => {
+  const settings = { vernLang: 'und', analLang: 'en' };
+  const doc = FX.makeDoc(settings, 'Title\twith tab');
+  // the reported shape, letters standing in for the words: a tab between each, one with a space before it
+  const base = 'aaaaaa\tbbbbbb\tcccc\tddddd\tee \tffffffff\tggg ';
+  const words = FX.tokenize(base).map((t) => FX.makeWord(t.txt, { punct: t.punct }));
+  words[0].gls = '\tpst.subj\t';
+  words[1].gls = 'dddd\t';
+  const raw = FX.makeWord('hh\tii');           // a word made from text that was never tokenized (an import path)
+  const seg = FX.makeSegment(base, [...words, raw], { free: 'she went\tto the market' });
+  seg.postItemsXML = ['<item type="note" lang="en">kept\tnote</item>'];
+  doc.paragraphs = [{ guid: 'p1', segments: [seg] }];
+  const xml = FX.serializeFlextext(doc, settings);
+  assert.ok(!xml.includes('\t'), 'not one tab in the whole file');
+  assert.match(xml, />aaaaaa bbbbbb cccc ddddd ee ffffffff ggg </, 'the baseline line: one space where each tab was');
+  assert.match(xml, /<item type="gls" lang="en">pst\.subj<\/item>/, 'gloss edges: gone, not turned into spaces');
+  assert.match(xml, /<item type="gls" lang="en">dddd<\/item>/);
+  assert.match(xml, />she went to the market</, 'free translation');
+  assert.match(xml, /<item type="title" lang="en">Title with tab<\/item>/, 'title');
+  assert.match(xml, />hh ii</, 'an untokenized word');
+  assert.match(xml, />kept note</, 'a kept fragment');
+  // round trip: the words FLEx would build are the same seven, and nothing read back holds a tab
+  const back = FX.parseFlextext(xml, settings).texts[0];
+  const ws = back.paragraphs[0].segments[0].words.filter((w) => !w.punct).map((w) => w.txt);
+  assert.deepEqual(ws.slice(0, 7), ['aaaaaa', 'bbbbbb', 'cccc', 'ddddd', 'ee', 'ffffffff', 'ggg']);
+  assert.ok(!JSON.stringify(back).includes('\\t'), 'nothing parsed back carries a tab');
+});
+
+test('the serializer writes every value and every kept fragment through the backstop', () => {
+  const src = readFileSync(new URL('../docs/js/flextext.js', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function serializeFlextext('), src.indexOf('\n}\n', src.indexOf('export function serializeFlextext(')));
+  assert.match(body, /const xesc = \(v\) => esc\(untabForXml\(v\)\);/);
+  assert.match(body, /const frag = \(xml, pad\) => indentFragment\(untabFragmentForXml\(xml\), pad\);/);
+  const bare = body.replace(/const xesc = [^\n]*\n/, '').replace(/const frag = [^\n]*\n/, '');
+  assert.doesNotMatch(bare, /[^x]esc\(/, 'no value is written through the plain esc()');
+  assert.doesNotMatch(bare, /indentFragment\(/, 'no fragment is written around the backstop');
+  // esc() itself is untouched: six other modules use it for HTML and other formats
+  assert.match(src, /export function esc\(s\) \{ return String\(s \?\? ''\)\.replace\(\/\[&<>"\]\/g, c => ESC\[c\]\); \}/);
+});

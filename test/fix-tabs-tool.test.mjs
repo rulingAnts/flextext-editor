@@ -19,7 +19,7 @@ const script = TOOL.slice(TOOL.indexOf('<script>') + 8, TOOL.indexOf('</script>'
 const pure = new Function(`${fn(script, 'untabForXml')}\n${fn(script, 'untabFragmentForXml')}\n${fn(script, 'decodeTabRefs')}\n${fn(script, 'fixText')}\nreturn { untabForXml, fixText };`)();
 
 test('the page carries the EXACT rule the export backstop uses', () => {
-  for (const name of ['untabForXml', 'untabFragmentForXml']) {
+  for (const name of ['untabForXml', 'untabFragmentForXml', 'decodeTabRefs']) {
     assert.equal(fn(script, name), fn(FX, name).replace(/^export /, ''), `${name}: the page's copy matches docs/js/flextext.js — update the page when the engine changes`);
   }
 });

@@ -136,3 +136,69 @@ test('the serializer writes every value and every kept fragment through the back
   // esc() itself is untouched: six other modules use it for HTML and other formats
   assert.match(src, /export function esc\(s\) \{ return String\(s \?\? ''\)\.replace\(\/\[&<>"\]\/g, c => ESC\[c\]\); \}/);
 });
+
+/* ── the in-app fixer: "Fix tabs in a .flextext file" (device Utilities tab + the panel's Utilities) ── */
+const enc = (s) => new TextEncoder().encode(s);
+const SAMPLE = '<?xml version="1.0" encoding="utf-8"?>\n<document version="2">\n  <interlinear-text>\n'
+  + '    <item type="title" lang="en">Two\tparts</item>\n    <paragraphs>\n      <paragraph>\n        <phrases>\n'
+  + '          <phrase>\n            <item type="txt" lang="x">aaa\tbbb \tccc</item>\n            <words>\n'
+  + '              <word><item type="txt" lang="x">aaa</item><item type="gls" lang="en">\tpst.subj\t</item></word>\n'
+  + '              <word><item type="txt" lang="x">bbb</item><item type="gls" lang="en">go&#9;out</item></word>\n'
+  + '            </words>\n            <item type="gls" lang="en">she\twent</item>\n          </phrase>\n'
+  + '        </phrases>\n      </paragraph>\n    </paragraphs>\n  </interlinear-text>\n</document>\n';
+
+test('fixFlextextTabs: a copy with every tab gone from the text, checked before it is offered', async () => {
+  const r = FX.fixFlextextTabs(enc(SAMPLE), 'story.flextext');
+  assert.equal(r.status, 'fixed');
+  // each change says where it sat (a browser also lists the &#9; gloss, which the node shim leaves undecoded)
+  for (const k of ['title', 'baseline', 'wordGloss', 'free']) assert.ok(r.changes.some((c) => c.key === k), k);
+  assert.deepEqual(r.checks.map((c) => [c.key, c.ok]), [['xml', true], ['shape', true], ['tabs', true]]);
+  assert.deepEqual(r.counts, { words: 2, phrases: 1, paragraphs: 1 });
+  assert.ok(!r.fixed.includes('\t') && !/&#(9|x0*9);/i.test(r.fixed), 'no tab left, literal or as a reference');
+  assert.match(r.fixed, />aaa bbb ccc</);
+  assert.match(r.fixed, />pst\.subj</);
+  assert.match(r.fixed, />go out</, 'a tab written as &#9; is fixed too');
+  assert.equal(r.fixed.split('\n').length, SAMPLE.split('\n').length, 'same lines: layout untouched');
+  assert.equal(r.outName, 'story-fixed.flextext');
+  const withBom = FX.fixFlextextTabs(new Uint8Array([0xEF, 0xBB, 0xBF, ...enc(SAMPLE)]), 'b.flextext');
+  const bytes = new Uint8Array(await FX.tabFixBlob(withBom).arrayBuffer());
+  assert.deepEqual([...bytes.slice(0, 3)], [0xEF, 0xBB, 0xBF], 'a byte-order mark the original had is kept');
+});
+
+test('fixFlextextTabs: nothing is offered for a file it should not touch', () => {
+  assert.equal(FX.fixFlextextTabs(enc('<?xml version="1.0"?>\n<document><item type="txt">aa  bb</item></document>\n'), 'c.flextext').status, 'clean');
+  assert.equal(FX.fixFlextextTabs(enc('<document><broken>'), 'd.flextext').status, 'notXml');
+  assert.equal(FX.fixFlextextTabs(new Uint8Array([0x3C, 0x61, 0xFF, 0xFE, 0x3E]), 'e.flextext').status, 'encoding', 'not UTF-8');
+  assert.equal(FX.fixFlextextTabs(enc('<?xml version="1.0" encoding="windows-1252"?><a>x\ty</a>'), 'f.xml').status, 'encoding', 'declared as something else');
+  for (const r of [FX.fixFlextextTabs(enc('<a><broken>'), 'g'), FX.fixFlextextTabs(enc('<a>x</a>'), 'h')]) assert.ok(!r.fixed, 'no copy');
+});
+
+test('the report escapes the file\'s own text, and offers a download only for a checked copy', () => {
+  const tr = (k, v) => k + (v && Object.keys(v).length ? ' ' + JSON.stringify(v) : '');
+  const r = FX.fixFlextextTabs(enc('<?xml version="1.0" encoding="utf-8"?><document><item type="title" lang="en">&lt;script&gt;x\ty</item></document>'), 'evil.flextext');
+  const html = FX.tabFixReportHtml(r, tr);
+  assert.doesNotMatch(html, /<script/i, 'text from the file never becomes markup');
+  assert.match(html, /data-tabfix-dl/, 'a checked copy is offered');
+  assert.match(html, /<mark>⇥<\/mark>/, 'the tab is shown where it was');
+  const failed = FX.tabFixReportHtml({ ...r, status: 'failed', fixed: null }, tr);
+  assert.doesNotMatch(failed, /data-tabfix-dl/, 'a copy that failed a check is never offered');
+  assert.match(FX.tabFixReportHtml({ status: 'clean', name: 'a<b', changes: [] }, tr), /a&lt;b/);
+});
+
+test('the device Utilities tab and the panel\'s Utilities both offer it, through the SAME three functions', () => {
+  const HTML = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
+  const PANEL = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const I18N = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+  assert.match(HTML, /id="btn-tabfix"[^>]*data-i18n="tabfix\.btn"/);
+  assert.ok(HTML.indexOf('id="btn-tabfix"') > HTML.indexOf('id="view-utilities"'), 'on the Utilities tab');
+  for (const src of [APP, PANEL]) {
+    assert.match(src, /fixFlextextTabs\(new Uint8Array\(await file\.arrayBuffer\(\)\), file\.name\)/, 'reads the file as bytes (the BOM and the encoding are checked)');
+    assert.match(src, /innerHTML = tabFixReportHtml\(r, t\)/);
+    assert.match(src, /URL\.createObjectURL\(tabFixBlob\(r\)\)/);
+  }
+  assert.match(PANEL, /<button class="primary-btn" data-m="tabs">\$\{esc\(t\('tabfix\.h'\)\)\}<\/button>/, 'a button in the panel\'s Utilities');
+  assert.match(PANEL, /\[data-m="tabs"\]'\)\.onclick = \(\) => \{ m\.close\(\); tabFixModal\(\); \}/);
+  const keys = [...new Set([...I18N.matchAll(/'(tabfix\.[\w.]+)':/g)].map((m) => m[1]))];
+  assert.ok(keys.length >= 27, `${keys.length} strings`);
+  for (const k of keys) assert.equal((I18N.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length, 2, `${k} in English and Indonesian`);
+});

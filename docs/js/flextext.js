@@ -51,6 +51,111 @@ export function untabFragmentForXml(xml) {
   return v.replace(/>([^<]*\t[^<]*)</g, (m, text) => (/[^\s]/.test(text) ? '>' + untabForXml(text) + '<' : m));
 }
 
+/* ═══ "FIX TABS IN A .flextext" — the Utilities tool (Seth, 2026-10-21) ════════════════════════════
+ * The fixer "available on the Researcher Panel and unpaired devices": the export backstop's rule, on a
+ * FILE someone already has — one exported before the fix, or made by another program. Only text
+ * changes; every other byte is kept; and the copy is read back before anyone is offered it. The device's
+ * Utilities tab and the panel's Utilities both call this, and both render tabFixReportHtml.
+ * tools/fix-flextext-tabs.html is the standalone twin for a researcher who needs it before a release
+ * reaches them (test/fix-tabs-tool.test.mjs keeps its copies of these rules identical). */
+
+// A tab may also be written as a character reference. Decoded in TEXT only, so untabForXml sees it.
+export function decodeTabRefs(xml) {
+  return String(xml).replace(/>([^<]*&#(?:9|x0*9);[^<]*)</gi, (m, t) => '>' + t.replace(/&#(?:9|x0*9);/gi, '\t') + '<');
+}
+/* Where a piece of text sits, as a key the UI translates (tabfix.kind.*). The parent is passed in:
+ * not every DOM this runs on has parentElement (the node test shim does not). */
+function tabKind(el, parentTag) {
+  const t = el.getAttribute ? el.getAttribute('type') : '';
+  if (el.tagName === 'item') {
+    if (parentTag === 'morph') return { key: 'morph', what: t || '' };
+    if (t === 'txt' && parentTag === 'phrase') return { key: 'baseline' };
+    if (t === 'txt' && parentTag === 'word') return { key: 'word' };
+    if (t === 'punct') return { key: 'punct' };
+    if (t === 'gls' && parentTag === 'word') return { key: 'wordGloss' };
+    if (t === 'gls' && parentTag === 'phrase') return { key: 'free' };
+    if (t === 'lit') return { key: 'lit' };
+    if (t === 'note') return { key: 'note' };
+    if (t === 'title') return { key: 'title' };
+    return { key: 'other', what: `item type="${t || ''}" in ${parentTag}` };
+  }
+  return { key: 'other', what: `<${el.tagName}>` };
+}
+// A text child is a Text node in a browser and a plain string in the node test shim; both are read.
+const textOf = (n) => (typeof n === 'string' ? n : (n && n.nodeType === 3 ? n.nodeValue : null));
+function walkFlextext(root, onText, onElement) {
+  const go = (el, parentTag) => {
+    onElement(el);
+    for (const n of el.childNodes || []) {
+      const s = textOf(n);
+      if (s != null) { if (s.includes('\t') && /[^\s]/.test(s)) onText(el, parentTag, s); }
+      else if (n && n.tagName) go(n, el.tagName);
+    }
+  };
+  go(root, '');
+}
+const parseXmlOrNull = (s) => {
+  try {
+    const d = new DOMParser().parseFromString(s, 'application/xml');
+    return !d || d.querySelector('parsererror') || !d.documentElement || d.documentElement.tagName === 'parsererror' ? null : d;
+  } catch { return null; }
+};
+function surveyTabs(d) {
+  const found = [], census = {};
+  walkFlextext(d.documentElement, (el, parentTag, text) => found.push({ ...tabKind(el, parentTag), before: text }),
+    (el) => { census[el.tagName] = (census[el.tagName] || 0) + 1; });
+  return { found, census };
+}
+/* bytes (Uint8Array) → { status, name, changes, checks, counts, fixed, bom }.
+ * status: 'encoding' | 'notXml' | 'clean' | 'fixed' | 'failed' — only 'fixed' carries a copy to offer. */
+export function fixFlextextTabs(bytes, name = 'text.flextext') {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  const bom = u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF;
+  let src;
+  try { src = new TextDecoder('utf-8', { fatal: true }).decode(bom ? u8.subarray(3) : u8); }
+  catch { return { status: 'encoding', name, changes: [] }; }
+  const decl = (src.match(/^<\?xml[^>]*encoding=["']([^"']+)["']/i) || [])[1];
+  if (decl && !/^utf-?8$/i.test(decl)) return { status: 'encoding', name, changes: [] };
+  const before = parseXmlOrNull(src);
+  if (!before) return { status: 'notXml', name, changes: [] };
+  const b = surveyTabs(before);
+  if (!b.found.length) return { status: 'clean', name, changes: [] };
+  const fixed = untabFragmentForXml(decodeTabRefs(src));
+  const after = parseXmlOrNull(fixed);
+  const a = after ? surveyTabs(after) : null;
+  const keys = Object.keys(b.census);
+  const sameShape = !!a && keys.length === Object.keys(a.census).length && keys.every((k) => a.census[k] === b.census[k]);
+  const counts = { words: b.census.word || 0, phrases: b.census.phrase || 0, paragraphs: b.census.paragraph || 0 };
+  const checks = [
+    { key: 'xml', ok: !!after },
+    { key: 'shape', ok: sameShape, vars: counts },
+    { key: 'tabs', ok: !!a && a.found.length === 0 },
+  ];
+  const changes = b.found.map((c) => ({ ...c, after: untabForXml(c.before) }));
+  const ok = checks.every((c) => c.ok);
+  return { status: ok ? 'fixed' : 'failed', name, changes, checks, counts, fixed: ok ? fixed : null, bom,
+           outName: String(name).replace(/(\.flextext|\.xml)?$/i, (m) => '-fixed' + (m || '.flextext')) };
+}
+/* The report both surfaces show. `tr` is i18n's t. Every value from the file goes through esc —
+ * these strings are the file's own text. A download button carries data-tabfix-dl. */
+export function tabFixReportHtml(r, tr) {
+  if (r.status === 'encoding') return `<p class="note">${esc(tr('tabfix.encoding', { name: r.name }))}</p>`;
+  if (r.status === 'notXml') return `<p class="note">${esc(tr('tabfix.notXml', { name: r.name }))}</p>`;
+  if (r.status === 'clean') return `<p class="note">✓ ${esc(tr('tabfix.clean', { name: r.name }))}</p>`;
+  const marked = (s) => esc(s).replace(/\t/g, '<mark>⇥</mark>');
+  const kind = (c) => esc(tr('tabfix.kind.' + c.key, { what: c.what || '' }));
+  const rows = r.changes.map((c) => `<tr><td>${kind(c)}</td><td>${marked(c.before)}</td><td>${esc(c.after)}</td></tr>`).join('');
+  return `<p><b>${esc(tr('tabfix.found', { n: r.changes.length, name: r.name }))}</b></p>
+    <ul class="tabfix-checks">${r.checks.map((c) => `<li class="${c.ok ? 'ok' : 'bad'}">${c.ok ? '✓' : '✗'} ${esc(tr('tabfix.chk.' + c.key, c.vars || {}))}</li>`).join('')}</ul>
+    <details${r.changes.length <= 30 ? ' open' : ''}><summary>${esc(tr('tabfix.changes'))}</summary>
+      <table class="ws-table"><thead><tr><th>${esc(tr('tabfix.where'))}</th><th>${esc(tr('tabfix.before'))}</th><th>${esc(tr('tabfix.after'))}</th></tr></thead><tbody>${rows}</tbody></table></details>
+    ${r.status === 'fixed'
+      ? `<p><button type="button" class="primary-btn" data-tabfix-dl>${esc(tr('tabfix.download', { name: r.outName }))}</button></p><p class="note">${esc(tr('tabfix.use'))}</p>`
+      : `<p class="note bad">${esc(tr('tabfix.failed'))}</p>`}`;
+}
+// What the download button hands the browser: the fixed copy, its BOM kept.
+export function tabFixBlob(r) { return new Blob([r.bom ? '\uFEFF' : '', r.fixed], { type: 'application/xml' }); }
+
 /* ---------------- Tokenization & segmentation ---------------- */
 
 // Characters that count as part of a word (letters, marks, digits, common

@@ -18,7 +18,7 @@ import { syncTypingWarnings, TYPING_DIALS, GLOSS_BREAKS, syncLanguageNames, wire
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES, isBetaHost } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets, fixFlextextTabs, tabFixReportHtml, tabFixBlob } from './flextext.js';
 import { openSfmConverter } from './sfm-convert.js';   // Toolbox/SFM → .flextext (#29)
 import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -9285,6 +9285,7 @@ function utilitiesModal() {
     <p class="note">${esc(t('panel.util.intro'))}</p>
     <button class="primary-btn" data-m="audio">${esc(t('panel.util.audio'))}</button>
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
+    <button class="primary-btn" data-m="tabs">${esc(t('tabfix.h'))}</button>
     <button class="primary-btn" data-m="export">${esc(t('exp.h'))}</button>
     <button class="primary-btn" data-m="sfm">${esc(t('sfm.utilBtn'))}</button>
     <hr class="rp-sep">
@@ -9300,6 +9301,7 @@ function utilitiesModal() {
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   m.el.querySelector('[data-m="audio"]').onclick = () => { m.close(); audioConverterModal(); };
   m.el.querySelector('[data-m="ws"]').onclick = () => { m.close(); wsCheckModal(); };
+  m.el.querySelector('[data-m="tabs"]').onclick = () => { m.close(); tabFixModal(); };
   m.el.querySelector('[data-m="export"]').onclick = () => { m.close(); fileExporterModal(); };
   /* Toolbox/SFM → .flextext (#29): the same converter the editor's Utilities tab opens. No settings
    * passed — a panel has no device writing systems of its own, and serializeFlextext falls back to
@@ -9583,6 +9585,33 @@ export function wsCodesHelpModal() {
   const m = modal(`<div class="rp-help wsc-help">${html}</div>
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+}
+
+/* Fix tabs in a .flextext (Seth, 2026-10-21) — the device's Utilities tab offers the same tool; both
+ * render flextext.js tabFixReportHtml. Read, fixed in memory, read back; the original is never
+ * written to, and only a copy that passed every check is offered. */
+function tabFixModal() {
+  const m = modal(`
+    <h3>${esc(t('tabfix.h'))}</h3>
+    <p class="note">${esc(t('tabfix.note'))}</p>
+    <button class="primary-btn" data-m="pick">${esc(t('tabfix.btn'))}</button>
+    <input type="file" id="tf-file" accept=".flextext,.xml" hidden>
+    <div id="tf-result"></div>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="pick"]').onclick = () => m.el.querySelector('#tf-file').click();
+  m.el.querySelector('#tf-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    const r = fixFlextextTabs(new Uint8Array(await file.arrayBuffer()), file.name);
+    const box = m.el.querySelector('#tf-result');
+    box.innerHTML = tabFixReportHtml(r, t);
+    const dl = box.querySelector('[data-tabfix-dl]');
+    if (dl) dl.onclick = () => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(tabFixBlob(r));
+      a.download = r.outName; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    };
+  });
 }
 
 function wsCheckModal() {

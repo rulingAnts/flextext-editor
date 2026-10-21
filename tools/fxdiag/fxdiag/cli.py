@@ -5,6 +5,7 @@
   fxdiag report [--out report.zip] [--store SLUG]... [--texts all|id,id] [--with-audio] [--flextext]
                 [--raw] [--redact-titles] [--note TEXT] [--user-data-dir P]... [--all-users]
   fxdiag pack SRC... --out FOLDER [--device WHO] [--assign k=v]... [--delete ID[:TITLE]]... [--zip]
+  fxdiag doctor                  what this build carries and can reach
 
 Only the FlexText suite's storage is read — suite origins, databases and keys named flextext… —
 never the rest of the browser.
@@ -90,7 +91,43 @@ def cmd_gui(args):
     except ImportError as e:
         print("the window needs pywebview: pip install \"flextext-fxdiag[gui]\" (%s)" % e)
         return 2
-    return gui.run(args.user_data_dir, all_users=args.all_users)
+    try:
+        return gui.run(args.user_data_dir, all_users=args.all_users)
+    except Exception as e:   # noqa: BLE001 — no WebView2, a broken backend: say so, and still be useful
+        print("the window could not open (%s: %s); here is the console scan instead:\n" % (type(e).__name__, e))
+        args.json = False
+        return cmd_scan(args)
+
+
+def cmd_doctor(args):
+    """What this build carries and can reach — the first thing to run when something is off."""
+    import importlib
+    import platform
+    import subprocess
+    from . import flexexport
+    ok = True
+    print("fxdiag %s on Python %s (%s)%s" % (VERSION, platform.python_version(), platform.platform(), ", portable exe" if getattr(sys, "frozen", False) else ""))
+    print("engine serializer: %s  (%s)" % (flexexport.engine_version(), flexexport.engine_js_dir() or "NOT FOUND"))
+    ok &= flexexport.engine_js_dir() is not None
+    node = flexexport.find_node()
+    if node:
+        try:
+            v = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=30).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired) as e:
+            v, ok = "cannot run: %s" % e, False
+        print("node: %s %s%s" % (node, v, "  (bundled)" if node == flexexport.bundled_node() else ""))
+    else:
+        print("node: NOT FOUND — .flextext export unavailable")
+        ok = False
+    for mod, need in (("ccl_chromium_reader.ccl_chromium_indexeddb", True), ("ccl_chromium_reader.ccl_chromium_localstorage", True),
+                      ("mozidbedit.mozserial", True), ("webview", False)):
+        try:
+            importlib.import_module(mod)
+            print("import %s: ok" % mod)
+        except Exception as e:   # noqa: BLE001
+            print("import %s: FAILED (%s: %s)%s" % (mod, type(e).__name__, e, "" if need else "  — the window is unavailable; the console works"))
+            ok &= not need
+    return 0 if ok else 1
 
 
 def main(argv=None):
@@ -122,18 +159,26 @@ def main(argv=None):
     k.add_argument("--note", default="")
     k.add_argument("--zip", action="store_true", help="also zip the folder")
     k.set_defaults(fn=cmd_pack)
+    d = sub.add_parser("doctor", help="what this build carries and can reach (engine, node, readers, window)")
+    d.set_defaults(fn=cmd_doctor)
     g = sub.add_parser("gui", help="open the window")
     _common(g)
     g.set_defaults(fn=cmd_gui)
     args = ap.parse_args(argv)
     if not args.cmd:
-        args.user_data_dir, args.all_users = [], False
+        # no arguments: a double-click on the portable exe, or a bare `fxdiag` — the window if it can open
+        args.user_data_dir, args.all_users, args.json = [], False, False
         try:
             import webview  # noqa: F401
+            rc = cmd_gui(args)
         except ImportError:
-            args.json = False
-            return cmd_scan(args)
-        return cmd_gui(args)
+            rc = cmd_scan(args)
+        if getattr(sys, "frozen", False) and sys.stdin and sys.stdin.isatty():
+            try:
+                input("\nPress Enter to close.")
+            except (EOFError, KeyboardInterrupt):
+                pass
+        return rc
     return args.fn(args)
 
 

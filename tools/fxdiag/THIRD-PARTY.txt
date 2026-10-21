@@ -1,0 +1,24 @@
+fxdiag — third-party components
+
+fxdiag itself: Copyright (C) 2026 Seth Johnston, GNU Affero General Public License v3 (see LICENSE at
+https://github.com/rulingAnts/flextext-editor). Source: https://github.com/rulingAnts/flextext-editor/tree/main/tools/fxdiag
+
+The portable executable bundles the following, unmodified. Each is distributed under its own licence;
+the source of every one is available at the address given.
+
+- CPython — Python Software Foundation License. https://www.python.org/
+- PyInstaller bootloader — GPL v2 with the bootloader exception (permits bundling any program).
+  https://github.com/pyinstaller/pyinstaller
+- ccl_chromium_reader, ccl_simplesnappy — CCL Solutions Group, MIT.
+  https://github.com/cclgroupltd/ccl_chromium_reader  https://github.com/cclgroupltd/ccl_simplesnappy
+- moz-idb-edit (mozidbedit) — Erin Yuki Schlarb, Mozilla Public License 2.0. Unmodified; its source is at
+  https://gitlab.com/ntninja/moz-idb-edit (the MPL's source-availability notice).
+- Brotli — Google, MIT. https://github.com/google/brotli
+- zstd (python-zstd) — BSD-2-Clause. https://github.com/sergey-dryabzhinsky/python-zstd
+- cramjam — MIT. https://github.com/milesgranger/cramjam
+- jmespath — MIT. https://github.com/jmespath/jmespath.py
+- pywebview — BSD-3-Clause. https://github.com/r0x0r/pywebview
+- pythonnet, clr-loader (Windows) — MIT. https://github.com/pythonnet/pythonnet
+- Node.js — MIT, with the third-party notices in its LICENSE (bundled beside node.exe inside the
+  executable). https://nodejs.org/  Used only to run the FlexText engine's own .flextext writer.
+- The FlexText engine's flextext.js and segments.js — part of this repository (AGPL v3).

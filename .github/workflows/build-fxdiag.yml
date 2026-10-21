@@ -1,0 +1,113 @@
+# Build the portable fxdiag executable (tools/fxdiag) for Windows and attach it to a PRE-RELEASE.
+#
+# TRIGGER: pushing a tag `fxdiag-v*` (e.g. fxdiag-v0.1.0-pre.1) — the deliberate act that asks for a build,
+# and the only trigger that works from a feature branch (workflow_dispatch needs the file on `main`; it is
+# here too for when it gets there). No branch push and no schedule run it. A tag push triggers no other
+# workflow: test-rig filters on branches only, and every deploy is workflow_dispatch.
+#
+# COST: free. Public repository + the standard `windows-latest` runner (the same as build-desktop.yml);
+# no larger or GPU label, no matrix, no schedule.
+#
+# It deploys NOTHING and holds NO secrets: it builds a file, proves it, and publishes it as a pre-release
+# under its own `fxdiag-v*` tag. contents: write exists only for that last step.
+#
+# ⚠ VERIFY THE FILE THAT SHIPS. The tests run on the source first; then smoke_exe.py runs the built .exe
+# itself with Node REMOVED from PATH (so .flextext export can only work through the Node bundled inside it)
+# against a real Chromium profile of made-up texts; then the WINDOW is opened (FXDIAG_GUI_SMOKE) and must
+# list that profile. A window failure does not block the release — every command works without it, and a
+# double-click falls back to a console scan — but the release notes say so plainly.
+
+name: Build fxdiag (Windows exe)
+
+on:
+  push:
+    tags: ['fxdiag-v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Also attach the build to a PRE-RELEASE'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      # 3.12, not 3.13: pythonnet (pywebview's Windows backend) and PyInstaller both support it fully.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Node 22 LTS: runs the tests' .flextext export, and its node.exe is what the exe bundles.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install fxdiag (with the window) and PyInstaller
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "./tools/fxdiag[gui,test]" "pyinstaller==6.11.1"
+          python -m pip list
+
+      - name: Test the source on Windows
+        shell: pwsh
+        run: python -m pytest tools/fxdiag/tests -q -rs
+
+      - name: Build the portable exe (Node bundled)
+        id: build
+        shell: pwsh
+        run: |
+          $ver = (python -c "import sys; sys.path.insert(0, 'tools/fxdiag'); import fxdiag; print(fxdiag.VERSION)").Trim()
+          $node = (Get-Command node).Source
+          Write-Host "fxdiag $ver; bundling $node"
+          $name = "fxdiag-$ver-windows-x64"
+          python tools/fxdiag/packaging/build_exe.py --out dist --node "$node" --name $name
+          "exe=dist/$name.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Smoke-test the exe that ships (no Node on PATH)
+        shell: pwsh
+        run: python tools/fxdiag/packaging/smoke_exe.py "${{ steps.build.outputs.exe }}"
+
+      - name: Open the window from the exe
+        id: gui
+        continue-on-error: true
+        shell: pwsh
+        run: python tools/fxdiag/packaging/smoke_exe.py "${{ steps.build.outputs.exe }}" --gui
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fxdiag-windows-x64
+          path: |
+            ${{ steps.build.outputs.exe }}
+            tools/fxdiag/THIRD-PARTY.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      # A release asset URL is stable, unauthenticated and resumable (an artifact URL is none of those).
+      # PRE-RELEASE, not draft: a draft's assets need authentication to fetch.
+      - name: Attach to a pre-release
+        if: ${{ github.ref_type == 'tag' || inputs.publish }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = "${{ steps.build.outputs.exe }}"
+          $ver = "${{ steps.build.outputs.version }}"
+          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}"; $target = @() }
+          else { $tag = "fxdiag-v$ver-pre.${{ github.run_number }}"; $target = @('--target', "${{ github.sha }}") }
+          python tools/fxdiag/packaging/release_notes.py "$exe" "${{ steps.gui.outcome }}" "${{ github.sha }}" | Out-File -FilePath notes.md -Encoding utf8
+          (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $exe -Leaf) | Out-File -FilePath "$exe.sha256" -Encoding ascii
+          gh release delete $tag --yes 2>$null
+          gh release create $tag $exe "$exe.sha256" tools/fxdiag/THIRD-PARTY.txt --prerelease --title "fxdiag $ver (Windows x64, pre-release)" --notes-file notes.md @target
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$(Split-Path $exe -Leaf)"
+          Write-Host "DOWNLOAD_URL: $url"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Download`n`n<$url>`n`nWindow check: ${{ steps.gui.outcome }}"

@@ -98,6 +98,12 @@ def suite_origins(profile_dir):
     return out
 
 
+def _ro_uri(path):
+    """Read-only, immutable SQLite URI. Path.as_uri gives file:///C:/… on Windows (a bare file:C:/… is not
+    portable) and percent-encodes spaces; immutable=1 means SQLite never takes a lock or writes a journal."""
+    return Path(path).resolve().as_uri() + "?mode=ro&immutable=1"
+
+
 # ---- decoding ------------------------------------------------------------------------------------
 
 def _codecs():
@@ -142,7 +148,7 @@ def read_idb_folder(idb_dir):
         return out, problems
     for sq in sorted(idb_dir.glob("*.sqlite")):
         try:
-            con = sqlite3.connect("file:%s?mode=ro&immutable=1" % sq.as_posix(), uri=True)
+            con = sqlite3.connect(_ro_uri(sq), uri=True)
         except sqlite3.Error as e:
             problems.append("%s: cannot open: %s" % (sq.name, e))
             continue
@@ -181,7 +187,7 @@ def read_local_storage(origin_dir):
     if not db.is_file():
         return out, problems
     try:
-        con = sqlite3.connect("file:%s?mode=ro&immutable=1" % db.as_posix(), uri=True)
+        con = sqlite3.connect(_ro_uri(db), uri=True)
     except sqlite3.Error as e:
         return out, ["ls/data.sqlite: cannot open: %s" % e]
     try:
@@ -215,7 +221,7 @@ def read_legacy_webappsstore(profile_dir, hosts):
     if not db.is_file():
         return out, []
     try:
-        con = sqlite3.connect("file:%s?mode=ro&immutable=1" % db.as_posix(), uri=True)
+        con = sqlite3.connect(_ro_uri(db), uri=True)
     except sqlite3.Error as e:
         return out, ["webappsstore.sqlite: cannot open: %s" % e]
     try:

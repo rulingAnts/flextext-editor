@@ -88,8 +88,38 @@ class Api:
             return {"error": "%s: %s" % (type(e).__name__, e)}
 
 
+def _smoke(window, out_path):
+    """FXDIAG_GUI_SMOKE=<file>: wait for the page to finish its scan, record what it shows and which
+    renderer drew it, close. Lets CI prove the WINDOW works in the built exe, not just the functions."""
+    import os
+    import time
+    from pathlib import Path
+    deadline, txt = time.time() + 60, None
+    while time.time() < deadline:
+        try:
+            txt = window.evaluate_js("(document.getElementById('stores')||{}).innerText || ''")
+        except Exception as e:   # noqa: BLE001
+            txt = "ERR %s: %s" % (type(e).__name__, e)
+        if txt and "scanning" not in txt:
+            break
+        time.sleep(1)
+    Path(out_path).write_text(json.dumps({"stores": txt, "renderer": getattr(webview, "renderer", None)}), encoding="utf-8")
+    window.destroy()
+    os._exit(0)
+
+
 def run(user_data_dirs, all_users=False):
+    import os
     api = Api(list(user_data_dirs or []), all_users)
     api.window = webview.create_window("fxdiag — FlexText storage report", html=HTML, js_api=api, width=820, height=640)
-    webview.start()
+    smoke = os.environ.get("FXDIAG_GUI_SMOKE")
+    if smoke:
+        def watchdog():
+            import time
+            time.sleep(120)
+            os._exit(3)
+        threading.Thread(target=watchdog, daemon=True).start()
+        webview.start(_smoke, (api.window, smoke))
+    else:
+        webview.start()
     return 0

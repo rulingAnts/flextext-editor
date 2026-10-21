@@ -40,8 +40,19 @@ def engine_version():
         return "unknown"
 
 
+def bundled_node():
+    """The portable exe carries its own Node (packaging/build_exe.py --node): <bundle>/node/node(.exe).
+    In a frozen build HERE is <_MEIPASS>/fxdiag, so the bundle root is HERE.parent."""
+    for name in ("node.exe", "node"):
+        p = HERE.parent / "node" / name
+        if p.is_file():
+            return str(p)
+    return None
+
+
 def find_node():
-    return os.environ.get("FXDIAG_NODE") or shutil.which("node") or shutil.which("node.exe")
+    """FXDIAG_NODE, then the bundled one (the exe), then whatever is on PATH."""
+    return os.environ.get("FXDIAG_NODE") or bundled_node() or shutil.which("node") or shutil.which("node.exe")
 
 
 def availability():

@@ -38,6 +38,13 @@ fxdiag report --texts all --raw --out report.zip         # raw records + the sui
 
 `--flextext` runs the engine's serializer in **Node.js** (nodejs.org); without Node the report still
 holds the JSON records and says what to install. 
+**Or the portable Windows exe** — one file, no Python, no install, Node bundled: the pre-releases tagged
+`fxdiag-v*` on the repository's Releases page. Unsigned, so SmartScreen warns on first run (*More info →
+Run anyway*). Built by `.github/workflows/build-fxdiag.yml` when an `fxdiag-v*` tag is pushed; the build
+runs the tests on Windows, then `packaging/smoke_exe.py` against the exe itself with Node removed from
+PATH, then opens its window, before anything is published. `packaging/build_exe.py` builds the same thing
+locally on any OS.
+
 `git` is needed at install time because the LevelDB/IndexedDB decoder, CCL Solutions Group's
 `ccl_chromium_reader` (MIT), is not on PyPI. Nothing needs the network when it runs. Without the
 `[gui]` extra there is no window, only the console commands.

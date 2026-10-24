@@ -925,8 +925,10 @@ await page.click('#flex-redo');
 await rowLacks('.flex-save-text');
 
 // ── 18. FLEx's hard line breaks (2026-10-17): Shift+Enter is a segment of its own in FLEx, with no words. In the
-// Matcher it is no row — a ↵ beside the line after it — so row i is still audio i; a join across it is refused and
-// says why; and a save beside it goes through (it was refused: "a phrase with no letters cannot be saved"). ──
+// Matcher it is no row — a ↵ beside the line after it — so row i is still audio i; a save beside it goes through (it
+// was refused: "a phrase with no letters cannot be saved"). A join across it REMOVES it, as FLEx does (Seth,
+// 2026-10-21, the VM run: "joining audio segments always makes them one phrase, one baseline line" — 2edab7e2; it
+// used to be refused). ──
 await home();
 await openProject('break-write', 'write');
 await textRow('Break text').locator('.flex-open-text').click();
@@ -935,8 +937,11 @@ await waitAudio();
 ok(await lines().count() === 3 && await spans().count() === 3, 'three rows of text and three of audio — none for the break: ' + await lines().count() + '/' + await spans().count());
 ok(await page.locator('#view-matcher .mg-lb').count() === 1, 'the break is a ↵ beside the line after it');
 await lines().nth(1).locator('.mg-join').click();
-await page.waitForFunction(() => /line break from FLEx sits between/.test(document.body.innerText), null, T(5000));
-ok(await lines().count() === 3, 'a join across it is refused, and says why');
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line').length === 2, null, T(5000));
+ok(await page.locator('#view-matcher .mg-lb').count() === 0, 'a join across it is accepted, and the break goes with it, as in FLEx');
+await page.click('#mg-undo');                                       // back to the three lines and the break, for the save beside it
+await page.waitForFunction(() => document.querySelectorAll('#view-matcher .mg-line').length === 3, null, T(5000));
+ok(await page.locator('#view-matcher .mg-lb').count() === 1, 'Undo brings the line and the break back');
 const ft18 = lines().nth(1).locator('.mg-ft').first();
 await ft18.click(); await ft18.fill('beside the break'); await ft18.press('Enter');
 await shot('27-line-break');
@@ -968,6 +973,27 @@ await page.click('.flex-preview [data-ok]');
 await rowLacks('.flex-save-text');
 const after18b = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
 ok(after18b.length === 4 && after18b[1].words[0].kind === 'punct', 'FLEx: the same four segments — the blank line was never FLEx\'s: ' + after18b.length);
+// …and the join across it, saved, where the line before the break ends with a full stop: REFUSED by name, nothing
+// written. FLEx joins phrases across a full stop only where it wrote a §; on real LCM that join rolled back half-way
+// (the VM run, 2026-10-21), so the shell refuses it before anything starts — Phase B item 6 checks it on real FLEx.
+// A join across a break with no full stop before it is covered by test/flex-line-breaks and desktop/tests (the
+// contract recipes, run on the mock and on real LCM).
+await textRow('Break text').locator('.flex-open-text').click();
+await waitMatcher();
+await waitAudio();
+const rows18c = await lines().count();
+await lines().filter({ has: page.locator('.mg-lb') }).first().locator('.mg-join').click();
+await page.waitForFunction((n) => document.querySelectorAll('#view-matcher .mg-line').length === n - 1, rows18c, T(5000));
+ok(await page.locator('#view-matcher .mg-lb').count() === 0, 'joined across the break in the Matcher');
+await page.click('#mg-done');
+await waitHome();
+await rowHas('.flex-save-text');
+await textRow('Break text').locator('.flex-save-text').click();
+await page.waitForFunction(() => /full stop/.test([...document.querySelectorAll('.toast, #toast')].map((x) => x.innerText).join(' ')), null, T(10000));
+ok(!(await page.locator('.flex-preview').count()), 'refused before any preview: the first line ends with a full stop — ' + (await toasts()).replace(/\s+/g, ' ').slice(0, 160));
+const after18c = (await rpc('__flexRead', ['break-write', 'Break text'])).result;
+ok(JSON.stringify(after18c) === JSON.stringify(after18b), 'FLEx: nothing written — the same segments, the break still there');
+ok((await textRow('Break text').innerText()).includes('changes not in FLEx'), 'the refused join is still here, unsaved, for the person to undo or keep');
 
 // ── 19. this app's copy, downloaded (Seth, 2026-10-17: "Can you give me a way to export my app's flextext copy … I'd
 // rather not have to REDO all the hours I just put into audio segmenting/matching" — in a READ-ONLY session, which

@@ -54,6 +54,12 @@ Nothing is released, merged or deployed by this session: what happens next is Se
 after every reopen — keyed by the open-project object, and every save is followed by a close so FLEx can check it;
 now keyed by the project's name, said again only if the number changes (`28b21603`, `test/flex-datacheck-toast`).
 
+**From the cloud session (2026-10-24):** the headless end-to-end test (`desktop/tests/test_e2e_media.py`, Linux CI
+and the cloud session; optional on the VM — it needs Playwright) still expected a join across a FLEx line break to be
+REFUSED in the Matcher. `2edab7e2` made it accepted, so §18 now checks that, and that a SAVED join across a break whose
+first line ends with a full stop is refused by name before any preview, with FLEx untouched — the mock's version of B6.
+pytest 377 passed / 1 skipped on Linux at this commit; every node test passes.
+
 **Notes for whoever resumes:**
 - Rules Seth added during the run: the shell writes **hard line breaks, never §**; joining makes one phrase,
   splitting two, and the paragraph toggle alone decides paragraphs. No per-item Undo on the throwaway copy — a

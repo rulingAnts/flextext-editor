@@ -535,7 +535,8 @@ after an exception. So the shell **never calls `CloseProject()` on a poisoned se
   covered by the checklist's "FLEx and every other program closed" (prechecks `CONFIRMABLE`); C4 still refuses a peer.
 - **B7 chart / tag guard** (2026-10-18): `port.paragraph_refs(text)` — `IStTxtPara.GetChartCellRefs()` / `GetTags()` —
   and the preview refuses (`E_CHART_REFS`) any op that rewrites such a paragraph's words or segments (`REWRITES`);
-  translations, glosses and times still go. Seth's notes saw LCM's AnalysisAdjuster get 7 of 876 chart references
+  translations, glosses and times still go. Both calls verified over pythonnet in handoff Phase A (2026-10-21: a
+  chart cell made in FLEx was counted). Seth's notes saw LCM's AnalysisAdjuster get 7 of 876 chart references
   wrong on a rewrite, with no repair; the shell does not try.
 
 **C — open:**
@@ -626,8 +627,9 @@ One **Save to FLEx** = one user action = **one LCM UOW = one FLEx history item**
   toast as pre-existing (FLEx has been running with it; refusing every later write would help no one). A check
   that cannot RUN (assembly missing, a pythonnet mismatch) is not a clean check — the console and the toast say
   so and the save stands on W8. The mock's model: well-formed XML, one rt per guid (a duplicated rt is the
-  fault W8 cannot see — same guid, same bytes), every ownerguid and objsur target present. [unverified] over
-  pythonnet: handoff Phase A proves it loads, runs on a copy with the project open, and writes nothing else.
+  fault W8 cannot see — same guid, same bytes), every ownerguid and objsur target present. Verified over
+  pythonnet in handoff Phase A (2026-10-21, FW 9.3.12 / LCM 11): it loads, runs on a copy with the project open,
+  writes nothing beside its temp copy, and reports a hand-duplicated `<rt>`.
 - **W9 on W7/W8/W8b failure**: close **without** saving (§5.6); rename `.fwdata →
   .fwdata.failed-<ts>` (never delete); offer, after confirmation, to restore `.bak → .fwdata` or
   restore the W2 backup through FLEx (File ▸ Restore). Tell the user exactly what happened.
@@ -1433,8 +1435,9 @@ Where the filesystem can answer, it is verified, not asked.
   a second save of a text must not cost the first its way back): the open takes one, and every write job
   (`_noted`: save, undo, redo, import) takes another whenever the file changed since the last — the same one
   serves when nothing did — and names it in its result. Each snapshot records the project's Send/Receive log
-  (`hg_log`: the last 25 commits' ids, dates, authors, first lines, through Chorus's own `hg.exe` under FLEx's
-  install folder [unverified path] or an `hg` on PATH; nothing when neither is there) — *"helpful data to report
+  (`hg_log`: the last 25 commits' ids, dates, authors, first lines, through FLEx Bridge's own `hg.exe`
+  (`<InstallationDir>\mercurial`, from the registry — found there in handoff Phase A, 2026-10-21; NEVER an `hg` on
+  PATH, `teamwrite.find_hg`); nothing when it is not there) — *"helpful data to report
   to FLEx support if we need to recover a thoroughly broken project"* — and its tip is a second way to see a
   Send/Receive (a moved tip refuses RECOVER even when the watched files kept their sizes and times). The
   `.fwdata` — the ONE file a save writes — copied verbatim into the
@@ -1468,7 +1471,7 @@ Where the filesystem can answer, it is verified, not asked.
   read-back does not know — and can repair what it finds. (1) The check runs after every write as W8b (§5.4): on a
   temporary copy, problems judged against the pre-save file, a new one poisons and sets the file aside, a
   pre-existing one is reported, a check that cannot run is said. Pins: `test_protocol.py` (`test_w8b_*`,
-  `test_mock_check_data_*`). [unverified] over pythonnet — handoff Phase A. (2) NEXT, when a project turns out
+  `test_mock_check_data_*`). Verified over pythonnet in handoff Phase A (2026-10-21). (2) NEXT, when a project turns out
   broken: offer the user a choice, never act alone — *attempt the repair* (FwDataFixer's own fixes, on a copy first,
   the report shown, confirmation before the real file) or *restore* (RECOVER to a snapshot). Until then the toast
   points a pre-existing problem at Fix Data in FLEx.

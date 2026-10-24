@@ -1241,16 +1241,18 @@ async function saveSteps(tx, id, rec, spin) {
 /* W8b, FLEx's own file check (FwDataFixer) after a save: clean, could not run (said, never assumed
  * clean), or problems that were in the project before this save — the shell's dataCheck record. */
 /* FLEx's own file check after a save. A problem the save INTRODUCED never reaches here (the shell refuses the save,
- * E_DATA_CHECK_FAILED). Problems the project already had are named ONCE per project session and then left alone:
- * Seth, 2026-10-21 — "the toast should be quieter. Focusing on new problems we introduced rather than pre-existing
- * ones." (The team's project carries 783 that FLEx's Fix Data would tidy; every save repeated them.) */
-const toldPreExisting = new WeakSet();   // the `project` objects whose old problems were said this session
+ * E_DATA_CHECK_FAILED). Problems the project already had are named ONCE per project while the app is open, and again
+ * only if their number changes: Seth, 2026-10-21 — "the toast should be quieter. Focusing on new problems we
+ * introduced rather than pre-existing ones." (The team's project carries 783 that FLEx's Fix Data would tidy; every
+ * save repeated them.) ⚠ Keyed by the project's NAME, not the open-project object: every save is followed by a close
+ * so FLEx can check it, and keying by the object said the 783 again after each reopen (VM, 2026-10-24). */
+const toldPreExisting = new Map();   // project name → the pre-existing count last said
 function dataCheckText(dc) {
   if (!dc) return '';
   if (dc.ran === false) return T('flex.dataCheck.skipped', { why: dc.why || '' });
   if (dc.preExisting) {
-    if (project && toldPreExisting.has(project)) return T('flex.dataCheck.nothingNew');
-    if (project) toldPreExisting.add(project);
+    if (project && toldPreExisting.get(project.name) === dc.preExisting) return T('flex.dataCheck.nothingNew');
+    if (project) toldPreExisting.set(project.name, dc.preExisting);
     return T('flex.dataCheck.preExisting', { n: dc.preExisting });
   }
   return T('flex.dataCheck.clean');

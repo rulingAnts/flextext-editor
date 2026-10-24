@@ -39,15 +39,18 @@ test('page warnings, errors and rejections are copied to the shell console, only
   const lines = [];
   globalThis.window = {
     addEventListener: (ev, fn) => { listeners[ev] = fn; },
-    pywebview: { api: { client_log: async (level, msg) => { lines.push([level, msg]); return { ok: true }; } } },
+    pywebview: { api: { client_log: async (level, msg) => { if (!/^\(node:\d+\) /.test(msg)) lines.push([level, msg]); return { ok: true }; } } },
   };
   globalThis.document = { querySelector: () => ({ getAttribute: () => '0' }) };
   assert.equal(mirrorConsoleToShell(), false, 'a page the shell did not serve (the web) is left alone');
   globalThis.document = { querySelector: (sel) => (sel === 'meta[name="flextext-flex-shell"]' ? { getAttribute: () => '1' } : null) };
   const orig = { warn: console.warn, error: console.error };
   const seen = [];
-  console.warn = (...a) => seen.push(['warn', a]);
-  console.error = (...a) => seen.push(['error', a]);
+  // Node's own process warnings ("(node:1234) [MODULE_TYPELESS_PACKAGE_JSON] …", Node 24 on the VM) also arrive
+  // through console.error while the spy and the mirror are in place; they are not the page's lines, here or above.
+  const nodeOwn = (a) => typeof a[0] === 'string' && /^\(node:\d+\) /.test(a[0]);
+  console.warn = (...a) => { if (!nodeOwn(a)) seen.push(['warn', a]); };
+  console.error = (...a) => { if (!nodeOwn(a)) seen.push(['error', a]); };
   try {
     assert.equal(mirrorConsoleToShell(), true);
     assert.equal(mirrorConsoleToShell(), false, 'installed once');

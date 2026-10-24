@@ -1602,6 +1602,11 @@ copy, before writing: the confirmation says so).
 | V-15 | PyInstaller onedir build loading FLEx's DLLs from the install folder; clean Windows user account. | Build + run. |
 | V-16 | Other FW 9.x versions (model version, exporter/importer signatures). | When available. |
 
+**Status (2026-10-24, FW 9.3.12 / LCM 11):** V-10 passed. The handoff's Phase A passed — contract conformance on
+real LCM, `paragraph_refs`, FLEx Bridge's `hg`, and W8b's FwDataFixer over pythonnet. V-1 is in progress through
+the handoff's Phase B: times, free translations, glosses and word split/join checked in FLEx; line joins next. The
+live per-item state is in `desktop/vm/READINESS-TESTS.md` § Progress. Everything else here is still open.
+
 ---
 
 ## 16. Milestones
